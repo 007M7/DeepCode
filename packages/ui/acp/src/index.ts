@@ -60,7 +60,10 @@ import {
   type PlanEntry,
   type PromptRequest,
   type PromptResponse,
+  type SessionModeState,
   type SessionNotification,
+  type SetSessionModeRequest,
+  type SetSessionModeResponse,
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
@@ -74,6 +77,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Type-only edge: makes `ctx.get('modes')` resolve the ModesService type when
+// @deepseek-ai/dsh-mode is composed; the runtime read stays opportunistic.
+import type {} from '@deepseek-ai/dsh-mode'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -283,6 +289,13 @@ interface SessionRecord {
    */
   terminalEnabled: boolean
   /**
+   * The last mode id this session sent to the client (advertised at
+   * session/new+load, echoed optimistically on session/set_mode, re-notified on
+   * each logged `mode/set` that differs). `undefined` when dsh-mode is not
+   * composed — no mode surface is advertised, so nothing is ever notified.
+   */
+  lastModeId: string | undefined
+  /**
    * The in-flight `session/prompt`, or `undefined` when none is pending. A
    * prompt resolves with a {@link StopReason} or rejects with an Error (a
    * turn that ended in failure). Settled exactly once via {@link settlePrompt}.
@@ -457,6 +470,24 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
+  // --- Session modes (dsh-mode, opportunistic) ------------------------------
+  // The mode PICKER is dsh-mode's ACP surface (the plan-mode RFC): advertised
+  // as `modes` on session/new + session/load, switched via session/set_mode —
+  // optimistic `current_mode_update` (the pending mode IS the user's
+  // selection; the logged `mode/set` follows at the turn boundary) — and
+  // re-notified on each logged flip that differs from the last sent (covers
+  // the exit_plan_mode tool flipping the session back). Environment knobs are
+  // NOT modes; they stay `session/set_config_option`.
+  const modesStateFor = (agent: Agent): SessionModeState | undefined => {
+    const modes = ctx.get('modes')
+    if (modes === undefined) return undefined
+    const { current, pending } = modes.get(agent)
+    return {
+      availableModes: modes.list().map(name => ({ id: name, name })),
+      currentModeId: pending ?? current,
+    }
+  }
+
   // All content streaming AND the prompt settle flow through `session/event`,
   // the canonical log: every assistant/chunk and tool/call/result is logged, so
   // translating from the log makes live streaming and `session/load` replay
@@ -480,6 +511,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
       enabled: rec.terminalEnabled,
       cwd: session.header.cwd,
     }, { includeUserMessages: false })
+    if (event.type === 'mode/set' && event.data.mode !== rec.lastModeId) {
+      rec.lastModeId = event.data.mode
+      notify({ sessionId: rec.sessionId, update: { sessionUpdate: 'current_mode_update', currentModeId: event.data.mode } })
+    }
     const inflight = rec.inflight
     if (inflight === undefined) return
     if (event.type === 'turn/start') {
@@ -603,15 +638,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
         })
         bySession.set(handle.agent, sessionId)
+        const modes = modesStateFor(handle.agent)
         sessions.set(sessionId, {
           sessionId,
           agent: handle.agent,
           dispose: () => handle.dispose(),
           presenter: makePresenter(),
           terminalEnabled: terminalOutputCap,
+          lastModeId: modes?.currentModeId,
           inflight: undefined,
         })
-        return Promise.resolve({ sessionId })
+        return Promise.resolve({ sessionId, ...modes !== undefined ? { modes } : {} })
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -680,12 +717,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // the replay below and the post-load live stream) so a later
           // `initialize` can't desync the call/result of a tool card.
           const terminalEnabled = terminalOutputCap
+          const modes = modesStateFor(agent)
           const record: SessionRecord = {
             sessionId,
             agent,
             dispose: () => handle.dispose(),
             presenter: makePresenter(),
             terminalEnabled,
+            lastModeId: modes?.currentModeId,
             inflight: undefined,
           }
           sessions.set(sessionId, record)
@@ -710,10 +749,30 @@ export function apply(ctx: Context, config: AcpConfig): void {
           for (const event of agent.session.events) {
             streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
-          return {}
+          return modes !== undefined ? { modes } : {}
         } finally {
           loadingIds.delete(sessionId)
         }
+      },
+
+      setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
+        assertOpen()
+        const rec = requireSession(SessionId(params.sessionId))
+        const modes = ctx.get('modes')
+        if (modes === undefined) throw invalidParams('session modes are not composed in this deployment')
+        try {
+          modes.set(rec.agent, params.modeId)
+        } catch (error) {
+          // ModesService.set throws only Error (its unknown-name validation).
+          throw invalidParams((error as Error).message)
+        }
+        // Optimistic echo: the pending mode IS the user's selection; the logged
+        // `mode/set` lands at the next turn boundary and, matching lastModeId,
+        // is not re-notified. A no-op selection (already current) echoes too —
+        // cheap, idempotent, and the picker settles regardless.
+        rec.lastModeId = params.modeId
+        notify({ sessionId: rec.sessionId, update: { sessionUpdate: 'current_mode_update', currentModeId: params.modeId } })
+        return Promise.resolve({})
       },
 
       async prompt(params: PromptRequest): Promise<PromptResponse> {

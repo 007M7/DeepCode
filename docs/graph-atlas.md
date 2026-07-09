@@ -16,6 +16,7 @@ The process decision behind this index is recorded in [the documentation graph R
 | [coding-agent app composition](../examples/coding-agent/composition.md) | `hybrid generated` |
 | [cordis-agent app composition](../examples/cordis-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
+| [../examples/plan-acp-agent/composition.md](../examples/plan-acp-agent/composition.md) | `generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
 | [agent turn and step lifecycle](agent-lifecycle.md) | `curated` |
 | [tool execution pipeline](tool-execution-pipeline.md) | `curated` |

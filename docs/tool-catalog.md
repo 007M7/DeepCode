@@ -17,6 +17,7 @@ This table connects model-visible tool names to the plugin package and service s
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time. |
+| `@deepseek-ai/dsh-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userInteraction (execution time, opportunistic)` | `tool/call`, `mode/set back to default on an approved review`, `tool/result` | - | exit_plan_mode presents the plan for the user's review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default. The assemble filter shows it only while the folded mode is plan. |
 | `@deepseek-ai/dsh-tool-bash` | `bash`, `bash_kill`, `bash_output` | `ctx.tools`, `ctx.bash` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
@@ -118,6 +119,31 @@ Execute a TypeScript program against the available tools. Write the BODY of an a
 Source: [`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
 
 Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.
+
+## `@deepseek-ai/dsh-mode`
+
+### `exit_plan_mode`
+
+Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (the full toolset returns on your next step) or keep planning — their feedback comes back in the tool result; revise and present again.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "plan": {
+      "type": "string",
+      "description": "The complete plan, as markdown, starting with a # heading that names it."
+    }
+  },
+  "required": [
+    "plan"
+  ]
+}
+```
+
+Source: [`packages/mode/mode/src/index.ts`](../packages/mode/mode/src/index.ts)
+
+exit_plan_mode presents the plan for the user's review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default. The assemble filter shows it only while the folded mode is plan.
 
 ## `@deepseek-ai/dsh-tool-bash`
 

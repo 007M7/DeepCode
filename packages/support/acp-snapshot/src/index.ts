@@ -18,6 +18,7 @@
 export {
   runScenario,
   type AgentUnderTest,
+  type ElicitationAnswer,
   type HarvestedLog,
   type InputScript,
   type InputStep,

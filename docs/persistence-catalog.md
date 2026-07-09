@@ -117,7 +117,7 @@ The session mode in force from this point on: log-only, non-surface, whole-value
 'mode/set': { mode: string }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:39`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:41`](../packages/mode/mode/src/index.ts)
 
 ### `prompt/*`
 

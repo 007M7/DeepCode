@@ -229,6 +229,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     pinningByClass.set(cls, scenario)
   }
   for (const scenario of scenarios) {
+    // Only a scenario that RUNS a model turn produces request-header events
+    // for the uniformity guard to compare — a protocol-only scenario's fixture
+    // carries no header content, so it needs no anchor (and a suite of only
+    // protocol scenarios legitimately has none).
+    if (!scenario.hasModelTurn) continue
     if (!pinningByClass.has(classOf(scenario))) {
       throw new Error(`acp-snapshot: no scenario pins the request-header content of class "${classOf(scenario)}" (needed by ${scenario.name})`)
     }
@@ -329,9 +334,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         // scenario's fixture) or composition became session-dependent by
         // design (give the divergent shape its own pinning scenario and
         // class).
-        if (scenario.pinsHeader !== true) {
-          /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
-          const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
+        const classPin = pinningByClass.get(classOf(scenario))
+        if (scenario.pinsHeader !== true && classPin !== undefined) {
+          const pinningScenario = classPin
           const pinnedFixture = await readFile(join(snapshotsDir, pinningScenario.name, 'session.jsonl'), 'utf8')
           const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
           expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
@@ -401,7 +406,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
       expect(Object.fromEntries([...pins].map(([cls, names]) => [cls, names.length]))).toEqual(
         Object.fromEntries([...pinningByClass.keys()].map(cls => [cls, 1])))
-      for (const scenario of scenarios) {
+      for (const scenario of scenarios.filter(s => s.hasModelTurn)) {
         expect(pinningByClass.has(classOf(scenario)), `class "${classOf(scenario)}" (scenario ${scenario.name}) has a pin`).toBe(true)
       }
     })

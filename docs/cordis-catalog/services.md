@@ -153,13 +153,13 @@ Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts
 
 ```ts cordis-catalog
 list(): string[]
-get(agent: Agent): { current: string, pending?: string }
+get(agent: Agent): { current: string; pending?: string }
 set(agent: Agent, mode: string): void
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:179`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:202`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

@@ -29,6 +29,8 @@ import {
   PROTOCOL_VERSION,
   type Agent as AcpAgent,
   type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -85,6 +87,8 @@ export type InputStep =
   | { op: 'promptExpectError'; text: string }
   | { op: 'promptAndCancel'; text: string }
   | { op: 'cancel' }
+  | { op: 'setMode'; modeId: string }
+  | { op: 'setModeExpectError'; modeId: string }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
@@ -102,12 +106,32 @@ export interface InputScript {
    * agent itself just sees `cancelled`, so it cannot absorb the bug).
    */
   permissionAnswers?: PermissionAnswer[]
+  /**
+   * Ordered answers for the agent's `elicitation/create` round-trips (the
+   * ask_user_question / plan-review forms), consumed FIFO — the Nth request
+   * gets the Nth answer. Exhaustion (or no queue) answers `cancel`, the same
+   * fail-closed stub an elicitation-free scenario relies on. Unlike permission
+   * kinds, the scripted strings are not validated against the offered form —
+   * a stray `choice` reaches the agent verbatim, which reads it as a custom
+   * (non-consenting) answer, so a scenario bug fails safe in the transcript.
+   */
+  elicitationAnswers?: ElicitationAnswer[]
 }
 
 /** One scripted answer to a permission request: which offered option kind to select. */
 export interface PermissionAnswer {
   /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
+}
+
+/** One scripted answer to an elicitation form (accept with choice/custom content, or cancel). */
+export interface ElicitationAnswer {
+  /** Accept the form with the content below, or cancel it. */
+  action: 'accept' | 'cancel'
+  /** The selected option label (the form's `choice` field). */
+  choice?: string
+  /** Free-form text (the form's `custom` field). */
+  custom?: string
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -251,6 +275,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
+    // Elicitation answers mirror the permission queue: FIFO, cancel on exhaustion.
+    const elicitationQueue = [...input.elicitationAnswers ?? []]
     // A scenario bug detected inside a client callback (a scripted permission
     // kind the agent never offered). It cannot fail the run from in there: a
     // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
@@ -290,6 +316,17 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
           return Promise.resolve({ outcome: { outcome: 'cancelled' } })
         }
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
+      },
+      unstable_createElicitation(_params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+        const answer = elicitationQueue.shift()
+        if (answer === undefined || answer.action !== 'accept') return Promise.resolve({ action: 'cancel' })
+        return Promise.resolve({
+          action: 'accept',
+          content: {
+            ...answer.choice !== undefined ? { choice: answer.choice } : {},
+            ...answer.custom !== undefined ? { custom: answer.custom } : {},
+          },
+        })
       },
     })
     const client = new ClientSideConnection(makeClient, stream)
@@ -404,6 +441,24 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
       await client.cancel({ sessionId })
+      return
+    }
+    case 'setMode': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setMode before newSession')
+      await client.setSessionMode({ sessionId, modeId: step.modeId })
+      return
+    }
+    case 'setModeExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setModeExpectError before newSession')
+      // The bridge rejects an unknown/uncomposed mode id with invalidParams;
+      // that rejection IS the expected wire behavior — swallow it so the run
+      // completes and the error frame is captured in the transcript.
+      await client.setSessionMode({ sessionId, modeId: step.modeId }).then(
+        () => { throw new Error('snapshot-harness: expected session/set_mode to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the mode id */ },
+      )
       return
     }
     default:

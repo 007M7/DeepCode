@@ -33,6 +33,9 @@
       "path": "../user-interaction"
     },
     {
+      "path": "../../mode/mode"
+    },
+    {
       "path": "../../session-persistence/session-persistence"
     }
   ]

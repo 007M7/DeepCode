@@ -44,6 +44,10 @@ interface Behavior {
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
+  /** Before responding to a prompt, send an `elicitation/create` request and echo its response as a chunk. */
+  elicitationProbe?: boolean
+  /** How `session/set_mode` settles: an empty response (echoing the modeId as a chunk) or a JSON-RPC error. */
+  setMode?: 'respond' | 'error'
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
   echoEnv?: boolean
   /** Echo the sorted cwd listing as a chunk (spec-side workspace-seeding assertions). */
@@ -79,8 +83,8 @@ let sessionId = ''
 let sessionCwd = ''
 /** The parked prompt request id while `hang-until-cancel` waits for the cancel notification. */
 let parkedPromptId: number | string | null = null
-/** Resolvers for permission-probe responses, keyed by outbound request id. */
-const pendingPermission = new Map<number, (outcome: unknown) => void>()
+/** Resolvers for outbound probe responses (permission/elicitation), keyed by request id. */
+const pendingOutbound = new Map<number, (result: unknown) => void>()
 
 function send(frame: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
@@ -136,8 +140,8 @@ async function handlePrompt(id: number | string): Promise<void> {
   }
   if (behavior.permissionProbe === true) {
     const requestId = nextOutboundId++
-    const outcome = await new Promise<unknown>((resolve) => {
-      pendingPermission.set(requestId, resolve)
+    const result = await new Promise<unknown>((resolve) => {
+      pendingOutbound.set(requestId, resolve)
       send({
         id: requestId,
         method: 'session/request_permission',
@@ -151,7 +155,24 @@ async function handlePrompt(id: number | string): Promise<void> {
         },
       })
     })
-    chunk(`permission:${JSON.stringify(outcome)}`)
+    chunk(`permission:${JSON.stringify((result as { outcome?: unknown } | undefined)?.outcome ?? null)}`)
+  }
+  if (behavior.elicitationProbe === true) {
+    const requestId = nextOutboundId++
+    const result = await new Promise<unknown>((resolve) => {
+      pendingOutbound.set(requestId, resolve)
+      send({
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+          sessionId,
+          mode: 'form',
+          message: 'Approve this plan and leave plan mode?',
+          requestedSchema: { type: 'object', title: 'Plan review', properties: { choice: { type: 'string' }, custom: { type: 'string' } }, required: [] },
+        },
+      })
+    })
+    chunk(`elicitation:${JSON.stringify(result ?? null)}`)
   }
   switch (behavior.prompt ?? 'respond') {
     case 'respond':
@@ -171,10 +192,10 @@ function handleFrame(frame: Record<string, unknown>): void {
   const method = frame.method as string | undefined
   const params = (frame.params ?? {}) as Record<string, unknown>
   // A response to one of OUR outbound requests (the permission probe).
-  if (method === undefined && id !== undefined && typeof id === 'number' && pendingPermission.has(id)) {
-    const resolve = pendingPermission.get(id) as (outcome: unknown) => void
-    pendingPermission.delete(id)
-    resolve((frame.result as { outcome?: unknown } | undefined)?.outcome ?? null)
+  if (method === undefined && id !== undefined && typeof id === 'number' && pendingOutbound.has(id)) {
+    const resolve = pendingOutbound.get(id) as (result: unknown) => void
+    pendingOutbound.delete(id)
+    resolve(frame.result)
     return
   }
   switch (method) {
@@ -194,6 +215,14 @@ function handleFrame(frame: Record<string, unknown>): void {
     }
     case 'session/prompt':
       void handlePrompt(id as number | string)
+      return
+    case 'session/set_mode':
+      if ((behavior.setMode ?? 'respond') === 'error') {
+        respondError(id as number | string, 'unknown mode')
+        return
+      }
+      chunk(`setMode:${String(params.modeId)}`)
+      respond(id as number | string, {})
       return
     case 'session/cancel':
       if (parkedPromptId !== null) {

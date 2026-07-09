@@ -1,0 +1,7 @@
+{
+  "name": "plan-acp-agent-example",
+  "description": "Runnable demo: the coding agent as an ACP server with session modes — the editor's mode picker drives plan mode",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module"
+}

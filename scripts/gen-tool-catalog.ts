@@ -42,6 +42,7 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import ModesService from '@deepseek-ai/dsh-mode'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
@@ -136,6 +137,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
     async mount() {},
     note:
       'Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-mode',
+    dir: 'mode',
+    source: 'packages/mode/mode/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.userInteraction (execution time, opportunistic)'],
+    writes: ['tool/call', 'mode/set back to default on an approved review', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ModesService)
+    },
+    note:
+      'exit_plan_mode presents the plan for the user\'s review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default. The assemble filter shows it only while the folded mode is plan.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',

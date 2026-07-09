@@ -140,7 +140,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'mode',
     title: 'Session-mode policy state',
     mode: 'core',
-    consumers: ['stdio-agent'],
+    consumers: ['stdio-agent', 'acp'],
     note: 'Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and enforces the mode through the assemble filter and the tools/pre-execute gate.',
   },
   {
@@ -443,6 +443,14 @@ const APP_EXAMPLES = [
     label: 'examples/acp-agent',
     config: 'examples/acp-agent/cordis.yml',
     summary: 'The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.',
+  },
+  {
+    id: 'plan-acp',
+    rel: 'examples/plan-acp-agent/composition.md',
+    title: 'Plan-Mode ACP Agent App Composition',
+    label: 'examples/plan-acp-agent',
+    config: 'examples/plan-acp-agent/cordis.yml',
+    summary: 'The plan-mode demo composes session modes onto the ACP server: the editor mode picker drives plan mode, and the model exits through the user-reviewed exit_plan_mode tool.',
   },
 ]
 

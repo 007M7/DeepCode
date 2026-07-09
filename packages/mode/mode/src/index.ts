@@ -26,8 +26,10 @@
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-user-interaction'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -111,6 +113,27 @@ const PLAN_SECTION
   + 'retrying denied tools.'
 
 const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', EXIT_PLAN_MODE]
+
+/** The review question's approve option label — the answer item is matched by it. */
+const APPROVE_LABEL = 'Approve'
+
+/** The review question's keep-planning option label. */
+const KEEP_PLANNING_LABEL = 'Keep planning'
+
+const EXIT_DESCRIPTION
+  = 'Present your plan for the user\'s review and, on approval, leave plan mode. '
+  + 'Send the COMPLETE plan as markdown, starting with a # heading that names it. '
+  + 'The user may approve (the full toolset returns on your next step) or keep '
+  + 'planning — their feedback comes back in the tool result; revise and present again.'
+
+/** The plan's first markdown heading (any level), or `undefined` when it has none. */
+function firstHeading(plan: string): string | undefined {
+  for (const line of plan.split('\n')) {
+    const match = /^#{1,6}\s+(.+?)\s*$/.exec(line)
+    if (match) return match[1]
+  }
+  return undefined
+}
 
 /**
  * Validate the config and merge the built-in `plan` definition (explicit
@@ -240,6 +263,61 @@ export class ModesService extends Service {
         : `tool "${exec.name}" is not available in "${active.name}" mode`
       return Promise.resolve({ kind: 'deny', reason })
     })
+
+    ctx.tools.register(defineTool({
+      name: EXIT_PLAN_MODE,
+      description: EXIT_DESCRIPTION,
+      parameters: {
+        plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
+      },
+      execute: async (_args, exec) => {
+        const agent = exec.agent
+        if (agent === undefined) throw new Error(`${EXIT_PLAN_MODE} requires a calling agent (no session to switch)`)
+        if (this.activeDefinition(agent.session)?.name !== PLAN_MODE) {
+          throw new Error(`${EXIT_PLAN_MODE} is only available in plan mode`)
+        }
+        const interaction = ctx.get('userInteraction')
+        if (interaction === undefined) {
+          throw new Error('no user-interaction channel is available to review the plan; ask the user to switch the session mode instead')
+        }
+        const answer = await interaction.ask({
+          questions: [{
+            id: 'plan-review',
+            header: 'Plan review',
+            question: 'Approve this plan and leave plan mode?',
+            options: [
+              { label: APPROVE_LABEL, description: 'Leave plan mode; the full toolset returns on the next step.' },
+              { label: KEEP_PLANNING_LABEL, description: 'Stay in plan mode; feedback goes back to the model.' },
+            ],
+          }],
+          agent,
+          ...exec.signal ? { signal: exec.signal } : {},
+        })
+        const item = answer.answers.find(entry => entry.id === 'plan-review')
+        if (!item?.selected.includes(APPROVE_LABEL)) {
+          // A custom-text-only answer is feedback, not consent — approval is
+          // exactly the approve option (an unknown selection never exits).
+          const feedback = item?.custom ?? ''
+          throw new Error(feedback === ''
+            ? 'The user chose to keep planning; revise the plan and present it again.'
+            : `The user chose to keep planning; their feedback: ${feedback}`)
+        }
+        agent.session.append('mode/set', { mode: DEFAULT_MODE })
+        const note = item.custom === undefined || item.custom === '' ? '' : ` User note: ${item.custom}`
+        return [{ type: 'text', text: `Plan approved — plan mode exited; the full toolset returns on your next step.${note}` }]
+      },
+      presentCall: args => ({
+        card: 'generic',
+        title: firstHeading(args.plan) ?? 'Plan',
+        kind: 'other',
+        content: [{ type: 'text', text: args.plan }],
+      }),
+      presentResult: (_args, result) => ({
+        card: 'generic',
+        title: 'Plan review',
+        content: result.content,
+      }),
+    }))
   }
 
   /**

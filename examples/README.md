@@ -32,3 +32,9 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
+
+## plan-acp-agent
+
+The ACP server with **session modes** composed ([`@deepseek-ai/dsh-mode`](../packages/mode/mode)) — the editor's mode picker switches the session into plan mode, the model works under the read-only allowlist, and it leaves through the user-reviewed `exit_plan_mode` tool (the review arrives as an elicitation form).
+
+Run with: `pnpm run demo:plan-acp` (needs `DEEPSEEK_API_KEY`). See [plan-acp-agent/README.md](plan-acp-agent/README.md).

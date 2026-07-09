@@ -6,6 +6,7 @@ import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
 import type { ModeConfig } from '../src/index.ts'
 
@@ -283,7 +284,7 @@ describe('the boundary flush', () => {
 describe('the soft layer', () => {
   it('keeps a default-mode assembly identical to a no-dsh-mode deployment (exit tool dropped)', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', 'write', EXIT_PLAN_MODE])
+    registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.map(tool => tool.name)).toEqual(['read', 'write'])
@@ -292,7 +293,7 @@ describe('the soft layer', () => {
 
   it('leaves an agent-less assembly untouched', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', EXIT_PLAN_MODE])
+    registerNamedTools(ctx, ['read'])
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read'])
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
@@ -300,7 +301,7 @@ describe('the soft layer', () => {
 
   it('filters plan-mode tools to the allowlist and renders the mode section', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', 'write', 'todo_write', EXIT_PLAN_MODE])
+    registerNamedTools(ctx, ['read', 'write', 'todo_write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
@@ -310,7 +311,7 @@ describe('the soft layer', () => {
 
   it('drops exit_plan_mode outside plan mode even when a custom allowlist names it', async () => {
     const ctx = await setup({ modes: { review: { section: 'reviewing', tools: ['read', EXIT_PLAN_MODE] } } })
-    registerNamedTools(ctx, ['read', 'write', EXIT_PLAN_MODE])
+    registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'review' })
     const assembly = await ctx.systemPrompt.assemble({ agent })
@@ -320,7 +321,7 @@ describe('the soft layer', () => {
 
   it('treats a dropped folded definition as the default mode', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', 'write', EXIT_PLAN_MODE])
+    registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'retired' })
     const assembly = await ctx.systemPrompt.assemble({ agent })
@@ -380,5 +381,174 @@ describe('the hard layer', () => {
     agent.session.append('mode/set', { mode: 'retired' })
     const result = await execute(ctx, 'write', agent)
     expect(result.isError).toBe(false)
+  })
+})
+
+describe('exit_plan_mode', () => {
+  async function setupWithReview(answer?: { selected: string[]; custom?: string }) {
+    const ctx = await setup()
+    await ctx.plugin(UserInteractionService)
+    const asked: AskUserQuestionRequest[] = []
+    if (answer !== undefined) {
+      ctx.userInteraction.registerProvider({
+        ask: (request) => {
+          asked.push(request)
+          return Promise.resolve({ answers: [{ id: 'plan-review', ...answer }] })
+        },
+      })
+    }
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    return { ctx, agent, asked }
+  }
+
+  function callExit(ctx: Context, agent: Agent | undefined, plan = '# The plan\n\ndo things') {
+    return ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: EXIT_PLAN_MODE,
+      arguments: { plan },
+      ...agent ? { agent } : {},
+    })
+  }
+
+  it('registers the tool with one required plan argument', async () => {
+    const ctx = await setup()
+    const schema = ctx.tools.schemas().find(entry => entry.name === EXIT_PLAN_MODE)
+    const parameters = schema?.parameters as { required?: string[]; properties?: Record<string, unknown> }
+    expect(Object.keys(parameters.properties ?? {})).toEqual(['plan'])
+    expect(parameters.required).toEqual(['plan'])
+  })
+
+  it('rejects an agent-less call', async () => {
+    const ctx = await setup()
+    const result = await callExit(ctx, undefined)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode requires a calling agent (no session to switch)' }])
+  })
+
+  it('rejects a call outside plan mode (defense in depth behind the gate)', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession()
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode is only available in plan mode' }])
+  })
+
+  it('degrades to the manual exit when no user-interaction seam is composed', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-interaction channel is available to review the plan; ask the user to switch the session mode instead' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('degrades the same way when the seam has no provider (NO_PROVIDER)', async () => {
+    const { ctx, agent } = await setupWithReview()
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-interaction provider is registered' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('approve: appends mode/set default in-turn and confirms', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; the full toolset returns on your next step.' }])
+    expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.agent).toBe(agent)
+    expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
+  })
+
+  it('approve with a note carries the note into the confirmation', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'], custom: 'ship it small' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; the full toolset returns on your next step. User note: ship it small' }])
+  })
+
+  it('keep planning returns the corrective error carrying the feedback verbatim', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Keep planning'], custom: 'consider the resume path' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: consider the resume path' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('keep planning without feedback returns the generic corrective error', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Keep planning'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('a custom-text-only answer is feedback, never consent', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: [], custom: 'add tests first' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: add tests first' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('a missing answer item reads as keep-planning', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({ ask: () => Promise.resolve({ answers: [] }) })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('forwards the execution abort signal to the review question', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    const controller = new AbortController()
+    const result = await ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: EXIT_PLAN_MODE,
+      arguments: { plan: '# P' },
+      agent,
+      signal: controller.signal,
+    })
+    expect(result.isError).toBe(false)
+    expect(asked[0]?.signal).toBe(controller.signal)
+  })
+
+  it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({ ask: () => { throw new Error('review aborted') } })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: review aborted' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('presents the call as a generic card titled by the plan first heading', async () => {
+    const ctx = await setup()
+    const def = ctx.tools.get(EXIT_PLAN_MODE)!
+    expect(def.presentCall?.({ plan: '## Fix the flake\n\nsteps' })).toEqual({
+      card: 'generic',
+      title: 'Fix the flake',
+      kind: 'other',
+      content: [{ type: 'text', text: '## Fix the flake\n\nsteps' }],
+    })
+    expect(def.presentCall?.({ plan: 'no heading here' })).toEqual({
+      card: 'generic',
+      title: 'Plan',
+      kind: 'other',
+      content: [{ type: 'text', text: 'no heading here' }],
+    })
+  })
+
+  it('presents the result as a generic review card', async () => {
+    const ctx = await setup()
+    const def = ctx.tools.get(EXIT_PLAN_MODE)!
+    const content = [{ type: 'text' as const, text: 'ok' }]
+    expect(def.presentResult?.({ plan: '# P' }, { content, isError: false })).toEqual({
+      card: 'generic',
+      title: 'Plan review',
+      content,
+    })
   })
 })

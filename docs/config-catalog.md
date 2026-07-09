@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:236`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:242`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -425,7 +425,7 @@ export interface ModeDefinition {
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:94`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:96`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

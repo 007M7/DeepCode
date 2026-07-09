@@ -78,7 +78,7 @@ describe('plan mode through the agent loop', () => {
     const header = findEvent(log, 'request/header')
     expect(modeSet.seq).toBeLessThan(header.seq)
     expect(header.data.reason).toBe('initial')
-    expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['read'])
+    expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
     expect(header.data.header.system).toContain('plan mode')
 
     const result = findEvent(log, 'tool/result')
@@ -110,8 +110,12 @@ describe('plan mode through the agent loop', () => {
     expect(findEvent(log, 'context/message').data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
-    const delta = findEvent(log, 'request/header-delta')
-    expect(delta.data.tools).toBeDefined()
-    expect(delta.data.system).toBeDefined()
+    // The narrowing header change is logged as a FULL fallback snapshot, not a
+    // delta: adding exit_plan_mode reorders the canonical tool list (it sorts
+    // first), and a pure reordering is inexpressible in the delta encoding.
+    const second = findEvent(log, 'request/header', 'last')
+    expect(second.data.reason).toBe('fallback')
+    expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
+    expect(second.data.header.system).toContain('plan mode')
   })
 })

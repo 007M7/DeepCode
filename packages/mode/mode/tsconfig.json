@@ -25,6 +25,9 @@
     },
     {
       "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../ui/user-interaction"
     }
   ]
 }

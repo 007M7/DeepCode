@@ -10,7 +10,7 @@ The `default` mode is the absence of policy: no section, no filtering, no gate. 
 
 ## Two layers of enforcement
 
-**Soft — what the model sees.** A `system-prompt/assemble` listener filters the returned assembly's tools down to the mode's allowlist and the `mode:policy` section (order 50) renders the mode's guidance text. Every transition therefore surfaces as an attributable `request/header-delta` on the next step. The `exit_plan_mode` tool is visible IFF the folded mode is `plan`.
+**Soft — what the model sees.** A `system-prompt/assemble` listener filters the returned assembly's tools down to the mode's allowlist and the `mode:policy` section (order 50) renders the mode's guidance text. Every transition therefore surfaces as an attributable `request/header` event on the next step (a delta when expressible; adding `exit_plan_mode` resorts the canonical tool list, which the delta encoding cannot express, so entering plan mode logs the full fallback snapshot). The `exit_plan_mode` tool is visible IFF the folded mode is `plan`.
 
 **Hard — what can run.** A `tools/pre-execute` listener denies, deny-by-default against the same allowlist, any call the mode does not permit — a hallucinated call to a still-registered (or freshly re-widened) tool cannot run. Agent-less executions and the default mode pass through; the gate judges by the LOGGED mode only, never a pending intent.
 
@@ -19,6 +19,10 @@ The `default` mode is the absence of policy: no section, no filtering, no gate. 
 `list()` returns the selectable vocabulary (`default` first, then the configured definitions); `get(agent)` returns the folded mode (a folded name the config no longer defines reads as `default`) plus any pending intent; `set(agent, mode)` validates against `list()` (loud on unknown; `default` is always a valid target) and records a pending intent — every session event is turn-enclosed and an idle agent has no open turn, so the service flushes the intent at the next `turn/start`/`step/end` and, when the flushed mode differs from what the last logged request header told the model, appends one coalesced `context/message` notice in the same frame. A net-zero flip sequence appends nothing.
 
 `AgentOptions.mode` (declaration-merged) seeds a child's initial mode through the same pending-intent flush; explicit options beat the logged baseline on create AND resume. A fork child needs no mechanism — the parent's `mode/set` is inside the seeded prefix.
+
+## `exit_plan_mode`
+
+The model-facing exit tool. Its single required argument is the plan text — a durable, replayable log artifact riding the ordinary `tool/call` event. `execute` re-checks the folded mode, then conducts the review over the user-interaction seam (`ctx.get('userInteraction')`, opportunistic): one single-select question — Approve, or Keep planning — with the free-text channel open. Approve appends `mode/set { mode: 'default' }` in-turn and the next step's assembly restores the full toolset; every other outcome (keep-planning with the user's feedback verbatim, an aborted question, no provider) returns the corrective `isError` and the mode stays `plan`. `presentCall` renders a `generic` card titled by the plan's first heading with the plan markdown as content; over ACP the review rides the same elicitation flow as `ask_user_question`, in the terminal the stdio provider's prompt queue.
 
 ## Config
 
