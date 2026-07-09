@@ -229,8 +229,8 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
-| [`subagent-subprocess`](../packages/subagent/subagent-subprocess) | `subagent` | — |
 | [`timeout`](../packages/util/timeout) | `util` | — |
+| [`subagent-subprocess`](../packages/subagent/subagent-subprocess) | `subagent` | — |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
