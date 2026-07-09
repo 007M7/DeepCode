@@ -15,6 +15,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`tasks/`](tasks/README.md) | Background task family: the `ctx.tasks` registry + the generic `task_*` control tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |

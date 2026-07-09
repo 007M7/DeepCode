@@ -83,7 +83,7 @@ export interface Config {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
 
-Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:72`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -139,7 +139,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:28`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -602,6 +602,25 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-bash`
+
+Requires: `tools` · `bash` · `systemPrompt`
+
+```ts config-catalog
+/** Config: whether the model may background commands (the producer-opt-in flag). */
+export interface Config {
+  /**
+   * Expose `run_in_background` in the bash schema (default true). Disabled,
+   * the parameter is absent entirely — schema and capability never disagree.
+   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
+   * one fails the call loud with the load-these-packages message.
+   */
+  enableRunInBackground?: boolean
+}
+```
+
+Source: [`packages/bash/tool-bash/src/index.ts:43`](../packages/bash/tool-bash/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-fs`
 
 Requires: `tools` · `fs` · `systemPrompt`
@@ -640,6 +659,14 @@ export interface Config {
    */
   toolName?: string
   /**
+   * Expose `run_in_background` in this instance's schema (default true).
+   * Disabled, the parameter is absent entirely — schema and capability never
+   * disagree; delegation through this instance stays strictly synchronous.
+   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
+   * one fails the call loud with the load-these-packages message.
+   */
+  enableRunInBackground?: boolean
+  /**
    * Default per-child agent options (model) applied to every spawned child.
    * Omitted fields fall back to the child loop's own defaults. There is no
    * per-child persona: the deployment persona (the system-prompt plugin's
@@ -651,7 +678,23 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:44`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:56`](../packages/subagent/tool-subagent/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-tasks`
+
+Requires: `tools` · `tasks` · `systemPrompt`
+
+```ts config-catalog
+/** Config: the `task_output` wait bounds (defaulted, capped — never hardcoded). */
+export interface Config {
+  /** Wait duration applied when `task_output` sets `wait` without `timeout_ms` (default 30s). */
+  waitTimeoutMs?: number
+  /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
+  maxWaitTimeoutMs?: number
+}
+```
+
+Source: [`packages/tasks/tool-tasks/src/index.ts:34`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -793,7 +836,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
-- `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
+- `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-tools` — requires `systemPrompt` ([`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts))
 

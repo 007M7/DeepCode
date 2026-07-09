@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Agent, AgentId } from '@deepseek-ai/dsh-agent'
@@ -73,6 +73,129 @@ describe('AgentRegistry', () => {
     expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
     dispose()
     expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
+  })
+})
+
+describe('AgentRegistry.onCleanup / drainCleanups', () => {
+  it('drains cleanups in registration order, awaiting each', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = stubAgent('a1')
+    ctx.agents.register(agent)
+
+    const ran: string[] = []
+    ctx.agents.onCleanup(agent.id, async () => {
+      ran.push('first:start')
+      await new Promise(r => setTimeout(r, 10))
+      ran.push('first:end')
+    })
+    ctx.agents.onCleanup(agent.id, () => {
+      ran.push('second')
+      return Promise.resolve()
+    })
+
+    await ctx.agents.drainCleanups(agent.id)
+    // Sequential await: the second cleanup starts only after the first settled.
+    expect(ran).toEqual(['first:start', 'first:end', 'second'])
+    // Drained cleanups are detached: a second drain is a no-op.
+    await ctx.agents.drainCleanups(agent.id)
+    expect(ran).toEqual(['first:start', 'first:end', 'second'])
+  })
+
+  it('contains a rejecting cleanup: logged, later cleanups still run', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const agent = stubAgent('a1')
+    ctx.agents.register(agent)
+
+    let ranAfter = false
+    ctx.agents.onCleanup(agent.id, () => Promise.reject(new Error('cleanup boom')))
+    ctx.agents.onCleanup(agent.id, () => {
+      ranAfter = true
+      return Promise.resolve()
+    })
+
+    await expect(ctx.agents.drainCleanups(agent.id)).resolves.toBeUndefined()
+    expect(ranAfter).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cleanup boom'))
+  })
+
+  it('rejects a cleanup for an agent that is not registered', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    expect(() => ctx.agents.onCleanup(AgentId('ghost'), () => Promise.resolve()))
+      .toThrow('agent "ghost" is not registered')
+  })
+
+  it('detaches without running on disposer call and on fiber dispose (HMR safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = stubAgent('a1')
+    ctx.agents.register(agent)
+
+    let ranA = false
+    let ranB = false
+    const detach = ctx.agents.onCleanup(agent.id, () => {
+      ranA = true
+      return Promise.resolve()
+    })
+    detach()
+
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.agents.onCleanup(agent.id, () => {
+        ranB = true
+        return Promise.resolve()
+      })
+    }, { inject: ['agents'] }))
+    await fiber.dispose()
+
+    await ctx.agents.drainCleanups(agent.id)
+    expect(ranA).toBe(false)
+    expect(ranB).toBe(false)
+  })
+
+  it('runs a cleanup registered during the drain instead of leaking it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = stubAgent('a1')
+    ctx.agents.register(agent)
+
+    const ran: string[] = []
+    ctx.agents.onCleanup(agent.id, () => {
+      ran.push('outer')
+      // A settling task registering follow-up cleanup mid-drain: the drain
+      // loop must pick up the fresh set rather than strand it.
+      ctx.agents.onCleanup(agent.id, () => {
+        ran.push('mid-drain')
+        return Promise.resolve()
+      })
+      return Promise.resolve()
+    })
+
+    await ctx.agents.drainCleanups(agent.id)
+    expect(ran).toEqual(['outer', 'mid-drain'])
+  })
+
+  it('a stale disposer from a drained set does not remove a fresh registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = stubAgent('a1')
+    ctx.agents.register(agent)
+
+    const detachOld = ctx.agents.onCleanup(agent.id, () => Promise.resolve())
+    await ctx.agents.drainCleanups(agent.id)
+
+    let ranFresh = false
+    ctx.agents.onCleanup(agent.id, () => {
+      ranFresh = true
+      return Promise.resolve()
+    })
+    // The old registration's disposer fires after its set was drained; the
+    // identity guard must keep it away from the fresh set under the same id.
+    detachOld()
+    await ctx.agents.drainCleanups(agent.id)
+    expect(ranFresh).toBe(true)
   })
 })
 

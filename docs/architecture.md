@@ -31,6 +31,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-surface compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 
 ## Event Surface
@@ -101,7 +102,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the surface other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`.
+`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the surface other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`, whose chain also awaits every `ctx.agents.onCleanup` registration — the seam tying resources (background tasks) to the owner's quiescence.
 
 ## State And Model Surface
 
@@ -140,6 +141,7 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
+| Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |

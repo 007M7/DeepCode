@@ -3,42 +3,14 @@
  * service lives in `./index.ts`, implementations in sibling packages
  * (`@deepseek-ai/dsh-bash-local` first).
  *
+ * Background TASK semantics (ids, ownership, polling protocol, completion
+ * listeners) deliberately do NOT live here: the seam starts a background
+ * PROCESS and returns a {@link BashProcess} handle; the caller (the tool
+ * layer) registers that handle with the generic `ctx.tasks` runtime
+ * (`@deepseek-ai/dsh-tasks`), which owns everything task-shaped.
+ *
  * @module dsh-bash/types
  */
-
-import type { Branded } from '@deepseek-ai/dsh-brand'
-
-/** Identifies one background task within an executor (generated `bash-N`). */
-export type BashTaskId = Branded<'BashTaskId'>
-
-/**
- * Brand a string as a {@link BashTaskId}.
- * @param id - the raw task-id string (the executor generates `bash-N`).
- * @returns the same string, branded; no validation is performed.
- */
-export function BashTaskId(id: string): BashTaskId {
-  return id as BashTaskId
-}
-
-/**
- * A background task's opaque isolation key — the CONSUMER's owner identity, not
- * the bash seam's. The executor stores and returns it verbatim and never
- * interprets it; the access policy lives in the consumer (`dsh-tool-bash`),
- * which is the single boundary that casts its own id vocabulary into one. A
- * DISTINCT brand (not a `SessionId` alias) keeps the seam decoupled — a
- * sandboxed/remote executor inherits no session dependency.
- */
-export type OwnerToken = Branded<'OwnerToken'>
-
-/**
- * Brand a string as an {@link OwnerToken}. Only the consuming boundary
- * (`dsh-tool-bash`) should cast its own id vocabulary in — see the type's doc.
- * @param id - the consumer's raw owner identity (the tool layer passes the owning agent's session id).
- * @returns the same string, branded; no validation is performed.
- */
-export function OwnerToken(id: string): OwnerToken {
-  return id as OwnerToken
-}
 
 /**
  * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
@@ -72,15 +44,6 @@ export interface BashExecRequest {
    * uses shell syntax like `FOO=bar cmd`).
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
-   */
-  owner?: OwnerToken | undefined
 }
 
 /**
@@ -88,7 +51,7 @@ export interface BashExecRequest {
  * {@link BashExecutor.start} act on. `workdir` and `timeoutMs` are REQUIRED:
  * defaulting and capping already happened in {@link BashExecutor.resolve}, so
  * the executor never hides a `?? config` fallback (explicit > implicit). For
- * background tasks, `start()` ignores `timeoutMs` (background runs have no
+ * background processes, `start()` ignores `timeoutMs` (background runs have no
  * timeout) — the field is still required because the type is shared.
  */
 export interface BashExecSpec {
@@ -99,10 +62,10 @@ export interface BashExecSpec {
   signal?: AbortSignal | undefined
   /**
    * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
+   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec:
+   * it has no config default, so a missing one means "no stdin" — the safe,
+   * ordinary case — not a silent footgun, so it stays a plain optional rather
+   * than required-but-nullable (see the request field).
    */
   stdin?: string | undefined
   /**
@@ -113,15 +76,6 @@ export interface BashExecSpec {
    * config default, absent means "no extra env".
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
-   */
-  owner: OwnerToken | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
@@ -150,25 +104,11 @@ export interface BashRunResult {
   stderr: CollectedOutput
 }
 
-/** Lifecycle of a background task. */
-export type BashTaskStatus = 'running' | 'completed' | 'killed'
+/** Lifecycle of a background process. */
+export type BashProcessStatus = 'running' | 'completed' | 'killed'
 
-/** A tracked background task handle. */
-export interface BashTask {
-  readonly id: BashTaskId
-  readonly command: string
-  status: BashTaskStatus
-  /** Exit code once finished (null = killed by signal / still running). */
-  exitCode: number | null
-  /** Terminating signal name, when signal-killed. */
-  signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
-  readonly done: Promise<void>
-}
-
-/** One incremental {@link BashExecutor.readOutput} read. */
-export interface BashTaskRead {
-  task: BashTask
+/** One incremental {@link BashProcess.readOutput} read. */
+export interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -179,5 +119,34 @@ export interface BashTaskRead {
   stderrSpillPath?: string
 }
 
-/** Completion callback for background tasks. */
-export type BashTaskListener = (task: BashTask) => void
+/**
+ * A live background process handle, returned by {@link BashExecutor.start}.
+ * The HANDLE is the only access path (no executor-level id lookup): the
+ * caller holds it, adapts it into a `ctx.tasks` registration, or drops it.
+ * Reads stay valid after the process exits (the remaining buffered output is
+ * still consumable); the executor's own disposal kills every running process
+ * and awaits {@link done}.
+ */
+export interface BashProcess {
+  /** The command line this process runs. */
+  readonly command: string
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
+  /** Exit code once finished (null = killed by signal / still running). */
+  exitCode: number | null
+  /** Terminating signal name, when signal-killed. */
+  signal: NodeJS.Signals | null
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  readonly done: Promise<void>
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
+}

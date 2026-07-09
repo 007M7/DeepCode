@@ -1,21 +1,24 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import TaskService from '@deepseek-ai/dsh-tasks'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
-import { renderResult } from '@deepseek-ai/dsh-tool-bash'
+import { processOutcome, renderProcessRead, renderResult } from '@deepseek-ai/dsh-tool-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
+/** Foreground-only harness: no task runtime (backgrounding fails loud here). */
 async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -27,39 +30,36 @@ async function setup() {
   return ctx
 }
 
+/** Full harness: the generic task runtime + its control surface, then the bash tool. */
+async function setupWithTasks() {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(TaskService)
+  await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+  ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
+  await ctx.plugin(ToolBash)
+  return ctx
+}
+
 /**
- * Build a fake {@link Agent} whose session token is `sessionId`, REGISTER it in
- * `ctx.agents` (the completion-notice path finds the owning agent by scanning
- * the registry for a matching `session.header.id`), and return it. The returned
- * agent is also passed to `execute` as `exec.agent` so it owns the spawned task.
- * The registration disposer is tracked so {@link unregisterFakeAgents} can drop
- * it (simulating the owning session disconnecting before a task completes).
+ * Build a fake {@link Agent} whose session token is `sessionId` and REGISTER it
+ * in `ctx.agents` (an owned task registration attaches the awaited owner
+ * cleanup via `ctx.agents.onCleanup`, which requires a live registered agent).
+ * The agent id is deliberately DIFFERENT from the session token so a
+ * wrong-field match fails the test.
  */
-const fakeAgentDisposers = new Map<Context, (() => void)[]>()
-function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
-  // The registry KEY (agent.id) is deliberately DIFFERENT from the session
-  // token (session.header.id) — a config agent has `agentId !== sessionId`. The
-  // owner token IS the session id, so the notice path must find the agent by
-  // `session.header.id`, NOT the registry key. Using distinct values here makes
-  // the test fail if a regression matched on the wrong field (a same-value fake
-  // would pass either way — the "hits the line but not the scenario" trap).
-  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
-  const dispose = ctx.agents.register(agent)
-  const list = fakeAgentDisposers.get(ctx) ?? []
-  list.push(dispose)
-  fakeAgentDisposers.set(ctx, list)
+function registerFakeAgent(ctx: Context, sessionId: string): Agent {
+  const agent = { id: `agent-${sessionId}`, inject: () => {}, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  ctx.agents.register(agent)
   return agent
 }
 
-/** Unregister every fake agent in this ctx (simulate the owning session disconnecting). */
-function unregisterFakeAgents(ctx: Context): void {
-  for (const dispose of fakeAgentDisposers.get(ctx) ?? []) dispose()
-  fakeAgentDisposers.delete(ctx)
-}
-
 let callCounter = 0
-function call(ctx: Context, name: string, args: unknown) {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args })
+function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
+  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -81,56 +81,6 @@ async function callUntilText(
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`${name} output did not include ${JSON.stringify(expected)}; last text was ${JSON.stringify(last !== undefined ? text(last) : '')}`)
-}
-
-class LossyReadBashExecutor extends BashExecutor {
-  private readonly task: BashTask = {
-    id: BashTaskId('bash-lossy'),
-    command: 'fake',
-    status: 'running',
-    exitCode: null,
-    signal: null,
-    done: Promise.resolve(),
-  }
-
-  resolve(request: BashExecRequest): BashExecSpec {
-    return {
-      command: request.command,
-      workdir: request.workdir ?? process.cwd(),
-      timeoutMs: request.timeoutMs ?? 0,
-      ...request.signal ? { signal: request.signal } : {},
-      owner: request.owner,
-    }
-  }
-
-  run(): Promise<BashRunResult> {
-    return Promise.reject(new Error('not used'))
-  }
-
-  start(): BashTask {
-    return this.task
-  }
-
-  get(id: BashTaskId): BashTask | undefined {
-    return id === this.task.id ? this.task : undefined
-  }
-
-  ownerOf(): OwnerToken | undefined {
-    return undefined
-  }
-
-  list(): BashTask[] {
-    return [this.task]
-  }
-
-  readOutput(id: BashTaskId): BashTaskRead {
-    if (id !== this.task.id) throw new Error(`unknown bash task "${id}"`)
-    return { task: this.task, delta: 'tail', lossy: true }
-  }
-
-  kill(): boolean {
-    return false
-  }
 }
 
 describe('bash tool', () => {
@@ -205,7 +155,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/ENOENT/)
   })
 
-  it('surfaces aborts as isError', async () => {
+  it('surfaces foreground aborts as isError', async () => {
     const ctx = await setup()
     const controller = new AbortController()
     const pending = ctx.tools.execute({
@@ -220,7 +170,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/aborted/)
   })
 
-  // Type and required-key violations are now rejected by the harness
+  // Type and required-key violations are rejected by the harness
   // (defineTool validates against the SchemaSpec — the arg-validation RFC) before execute.
   it.each([
     [{}, /missing required property "command"/],
@@ -250,15 +200,18 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(pattern)
   })
 
-  it('registers all three schemas in the system prompt assembly', async () => {
+  it('registers the bash schema with run_in_background exposed by default', async () => {
     const ctx = await setup()
-    const names = ctx.tools.schemas().map(schema => schema.name)
-    expect(names).toEqual(['bash', 'bash_output', 'bash_kill'])
-    const bashSchema = ctx.tools.schemas()[0]!
+    const schemas = ctx.tools.schemas()
+    expect(schemas.map(schema => schema.name)).toEqual(['bash'])
+    const bashSchema = schemas[0]!
     expect(bashSchema.parameters).toMatchObject({
       type: 'object',
       required: ['command', 'description'],
     })
+    expect(Object.keys(bashSchema.parameters.properties as Record<string, unknown>))
+      .toContain('run_in_background')
+    expect(bashSchema.description).toContain('task_output')
   })
 
   it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
@@ -275,7 +228,7 @@ describe('bash tool', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalBashExecutor, {})
     const fiber = await ctx.plugin(ToolBash)
-    expect(ctx.tools.schemas()).toHaveLength(3)
+    expect(ctx.tools.schemas()).toHaveLength(1)
     expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'tool:bash'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
@@ -292,348 +245,274 @@ describe('bash tool', () => {
     expect(ctx.tools.schemas()).toHaveLength(0)
     await ctx.plugin(LocalBashExecutor, {})
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(ctx.tools.schemas()).toHaveLength(3)
-  })
-})
-
-describe('background tools', () => {
-  it('bash with run_in_background returns a task id immediately', async () => {
-    const ctx = await setup()
-    const result = await call(ctx, 'bash', { command: 'sleep 0.2; echo bg-done', description: 'test command', run_in_background: true })
-    expect(result.isError).toBe(false)
-    expect(text(result)).toMatch(/^started background task bash-\d+$/)
+    expect(ctx.tools.schemas()).toHaveLength(1)
   })
 
-  it('bash_output polls incrementally and reports status', async () => {
-    const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'echo first; sleep 1; echo second', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-
-    const first = await callUntilText(ctx, 'bash_output', { task_id: id }, 'first')
-    expect(text(first)).toContain('first')
-    expect(text(first)).toContain('[status: running]')
-
-    await ctx.bash.get(id)!.done
-    const second = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(second)).toContain('second')
-    expect(text(second)).not.toContain('first')
-    expect(text(second)).toContain('[status: completed, exit code: 0]')
-
-    const third = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(third)).toContain('(no new output)')
-  })
-
-  it('bash_output flags lossy reads with spill paths', async () => {
+  it('applies the built-in background default when apply() receives a bare config', async () => {
+    // Bypasses the schemastery defaults on purpose: apply() must stand on its
+    // own `?? true` fallback when embedded programmatically without the schema.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
-    await ctx.plugin(ToolBash)
-
-    const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    await ctx.bash.get(id)!.done
-    const read = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(read)).toContain('[some output was dropped from memory; full output: ')
-  })
-
-  it('bash_output reports unavailable when a lossy read has no safe spill path', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LossyReadBashExecutor)
-    await ctx.plugin(ToolBash)
-
-    const read = await call(ctx, 'bash_output', { task_id: 'bash-lossy' })
-    expect(text(read)).toBe('tail\n[some output was dropped from memory; full output: (unavailable)]\n[status: running]')
-  })
-
-  it('bash_kill stops a running task; repeat reports already-finished', async () => {
-    const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-
-    const killed = await call(ctx, 'bash_kill', { task_id: id })
-    expect(text(killed)).toBe(`killed background task ${id}`)
-    await ctx.bash.get(id)!.done
-
-    const again = await call(ctx, 'bash_kill', { task_id: id })
-    expect(text(again)).toBe(`task ${id} had already finished`)
-
-    const status = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(status)).toContain('[status: killed by SIGTERM]')
-  })
-
-  it('unknown task ids are isError for both tools', async () => {
-    const ctx = await setup()
-    const read = await call(ctx, 'bash_output', { task_id: 'bash-999' })
-    expect(read.isError).toBe(true)
-    expect(text(read)).toMatch(/unknown bash task/)
-    const kill = await call(ctx, 'bash_kill', { task_id: 'bash-999' })
-    expect(kill.isError).toBe(true)
-  })
-
-  it.each([
-    ['bash_output', {}, /missing required property "task_id"/],
-    ['bash_output', { task_id: 9 }, /"task_id" must be a string/],
-    ['bash_kill', { task_id: '' }, /invalid task_id/],
-  ])('%s rejects invalid task_id %j', async (tool, args, pattern) => {
-    const ctx = await setup()
-    const result = await call(ctx, tool, args)
-    expect(result.isError).toBe(true)
-    expect(text(result)).toMatch(pattern)
-  })
-
-  it('injects a completion notice into the owning agent (found via the registry by session token)', async () => {
-    const ctx = await setup()
-    const inject = vi.fn()
-    // The notice path looks the agent up in ctx.agents by its session token, so
-    // the agent must be REGISTERED (not merely passed to execute). Mount a
-    // registry and register a fake whose session.header.id IS the owner token.
-    const agent = registerFakeAgent(ctx, 'bg', inject)
-
-    const started = await ctx.tools.execute({
-      callId: CallId('call-bg'),
-      name: 'bash',
-      arguments: { command: 'true', description: 'test command', run_in_background: true },
-      agent,
-    })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    await ctx.bash.get(id)!.done
-
-    expect(inject).toHaveBeenCalledTimes(1)
-    const [content, options] = inject.mock.calls[0] as [
-      { type: string; text: string }[],
-      { source: { kind: string; plugin: string } },
-    ]
-    expect(content[0]!.text).toContain(`background bash task ${id} finished`)
-    expect(content[0]!.text).toContain('bash_output')
-    expect(options.source).toEqual({ kind: 'plugin', plugin: 'tool-bash' })
-  })
-
-  it('swallows ONLY the disposed-agent inject error', async () => {
-    const ctx = await setup()
-    const agent = registerFakeAgent(ctx, 'bg', () => { throw new Error('agent "x" is disposed') })
-
-    const started = await ctx.tools.execute({
-      callId: CallId('call-bg2'),
-      name: 'bash',
-      arguments: { command: 'true', description: 'test command', run_in_background: true },
-      agent,
-    })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
-  })
-
-  it('rethrows a non-disposed inject failure (not blindly swallowed)', async () => {
-    const ctx = await setup()
-    // A real bug in inject (not the benign disposed race) must surface — the
-    // base-class notifier contains it (logs, does not reject task.done), but
-    // the listener itself must have thrown rather than silently eaten it.
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      const agent = registerFakeAgent(ctx, 'bg', () => { throw new Error('unexpected inject bug') })
-
-      const started = await ctx.tools.execute({
-        callId: CallId('call-bg3'),
-        name: 'bash',
-        arguments: { command: 'true', description: 'test command', run_in_background: true },
-        agent,
-      })
-      const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-      await ctx.bash.get(id)!.done
-      // notifyTaskDone caught and logged the rethrown error.
-      expect(errorSpy).toHaveBeenCalled()
-      const logged = errorSpy.mock.calls.flat().some(arg => arg instanceof Error && arg.message === 'unexpected inject bug')
-      expect(logged).toBe(true)
-    } finally {
-      errorSpy.mockRestore()
-    }
-  })
-
-  it('drops the notice cleanly when the owning agent is gone from the registry by completion', async () => {
-    // A bash task (owned by the host-scoped bash-local fiber) can OUTLIVE its
-    // per-session agent — e.g. the ACP session disconnects and its AgentHandle
-    // disposes while the background task is still running. The owner token is
-    // still on the task, but no live agent carries it anymore, so the registry
-    // lookup finds nothing and the notice is dropped (no throw).
-    const ctx = await setup()
-    const inject = vi.fn()
-    const agent = registerFakeAgent(ctx, 'bg', inject)
-    const started = await ctx.tools.execute({
-      callId: CallId('call-bg4'),
-      name: 'bash',
-      arguments: { command: 'true', description: 'test command', run_in_background: true },
-      agent,
-    })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    // Unregister the agent BEFORE the task completes (simulate disconnect).
-    unregisterFakeAgents(ctx)
-    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
-    expect(inject).not.toHaveBeenCalled()
-  })
-
-  it('does not notify when no agent owned the task', async () => {
-    const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
+    await ctx.plugin(LocalBashExecutor, {})
+    ToolBash.apply(ctx, {})
+    const schema = ctx.tools.schemas()[0]!
+    expect(Object.keys(schema.parameters.properties as Record<string, unknown>))
+      .toContain('run_in_background')
   })
 })
 
-describe('background task ownership (cross-session isolation)', () => {
-  /** Run a tool on behalf of a specific agent (sets exec.agent). */
-  function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, name: string, args: unknown) {
-    return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
-  }
-  // Ownership is by TOKEN (session.header.id), NOT agent object identity — so
-  // each agent needs a DISTINCT session id, else every fake yields the same
-  // token and the isolation tests pass for the wrong reason (all tasks owned by
-  // the same token). The impl reads `session.header.id`, so the fakes MUST carry
-  // it.
-  const fakeAgent = (sessionId: string) =>
-    ({ inject: () => undefined, session: { header: { version: 0, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+describe('background execution through the task runtime', () => {
+  it('run_in_background acks with the task id, readable through the REAL task_output tool', async () => {
+    const ctx = await setupWithTasks()
+    const started = await call(ctx, 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true })
+    expect(started.isError).toBe(false)
+    expect(text(started)).toBe('started background task bash-1')
 
-  it('rejects bash_output/bash_kill for a task owned by a DIFFERENT session token', async () => {
-    const ctx = await setup()
-    const a = fakeAgent('sess-a')
-    const b = fakeAgent('sess-b')
-    // Agent A starts a long-running background task.
-    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-
-    // Agent B (a different session token) cannot read or kill A's task.
-    const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
-    expect(readByB.isError).toBe(true)
-    expect(text(readByB)).toMatch(/belongs to another session/)
-    const killByB = await callAs(ctx, b, 'bash_kill', { task_id: id })
-    expect(killByB.isError).toBe(true)
-    expect(text(killByB)).toMatch(/belongs to another session/)
-
-    // The task is still running (B's kill did nothing) — A can still kill it.
-    const killByA = await callAs(ctx, a, 'bash_kill', { task_id: id })
-    expect(killByA.isError).toBe(false)
-    expect(text(killByA)).toBe(`killed background task ${id}`)
+    const read = await callUntilText(ctx, 'task_output', { task_id: 'bash-1' }, 'bg-ok')
+    expect(text(read)).toContain('bg-ok')
+    // A later read reports the terminal outcome in the generic status line.
+    const final = await callUntilText(ctx, 'task_output', { task_id: 'bash-1' }, '[status: completed, exit code: 0]')
+    expect(final.isError).toBe(false)
   })
 
-  it('a DIFFERENT Agent object with the SAME session token may access the task (ownership is by token, not object identity)', async () => {
-    // Ownership fences by session.header.id, NOT Agent object identity. Two
-    // distinct Agent objects sharing one session token (e.g. an agent re-created
-    // on the same session) are the SAME owner.
-    const ctx = await setup()
-    const a1 = fakeAgent('sess-shared')
-    const a2 = fakeAgent('sess-shared') // distinct object, same token
-    const started = await callAs(ctx, a1, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    const readByA2 = await callAs(ctx, a2, 'bash_output', { task_id: id })
-    expect(readByA2.isError).toBe(false)
-    await callAs(ctx, a1, 'bash_kill', { task_id: id }) // cleanup
+  it('a running background task is killable through the REAL task_kill tool', async () => {
+    const ctx = await setupWithTasks()
+    await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
+
+    const killed = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    expect(text(killed)).toBe('requested cancellation of task bash-1')
+    // The cancel reached the process handle; the task settles as killed with
+    // the signal detail mapped by processOutcome.
+    const final = await call(ctx, 'task_output', { task_id: 'bash-1', wait: true })
+    expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
   })
 
-  it('the no-agent (non-loop) caller cannot access an owned task', async () => {
-    const ctx = await setup()
-    const a = fakeAgent('sess-a')
-    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    // A call with no exec.agent has no token → cannot prove ownership of an owned task.
-    const read = await callAs(ctx, undefined, 'bash_output', { task_id: id })
-    expect(read.isError).toBe(true)
-    expect(text(read)).toMatch(/belongs to another session/)
-    await callAs(ctx, a, 'bash_kill', { task_id: id }) // cleanup
-  })
+  it('a background task started by an agent is registered with that agent as owner', async () => {
+    // The fence SEMANTICS are pinned in dsh-tasks; this only pins that
+    // tool-bash forwards exec.agent as the registration's owner.
+    const ctx = await setupWithTasks()
+    const agent = registerFakeAgent(ctx, 'sess-owner')
+    const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true }, agent)
+    expect(text(started)).toBe('started background task bash-1')
 
-  it('an UNOWNED task (started with no agent) is accessible to anyone', async () => {
-    const ctx = await setup()
-    // Started by a non-loop caller (no exec.agent) → no owner token recorded.
-    const started = await callAs(ctx, undefined, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    // Any agent (and the no-agent caller) may read/kill it.
-    const read = await callAs(ctx, fakeAgent('sess-x'), 'bash_output', { task_id: id })
-    expect(read.isError).toBe(false)
-    const killed = await callAs(ctx, undefined, 'bash_kill', { task_id: id })
+    const anon = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(anon.isError).toBe(true)
+    expect(text(anon)).toMatch(/belongs to another session/)
+
+    const killed = await call(ctx, 'task_kill', { task_id: 'bash-1' }, agent)
     expect(killed.isError).toBe(false)
+    await call(ctx, 'task_output', { task_id: 'bash-1', wait: true }, agent) // await settlement — no orphan
   })
 
-  it('the owner can still access its task AFTER it completes (owner token persists on the task)', async () => {
-    const ctx = await setup()
-    const a = fakeAgent('sess-a')
-    const b = fakeAgent('sess-b')
-    const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    await ctx.bash.get(id)!.done
-    // Completion does NOT clear ownership: B is still rejected, A still allowed.
-    const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
-    expect(readByB.isError).toBe(true)
-    expect(text(readByB)).toMatch(/belongs to another session/)
-    const readByA = await callAs(ctx, a, 'bash_output', { task_id: id })
-    expect(readByA.isError).toBe(false)
+  it('fails loud when the task runtime is not loaded', async () => {
+    const ctx = await setup() // no TaskService / ToolTasks
+    const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
   })
 
-  it('ownership SURVIVES an independent tool-bash HMR reload (token lives on the executor)', async () => {
-    // The owner token lives on the TASK inside the executor (dsh-bash fiber), NOT
-    // in a tool-bash plugin-local map. So reloading ONLY tool-bash (executor +
-    // task survive) preserves ownership. This is the regression guard: a
-    // plugin-local map would make B accessible after reload, and this test would
-    // catch it.
+  it('a pre-aborted call refuses to start: isError, no process spawned', async () => {
+    class CountingStartExecutor extends BashExecutor {
+      starts = 0
+      resolve(request: BashExecRequest): BashExecSpec {
+        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0 }
+      }
+      run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
+      start(spec: BashExecSpec): BashProcess {
+        this.starts += 1
+        return {
+          command: spec.command,
+          status: 'completed',
+          exitCode: 0,
+          signal: null,
+          done: Promise.resolve(),
+          readOutput: () => ({ delta: '', lossy: false }),
+          kill: () => false,
+        }
+      }
+    }
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
-    const fiber = await ctx.plugin(ToolBash)
-
-    const a = fakeAgent('sess-a')
-    const b = fakeAgent('sess-b')
-    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    // Before reload: B is rejected (A owns it).
-    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
-
-    // Reload ONLY tool-bash; the executor and its running task (with its owner
-    // token) survive.
-    await fiber.dispose()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TaskService)
+    await ctx.plugin(ToolTasks)
+    await ctx.plugin(CountingStartExecutor)
     await ctx.plugin(ToolBash)
-    expect(ctx.bash.get(id)?.status).toBe('running')
-    expect(ctx.bash.ownerOf(id)).toBe('sess-a')
 
-    // After reload, ownership is INTACT → B is STILL rejected.
-    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
-    await callAs(ctx, a, 'bash_kill', { task_id: id }) // cleanup
+    const controller = new AbortController()
+    controller.abort()
+    const result = await ctx.tools.execute({
+      callId: CallId('call-pre-aborted'),
+      name: 'bash',
+      arguments: { command: 'sleep 60', description: 'test command', run_in_background: true },
+      signal: controller.signal,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('command aborted')
+    expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
+  })
+
+  it('a failed registration kills the just-started process (no orphan without an id)', async () => {
+    class LeakProbeExecutor extends BashExecutor {
+      kills = 0
+      resolve(request: BashExecRequest): BashExecSpec {
+        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0 }
+      }
+
+      run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
+      start(spec: BashExecSpec): BashProcess {
+        let close!: () => void
+        const done = new Promise<void>((res) => { close = res })
+        const proc: BashProcess = {
+          command: spec.command,
+          status: 'running',
+          exitCode: null,
+          signal: null,
+          done,
+          readOutput: () => ({ delta: '', lossy: false }),
+          kill: () => {
+            this.kills += 1
+            proc.status = 'killed'
+            close()
+            return true
+          },
+        }
+        return proc
+      }
+    }
+    // TaskService WITHOUT any control surface: register() throws AFTER the
+    // process already started — the producer must kill and await it.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TaskService)
+    await ctx.plugin(LeakProbeExecutor)
+    await ctx.plugin(ToolBash)
+
+    const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no control surface is attached')
+    // The call resolved only after the kill landed (the catch awaits done).
+    expect((ctx.bash as LeakProbeExecutor).kills).toBe(1)
+  })
+
+  it('enableRunInBackground: false removes the parameter and flips the description', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalBashExecutor, {})
+    await ctx.plugin(ToolBash, { enableRunInBackground: false })
+
+    const schema = ctx.tools.schemas().find(s => s.name === 'bash')!
+    expect(Object.keys(schema.parameters.properties as Record<string, unknown>))
+      .toEqual(['command', 'description', 'timeoutMs', 'workdir'])
+    expect(schema.description).toContain('Background execution is not available')
+    expect(schema.description).not.toContain('run_in_background')
+    // The registry-held definition agrees (schema and capability never disagree).
+    const parameters = ctx.tools.get('bash')!.parameters as { properties: Record<string, unknown> }
+    expect('run_in_background' in parameters.properties).toBe(false)
+  })
+})
+
+describe('renderProcessRead', () => {
+  const base: BashProcessRead = { delta: 'out\n', lossy: false }
+
+  it('returns the delta verbatim for a lossless read', () => {
+    expect(renderProcessRead(base)).toBe('out\n')
+    expect(renderProcessRead({ delta: '', lossy: false })).toBe('')
+  })
+
+  it('appends the loss notice with the available spill paths', () => {
+    expect(renderProcessRead({ ...base, lossy: true, stdoutSpillPath: '/spill/out.log' }))
+      .toBe('out\n[some output was dropped from memory; full output: /spill/out.log]')
+    expect(renderProcessRead({ ...base, lossy: true, stdoutSpillPath: '/spill/out.log', stderrSpillPath: '/spill/err.log' }))
+      .toBe('out\n[some output was dropped from memory; full output: /spill/out.log, /spill/err.log]')
+  })
+
+  it('reports (unavailable) when a lossy read has no safe spill path', () => {
+    expect(renderProcessRead({ ...base, lossy: true }))
+      .toBe('out\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+
+  it('an empty lossy delta is the notice alone', () => {
+    expect(renderProcessRead({ delta: '', lossy: true, stderrSpillPath: '/spill/err.log' }))
+      .toBe('[some output was dropped from memory; full output: /spill/err.log]')
+  })
+
+  it('inserts the separating newline only when the delta lacks one', () => {
+    expect(renderProcessRead({ delta: 'tail', lossy: true }))
+      .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+    expect(renderProcessRead({ delta: 'tail\n', lossy: true }))
+      .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+})
+
+describe('processOutcome', () => {
+  function settled(over: Partial<BashProcess>): BashProcess {
+    return {
+      command: 'x',
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      readOutput: () => ({ delta: '', lossy: false }),
+      kill: () => false,
+      ...over,
+    }
+  }
+
+  it('maps a signal-killed process to killed with the signal detail', () => {
+    expect(processOutcome(settled({ status: 'killed', signal: 'SIGTERM' })))
+      .toEqual({ status: 'killed', detail: 'signal: SIGTERM' })
+  })
+
+  it('maps a killed process without a recorded signal (kill raced exit / spawn failure)', () => {
+    expect(processOutcome(settled({ status: 'killed', exitCode: null })))
+      .toEqual({ status: 'killed', detail: 'killed before exit' })
+  })
+
+  it('maps a completed process to its exit code', () => {
+    expect(processOutcome(settled({ exitCode: 3 })))
+      .toEqual({ status: 'completed', detail: 'exit code: 3' })
+  })
+
+  it('defensively reads a null exit code as 0 (handle shapes from other executors)', () => {
+    expect(processOutcome(settled({ exitCode: null })))
+      .toEqual({ status: 'completed', detail: 'exit code: 0' })
   })
 })
 
 describe('session-cwd routing (per-session workdir)', () => {
-  function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, args: unknown) {
-    return ctx.tools.execute({ callId: CallId(`cwd-${++callCounter}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
-  }
   // An agent whose session header carries a cwd (what session/new records).
   const agentInCwd = (cwd: string) =>
-    ({ inject: () => undefined, session: { header: { version: 0, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+    ({ inject: () => undefined, session: { header: { version: 0, id: 'c', createdAt: 0, cwd } } }) as unknown as Agent
 
   it('defaults bash to the agent\'s session cwd (not the server launch dir)', async () => {
     const ctx = await setup()
-    const result = await callAs(ctx, agentInCwd('/tmp'), { command: 'pwd', description: 'pwd' })
+    const result = await call(ctx, 'bash', { command: 'pwd', description: 'pwd' }, agentInCwd('/tmp'))
     expect(text(result).trim()).toMatch(/\/tmp$/)
   })
 
   it('an explicit absolute workdir overrides the session cwd', async () => {
     const ctx = await setup()
-    const result = await callAs(ctx, agentInCwd('/'), { command: 'pwd', description: 'pwd', workdir: '/tmp' })
+    const result = await call(ctx, 'bash', { command: 'pwd', description: 'pwd', workdir: '/tmp' }, agentInCwd('/'))
     expect(text(result).trim()).toMatch(/\/tmp$/)
   })
 
   it('a relative workdir is resolved against the session cwd', async () => {
     const ctx = await setup()
     // session cwd /usr + relative 'bin' → /usr/bin
-    const result = await callAs(ctx, agentInCwd('/usr'), { command: 'pwd', description: 'pwd', workdir: 'bin' })
+    const result = await call(ctx, 'bash', { command: 'pwd', description: 'pwd', workdir: 'bin' }, agentInCwd('/usr'))
     expect(text(result).trim()).toMatch(/\/usr\/bin$/)
   })
 
   it('two sessions with different cwds each run bash in their own dir', async () => {
     const ctx = await setup()
-    const inUsr = await callAs(ctx, agentInCwd('/usr'), { command: 'pwd', description: 'pwd' })
-    const inTmp = await callAs(ctx, agentInCwd('/tmp'), { command: 'pwd', description: 'pwd' })
+    const inUsr = await call(ctx, 'bash', { command: 'pwd', description: 'pwd' }, agentInCwd('/usr'))
+    const inTmp = await call(ctx, 'bash', { command: 'pwd', description: 'pwd' }, agentInCwd('/tmp'))
     expect(text(inUsr).trim()).toMatch(/\/usr$/)
     expect(text(inTmp).trim()).toMatch(/\/tmp$/)
   })
@@ -694,35 +573,6 @@ describe('renderResult', () => {
   it('notes truncation with a fallback when the spill path is missing', () => {
     expect(renderResult({ ...base, stdout: { text: 'tail', truncated: true } }))
       .toBe('tail\n[output truncated; full output: (unavailable)]')
-  })
-})
-
-describe('status lines', () => {
-  it('reports kills without a recorded signal (executor raced process exit)', async () => {
-    const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    const task = ctx.bash.get(id)!
-
-    await call(ctx, 'bash_kill', { task_id: id })
-    await task.done
-    // Simulate the variant where the close event carried no signal.
-    task.signal = null
-    const read = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(read)).toContain('[status: killed]')
-  })
-
-  it('reports completed tasks with a null exit code as exit 0', async () => {
-    const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
-    const task = ctx.bash.get(id)!
-    await task.done
-    // Defensive: completed tasks always carry an exit code in practice; the
-    // ?? 0 fallback covers task shapes from other executor implementations.
-    task.exitCode = null
-    const read = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(read)).toContain('[status: completed, exit code: 0]')
   })
 })
 
@@ -851,14 +701,6 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     })).toBeUndefined()
   })
 
-  it('bash_output / bash_kill presentCall: a readable task-scoped title, task id as rawInput', async () => {
-    const ctx = await setup()
-    expect(ctx.tools.get('bash_output')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ card: 'generic', title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
-    expect(ctx.tools.get('bash_kill')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ card: 'generic', title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
-  })
-
   it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
     const ctx = await setup()
     // defineTool wraps presentCall to soft-validate against the schema and fall
@@ -879,8 +721,8 @@ describe('the model-facing bash tool builds its request from named args only (no
    * future refactor that blindly forwards `...args` — which would silently thread
    * model input into the post-scrub `env` merge — NOT to defend a trust boundary
    * (the credential scrub in dsh-bash-local is the security control; see the
-   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()` is
-   * unused here.
+   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()`
+   * hands back an already-settled fake handle so the task registration completes.
    */
   class RecordingBashExecutor extends BashExecutor {
     readonly requests: BashExecRequest[] = []
@@ -893,7 +735,6 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
-        owner: request.owner,
       }
     }
     run(): Promise<BashRunResult> {
@@ -902,12 +743,17 @@ describe('the model-facing bash tool builds its request from named args only (no
         stdout: { text: 'ok', truncated: false }, stderr: { text: '', truncated: false },
       })
     }
-    start(): BashTask { throw new Error('unused') }
-    get(): BashTask | undefined { return undefined }
-    ownerOf(): OwnerToken | undefined { return undefined }
-    list(): BashTask[] { return [] }
-    readOutput(): BashTaskRead { throw new Error('unused') }
-    kill(): boolean { return false }
+    start(spec: BashExecSpec): BashProcess {
+      return {
+        command: spec.command,
+        status: 'completed',
+        exitCode: 0,
+        signal: null,
+        done: Promise.resolve(),
+        readOutput: () => ({ delta: '', lossy: false }),
+        kill: () => false,
+      }
+    }
   }
 
   async function setupRecording() {
@@ -915,6 +761,8 @@ describe('the model-facing bash tool builds its request from named args only (no
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TaskService)
+    await ctx.plugin(ToolTasks)
     await ctx.plugin(RecordingBashExecutor)
     await ctx.plugin(ToolBash)
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
@@ -947,9 +795,7 @@ describe('the model-facing bash tool builds its request from named args only (no
 
   it('a background bash call likewise carries no env/stdin', async () => {
     const { ctx, bash } = await setupRecording()
-    // start() throws in this recorder, but resolve() runs first and records the
-    // request — which is all this no-forward assertion needs.
-    await ctx.tools.execute({
+    const result = await ctx.tools.execute({
       callId: CallId('no-forward-2'),
       name: 'bash',
       arguments: {
@@ -960,13 +806,14 @@ describe('the model-facing bash tool builds its request from named args only (no
         stdin: 'x',
       },
     })
+    // The call really went down the background path (the recorder sees the real
+    // request the consumer built, so the absent env/stdin below is a real
+    // negative, not a recorder that drops everything).
+    expect(text(result)).toBe('started background task bash-1')
     expect(bash.requests).toHaveLength(1)
     const request = bash.requests[0]!
+    expect(request.command).toBe('sleep 1')
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
-    // The owner token IS set on a background call (the isolation fence) — proving
-    // the recorder sees the real request the consumer built, so the absent
-    // env/stdin above is a real negative, not a recorder that drops everything.
-    expect('owner' in request).toBe(true)
   })
 })

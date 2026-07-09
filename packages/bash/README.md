@@ -6,6 +6,6 @@ The canonical three-package capability seam (see [capability seams](../../docs/r
 |---|---|---|
 | `bash/` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
-| `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
+| `tool-bash/` | Model-facing `bash` tool schema | (registers on `ctx.tools`) |
 
-The interface lives at `bash/bash/`. A sandboxed executor would replace `bash-local` without touching the interface or the tool — the split is what makes that possible.
+The interface lives at `bash/bash/`. A sandboxed executor would replace `bash-local` without touching the interface or the tool — the split is what makes that possible. Background runs are generic tasks, not bash-private state: `tool-bash` registers a started `BashProcess` handle with the [`ctx.tasks` registry](../tasks/README.md), whose `task_*` tools collect and stop it.

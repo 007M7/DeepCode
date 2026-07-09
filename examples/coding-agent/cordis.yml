@@ -2,7 +2,8 @@
 # backends — the DeepSeek adapter and the local bash executor — plus `hmr` for
 # the dev/demo reload loop, then the stdio chat app (@deepseek-ai/dsh-stdio-
 # agent), which bundles the whole agent-core spine (timer, llm, sessions,
-# system-prompt, tools, agents, invariants, tool-bash, agent-loop), the console
+# system-prompt, tools, agents, tasks + the task_* control tools, invariants,
+# tool-bash, agent-loop), the console
 # logger, JSONL persistence, the readline UI, and a pre-created `main` agent.
 #
 # `hmr` is a leaf entry (not baked into dsh-stdio-agent): it is a Loader-only

@@ -88,6 +88,13 @@ export interface AgentHandle {
  * via {@link AgentRegistry.setFactory}. Kept on the `dsh-agent` interface so
  * consumers (e.g. the ACP bridge) program against `ctx.agents` without
  * depending on the concrete `dsh-agent-loop` package.
+ *
+ * Dispose contract: the handle's `dispose()` must, after draining the loop and
+ * BEFORE unregistering the agent, await
+ * {@link AgentRegistry.drainCleanups | ctx.agents.drainCleanups(agent.id)} —
+ * that is what makes {@link AgentRegistry.onCleanup} registrations an awaited
+ * quiescence guarantee for every plugin, whichever loop implementation is
+ * installed.
  */
 export interface AgentFactory {
   /**
@@ -117,6 +124,7 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
 export class AgentRegistry extends Service {
   private store = new Map<AgentId, Agent>()
   private factory: AgentFactory | undefined
+  private cleanups = new Map<AgentId, Set<() => Promise<void>>>()
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -215,6 +223,66 @@ export class AgentRegistry extends Service {
    */
   get(id: AgentId): Agent | undefined {
     return this.store.get(id)
+  }
+
+  /**
+   * Register an AWAITED per-agent cleanup: the agent's disposal chain runs it
+   * (via {@link drainCleanups}) after the loop has drained and before the agent
+   * unregisters, and `AgentHandle.dispose()` resolves only after it settles.
+   * This is the seam for resources that must not outlive their owning agent
+   * (e.g. `ctx.tasks` background tasks) — the `agent/disposed` EMIT cannot
+   * promise that, because emit listeners are not awaited. Throws for an agent
+   * id not currently registered: a cleanup attached to a dead agent would
+   * silently never run. Effect-scoped: disposed with the calling fiber.
+   * @param agentId - the LIVE agent whose disposal must await this cleanup.
+   * @param cleanup - awaited during disposal; a rejection is logged, never propagated.
+   * @returns the disposer that detaches the cleanup without running it.
+   */
+  onCleanup(agentId: AgentId, cleanup: () => Promise<void>): () => void {
+    const dispose = this.ctx.effect(() => {
+      if (!this.store.has(agentId)) {
+        throw new Error(`agent "${agentId}" is not registered (cleanup would never run)`)
+      }
+      let set = this.cleanups.get(agentId)
+      if (set === undefined) {
+        set = new Set()
+        this.cleanups.set(agentId, set)
+      }
+      set.add(cleanup)
+      return () => {
+        set.delete(cleanup)
+        // Guard the map removal with an identity check: after drainCleanups
+        // detached this set, the same id may map to a FRESH set (a cleanup
+        // registered mid-drain) that this stale disposer must not remove.
+        if (set.size === 0 && this.cleanups.get(agentId) === set) this.cleanups.delete(agentId)
+      }
+    }, 'agents.onCleanup()')
+    return () => void dispose()
+  }
+
+  /**
+   * Run and detach every cleanup registered for an agent (registration order,
+   * awaited sequentially, per-cleanup containment — a rejecting cleanup is
+   * logged and never starves the ones after it or the caller's disposal chain).
+   * For LIFECYCLE OWNERS ONLY: the agent factory's disposal chain calls this
+   * between loop drain and unregistration (part of the {@link AgentFactory}
+   * dispose contract); other plugins register via {@link onCleanup}, never
+   * drain. Loops until no cleanups remain, so one registered DURING the drain
+   * (from a settling task) still runs instead of leaking.
+   * @param agentId - the agent being disposed.
+   * @returns resolves when every registered cleanup has settled.
+   */
+  async drainCleanups(agentId: AgentId): Promise<void> {
+    for (let set = this.cleanups.get(agentId); set !== undefined; set = this.cleanups.get(agentId)) {
+      this.cleanups.delete(agentId)
+      for (const cleanup of set) {
+        try {
+          await cleanup()
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`agent "${agentId}": disposal cleanup threw: ${String(error)}`)
+        }
+      }
+    }
   }
 
   /**

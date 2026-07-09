@@ -15,9 +15,10 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-tool-bash` | `bash`, `bash_kill`, `bash_output` | `ctx.tools`, `ctx.bash` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam. |
+| `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.bash`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
+| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.register()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
@@ -25,7 +26,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 ### `bash`
 
-Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; poll it with `bash_output` and stop it with `bash_kill`.
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.
 
 ```json
 {
@@ -49,7 +50,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Run in the background and return a task id immediately. No timeout applies."
+      "description": "Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies."
     }
   },
   "required": [
@@ -61,49 +62,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
 
 Source: [`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts)
 
-### `bash_kill`
-
-Ask the executor to kill a running background bash task by task id.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "task_id": {
-      "type": "string",
-      "description": "Task id returned by the bash tool."
-    }
-  },
-  "required": [
-    "task_id"
-  ]
-}
-```
-
-Source: [`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts)
-
-### `bash_output`
-
-Read new output from a background bash task started with `bash` + `run_in_background`. Returns only output produced since the previous bash_output call, plus the task status. Tasks keep running while you do other work; poll again later for more output.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "task_id": {
-      "type": "string",
-      "description": "Task id returned by the bash tool."
-    }
-  },
-  "required": [
-    "task_id"
-  ]
-}
-```
-
-Source: [`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts)
-
-The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.
+The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -203,7 +162,7 @@ The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `
 
 ### `subagent`
 
-Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation.
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to get a task id immediately and keep working; collect the final answer with `task_output` (wait: true when you are blocked on it) and stop it with `task_kill`.
 
 ```json
 {
@@ -216,6 +175,10 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     "prompt": {
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Run the subagent as a background task and return a task id immediately (collect with task_output, stop with task_kill)."
     }
   },
   "required": [
@@ -228,6 +191,77 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
 Source: [`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
 The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.
+
+## `@deepseek-ai/dsh-tool-tasks`
+
+### `task_kill`
+
+Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task id returned by the tool that started the background work."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional short reason, recorded in the log and forwarded to the task."
+    }
+  },
+  "required": [
+    "task_id"
+  ]
+}
+```
+
+Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+
+### `task_list`
+
+List your background tasks (running and finished) with their ids, kinds, and statuses.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+
+### `task_output`
+
+Read output/status from a background task (started by a tool with `run_in_background`). Stream tasks (bash) return only output produced since your previous task_output call; final-output tasks (subagent) return the final answer once the task finishes. Every response ends with a [status: ...] line. Non-blocking by default; set `wait: true` to block until the task finishes (bounded by a capped timeout) when you are genuinely blocked on its result.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task id returned by the tool that started the background work."
+    },
+    "wait": {
+      "type": "boolean",
+      "description": "Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive."
+    },
+    "timeout_ms": {
+      "type": "number",
+      "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
+    }
+  },
+  "required": [
+    "task_id"
+  ]
+}
+```
+
+Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+
+The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.register()`.
 
 ## `@deepseek-ai/dsh-tool-todo`
 

@@ -274,11 +274,15 @@ export class AgentLoop extends Service implements AgentFactory {
    * chain — the runtime awaits each disposer's returned promise before the next:
    *
    *   yield session-detach   (disposed LAST  — detach onAppend + remove entry)
-   *   yield register         (disposed 2nd   — unregister)
+   *   yield register         (disposed 3rd   — unregister)
+   *   yield cleanup-drain    (disposed 2nd   — await ctx.agents.drainCleanups)
    *   yield stop-and-drain   (disposed FIRST — request loop stop, await agent.done)
    *
    * So on teardown: the loop is stopped and AWAITED to exit (its final
    * `session/flush` + `turn/end` fire through the still-attached `onAppend`),
+   * THEN the awaited per-agent cleanups drain (background tasks cancel and
+   * reach quiescence while the agent is STILL registered — a settling task's
+   * completion notice can still find it, and `agent/disposed` has not fired),
    * THEN the agent is unregistered, THEN the session is detached — capturing the
    * closing events before detach, whether the trigger is the handle's `dispose()`
    * OR a fiber unload. Rollback safety: each yield runs before the next mutation,
@@ -304,6 +308,11 @@ export class AgentLoop extends Service implements AgentFactory {
       yield this.ctx.sessions.enter(session)
       this.ctx.sessions.announce(session)
       yield this.ctx.agents.register(agent)
+      // Disposed 2nd (after stop-and-drain below, before unregister above):
+      // drain the awaited per-agent cleanups — the AgentFactory dispose
+      // contract that lets other plugins (ctx.tasks) tie resources to this
+      // agent's quiescence. drainCleanups contains rejections itself.
+      yield async () => { await this.ctx.agents.drainCleanups(agent.id) }
       // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
       // BEFORE the loop's first turn. Contained: a throwing listener is logged,
       // never aborts construction (no open turn to balance here).

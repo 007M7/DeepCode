@@ -243,7 +243,7 @@ A subagent run settled — emitted when SubagentRun.result resolves (any stop re
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:98`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:99`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -253,7 +253,7 @@ A provider became resolvable in the SubagentService registry. Consumers that der
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:73`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -263,7 +263,7 @@ A provider left the registry (its plugin's fiber was disposed — an unload or a
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:84`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -273,7 +273,7 @@ A subagent run started — emitted after the provider is resolved and its capabi
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:91`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

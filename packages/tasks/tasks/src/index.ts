@@ -1,0 +1,457 @@
+/**
+ * The background task registry (`ctx.tasks`): ONE home for the semantics every
+ * long-running tool needs — branded task ids, owner-scoped isolation, status
+ * snapshots, incremental/final output reads, cancellation, wait-for-terminal,
+ * completion listeners, and the awaited owner-cleanup path. Producers
+ * (`dsh-tool-bash` background commands, `dsh-tool-subagent` background
+ * delegations, future long-running tools) register running work via
+ * {@link TaskService.register} and keep their own execution concerns; the
+ * model-facing control surface (`@deepseek-ai/dsh-tool-tasks`) drives the
+ * generic read/list/kill/wait operations.
+ *
+ * A CONCRETE service, not an interface/implementation seam pair: there is one
+ * sensible in-process implementation today, and the capability-seam convention
+ * says not to split preemptively (see the background-task-runtime RFC).
+ *
+ * Cross-session isolation lives IN the registry: task ids are runtime-global
+ * and predictable (`bash-1`, `subagent-1`), so every read/kill/wait compares
+ * the task's owner session against the caller and rejects a foreign one —
+ * every surface gets the fence for free instead of re-implementing it.
+ *
+ * Task registrations are NOT effect-scoped to the registering fiber: a task
+ * belongs to its owning agent and producing backend, not to the tool plugin
+ * whose call started it, so an HMR reload of a producer or of the control
+ * surface never orphans or kills a running task. The registry's own disposal
+ * cancels every live task and awaits settlement — no orphans survive
+ * `fiber.dispose()`.
+ *
+ * @module @deepseek-ai/dsh-tasks
+ */
+
+import { Context, Service } from 'cordis'
+import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import { TaskId } from './types.ts'
+import type { TaskDoneListener, TaskOutcome, TaskRead, TaskRegistration, TaskSnapshot, TaskStatus } from './types.ts'
+
+export { TaskId } from './types.ts'
+export type {
+  TaskDoneListener,
+  TaskOutcome,
+  TaskRead,
+  TaskRegistration,
+  TaskSnapshot,
+  TaskStatus,
+} from './types.ts'
+
+declare module 'cordis' {
+  interface Context {
+    tasks: TaskService
+  }
+}
+
+/** The registry's mutable per-task record (never handed out — see {@link TaskService.snapshot}). */
+interface TrackedTask {
+  id: TaskId
+  kind: string
+  label: string
+  /** The owner's session id (`session.header.id`), or undefined for an unowned task. */
+  ownerSession: string | undefined
+  cancel: (reason?: string) => void
+  readOutput: (() => string) | undefined
+  status: TaskStatus
+  detail: string | undefined
+  output: string | undefined
+  startedAt: number
+  finishedAt: number | undefined
+  reported: boolean
+  /** Resolves once the terminal snapshot is recorded and listeners notified. */
+  settled: Promise<void>
+  /** Resolver for {@link settled} (called exactly once, by {@link TaskService.settle}). */
+  markSettled: () => void
+  /** Live {@link TaskService.wait} calls — a settlement with waiters marks the task reported. */
+  waiters: number
+}
+
+/** True for the three terminal {@link TaskStatus} values. */
+function isTerminal(status: TaskStatus): boolean {
+  return status === 'completed' || status === 'killed' || status === 'failed'
+}
+
+/**
+ * The `tasks` service: the runtime-global background task registry. See the
+ * module doc for the ownership, isolation, and lifecycle contracts.
+ */
+export class TaskService extends Service {
+  private store = new Map<TaskId, TrackedTask>()
+  private counters = new Map<string, number>()
+  private surfaces = new Set<symbol>()
+  private listeners = new Set<TaskDoneListener>()
+  private listenersClosed = false
+  /** Owner agents that already have this registry's cleanup attached. */
+  private ownerCleanups = new Set<AgentId>()
+  /**
+   * The service's OWN construction-time context, for work that outlives the
+   * calling fiber: detached settlement continuations (logging), and the
+   * owner-cleanup registration on `ctx.agents` (which must survive a producer
+   * plugin's HMR reload, unlike the caller-fiber-scoped effects in
+   * {@link onTaskDone}/{@link attachSurface}).
+   */
+  private readonly selfCtx: Context
+
+  constructor(ctx: Context) {
+    super(ctx, 'tasks')
+    this.selfCtx = ctx
+    ctx.effect(() => () => this.disposeAll(), 'tasks teardown')
+  }
+
+  /**
+   * Register running background work and receive its task id (`<kind>-N`,
+   * per-kind counter). The registry attaches ONE continuation to
+   * `registration.done` that records the terminal snapshot, notifies
+   * {@link onTaskDone} listeners, and releases waiters; an owned task also
+   * gets the owner's awaited disposal cleanup attached (once per owner agent)
+   * through `ctx.agents.onCleanup`. Throws when no control surface is
+   * attached ({@link attachSurface}) — a task the model could never read or
+   * stop must fail loud at the start, not dangle — and for an empty
+   * kind/label. ATOMIC: a throw mutates no registry state, so a producer can
+   * cancel its just-started work and rethrow without leaving a stored task
+   * behind.
+   * @param registration - the producer's task contract (see {@link TaskRegistration}).
+   * @returns the registry-issued task id.
+   */
+  register(registration: TaskRegistration): TaskId {
+    if (this.surfaces.size === 0) {
+      throw new Error('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
+    }
+    if (registration.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
+    if (registration.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
+    // EVERYTHING that can throw runs before any mutation (counter, store):
+    // a failed registration must leave the registry exactly as it was — no
+    // stored-but-unreturned task the producer could never read or kill.
+    if (registration.owner !== undefined) this.ensureOwnerCleanup(registration.owner)
+
+    const count = (this.counters.get(registration.kind) ?? 0) + 1
+    this.counters.set(registration.kind, count)
+    const id = TaskId(`${registration.kind}-${count}`)
+
+    let markSettled!: () => void
+    const settled = new Promise<void>((resolve) => { markSettled = resolve })
+    const task: TrackedTask = {
+      id,
+      kind: registration.kind,
+      label: registration.label,
+      ownerSession: registration.owner?.session.header.id,
+      cancel: registration.cancel.bind(registration),
+      readOutput: registration.readOutput?.bind(registration),
+      status: 'running',
+      detail: undefined,
+      output: undefined,
+      startedAt: Date.now(),
+      finishedAt: undefined,
+      reported: false,
+      settled,
+      markSettled,
+      waiters: 0,
+    }
+    this.store.set(id, task)
+
+    void registration.done.then(
+      (outcome) => { this.settle(task, outcome) },
+      (error: unknown) => {
+        // Producer contract violation (`done` must never reject) — contained
+        // as a failed outcome so waiters, cleanup, and disposal never hang.
+        this.selfCtx.logger.warn(`tasks: task ${task.id} 'done' rejected (producer contract violation): ${String(error)}`)
+        this.settle(task, { status: 'failed', detail: String(error) })
+      },
+    )
+    return id
+  }
+
+  /**
+   * The caller-VISIBLE tasks (owned by the caller's session, or unowned), in
+   * registration order. Never lists another session's tasks — a global
+   * listing would leak their labels across the isolation fence.
+   * @param caller - the reading agent; undefined (a non-agent caller) sees only unowned tasks.
+   * @returns fresh snapshots; mutating them does not affect the registry.
+   */
+  list(caller?: Agent): TaskSnapshot[] {
+    const session = caller?.session.header.id
+    return [...this.store.values()]
+      .filter(task => task.ownerSession === undefined || task.ownerSession === session)
+      .map(task => this.snapshot(task))
+  }
+
+  /**
+   * A non-consuming snapshot of one task — unlike {@link read}, never touches
+   * the stream cursor or the reported flag (the kill surface uses it to
+   * describe an already-terminal task WITHOUT eating a pending delta).
+   * Throws for an unknown id or a task owned by another session.
+   * @param id - the task to look up.
+   * @param caller - the reading agent, checked against the task's owner.
+   * @returns a fresh snapshot.
+   */
+  get(id: TaskId, caller?: Agent): TaskSnapshot {
+    const task = this.expect(id)
+    this.assertAccess(task, caller)
+    return this.snapshot(task)
+  }
+
+  /**
+   * Read a task's output. Stream kinds (registered with `readOutput`) yield
+   * the CONSUMING delta since the previous read — one cursor per task, the
+   * owning model is v1's single intended reader; final-output kinds yield
+   * empty text while live and the terminal output idempotently once settled.
+   * A read that returns the terminal state marks the task {@link TaskSnapshot.reported}.
+   * Throws for an unknown id or a task owned by another session.
+   * @param id - the task to read.
+   * @param caller - the reading agent, checked against the task's owner.
+   * @returns the read text plus the post-read snapshot.
+   */
+  read(id: TaskId, caller?: Agent): TaskRead {
+    const task = this.expect(id)
+    this.assertAccess(task, caller)
+    const text = task.readOutput !== undefined
+      ? task.readOutput()
+      : isTerminal(task.status) ? task.output ?? '' : ''
+    if (isTerminal(task.status)) task.reported = true
+    return { text, snapshot: this.snapshot(task) }
+  }
+
+  /**
+   * Request cancellation of a task. A live task has its producer
+   * `cancel(reason)` invoked FIRST — a throw propagates (fail loud) and
+   * leaves the task untouched (still `running`, notice not suppressed) —
+   * then moves to `stopping` and settles through the normal `done` path; an
+   * already-terminal task is reported, not failed. Every SUCCESSFUL kill
+   * marks the task {@link TaskSnapshot.reported}: the killer has seen (or
+   * asked for) the end, so the completion notice is suppressed. Throws for
+   * an unknown id or a task owned by another session.
+   * @param id - the task to cancel.
+   * @param caller - the killing agent, checked against the task's owner.
+   * @param reason - the surface's logged reason, forwarded to the producer.
+   * @returns 'requested' when cancellation was asked of a live task, 'already-terminal' otherwise.
+   */
+  kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal' {
+    const task = this.expect(id)
+    this.assertAccess(task, caller)
+    if (isTerminal(task.status)) {
+      task.reported = true
+      return 'already-terminal'
+    }
+    // Producer cancel FIRST: a throw must leave the task untouched (still
+    // `running`, notice not suppressed) — the killer's tool call fails loud,
+    // but task_list and the eventual completion notice keep telling the
+    // truth about a cancellation that never happened. Cancel is synchronous
+    // and settlement lands on a later microtask, so the mutations below
+    // cannot race the settle path.
+    task.cancel(reason)
+    task.status = 'stopping'
+    task.reported = true
+    return 'requested'
+  }
+
+  /**
+   * Wait for a task to settle, bounded by a timeout. Resolves with the
+   * terminal snapshot (marked {@link TaskSnapshot.reported} — the wait
+   * response reports the end, so the completion notice is suppressed), or
+   * with the still-live snapshot when the timeout expires first. An abort of
+   * `signal` rejects the WAIT only — the task keeps running. Throws for an
+   * unknown id, a task owned by another session, or a non-positive timeout.
+   * @param id - the task to wait for.
+   * @param timeoutMs - max wait in milliseconds (positive, finite; the surface caps it).
+   * @param caller - the waiting agent, checked against the task's owner.
+   * @param signal - optional abort for the wait itself.
+   * @returns the snapshot at settlement, or at timeout when the task outlives the wait.
+   */
+  async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot> {
+    const task = this.expect(id)
+    this.assertAccess(task, caller)
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`invalid wait timeout: expected a positive number of milliseconds, got ${JSON.stringify(timeoutMs)}`)
+    }
+    if (!isTerminal(task.status)) {
+      if (signal?.aborted) throw new Error('wait aborted')
+      task.waiters += 1
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const cleanup = (): void => {
+            clearTimeout(timer)
+            signal?.removeEventListener('abort', onAbort)
+          }
+          const timer = setTimeout(() => { cleanup(); resolve() }, timeoutMs)
+          const onAbort = (): void => { cleanup(); reject(new Error('wait aborted')) }
+          signal?.addEventListener('abort', onAbort, { once: true })
+          void task.settled.then(() => { cleanup(); resolve() })
+        })
+      } finally {
+        task.waiters -= 1
+      }
+    }
+    if (isTerminal(task.status)) task.reported = true
+    return this.snapshot(task)
+  }
+
+  /**
+   * Register a completion listener, called exactly once per task with the
+   * terminal snapshot. Effect-scoped (disposed with the calling fiber);
+   * per-listener containment (one throwing listener is logged, never starves
+   * the rest); never fires after this service is disposed.
+   * @param listener - called with each settling task's terminal snapshot.
+   * @returns the disposer that unregisters the listener.
+   */
+  onTaskDone(listener: TaskDoneListener): () => void {
+    const dispose = this.ctx.effect(() => {
+      this.listeners.add(listener)
+      return () => this.listeners.delete(listener)
+    }, 'tasks.onTaskDone()')
+    return () => void dispose()
+  }
+
+  /**
+   * Declare that a control surface capable of reading/stopping tasks is
+   * loaded. {@link register} refuses to start a background task while NO
+   * surface is attached — the loud fence against a deployment exposing
+   * `run_in_background` without any way to collect or stop the work. The
+   * model-facing `@deepseek-ai/dsh-tool-tasks` attaches on load; a deployment
+   * with a custom (non-model) surface attaches its own. Effect-scoped:
+   * detached with the calling fiber.
+   * @param name - a diagnostic label for the surface (duplicate names count independently).
+   * @returns the disposer that detaches the surface.
+   */
+  attachSurface(name: string): () => void {
+    // One token per attach call: duplicate names stay independent, and the
+    // single-shot effect disposer removes exactly its own attachment.
+    const token = Symbol(name)
+    const dispose = this.ctx.effect(() => {
+      this.surfaces.add(token)
+      return () => this.surfaces.delete(token)
+    }, 'tasks.attachSurface()')
+    return () => void dispose()
+  }
+
+  /** Look up a task or fail loud. */
+  private expect(id: TaskId): TrackedTask {
+    const task = this.store.get(id)
+    if (task === undefined) throw new Error(`unknown task ${id}`)
+    return task
+  }
+
+  /**
+   * The isolation fence: a task with an owner is reachable only by callers
+   * whose session id matches (`!== undefined` semantics — an unowned task is
+   * open, and a no-agent caller can never match an owned one).
+   */
+  private assertAccess(task: TrackedTask, caller?: Agent): void {
+    if (task.ownerSession !== undefined && task.ownerSession !== caller?.session.header.id) {
+      throw new Error(`task ${task.id} belongs to another session`)
+    }
+  }
+
+  /** Project a fresh read-only snapshot from the mutable record. */
+  private snapshot(task: TrackedTask): TaskSnapshot {
+    return {
+      id: task.id,
+      kind: task.kind,
+      label: task.label,
+      ...task.ownerSession !== undefined ? { ownerSession: task.ownerSession } : {},
+      status: task.status,
+      ...task.detail !== undefined ? { detail: task.detail } : {},
+      startedAt: task.startedAt,
+      ...task.finishedAt !== undefined ? { finishedAt: task.finishedAt } : {},
+      reported: task.reported,
+    }
+  }
+
+  /**
+   * Record a task's terminal outcome (called exactly once — the single `done`
+   * continuation is the only caller), notify listeners with containment, then
+   * release waiters. A settlement observed by a pending {@link wait} marks
+   * the task reported BEFORE listeners run, so the notice surface can
+   * suppress its redundant "finished".
+   */
+  private settle(task: TrackedTask, outcome: TaskOutcome): void {
+    task.status = outcome.status
+    task.detail = outcome.detail
+    task.output = outcome.output
+    task.finishedAt = Date.now()
+    if (task.waiters > 0) task.reported = true
+    if (!this.listenersClosed) {
+      const snapshot = this.snapshot(task)
+      for (const listener of this.listeners) {
+        try {
+          listener(snapshot)
+        } catch (error: unknown) {
+          this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
+        }
+      }
+    }
+    task.markSettled()
+  }
+
+  /**
+   * Attach the awaited owner-disposal cleanup for an owner agent, once: when
+   * the agent's disposal chain drains (`ctx.agents.drainCleanups`), the
+   * owner's still-live tasks are cancelled, awaited to settlement, and their
+   * snapshots dropped. Registered through {@link selfCtx} so the cleanup
+   * survives producer-plugin reloads. Fails loud when no agent registry is
+   * mounted — an owned background task without the cleanup seam would outlive
+   * its owner silently.
+   */
+  private ensureOwnerCleanup(owner: Agent): void {
+    if (this.ownerCleanups.has(owner.id)) return
+    const agents = this.selfCtx.get('agents')
+    if (agents === undefined) {
+      throw new Error('background task ownership requires the agent registry (load @deepseek-ai/dsh-agent)')
+    }
+    // Attach FIRST, record after: onCleanup throws for an unregistered agent,
+    // and marking the owner as covered before that would make every later
+    // registration for the same owner silently skip the cleanup.
+    agents.onCleanup(owner.id, async () => {
+      this.ownerCleanups.delete(owner.id)
+      await this.disposeOwned(owner.session.header.id)
+    })
+    this.ownerCleanups.add(owner.id)
+  }
+
+  /** Cancel (contained), await, and drop every task owned by one session. */
+  private async disposeOwned(ownerSession: string): Promise<void> {
+    const owned = [...this.store.values()].filter(task => task.ownerSession === ownerSession)
+    this.cancelForTeardown(owned, 'owner disposed')
+    await Promise.all(owned.map(task => task.settled))
+    for (const task of owned) this.store.delete(task.id)
+  }
+
+  /**
+   * Service teardown: close the listener registry FIRST (late completions
+   * from teardown kills stay silent), cancel every live task, and await
+   * quiescence. No orphan child work survives the tasks fiber.
+   */
+  private async disposeAll(): Promise<void> {
+    this.listenersClosed = true
+    this.listeners.clear()
+    const all = [...this.store.values()]
+    this.cancelForTeardown(all, 'tasks service disposed')
+    await Promise.all(all.map(task => task.settled))
+    this.store.clear()
+  }
+
+  /**
+   * Teardown-path cancellation with per-task containment: unlike the
+   * model-facing {@link kill} (where a throwing producer `cancel` should fail
+   * the tool call loudly), a teardown must reach quiescence past a broken
+   * producer, so a throw is logged and the sweep continues.
+   */
+  private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
+    for (const task of tasks) {
+      if (isTerminal(task.status)) continue
+      task.status = 'stopping'
+      try {
+        task.cancel(reason)
+      } catch (error: unknown) {
+        this.selfCtx.logger.warn(`tasks: cancel of ${task.id} threw during teardown: ${String(error)}`)
+      }
+    }
+  }
+}
+
+export default TaskService

@@ -4,7 +4,7 @@ The model-facing `subagent` tool: delegate a self-contained task to a child agen
 
 ## Provider selection is config, not model-facing
 
-This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
+This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt, run_in_background? }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
 
 ## The description states the provider's context contract
 
@@ -14,10 +14,13 @@ The tool description and the `prompt` parameter description are DERIVED from the
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
 | `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
+| `enableRunInBackground` | Expose `run_in_background` in this instance's schema (default `true`). Disabled, the parameter is absent entirely — delegation through this instance stays strictly synchronous. |
 | `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
 
-## Lifecycle (synchronous collect)
+## Foreground lifecycle (synchronous collect)
 
 `execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
 
-Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+## Background delegation (a generic task)
+
+`run_in_background: true` refuses an already-aborted `exec.signal`, starts the run, registers `{ kind: 'subagent', label: description, owner: parent, cancel, done }` with `ctx.tasks` (`@deepseek-ai/dsh-tasks`), and returns `started background subagent task <id>` — the parent keeps working and collects/stops the child through the generic `task_output`/`task_list`/`task_kill` tools (`@deepseek-ai/dsh-tool-tasks`). The tool-call signal is deliberately NOT wired to the run after the id is returned; cancellation belongs to `task_kill` (its logged `reason` is forwarded to `run.cancel`) and the runtime's owner-disposal cleanup. The task is final-output-only (no incremental transcript — the child session remains the detailed trace), and its `done` settles only after `run.dispose()` (child quiescence), so owner disposal cannot resolve before the child is actually gone. Mapping (exported for tests): `runOutcome` — `completed` carries the final text as the task output; `aborted` → `killed`; `error`/`max-tokens`/`refusal`/unknown → `failed` with the reason as status-line detail — and `settleRun`, which disposes on both result paths and contains an infrastructure rejection as `failed`. A missing `ctx.tasks` fails the call loud (`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks`). See the [background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md).

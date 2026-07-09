@@ -5,9 +5,13 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import TaskService from '@deepseek-ai/dsh-tasks'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as mock from '@deepseek-ai/dsh-subagent-mock'
 import * as tool from '../src/index.ts'
+import { runOutcome, settleRun } from '../src/index.ts'
 
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-subagent` on a real
@@ -60,12 +64,21 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toBe('child says hi')
   })
 
-  it('exposes only description + prompt to the model (no provider/type parameter)', async () => {
+  it('exposes description + prompt + run_in_background to the model (no provider/type parameter)', async () => {
     const ctx = await setup({ provider: 'mock' })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
+    expect(Object.keys(props).sort()).toEqual(['description', 'prompt', 'run_in_background'])
+    expect(schema!.description).toContain('task_output')
+  })
+
+  it('omits run_in_background entirely when the instance disables it (schema and capability never disagree)', async () => {
+    const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
+    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
+    const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props).sort()).toEqual(['description', 'prompt'])
+    expect(schema!.description).not.toContain('task_output')
   })
 
   it.each([
@@ -450,5 +463,182 @@ describe('dsh-tool-subagent', () => {
     expect(unwrapped.inject).toEqual(['tools', 'subagents'])
     expect(typeof unwrapped.apply).toBe('function')
     expect(unwrapped.Config).toBeDefined()
+  })
+})
+
+describe('dsh-tool-subagent background mode', () => {
+  /** A parent agent carrying a real session token, registered in ctx.agents (owner-cleanup wiring requires a live registry entry). */
+  function ownerAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
+    const agent = { id: AgentId(`agent-${sessionId}`), inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
+    ctx.agents.register(agent)
+    return agent
+  }
+
+  async function backgroundSetup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
+    const ctx = await setup(toolConfig, mockConfig)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TaskService)
+    await ctx.plugin(ToolTasks, {})
+    return ctx
+  }
+
+  it('returns a task id immediately and the answer is collected through task_output', async () => {
+    const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } }, { reply: 'background answer' })
+    const parent = ownerAgent(ctx, 'sess-parent')
+
+    const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
+    expect(start.isError).toBe(false)
+    expect(text(start)).toBe('started background subagent task subagent-1')
+
+    const collected = await ctx.tools.execute({
+      callId: CallId('collect-1'),
+      name: 'task_output',
+      arguments: { task_id: 'subagent-1', wait: true },
+      agent: parent,
+    })
+    expect(text(collected)).toBe('background answer\n[status: completed]')
+
+    // Final-output reads are idempotent (not consumed).
+    const again = await ctx.tools.execute({
+      callId: CallId('collect-2'),
+      name: 'task_output',
+      arguments: { task_id: 'subagent-1' },
+      agent: parent,
+    })
+    expect(text(again)).toBe('background answer\n[status: completed]')
+  })
+
+  it('fails loud when the tasks runtime is not loaded', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks')
+  })
+
+  it('refuses to start when the tool signal is already aborted', async () => {
+    const ctx = await backgroundSetup({ provider: 'mock' })
+    const parent = ownerAgent(ctx, 'sess-parent')
+    const controller = new AbortController()
+    controller.abort()
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('subagent delegation aborted')
+  })
+
+  it('forwards task_kill reasons to run.cancel (and defaults one when absent)', async () => {
+    // A provider whose runs settle only on cancel — the mock settles on a
+    // microtask, too fast to observe a LIVE kill through the real tools.
+    const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } })
+    const parent = ownerAgent(ctx, 'sess-parent')
+    const cancels: (string | undefined)[] = []
+    ctx.subagents.registerProvider({
+      name: 'hanging',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
+      start: () => {
+        let settle!: (value: { output: { type: 'text'; text: string }[]; stopReason: 'aborted' }) => void
+        return {
+          id: AgentId(`hang-${cancels.length}`),
+          result: new Promise((res) => { settle = res }),
+          cancel(reason?: string) { cancels.push(reason); settle({ output: [], stopReason: 'aborted' }) },
+          dispose: () => Promise.resolve(),
+        }
+      },
+    })
+    // Direct apply (schema bypass): schemastery would default agentOptions to
+    // an (truthy) empty object — the raw config exercises the omitted branch
+    // on the background start request.
+    tool.apply(ctx, { provider: 'hanging', toolName: 'subagent_hang' })
+
+    const startOne = await ctx.tools.execute({ callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', run_in_background: true }, agent: parent })
+    const startTwo = await ctx.tools.execute({ callId: CallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', run_in_background: true }, agent: parent })
+    expect(text(startOne)).toBe('started background subagent task subagent-1')
+    expect(text(startTwo)).toBe('started background subagent task subagent-2')
+
+    const withReason = await ctx.tools.execute({ callId: CallId('k1'), name: 'task_kill', arguments: { task_id: 'subagent-1', reason: 'superseded' }, agent: parent })
+    const withoutReason = await ctx.tools.execute({ callId: CallId('k2'), name: 'task_kill', arguments: { task_id: 'subagent-2' }, agent: parent })
+    expect(text(withReason)).toBe('requested cancellation of task subagent-1')
+    expect(text(withoutReason)).toBe('requested cancellation of task subagent-2')
+    expect(cancels).toEqual(['superseded', 'background subagent task killed'])
+
+    // The aborted children settle as killed tasks.
+    const killed = await ctx.tools.execute({ callId: CallId('w1'), name: 'task_output', arguments: { task_id: 'subagent-1', wait: true }, agent: parent })
+    expect(text(killed)).toBe('(no new output)\n[status: killed]')
+  })
+
+  it('runOutcome maps the stop-reason vocabulary onto task outcomes', () => {
+    const output = [{ type: 'text' as const, text: 'partial' }]
+    expect(runOutcome({ output, stopReason: 'completed' })).toEqual({ status: 'completed', output: 'partial' })
+    expect(runOutcome({ output, stopReason: 'aborted' })).toEqual({ status: 'killed' })
+    expect(runOutcome({ output, stopReason: 'error' })).toEqual({ status: 'failed', detail: 'error' })
+    expect(runOutcome({ output, stopReason: 'max-tokens' })).toEqual({ status: 'failed', detail: 'max-tokens' })
+    expect(runOutcome({ output, stopReason: 'refusal' })).toEqual({ status: 'failed', detail: 'refusal' })
+    // Merge-extensible: an unknown reason is failed-with-detail, never success.
+    expect(runOutcome({ output, stopReason: 'paused' as never })).toEqual({ status: 'failed', detail: 'paused' })
+  })
+
+  it('settleRun disposes the run before reporting, on both result paths', async () => {
+    const order: string[] = []
+    const completed = await settleRun({
+      id: AgentId('child-1'),
+      result: Promise.resolve({ output: [{ type: 'text' as const, text: 'ok' }], stopReason: 'completed' as const }),
+      cancel() {},
+      dispose() { order.push('dispose'); return Promise.resolve() },
+    })
+    order.push('reported')
+    expect(completed).toEqual({ status: 'completed', output: 'ok' })
+    expect(order).toEqual(['dispose', 'reported'])
+
+    // An infrastructure rejection still disposes and reports failed.
+    let disposed = false
+    const failed = await settleRun({
+      id: AgentId('child-2'),
+      result: Promise.reject(new Error('transport gone')),
+      cancel() {},
+      dispose() { disposed = true; return Promise.resolve() },
+    })
+    expect(failed).toEqual({ status: 'failed', detail: 'Error: transport gone' })
+    expect(disposed).toBe(true)
+  })
+})
+
+describe('background registration failure (no orphaned child)', () => {
+  it('cancels and disposes the just-started run when register() throws', async () => {
+    // TaskService is loaded but NO control surface is attached, so
+    // ctx.tasks.register throws AFTER the provider run already started.
+    const ctx = await setup({ provider: 'mock' })
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TaskService)
+    const parent = { id: AgentId('agent-sess-p'), inject: () => {}, session: { header: { version: 0, id: 'sess-p', createdAt: 0 } } } as unknown as Agent
+    ctx.agents.register(parent)
+
+    const events: string[] = []
+    ctx.subagents.registerProvider({
+      name: 'probe',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
+      start: () => {
+        let settle!: (value: { output: never[]; stopReason: 'aborted' }) => void
+        return {
+          id: AgentId('probe-child'),
+          result: new Promise((res) => { settle = res }),
+          cancel(reason?: string) { events.push(`cancel:${reason}`); settle({ output: [], stopReason: 'aborted' }) },
+          dispose() { events.push('dispose'); return Promise.resolve() },
+        }
+      },
+    })
+    tool.apply(ctx, { provider: 'probe', toolName: 'subagent_probe' })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('probe-1'),
+      name: 'subagent_probe',
+      arguments: { description: 'd', prompt: 'p', run_in_background: true },
+      agent: parent,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no control surface is attached')
+    // The child was cancelled AND disposed before the call settled — the
+    // model never got an id, so nothing else could ever collect or kill it.
+    expect(events).toEqual(['cancel:background task registration failed', 'dispose'])
   })
 })

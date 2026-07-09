@@ -6,4 +6,4 @@ Zero-dependency primitives shared across the other groups. A package lands here 
 |---|---|
 | `brand/` | The type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) |
 
-`dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-bash`'s `BashTaskId`/`OwnerToken`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.
+`dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-tasks`'s `TaskId`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.

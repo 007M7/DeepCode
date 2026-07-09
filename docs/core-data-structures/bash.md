@@ -1,6 +1,6 @@
 # Bash Executor
 
-The bash execution seam — the canonical [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) example, split across three packages: interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementation ([dsh-bash-local](../../packages/bash/bash-local), local subprocesses), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash`/`bash_output`/`bash_kill` tool schemas). Bash is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A sandboxed, containerized, or remote backend is a sibling package implementing the same interface.
+The bash execution seam — the canonical [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) example, split across three packages: interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementation ([dsh-bash-local](../../packages/bash/bash-local), local subprocesses), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` tool schema). Bash is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A sandboxed, containerized, or remote backend is a sibling package implementing the same interface.
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -35,15 +35,6 @@ interface BashExecRequest {
    * uses shell syntax like `FOO=bar cmd`).
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
-   */
-  owner?: OwnerToken | undefined
 }
 ```
 
@@ -56,10 +47,10 @@ interface BashExecSpec {
   signal?: AbortSignal | undefined
   /**
    * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
+   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec:
+   * it has no config default, so a missing one means "no stdin" — the safe,
+   * ordinary case — not a silent footgun, so it stays a plain optional rather
+   * than required-but-nullable (see the request field).
    */
   stdin?: string | undefined
   /**
@@ -70,23 +61,12 @@ interface BashExecSpec {
    * config default, absent means "no extra env".
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
-   */
-  owner: OwnerToken | undefined
 }
 ```
 
-The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
+The seam is deliberately **task-free**: no task ids, no owner tokens, no polling protocol. Background-task semantics (ids, cross-session isolation, collect/stop tools, completion notices) live in the generic `ctx.tasks` runtime ([dsh-tasks](../../packages/tasks/tasks)); the tool layer adapts a `BashProcess` handle into a task registration, so a sandboxed or remote executor inherits no session or registry dependency.
 
-`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
-
-Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
+`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
 ## Foreground runs: `BashRunResult`
 
@@ -122,29 +102,40 @@ interface CollectedOutput {
 }
 ```
 
-## Background tasks: `BashTask`
+## Background processes: `BashProcess`
 
-A long-running command started with `start()` is tracked as a `BashTask`. `BashTaskStatus` is `'running' | 'completed' | 'killed'`; `done` resolves when the underlying process closes and never rejects.
+A long-running command started with `start()` returns a `BashProcess` **handle** — the only access path (no executor-level id lookup). `BashProcessStatus` is `'running' | 'completed' | 'killed'`; `done` resolves when the underlying process closes and never rejects (a spawn failure settles as `killed` with the error readable on stderr). Reads stay valid after exit: the remaining buffered output is still consumable through the handle.
 
 ```ts type-equiv
-interface BashTask {
-  readonly id: BashTaskId
+interface BashProcess {
+  /** The command line this process runs. */
   readonly command: string
-  status: BashTaskStatus
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
   readonly done: Promise<void>
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
 }
 ```
 
-`readOutput()` returns an incremental `BashTaskRead` — the output produced since the previous read, with a `lossy` flag when truncation dropped unread bytes:
+`readOutput()` returns an incremental `BashProcessRead` — the output produced since the previous read, with a `lossy` flag when truncation dropped unread bytes:
 
 ```ts type-equiv
-interface BashTaskRead {
-  task: BashTask
+interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -158,4 +149,4 @@ interface BashTaskRead {
 
 ## The service
 
-`BashExecutor` (`ctx.bash`, abstract — defined in [`packages/bash/bash/src/index.ts`](../../packages/bash/bash/src/index.ts)) mirrors the `LlmService`/`LlmAdapter` split: `resolve` (request → spec), `run` (foreground), `start` (background), `get`/`ownerOf`/`list`/`readOutput`/`kill`, and `onTaskDone` (a `BashTaskListener` completion callback). Spawned commands get a **scrubbed env** (dropping `*KEY*`/`*SECRET*`/`*TOKEN*`) and spill files use a private 0700 dir with random names and owner-only opens — model output never gets the ambient environment or a predictable path. The implementation that provides all this is `dsh-bash-local`; the model-facing `bash`/`bash_output`/`bash_kill` schemas that call it are in `dsh-tool-bash` (and present as terminals via the [tool-presentation vocabulary](tools.md#tool-presentation-ui-vocabulary)).
+`BashExecutor` (`ctx.bash`, abstract — defined in [`packages/bash/bash/src/index.ts`](../../packages/bash/bash/src/index.ts)) mirrors the `LlmService`/`LlmAdapter` split and is exactly three methods: `resolve` (request → spec), `run` (foreground), `start` (background, returning the `BashProcess` handle). Spawned commands get a **scrubbed env** (dropping `*KEY*`/`*SECRET*`/`*TOKEN*`) and spill files use a private 0700 dir with random names and owner-only opens — model output never gets the ambient environment or a predictable path. The implementation that provides all this is `dsh-bash-local`; the model-facing `bash` schema that calls it is in `dsh-tool-bash` (background runs register with [`ctx.tasks`](../../packages/tasks/README.md) and are collected via the generic `task_output`/`task_kill`), presenting as terminals via the [tool-presentation vocabulary](tools.md#tool-presentation-ui-vocabulary).

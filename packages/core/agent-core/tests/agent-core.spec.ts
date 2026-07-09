@@ -81,7 +81,9 @@ describe('dsh-agent-core bundle', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    // The rest-slot is lexicographic: the bundle's own task control tools
+    // (tool-tasks needs no executor, unlike the pending bash tool) follow alpha.
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'task_kill', 'task_list', 'task_output'])
     await ctx.fiber.dispose()
   })
 

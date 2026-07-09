@@ -14,11 +14,12 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Scope (first cut): the consumer collects synchronously — it starts a run and
- * awaits {@link SubagentRun.result}. Steering ({@link SubagentRun.sendMessage})
- * is part of the contract but intentionally unused; background / poll / spill
- * semantics are deferred to a future redesign that unifies long-running-tool
- * handling across subagents and bash.
+ * Scope: the seam stays collection-agnostic — a run is started and its
+ * `result` awaited, whether the consumer blocks on it (foreground) or
+ * registers it as a `ctx.tasks` background task (the generic runtime owns
+ * ids/polling/stop; this seam gains nothing task-shaped). Steering
+ * ({@link SubagentRun.sendMessage}) is part of the contract but intentionally
+ * unused.
  *
  * The `subagent/start` / `subagent/end` lifecycle events carry an OBSERVE-ONLY
  * payload; `subagent/end` additionally carries the child's `lastAssistantMessage`
@@ -26,8 +27,8 @@
  * FIXME(subagent-continuation): a control-flow `subagent/end` (an awaited
  * waterfall returning a stop/continue decision, like the other interception
  * seams) would require reshaping this emit into a waterfall, awaiting listeners
- * before settling, and a `resume` capability on the in-process provider — part
- * of the deferred background/steering redesign, NOT this observe-only cut.
+ * before settling, and a `resume` capability on the in-process provider — a
+ * deliberate deferral, NOT part of this observe-only cut.
  *
  * @module @deepseek-ai/dsh-subagent
  */

@@ -38,6 +38,6 @@ The service also announces provider lifecycle: `subagent/provider-added` (the li
 
 ## Scope (first cut)
 
-The consumer collects **synchronously**: it starts a run and awaits `result`. Steering (`sendMessage`) is part of the contract but intentionally unused. Background / poll / spill semantics are deferred to a future redesign unifying long-running-tool handling across subagents and bash. See the RFC: [docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
+The consumer collects **synchronously by default**: it starts a run and awaits `result`. Background delegation does not change this seam — the consumer registers the run with the generic `ctx.tasks` runtime and the run is collected through the shared task tools ([the background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md)). Steering (`sendMessage`) is part of the contract but intentionally unused. See the seam RFC: [docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
 
 See `src/types.ts` for the full contracts.

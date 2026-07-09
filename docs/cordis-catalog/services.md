@@ -33,12 +33,14 @@ create(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
 get(id: AgentId): Agent | undefined
+onCleanup(agentId: AgentId, cleanup: () => Promise<void>): () => void
+async drainCleanups(agentId: AgentId): Promise<void>
 list(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:124`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -47,25 +49,19 @@ Abstract bash execution service. Subclass, implement the abstract methods, and l
 Semantics every implementation must honor:
 
 - run REJECTS only for infrastructure failures (unusable workdir, missing shell, pre-aborted signal). Nonzero exits, timeout kills, and abort kills RESOLVE with a descriptive BashRunResult — reporting a failed command is the tool layer's job, not an exception.
-- start returns immediately; no timeout applies to background tasks (callers stop them via kill or the spec's AbortSignal). Completion must fire the onTaskDone listeners exactly once per task, and must NOT fire after the service is disposed.
-- readOutput is incremental: consecutive reads never re-deliver output. Implementations bound their buffers; reads that lost data flag `lossy` and point at full-stream spill files when available.
-- Disposal kills every running task and awaits their exit (no orphan processes survive `fiber.dispose()`).
+- start returns immediately; no timeout applies to background processes (callers stop them via BashProcess.kill or the spec's AbortSignal). The handle's `done` settles at process close and never rejects (a spawn failure settles as `killed` with the error readable on stderr).
+- BashProcess.readOutput is incremental: consecutive reads never re-deliver output. Implementations bound their buffers; reads that lost data flag `lossy` and point at full-stream spill files when available.
+- Disposal kills every running background process and awaits their exit (no orphan processes survive `fiber.dispose()`).
 
 ```ts cordis-catalog
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
-abstract start(spec: BashExecSpec): BashTask
-abstract get(id: BashTaskId): BashTask | undefined
-abstract ownerOf(id: BashTaskId): OwnerToken | undefined
-abstract list(): BashTask[]
-abstract readOutput(id: BashTaskId): BashTaskRead
-abstract kill(id: BashTaskId): boolean
-onTaskDone(listener: BashTaskListener): () => void
+abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:65`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -196,7 +192,7 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:144`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:145`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -210,6 +206,25 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
 Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
+
+## `ctx.tasks` — `TaskService`
+
+The `tasks` service: the runtime-global background task registry. See the module doc for the ownership, isolation, and lifecycle contracts.
+
+```ts cordis-catalog
+register(registration: TaskRegistration): TaskId
+list(caller?: Agent): TaskSnapshot[]
+get(id: TaskId, caller?: Agent): TaskSnapshot
+read(id: TaskId, caller?: Agent): TaskRead
+kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal'
+async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
+onTaskDone(listener: TaskDoneListener): () => void
+attachSurface(name: string): () => void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/tasks/tasks/src/index.ts:84`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

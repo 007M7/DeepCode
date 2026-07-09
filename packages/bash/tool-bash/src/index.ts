@@ -1,34 +1,22 @@
 /**
- * The model-facing bash tools: `bash`, `bash_output`, `bash_kill`. Pure
- * schema + text shaping — every process concern lives behind the `ctx.bash`
- * executor seam (`@deepseek-ai/dsh-bash`), so sandbox/permission/remote
- * executor implementations swap in without touching what the model sees.
+ * The model-facing `bash` tool. Pure schema + text shaping — every process
+ * concern lives behind the `ctx.bash` executor seam (`@deepseek-ai/dsh-bash`),
+ * so sandbox/permission/remote executor implementations swap in without
+ * touching what the model sees.
  *
- * Background notifications: when a background task completes, a short notice
- * is injected into the owning agent's session (`agent.inject()` — the
- * documented context seam). Injection is durable context for the NEXT model
- * request, not a wake-up: an idle agent stays idle until something sends a
- * message, which is why the tool descriptions tell the model to poll with
- * `bash_output`.
+ * Background runs are TASKS, not bash-private state: `run_in_background`
+ * starts a process through the seam and registers its handle with the generic
+ * `ctx.tasks` runtime (`@deepseek-ai/dsh-tasks`), which owns the id, the
+ * owner fence, the completion notice, and the model-facing collect/stop
+ * tools (`task_output`/`task_list`/`task_kill` from
+ * `@deepseek-ai/dsh-tool-tasks`). Whether the parameter is exposed at all is
+ * THIS plugin's `enableRunInBackground` config (default on) — the registry
+ * never rewrites a producer's schema.
  *
- * Task ownership: a background task's OWNER is an opaque token — the owning
- * agent's `session.header.id` — passed to the executor at spawn
- * (`resolve({ …, owner })`) and stored ON THE TASK inside the executor
- * (`@deepseek-ai/dsh-bash`'s `ownerOf(id)` seam), NOT in a plugin-local map.
- * `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token
- * and reject a task owned by a DIFFERENT session (`owner !== undefined && owner
- * !== caller`); an unowned task (no token — started by a non-agent caller) is
- * open to anyone. Task ids are global and predictable (`bash-1`, …); under
- * multi-session ACP (RFC 011) this token check is the fence that stops one
- * session's agent from reading or killing another session's background task.
- *
- * Storing the token on the task in the EXECUTOR (disposed with the `dsh-bash`
- * fiber), rather than in this plugin, is what makes ownership survive a
- * `tool-bash` HMR reload — a reload that reset a plugin-local map would orphan
- * a task spawned before it. (The `onTaskDone` listener is still effect-scoped
- * to this plugin's `apply`, so a
- * completion landing during the reload gap still drops its one notice — the
- * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
+ * The tool-call abort signal is deliberately NOT wired to a background
+ * process: after the task id is returned the parent step may end while the
+ * work continues; cancellation belongs to `task_kill` and the owner-disposal
+ * cleanup. A signal already aborted before the call refuses to start.
  *
  * TODO(permissions): commands run with the executor's full authority. The
  * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
@@ -39,16 +27,32 @@
  */
 
 import type { Context } from 'cordis'
+import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
-import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type {} from '@deepseek-ai/dsh-tasks'
+import type { BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
+
+/** Config: whether the model may background commands (the producer-opt-in flag). */
+export interface Config {
+  /**
+   * Expose `run_in_background` in the bash schema (default true). Disabled,
+   * the parameter is absent entirely — schema and capability never disagree.
+   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
+   * one fails the call loud with the load-these-packages message.
+   */
+  enableRunInBackground?: boolean
+}
+
+export const Config: z<Config> = z.object({
+  enableRunInBackground: z.boolean().default(true),
+})
 
 /**
  * Validate the constraints the SchemaSpec can't express. `defineTool` now
@@ -74,18 +78,6 @@ function validateBashArgs(args: {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-}
-
-/**
- * Reject an empty `task_id`. Type and presence are guaranteed by the
- * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
- * DSL can't express, is left to check here.
- */
-function validateTaskId(value: string): BashTaskId {
-  if (value.length === 0) {
-    throw new Error(`invalid task_id: expected a string, got ${JSON.stringify(value)}`)
-  }
-  return BashTaskId(value)
 }
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
@@ -131,6 +123,39 @@ export function renderResult(result: BashRunResult): string {
   return body + markers.join('\n')
 }
 
+/**
+ * Shape one background-process read into the `task_output` delta the model
+ * sees: the incremental delta, plus the lossy-read notice (with full-stream
+ * spill paths) when in-memory truncation dropped unread bytes. Empty-delta
+ * rendering (`(no new output)`) is the control surface's job, not this
+ * producer's. Exported for tests.
+ * @param read - one incremental read from the process handle.
+ * @returns the delta text with any loss notice appended.
+ */
+export function renderProcessRead(read: BashProcessRead): string {
+  if (!read.lossy) return read.delta
+  const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
+  const notice = `[some output was dropped from memory; full output: ${paths.length > 0 ? paths.join(', ') : '(unavailable)'}]`
+  if (read.delta.length === 0) return notice
+  return `${read.delta}${read.delta.endsWith('\n') ? '' : '\n'}${notice}`
+}
+
+/**
+ * Map a settled background process onto the generic task-outcome vocabulary:
+ * `killed` stays `killed` (detail: the signal when one is known), everything
+ * else is `completed` with the exit code as detail — a nonzero exit is
+ * REPORTED, not failed, exactly like the foreground rendering. Exported for
+ * tests.
+ * @param proc - the settled process handle.
+ * @returns the outcome for the `ctx.tasks` registration.
+ */
+export function processOutcome(proc: BashProcess): { status: 'completed' | 'killed'; detail: string } {
+  if (proc.status === 'killed') {
+    return { status: 'killed', detail: proc.signal !== null ? `signal: ${proc.signal}` : 'killed before exit' }
+  }
+  return { status: 'completed', detail: `exit code: ${proc.exitCode ?? 0}` }
+}
+
 // ---------------------------------------------------------------------------
 // UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
 // renders a bash call's pending and completed states. They are display-only and
@@ -153,7 +178,7 @@ export function renderResult(result: BashRunResult): string {
  * `terminal` marks the call so a capable UI renders a TERMINAL card — but ONLY a
  * FOREGROUND run is a terminal: a `run_in_background` call returns a task id
  * immediately (it never streams a terminal; its output is polled via
- * `bash_output`), so it is NOT marked terminal and renders as an ordinary
+ * `task_output`), so it is NOT marked terminal and renders as an ordinary
  * execute card. For a foreground run the `terminal.cwd` (header) is the model
  * `workdir` when given — ABSOLUTE as-is, RELATIVE for the UI bridge to resolve
  * against the session cwd; when omitted the bridge fills the session workspace
@@ -253,11 +278,6 @@ function parseExitStatus(text: string): { exitCode: number } | { signal: string 
   return { exitCode: 0 }
 }
 
-/** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */
-function presentTaskCall(verb: string, args: { task_id: string }): GenericCallView {
-  return { card: 'generic', title: `${verb} background task ${args.task_id}`, kind: 'execute', rawInput: args.task_id }
-}
-
 /**
  * Resolve the working directory for a bash call. Precedence: an explicit model
  * `workdir` wins; otherwise default to the calling agent's session cwd
@@ -278,81 +298,16 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
-/** Status line for background task reads. */
-function statusLine(task: BashTask): string {
-  switch (task.status) {
-    case 'running': return '[status: running]'
-    case 'killed': return `[status: killed${task.signal !== null ? ` by ${task.signal}` : ''}]`
-    case 'completed': return `[status: completed, exit code: ${task.exitCode ?? 0}]`
-  }
-}
+export function apply(ctx: Context, config: Config): void {
+  const backgroundEnabled = config.enableRunInBackground ?? true
 
-export function apply(ctx: Context): void {
-  // The bash tools' cross-call HABIT, which the per-tool descriptions cannot
-  // carry (they describe one call each): the exit-code marker is only useful
+  // The bash tool's cross-call HABIT, which the per-tool description cannot
+  // carry (it describes one call): the exit-code marker is only useful
   // if the model actually checks it every time.
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
     text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
-  })
-
-  /**
-   * The caller's owner TOKEN — the owning agent's `session.header.id`, or
-   * `undefined` for a non-agent caller. Read `session.header.id` (NOT
-   * `session.id`): every other subsystem keys off the header id (the ACP bridge,
-   * both persistence backends), and the sibling `resolveWorkdir` already reads
-   * `session.header.cwd`, so using `session.id` here would be the asymmetry smell
-   * the conventions flag. The two are equal in production, but the header is the
-   * canonical identity.
-   */
-  const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
-    exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
-
-  /**
-   * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
-   * token. Rejects when the task HAS an owner and it differs from the caller's
-   * token — using `!== undefined` semantics, NOT truthiness, so an empty-string
-   * token is still a real owner (never treated as unowned). An unowned task
-   * (`ownerOf` returns `undefined`) is allowed; a truly unknown id is also
-   * `undefined` here and then fails loudly at the subsequent
-   * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
-   * (`callerToken` undefined) cannot match an owned task and is rejected.
-   */
-  const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
-    const owner = ctx.bash.ownerOf(taskId)
-    if (owner !== undefined && owner !== callerToken(exec)) {
-      throw new Error(`task ${taskId} belongs to another session`)
-    }
-  }
-
-  // Background completion → inject a notice into the owning agent's session.
-  // Find the live agent by its session id token via the agent registry, read
-  // opportunistically with `ctx.get('agents')` (NOT `ctx.agents`/static inject):
-  // this listener runs from `task.done.then` on the bash fiber — a foreign
-  // fiber — where the `ctx.agents` property proxy would throw through the
-  // traceable shadow; `ctx.get(name)` is the topology-independent lookup. No
-  // registry mounted (`undefined`) → drop the notice. Match on
-  // `agent.session.header.id`, NOT the registry key: a config agent's id differs
-  // from its session id, and the owner token IS the session id.
-  ctx.bash.onTaskDone((task) => {
-    const ownerToken = ctx.bash.ownerOf(task.id)
-    if (ownerToken === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.session.header.id) === ownerToken)
-    if (!agent) return
-    try {
-      agent.inject(
-        [{ type: 'text', text: `background bash task ${task.id} finished ${statusLine(task)}. Read its output with bash_output.` }],
-        { source: { kind: 'plugin', plugin: 'tool-bash' } },
-      )
-    } catch (error: unknown) {
-      // The ONE expected failure: the agent was disposed between task
-      // completion and this injection (ReactLoopAgent.inject throws
-      // `agent "<id>" is disposed`). That race is benign — drop the notice.
-      // Anything else is a real bug and must surface, not be swallowed.
-      if (error instanceof Error && error.message.includes('is disposed')) return
-      throw error
-    }
   })
 
   ctx.tools.register(defineTool({
@@ -361,8 +316,10 @@ export function apply(ctx: Context): void {
       + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
       + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
       + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
-      + 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
-      + 'poll it with `bash_output` and stop it with `bash_kill`.',
+      + (backgroundEnabled
+        ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
+          + 'read its output with `task_output` and stop it with `task_kill`.'
+        : 'Background execution is not available; long-running commands must finish within the timeout.'),
     parameters: {
       command: { type: 'string', required: true, description: 'The bash command to execute.' },
       description: {
@@ -374,7 +331,9 @@ export function apply(ctx: Context): void {
       },
       timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
-      run_in_background: { type: 'boolean', description: 'Run in the background and return a task id immediately. No timeout applies.' },
+      ...backgroundEnabled ? {
+        run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies.' },
+      } : {},
     },
     async execute(args, exec) {
       validateBashArgs(args)
@@ -389,65 +348,48 @@ export function apply(ctx: Context): void {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
-        ...exec.signal ? { signal: exec.signal } : {},
       }
       if (args.run_in_background === true) {
-        // Stamp the owner token (the agent's session id) onto the spec so the
-        // executor stores it on the task — the isolation fence for bash_output/
-        // bash_kill. Foreground runs pass no owner (they finish inline; nothing
-        // to fence).
-        const task = ctx.bash.start(ctx.bash.resolve({ ...request, owner: callerToken(exec) }))
-        return [{ type: 'text', text: `started background task ${task.id}` }]
+        // The generic runtime owns everything task-shaped; without it a task
+        // id would be uncollectable — fail loud with the fix, not a dangle.
+        const tasks = ctx.get('tasks')
+        if (tasks === undefined) {
+          throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+        }
+        // A step already cancelled must not spawn; after the id is returned
+        // the tool-call signal is deliberately NOT wired to the process
+        // (cancellation belongs to task_kill / owner cleanup), so the check
+        // happens here, once, instead of passing the signal to start().
+        if (exec.signal?.aborted) throw new Error('command aborted')
+        const proc = ctx.bash.start(ctx.bash.resolve(request))
+        let id: string
+        try {
+          id = tasks.register({
+            kind: 'bash',
+            label: args.command,
+            ...exec.agent ? { owner: exec.agent } : {},
+            cancel: () => void proc.kill(),
+            done: proc.done.then(() => processOutcome(proc)),
+            readOutput: () => renderProcessRead(proc.readOutput()),
+          })
+        } catch (error: unknown) {
+          // A failed registration must not leak the just-started process: the
+          // model never received an id, so nothing could ever task_kill it.
+          // Kill, await quiescence, then fail the call with the real cause.
+          proc.kill()
+          await proc.done
+          throw error
+        }
+        return [{ type: 'text', text: `started background task ${id}` }]
       }
-      const result = await ctx.bash.run(ctx.bash.resolve(request))
+      const result = await ctx.bash.run(ctx.bash.resolve({
+        ...request,
+        ...exec.signal ? { signal: exec.signal } : {},
+      }))
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result) }]
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'bash_output',
-    description: 'Read new output from a background bash task started with `bash` + `run_in_background`. '
-      + 'Returns only output produced since the previous bash_output call, plus the task status. '
-      + 'Tasks keep running while you do other work; poll again later for more output.',
-    parameters: {
-      task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
-    },
-    // execute is synchronous (registry reads + string shaping) but the
-    // ToolDefinition contract wants a Promise — hence resolve(), not async.
-    execute(args, exec) {
-      const id = validateTaskId(args.task_id)
-      assertTaskAccess(id, exec)
-      const read = ctx.bash.readOutput(id)
-      let text = read.delta.length > 0 ? read.delta : '(no new output)'
-      if (read.lossy) {
-        const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
-        const fullOutput = paths.length > 0 ? paths.join(', ') : '(unavailable)'
-        text += `\n[some output was dropped from memory; full output: ${fullOutput}]`
-      }
-      text += `\n${statusLine(read.task)}`
-      return Promise.resolve([{ type: 'text', text }])
-    },
-    presentCall: args => presentTaskCall('Read output from', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'bash_kill',
-    description: 'Ask the executor to kill a running background bash task by task id.',
-    parameters: {
-      task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
-    },
-    execute(args, exec) {
-      const id = validateTaskId(args.task_id)
-      assertTaskAccess(id, exec)
-      const killed = ctx.bash.kill(id)
-      return Promise.resolve([{
-        type: 'text',
-        text: killed ? `killed background task ${id}` : `task ${id} had already finished`,
-      }])
-    },
-    presentCall: args => presentTaskCall('Kill', args),
   }))
 }

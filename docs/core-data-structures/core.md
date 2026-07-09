@@ -19,7 +19,8 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/pre-execute`/`tools/post-execute` pipeline |
-| [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
+| [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, the background `BashProcess` handle |
+| [tasks.md](tasks.md) | the background task runtime: `TaskId`, `TaskRegistration`, `TaskOutcome`, `TaskSnapshot`/`TaskRead`, owner isolation, the control-tool surface |
 | [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
 | [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
 | [compaction.md](compaction.md) | the compaction seam: the `compact/*` session events, `CompactionResult`, the `CompactService` interface |
@@ -68,7 +69,7 @@ Two large discriminated unions are the ones consumers `switch` over most: **`Str
 
 IDs that cross package boundaries are **branded** — structurally strings, but non-interchangeable at the type level (an `AgentId` can't be passed where a `CallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
 
-The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../../packages/util/brand) (no runtime code, no harness-package dependency), so any package can brand the ids it owns without depending on an unrelated capability package (e.g. dsh-bash brands `BashTaskId`/`OwnerToken` via dsh-brand alone, never pulling in dsh-llm).
+The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../../packages/util/brand) (no runtime code, no harness-package dependency), so any package can brand the ids it owns without depending on an unrelated capability package (e.g. dsh-tasks brands `TaskId` via dsh-brand alone, never pulling in dsh-llm).
 
 Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
 
@@ -76,7 +77,7 @@ Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
-The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), `SessionId` (dsh-session), `AgentId` (dsh-agent). Each is `Branded<'CallId'>` etc. plus a same-named factory function. Capability seams brand their own ids too — see `BashTaskId`/`OwnerToken` in [bash.md](bash.md).
+The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), `SessionId` (dsh-session), `AgentId` (dsh-agent). Each is `Branded<'CallId'>` etc. plus a same-named factory function. Capability seams brand their own ids too — see `TaskId` in [tasks.md](tasks.md).
 
 ## Content blocks and messages
 
