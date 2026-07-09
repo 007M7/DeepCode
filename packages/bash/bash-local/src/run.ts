@@ -6,6 +6,12 @@
  * Everything here is deliberately free of Cordis concepts so it can be unit
  * tested in isolation; `LocalBashExecutor` owns lifecycle and configuration.
  *
+ * runBash owns NO timing: it kills the process group when its `spec.signal`
+ * fires and does not distinguish a timeout from a cancel. The executor fuses
+ * timeout + upstream cancellation into that one signal via
+ * `@deepseek-ai/dsh-timeout`'s `deadline`, and classifies the outcome from the
+ * signal afterward — the timing/classification half is shared, the kill is not.
+ *
  * Design notes (surveyed against Claude Code, OpenCode, Codex, and pi — see
  * the package README): spawn-per-call with `detached: true` so the child
  * leads its own process group; kills target the group (`kill(-pid)`) so
@@ -71,13 +77,17 @@ export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
 export interface SpawnSpec {
   command: string
   cwd: string
-  /** Kill the process group after this many milliseconds. 0 = no timeout. */
-  timeoutMs: number
   /** Per-stream in-memory cap; overflow spills to disk (tail kept in memory). */
   maxOutputBytes: number
   /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
   graceMs: number
-  /** Abort signal — kills the process group when fired. */
+  /**
+   * Abort signal — kills the process group when it fires. The executor owns
+   * timing: `run()` passes a fused timeout/cancel deadline signal (see
+   * `@deepseek-ai/dsh-timeout`), `start()` passes the bare upstream signal.
+   * runBash only listens and kills; it does NOT classify why (the executor
+   * reads the signal's reason afterward).
+   */
   signal?: AbortSignal | undefined
   /**
    * Bytes to write to the child's stdin, then close it. Absent (or empty)
@@ -94,12 +104,15 @@ export interface SpawnSpec {
   env?: Record<string, string> | undefined
 }
 
-/** Raw outcome of one closed process (before result shaping). */
+/**
+ * Raw outcome of one closed process (before result shaping). Deliberately
+ * carries NO timeout/cancel classification: runBash kills on abort but does not
+ * decide why — the executor's `run()`/`start()` reads the deadline signal it
+ * owns to classify `timedOut`/`aborted` (see the package README).
+ */
 export interface SpawnOutcome {
   exitCode: number | null
   signal: NodeJS.Signals | null
-  timedOut: boolean
-  aborted: boolean
   stdout: CollectedOutput
   stderr: CollectedOutput
 }
@@ -343,9 +356,6 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
   child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
 
-  let timedOut = false
-  let aborted = false
-  let killTimer: NodeJS.Timeout | undefined
   let graceTimer: NodeJS.Timeout | undefined
 
   // pid is undefined when the spawn itself fails (bad cwd, missing binary);
@@ -358,17 +368,12 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
-  if (spec.timeoutMs > 0) {
-    killTimer = setTimeout(() => {
-      timedOut = true
-      kill()
-    }, spec.timeoutMs)
-  }
-
-  const onAbort = (): void => {
-    aborted = true
-    kill()
-  }
+  // runBash owns no timer: the executor's `run()` fuses timeout+cancel into one
+  // deadline signal (`@deepseek-ai/dsh-timeout`) and passes it here; we only
+  // listen and run the SIGTERM→grace→SIGKILL kill. Whether the abort was a
+  // timeout or an upstream cancel is classified by the executor from that
+  // signal, not tracked here.
+  const onAbort = (): void => { kill() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
   // Write stdin and close it, but ONLY when the caller supplied bytes — with no
@@ -401,14 +406,11 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
       resolve({
         exitCode,
         signal,
-        timedOut,
-        aborted,
         stdout: stdout.finalize(),
         stderr: stderr.finalize(),
       })
     })
     function cleanup(): void {
-      if (killTimer !== undefined) clearTimeout(killTimer)
       if (graceTimer !== undefined) clearTimeout(graceTimer)
       spec.signal?.removeEventListener('abort', onAbort)
     }

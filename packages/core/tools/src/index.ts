@@ -1,9 +1,10 @@
 /**
  * Tool registry and execution pipeline. Plugins register tools; the registry
  * feeds schemas into the system prompt, and `execute()` dispatches each call
- * through `tools/pre-execute` (the allow/deny gate) → core dispatch →
- * `tools/post-execute` (inspect/replace the result, attach context) for
- * sandbox, permission, and hook plugins to gate or transform a call.
+ * through `tools/pre-execute` (the allow/deny gate) → `tools/execute` (an
+ * around-dispatch wrapper for timeout/retry/metrics plugins) → `tools/post-execute`
+ * (inspect/replace the result, attach context) for sandbox, permission, and hook
+ * plugins to gate or transform a call.
  *
  * @module @deepseek-ai/dsh-tools
  */
@@ -75,16 +76,36 @@ declare module 'cordis' {
      */
     'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
     /**
+     * Around-dispatch waterfall wrapping the registry's core tool dispatch,
+     * between the `tools/pre-execute` gate and the `tools/post-execute` seam. A
+     * listener receives `(exec, next)`: call `next()` to delegate to dispatch
+     * (returning its {@link ToolExecutionResult}, optionally wrapped), or return a
+     * replacement result without calling `next()` to short-circuit dispatch. The
+     * base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or
+     * unknown tool) is already normalized to an `isError` result by the time a
+     * listener's `await next()` returns, so a wrapper never sees a raw throw from
+     * the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can
+     * mutate `exec` (e.g. replace `exec.signal` with a per-call deadline) BEFORE
+     * `next()` and inspect the result AFTER. (Cordis `next()` ignores any passed
+     * arguments and re-invokes downstream with the shared payload, so a wrapper
+     * mutates `exec` in place rather than passing a new object to `next()`.)
+     * Multiple listeners compose by registration order — an outer one wraps the
+     * inner ones plus dispatch.
+     * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
+     * @mode waterfall
+     */
+    'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+    /**
      * Waterfall AFTER a tool runs — where hook plugins inspect the result and
      * accept it (optionally REPLACING the model-facing content, and/or attaching
      * `additionalContext` for the next request) or block it with corrective
      * `feedback` (Claude Code's `PostToolUse`). Listeners receive
      * `(exec, result, next)`: call `next()` to delegate to the default (accept
-     * unchanged), or return a {@link PostToolDecision} to override. The core tool
-     * dispatch sits between the two waterfalls as plain code, all inside
-     * `execute`'s outer try/catch (and the tool body keeps its own inner
-     * try/catch, so a thrown tool still reaches `post-execute` as an `isError`
-     * result).
+     * unchanged), or return a {@link PostToolDecision} to override. Core tool
+     * dispatch runs earlier as the base `next()` of the `tools/execute`
+     * waterfall, all inside `execute`'s outer try/catch (and the tool body keeps
+     * its own inner try/catch, so a thrown tool still reaches `post-execute` as an
+     * `isError` result).
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
@@ -117,6 +138,14 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
   execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  /**
+   * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
+   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * parameters. Declaring it asserts this tool forwards `exec.signal` to a
+   * cooperative implementation that can reach quiescence when the signal aborts.
+   */
+  timeoutMs?: number
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -271,7 +300,7 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 
 /**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
- * loop executes calls through the `tools/pre-execute` → dispatch →
+ * loop executes calls through the `tools/pre-execute` → `tools/execute` →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
  * system-prompt assembly.
  */
@@ -345,18 +374,20 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/pre-execute` → dispatch →
-   * `tools/post-execute` pipeline. The two waterfalls are the gate (allow/deny)
-   * and the inspect/transform seam; core dispatch sits between them as plain
-   * code. The whole thing is wrapped in one outer try/catch so a throwing
-   * listener (in either waterfall) becomes an `isError` result instead of
-   * failing the turn; the tool body ALSO keeps its own inner try/catch, so a
-   * thrown tool becomes an `isError` result that `post-execute` listeners can
-   * still inspect. If the tool is not registered, the result is an `isError`
-   * carrying a `UNKNOWN_TOOL` structured error. A thrown {@link HarnessError}
-   * surfaces its `{ name, code }` on the result.
+   * Execute one tool call through the `tools/pre-execute` → `tools/execute`
+   * (around dispatch) → `tools/post-execute` pipeline. `pre-execute` is the gate
+   * (allow/deny), `tools/execute` wraps core dispatch (a timeout/retry/metrics
+   * seam), and `post-execute` is the inspect/transform seam; core dispatch sits
+   * as the base `next()` of the `tools/execute` waterfall. The whole thing is
+   * wrapped in one outer try/catch so a throwing listener (in any waterfall)
+   * becomes an `isError` result instead of failing the turn; the tool body ALSO
+   * keeps its own inner try/catch, so a thrown tool becomes an `isError` result
+   * that `tools/execute` and `post-execute` listeners can still inspect. If the
+   * tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. A thrown {@link HarnessError} surfaces its `{ name, code }`
+   * on the result.
    * @param exec - the call to run (name, parsed arguments, caller agent, signal).
-   * @returns the final result after both waterfalls; failures resolve as
+   * @returns the final result after every waterfall; failures resolve as
    *   `isError` results, never rejections.
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
@@ -382,23 +413,30 @@ export class ToolRegistry extends Service {
         return await this.postExecute(exec, denied)
       }
 
-      // --- Core dispatch (plain code between the waterfalls). The tool body's
-      // own try/catch turns a throw into an isError result so post-execute can
-      // inspect it; an unknown tool routes through the same catch. ---
-      let result: ToolExecutionResult
-      try {
-        const tool = this.store.get(exec.name)
-        if (!tool) throw new ToolNotFoundError(exec.name)
-        // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
-        // meta) or a { content, meta } object (a tool attaching a private
-        // presentation payload). An array IS the content; the object carries it.
-        const returned = await tool.execute(exec.arguments, exec)
-        const content = Array.isArray(returned) ? returned : returned.content
-        const meta = Array.isArray(returned) ? undefined : returned.meta
-        result = { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
-      } catch (error: unknown) {
-        result = toolErrorResult(exec.callId, error)
-      }
+      // --- Around-dispatch: tools/execute. The base `next` is the dispatch-
+      // with-normalization thunk — the tool body's own try/catch turns a throw
+      // into an isError result so a wrapper (and post-execute) can inspect it;
+      // an unknown tool routes through the same catch. A `tools/execute` listener
+      // (e.g. a timeout plugin) wraps this thunk: it may mutate `exec` before
+      // delegating and inspect the normalized result after. ---
+      const result = await this.ctx.waterfall(
+        this, 'tools/execute', exec,
+        async (): Promise<ToolExecutionResult> => {
+          try {
+            const tool = this.store.get(exec.name)
+            if (!tool) throw new ToolNotFoundError(exec.name)
+            // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
+            // meta) or a { content, meta } object (a tool attaching a private
+            // presentation payload). An array IS the content; the object carries it.
+            const returned = await tool.execute(exec.arguments, exec)
+            const content = Array.isArray(returned) ? returned : returned.content
+            const meta = Array.isArray(returned) ? undefined : returned.meta
+            return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
+          } catch (error: unknown) {
+            return toolErrorResult(exec.callId, error)
+          }
+        },
+      )
 
       return await this.postExecute(exec, result)
     } catch (error: unknown) {
