@@ -155,6 +155,38 @@ describe('scrubRequestHeaders', () => {
     expect(toolsOnly).not.toContain('{{system}}')
   })
 
+  it('scrubs the header session prefix to one token per message, keeping the count', () => {
+    const ev = headerEvent({
+      config: { model: 'm' },
+      messagePrefix: [
+        { role: 'user', content: [{ type: 'text', text: 'workspace AGENTS digest' }] },
+        { role: 'user', content: [{ type: 'text', text: 'skills catalog' }] },
+      ],
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${ev}\n`)
+    expect(out).toContain('"messagePrefix":["{{messagePrefix}}","{{messagePrefix}}"]')
+    expect(out).not.toContain('AGENTS digest')
+    expect(out).not.toContain('skills catalog')
+    // Absence stays absent — a prefix-less header gains no token…
+    expect(scrubRequestHeaders(`${headerLine}\n${headerEvent({ system: 's' })}\n`)).not.toContain('{{messagePrefix}}')
+    // …and a non-array shape passes through untouched.
+    const odd = JSON.stringify({ type: 'request/header', seq: 4, time: 9, data: { header: { config: { model: 'm' }, messagePrefix: 'weird' }, reason: 'initial' } })
+    expect(scrubRequestHeaders(`${headerLine}\n${odd}\n`)).toContain('"messagePrefix":"weird"')
+  })
+
+  it('scrubs a header-delta prefix replacement to one token per message', () => {
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'leaked opener' }] }] },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
+    expect(out).toContain('"messagePrefix":["{{messagePrefix}}"]')
+    expect(out).not.toContain('leaked opener')
+    // The empty-array transition-to-absence stays a structural fact.
+    const toNone = JSON.stringify({ type: 'request/header-delta', seq: 9, time: 9, data: { messagePrefix: [] } })
+    expect(scrubRequestHeaders(`${headerLine}\n${toNone}\n`)).toContain('"messagePrefix":[]')
+  })
+
   it('leaves a delta with no scrubbable payload byte-identical (config-only, or non-array shapes)', () => {
     const configOnly = JSON.stringify({ type: 'request/header-delta', seq: 8, time: 9, data: { config: { model: 'm2' } } })
     const oddShapes = JSON.stringify({ type: 'request/header-delta', seq: 9, time: 9, data: { system: { insert: 'not-an-array' }, tools: null } })

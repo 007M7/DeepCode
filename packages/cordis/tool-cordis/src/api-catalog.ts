@@ -99,7 +99,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
-      'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>',
+      'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
       'abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
     ],
   },
@@ -221,7 +221,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/pre-step',
     mode: 'serial',
-    signature: '\'agent/pre-step\'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void',
+    signature: '\'agent/pre-step\'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
     summary: 'Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step\'s `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`.',
   },
   {
@@ -241,6 +241,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'agent/request\'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
     summary: 'Waterfall: shape the step\'s call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use).',
+  },
+  {
+    name: 'agent/session-prefix',
+    mode: 'waterfall',
+    signature: '\'agent/session-prefix\'(agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
+    summary: 'Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider\'s system slot) on every request this loop instance sends.',
   },
   {
     name: 'agent/session-start',

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
 
@@ -18,6 +19,7 @@ class StubCompactService extends CompactService {
   override async compactIfNeeded(
     _agent: CompactAgentContext,
     _fullSystemPrompt: string,
+    _sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     this.lastSignal = signal
@@ -78,7 +80,7 @@ describe('CompactService seam', () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
-    expect(await svc.compactIfNeeded(stubAgent(session), '', new AbortController().signal)).toBeNull()
+    expect(await svc.compactIfNeeded(stubAgent(session), '', [], new AbortController().signal)).toBeNull()
   })
 
   it('compact/* events merge into SessionEventMap and are log-only', async () => {
@@ -107,7 +109,7 @@ describe('CompactService seam', () => {
     await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
 
-    await svc.compactIfNeeded(stubAgent(session), '', controller.signal)
+    await svc.compactIfNeeded(stubAgent(session), '', [], controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
   })
 })
