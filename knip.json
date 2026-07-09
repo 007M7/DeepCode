@@ -15,6 +15,10 @@
       ],
       "project": ["scripts/**/*.ts", "examples/**/*.ts"]
     },
+    "packages/bash/bash-sandbox": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]

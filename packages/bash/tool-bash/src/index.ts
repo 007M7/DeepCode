@@ -30,10 +30,15 @@
  * completion landing during the reload gap still drops its one notice — the
  * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
  *
- * TODO(permissions): commands run with the executor's full authority. The
- * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
- * sandboxing `BashExecutor` implementations — see docs/architecture.md
- * § Extending The Harness.
+ * Commands run with the executor's full authority unless a sandboxing
+ * executor (`@deepseek-ai/dsh-bash-sandbox`) confines them; per-call
+ * allow/deny/ask policy is the `tools/pre-execute` waterfall — see
+ * docs/architecture.md § Extension And Composition. A sandbox denial is a
+ * RESULT FACT this layer renders as its own marker (the command RAN and the
+ * kernel refused a file effect), and a sandbox RUNNER failure renders as a
+ * sandbox problem, never a command failure. The escalation surface and the
+ * per-session mode switching are staged follow-ups of the sandbox RFC
+ * (docs/rfc/proposed/feature/2026-07-06-sandbox.md).
  *
  * @module @deepseek-ai/dsh-tool-bash
  */
@@ -115,6 +120,12 @@ export function renderResult(result: BashRunResult): string {
   if (body.length === 0) body = '(no output)'
 
   const markers: string[] = []
+  // The sandbox marker precedes the exit-status markers so `[exit code: N]`
+  // stays the LAST line (exitStatus() anchors its parse there). Denial is a
+  // reported fact like timeout: the model decides how to react.
+  if (result.sandbox?.denied) {
+    markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
+  }
   // Timeout is reported independently of how the process actually ended: a
   // command can trap SIGTERM and exit 0 after our timer fired (e.g.
   // `trap "exit 0" TERM; sleep 60`), giving timedOut:true / exitCode:0 /
@@ -360,6 +371,7 @@ export function apply(ctx: Context): void {
     description: 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
       + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
       + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
+      + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way (a background task reports the same marker via bash_output once it has finished). '
       + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
       + 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
       + 'poll it with `bash_output` and stop it with `bash_kill`.',
@@ -428,6 +440,17 @@ export function apply(ctx: Context): void {
         text += `\n[some output was dropped from memory; full output: ${fullOutput}]`
       }
       text += `\n${statusLine(read.task)}`
+      if (read.task.sandbox?.runnerFailed) {
+        // The sandbox RUNNER itself failed — the command never ran. The
+        // foreground path surfaces this as the structured SANDBOX_UNAVAILABLE
+        // error; a settled task's read carries the marker instead.
+        text += `\n[sandbox: the sandbox runner itself failed under ${read.task.sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`
+      } else if (read.task.sandbox?.denied) {
+        // Mirrors the foreground result marker. Background denials are only
+        // classifiable once the task settles (the classifier needs the whole
+        // stderr), so the marker rides every read that sees the settled task.
+        text += `\n[sandbox: file access denied under ${read.task.sandbox.mode} mode]`
+      }
       return Promise.resolve([{ type: 'text', text }])
     },
     presentCall: args => presentTaskCall('Read output from', args),

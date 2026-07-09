@@ -44,6 +44,20 @@ interface BashExecRequest {
    * ownerless background start (a non-agent caller).
    */
   owner?: OwnerToken | undefined
+  /**
+   * Explicit per-call sandbox-policy input, overriding the executor's
+   * configured default mode for THIS call. Never a silent default: a
+   * consumer sets it only from an explicit policy source — an
+   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
+   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
+   * session's standing override folded from its own `bash/sandbox-mode`
+   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
+   * choice). A sandboxing executor confines THIS call under the given mode;
+   * a non-sandboxing executor carries the field and confines nothing (the
+   * tool layer stamps neither escalation nor overrides without a sandboxing
+   * executor — see {@link BashExecutor.sandboxMode}).
+   */
+  sandboxMode?: SandboxMode | undefined
 }
 ```
 
@@ -79,6 +93,16 @@ interface BashExecSpec {
    * task. `start()` stores it; `run()` (foreground) ignores it.
    */
   owner: OwnerToken | undefined
+  /**
+   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
+   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
+   * stamps the effective mode (the request's explicit override, else its
+   * configured default) so `run()`/`start()` read the spec, never the config;
+   * a non-sandboxing executor carries the request value through verbatim and
+   * ignores it (`undefined` under such an executor means what its README says:
+   * unconfined execution).
+   */
+  sandboxMode: SandboxMode | undefined
 }
 ```
 
@@ -106,6 +130,12 @@ interface BashRunResult {
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
+  /**
+   * Sandbox facts, present iff a sandboxing executor ran the command — an
+   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
+   * {@link BashSandboxInfo} for the `denied` classification semantics.
+   */
+  sandbox?: BashSandboxInfo
 }
 ```
 
@@ -122,9 +152,56 @@ interface CollectedOutput {
 }
 ```
 
+## File sandbox: `SandboxMode` / `BashSandboxInfo`
+
+A sandbox-consuming executor (`dsh-bash-sandbox`) confines commands under its executor-configured mode — fixed at config time for the executor's lifetime; a runtime/per-session mode surface is the sandbox RFC's config phase, not current behavior; the mode/enforcement vocabulary is owned by the `@deepseek-ai/dsh-sandbox` seam (whose provider wraps the executor's argv), and the mode governs FILE effects only — network and process visibility are deliberately not restricted, because a backend that cannot honestly enforce them must not pretend to:
+
+```ts type-equiv
+type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+```
+
+A sandboxed run always reports the facts it executed under on `BashRunResult.sandbox`: `denied` is the executor's conservative classification of a failure as sandbox-caused (a failed exit whose stderr carries a filesystem-permission signature — never a clean exit or a signal kill), read from the collected stderr tail; `enforcement` reports how completely the selected backend governs the mode's file effects (`SandboxEnforcement = 'full' | 'partial'` — `partial` when an older Landlock ABI governs only a subset of the requested accesses; absent under `danger-full-access`, where nothing is confined); `runnerFailed` marks the opposite of a denial — the sandbox RUNNER itself failed and the command never ran (stamped only on settled background tasks; a foreground run surfaces the same condition as the thrown `SANDBOX_UNAVAILABLE` error):
+
+```ts type-equiv
+interface BashSandboxInfo {
+  /** The mode the command actually ran under. */
+  mode: SandboxMode
+  /**
+   * True when the executor classifies this run's failure as the sandbox
+   * denying a file operation. The classification is CONSERVATIVE (a failed
+   * exit whose stderr carries a filesystem-permission signature) and reads
+   * the COLLECTED stderr — the bounded in-memory tail per
+   * {@link CollectedOutput} semantics, so a signature that survives only in a
+   * spill file is missed toward `denied: false`. A plain command failure
+   * keeps `denied: false` even under a sandboxed mode.
+   */
+  denied: boolean
+  /**
+   * How completely the runner enforced `mode`'s file effects — see
+   * {@link SandboxEnforcement}. Absent exactly when `mode` is
+   * `danger-full-access`: nothing is confined, so there is no enforcement to
+   * report.
+   */
+  enforcement?: SandboxEnforcement
+  /**
+   * True when the executor classifies this failure as the SANDBOX RUNNER
+   * itself failing (missing binary, refused profile, fail-closed refusal
+   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
+   * task failure, and it outranks `denied` (a runner's own error text can
+   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
+   * foreground run surfaces the same condition as the thrown
+   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
+   * channel; a settled task's facts are its only channel).
+   */
+  runnerFailed?: boolean
+}
+```
+
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the sandbox seam) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend: sandboxed modes fail CLOSED instead of silently running unconfined. The model's view of the sandbox is result facts only: the static bash tool description explains the denial marker, and each run's `result.sandbox` carries the mode it executed under (no live-mode getter on the seam and no current-mode prompt statement — both arrive with the runtime-context phase of the RFC below). Denials are deny-only result facts today; the approval/escalated-retry flow on top of them is the [sandbox RFC](../rfc/proposed/feature/2026-07-06-sandbox.md).
+
 ## Background tasks: `BashTask`
 
-A long-running command started with `start()` is tracked as a `BashTask`. `BashTaskStatus` is `'running' | 'completed' | 'killed'`; `done` resolves when the underlying process closes and never rejects.
+A long-running command started with `start()` is tracked as a `BashTask`. `BashTaskStatus` is `'running' | 'completed' | 'killed'`; `done` resolves when the underlying process closes and never rejects. A sandboxing executor stamps `sandbox` once the task settles — classification runs against the settled task's collected stderr — so the field is absent while running and under an unsandboxed executor.
 
 ```ts type-equiv
 interface BashTask {
@@ -137,6 +214,16 @@ interface BashTask {
   signal: NodeJS.Signals | null
   /** Resolves when the underlying process closes (never rejects). */
   readonly done: Promise<void>
+  /**
+   * Sandbox facts for this task's execution, stamped by a sandboxing executor
+   * once the task settles and BEFORE completion listeners are notified — an
+   * `onTaskDone` consumer and a `done` awaiter both see it. Denial
+   * classification runs against the settled task's collected stderr, so the
+   * field cannot exist earlier: absent while the task is running and under an
+   * executor that does not sandbox. See {@link BashSandboxInfo} for the
+   * `denied` semantics.
+   */
+  sandbox?: BashSandboxInfo
 }
 ```
 

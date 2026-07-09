@@ -150,6 +150,33 @@ export interface Config {
 
 Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local/src/index.ts)
 
+## `@deepseek-ai/dsh-bash-sandbox`
+
+Requires: `sandbox`
+
+```ts config-catalog
+/**
+ * Plugin config: the local executor's knobs plus the sandbox policy. All
+ * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
+ * fail-safe default; an example that wants a workspace-writable agent opts in
+ * explicitly). The runner choice is NOT configured here: which platform
+ * backend confines the command is the `ctx.sandbox` provider's config.
+ */
+export interface Config extends LocalConfig {
+  /** File-sandbox mode commands run under (default: `read-only`). */
+  mode?: SandboxMode
+  /**
+   * Root directory `workspace-write` mode may write under (default: the
+   * executor's default working directory — `cwd`, else `process.cwd()`).
+   */
+  workspaceRoot?: string
+}
+```
+
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](../packages/sandbox/sandbox/src/index.ts)
+
+Source: [`packages/bash/bash-sandbox/src/index.ts:59`](../packages/bash/bash-sandbox/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog

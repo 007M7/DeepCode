@@ -156,9 +156,9 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'bash',
     title: 'Bash executor seam',
     mode: 'seam',
-    implementations: ['bash-local'],
+    implementations: ['bash-local', 'bash-sandbox'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
-    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
   },
   {
     key: 'sandbox',
@@ -166,7 +166,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Process-sandbox seam',
     mode: 'seam',
     implementations: ['sandbox-local'],
-    consumers: [],
+    consumers: ['bash-sandbox'],
     note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {

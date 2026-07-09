@@ -15,13 +15,22 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../../llm/llm"
     },
     {
       "path": "../../sandbox/sandbox"
     },
     {
-      "path": "../../core/session"
+      "path": "../../bash/bash"
+    },
+    {
+      "path": "../../bash/bash-local"
     }
   ]
 }

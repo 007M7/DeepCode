@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -11,10 +11,19 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
+import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
+import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { renderResult } from '@deepseek-ai/dsh-tool-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
+
+// Pure-config passthrough runner (same knob the snapshot tier uses): skips the
+// profile args up to `--` and execs the command unconfined — deterministic
+// without a host bwrap.
+const PASSTHROUGH_RUNNER = ['bash', '-c', 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"', 'passthrough-runner']
 
 async function setup() {
   const ctx = new Context()
@@ -100,6 +109,7 @@ class LossyReadBashExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 0,
       ...request.signal ? { signal: request.signal } : {},
       owner: request.owner,
+      sandboxMode: request.sandboxMode,
     }
   }
 
@@ -894,6 +904,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
         owner: request.owner,
+        sandboxMode: request.sandboxMode,
       }
     }
     run(): Promise<BashRunResult> {
@@ -970,3 +981,89 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect('owner' in request).toBe(true)
   })
 })
+
+describe('sandbox rendering', () => {
+  const sandboxResult = (denied: boolean, exitCode: number): BashRunResult => ({
+    exitCode,
+    signal: null,
+    timedOut: false,
+    aborted: false,
+    timeoutMs: 1000,
+    stdout: { text: '', truncated: false },
+    stderr: { text: denied ? 'bash: /x: Read-only file system' : 'boom', truncated: false },
+    sandbox: { mode: 'read-only', denied },
+  })
+
+  it('renders a denial marker BEFORE the exit-code marker (the $-anchored parse survives)', () => {
+    const text = renderResult(sandboxResult(true, 1))
+    expect(text).toMatch(/\[sandbox: file access denied under read-only mode\]\n\[exit code: 1\]$/)
+  })
+
+  it('renders no sandbox marker for a plain failure under a sandboxed mode', () => {
+    expect(renderResult(sandboxResult(false, 2))).not.toContain('[sandbox:')
+  })
+
+  it('bash_output reports a settled background denial with the same marker', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
+    const bash = ctx.bash as SandboxBashExecutor
+    bash.internals = { spillDir }
+    await ctx.plugin(ToolBash)
+    const started = await call(ctx, 'bash', { command: 'echo "x: Permission denied" >&2; exit 1', description: 'test command', run_in_background: true })
+    const id = text(started).match(/started background task (bash-\d+)/)![1]
+    await bash.list().find(task => task.id === id)!.done
+    const read = await call(ctx, 'bash_output', { task_id: id })
+    expect(text(read)).toMatch(/\[status: completed, exit code: 1\]\n\[sandbox: file access denied under read-only mode\]$/)
+  })
+
+  it('bash_output reports a settled background RUNNER failure as a sandbox problem, outranking the denial marker', async () => {
+    // A provider whose wrap carries a runner-failure signature: the settled
+    // task's stderr matching it means the sandbox itself broke and the
+    // command never ran — even though the same stderr also carries denial
+    // words (a runner's error text may contain them).
+    class FakeProvider extends SandboxProvider {
+      confine(argv: readonly string[]): ConfinedArgv {
+        return { argv: [...argv], enforcement: 'full', denialSignatures: ['permission denied'], runnerFailureSignatures: ['fake-runner: '] }
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(FakeProvider)
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
+    const bash = ctx.bash as SandboxBashExecutor
+    bash.internals = { spillDir }
+    await ctx.plugin(ToolBash)
+    const started = await call(ctx, 'bash', { command: 'echo "fake-runner: cannot open rule path: /x: Permission denied" >&2; exit 125', description: 'test command', run_in_background: true })
+    const id = text(started).match(/started background task (bash-\d+)/)![1]
+    await bash.list().find(task => task.id === id)!.done
+    const read = await call(ctx, 'bash_output', { task_id: id })
+    expect(text(read)).toMatch(/\[sandbox: the sandbox runner itself failed under read-only mode — the command did not run; /)
+    expect(text(read)).toMatch(/this is a sandbox problem, not a command failure\]$/)
+    expect(text(read)).not.toContain('file access denied')
+  })
+
+  it('reports a real denial end-to-end through the shipping sandbox executor', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
+    const bash = ctx.bash as SandboxBashExecutor
+    bash.internals = { spillDir }
+    await ctx.plugin(ToolBash)
+    const lockedDir = join(mkdtempSync(join(tmpdir(), 'dsh-tool-bash-denied-')), 'locked')
+    mkdirSync(lockedDir)
+    chmodSync(lockedDir, 0o555)
+    const result = await call(ctx, 'bash', { command: `echo x > ${lockedDir}/f`, description: 'Write into a locked directory' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toMatch(/\[sandbox: file access denied under read-only mode\]\n\[exit code: \d+\]$/)
+  })
+})
+

@@ -21,6 +21,7 @@
     { "path": "./packages/approval/approval" },
     { "path": "./packages/sandbox/sandbox" },
     { "path": "./packages/sandbox/sandbox-local" },
+    { "path": "./packages/bash/bash-sandbox" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/core/tools" },

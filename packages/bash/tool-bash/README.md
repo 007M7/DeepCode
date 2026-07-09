@@ -4,7 +4,7 @@ The model-facing bash tools — `bash`, `bash_output`, `bash_kill` — registere
 
 Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); the plugin stays pending until `ctx.bash` exists (`inject: ['tools', 'bash', 'systemPrompt']`).
 
-The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on.
+The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on. Under a sandboxing executor it additionally contributes the per-agent `env:bash-sandbox` section (order 110) stating each session's EFFECTIVE mode, and the pre-step narrator — see [Per-session mode](#per-session-mode-switching-and-visibility).
 
 ## Tools
 
@@ -17,14 +17,16 @@ The plugin also contributes the `tool:bash` prompt section (order 105) — the c
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that session cwd. |
 | `run_in_background` | boolean | Return a task id immediately; no timeout applies. |
+| `sandbox_permissions` | string enum | ADVERTISED ONLY when the mounted executor sandboxes (`ctx.bash.sandboxMode` reports a confining default): the strictly wider mode a denied command needs (`read-only` offers `workspace-write`/`danger-full-access`; `workspace-write` offers `danger-full-access`; nothing above `danger-full-access`, so the fields vanish). |
+| `justification` | string | Required together with `sandbox_permissions` (each without the other is a validation error): one sentence for the user explaining why this exact command needs the wider access. |
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
-Result text: stdout, then a `[stderr]` section, then status markers — `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
+Result text: stdout, then a `[stderr]` section, then status markers — `[sandbox: file access denied under <mode> mode]` when a sandboxing executor classified the failure as a policy denial (reported first so `[exit code: N]` stays the last line; the static description tells the model a denial is policy, not a command bug, and forbids retrying around it), `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
 
 ### `bash_output`
 
-`task_id` → output produced **since the previous `bash_output` call** plus a status line (`running` / `completed, exit code: N` / `killed`). Reads that lost data to buffer bounds say so and point at the full-output spill file when one is safely available, otherwise `(unavailable)`.
+`task_id` → output produced **since the previous `bash_output` call** plus a status line (`running` / `completed, exit code: N` / `killed`). A settled task classified as a sandbox denial carries the same `[sandbox: file access denied under <mode> mode]` marker on every read that sees it (denials are only classifiable once the whole stderr has been collected). Reads that lost data to buffer bounds say so and point at the full-output spill file when one is safely available, otherwise `(unavailable)`.
 
 ### `bash_kill`
 
@@ -46,6 +48,9 @@ When a background task finishes, a short notice is injected into the owning agen
 
 The `BashExecRequest` seam carries optional `stdin` and `env`, used by the hooks bridges to feed a hook command its JSON payload and `CLAUDE_*` env. This tool does **not** expose them as parameters: its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only, so a model that includes `env` or `stdin` keys in its tool arguments has them ignored. This is not a trust boundary — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), and the real defense against leaking the harness's ambient secrets is `dsh-bash-local`'s credential scrub, which works regardless. A regression guard drives the real tool with those extra args and asserts the resulting request carries neither field — its job is to catch a future refactor that blindly spreads `...args` into the request (which would silently forward model input into the post-scrub `env` merge), not to defend a wall. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
-## Permissions
+## Permissions and escalation
 
-`TODO(permissions)`: commands run with the executor's full authority. The permission/sandbox seam is the `tools/pre-execute` waterfall (deny or ask) plus sandboxing `BashExecutor` implementations — see docs/architecture.md. `@cordisjs/plugin-capability` (a named-permission service with a session `test()`) is a candidate building block for that work.
+Commands run with the executor's full authority unless a sandboxing executor ([`dsh-bash-sandbox`](../bash-sandbox/)) confines them — the deny-only sandbox reports denials as result facts, rendered here as the denial marker; per-call allow/deny/ask policy is the `tools/pre-execute` waterfall (see docs/architecture.md).
+
+The escalation gate — one approved wider retry of a denied command through `ctx.approval` — is the sandbox RFC's staged follow-up ([§ Escalation](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md)); this layer today renders the denial facts and forbids retrying around them.
+
