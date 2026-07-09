@@ -62,6 +62,7 @@
     { "path": "./packages/tasks/tool-tasks" },
     { "path": "./packages/todo/tool-todo" },
     { "path": "./packages/guard/repeat-tool-guard" },
+    { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" }

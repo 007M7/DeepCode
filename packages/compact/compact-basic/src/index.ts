@@ -30,7 +30,7 @@
  */
 
 import { Context } from 'cordis'
-import { CompactService } from '@deepseek-ai/dsh-compact'
+import { CompactService, renderTranscript } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
@@ -483,7 +483,7 @@ export class BasicCompactService extends CompactService {
 
     try {
       // --- Extract text and summarize ---
-      const text = this._extractText(session, shadowedSeqs)
+      const text = renderTranscript(session.events, shadowedSeqs)
       const { summary, model, maxTokens } = await this.summarize(text, agent, signal)
 
       // Estimate token count of the shadowed content for provenance.
@@ -678,101 +678,6 @@ export class BasicCompactService extends CompactService {
       if (e.type === 'turn/end') return null
     }
     return null
-  }
-
-  /**
-   * Extract plain-text conversation from a set of surface node seqs, for
-   * feeding into the summarization model. Walks the seqs in the order given
-   * (surface order, as `compactRegion` slices the surface-node list) so the
-   * summary follows the conversation as the model sees it — which, after a
-   * `replace`, is NOT ascending log-seq order (a high-seq summary node heads the
-   * surface before older retained lower-seq nodes).
-   */
-  private _extractText(session: Session, seqs: number[]): string {
-    const lines: string[] = []
-
-    // Walk seqs in the order given (surface order, as compactRegion slices the
-    // surface-node list) — NOT ascending log-seq order. After a replace the
-    // summary node carries a fresh high seq while sitting at the head of the
-    // surface before older retained lower-seq nodes, so a log-order scan would
-    // feed the transcript out of order and break the checkpoint-merge prompt.
-    for (const seq of seqs) {
-      const event = session.events[seq]
-      /* v8 ignore next -- seq is a surface-node seq, always a valid log index by construction */
-      if (!event) continue
-
-      switch (event.type) {
-        case 'user/message': {
-          const text = this._blocksToText(event.data.content)
-          if (text) lines.push(`User: ${text}`)
-          break
-        }
-        case 'assistant/message': {
-          const text = this._blocksToText(event.data.content)
-          if (text) lines.push(`Assistant: ${text}`)
-          break
-        }
-        case 'tool/result': {
-          const text = this._blocksToText(event.data.content)
-          const label = event.data.isError ? 'Tool error' : 'Tool result'
-          if (text) lines.push(`${label} (call ${event.data.callId}): ${text}`)
-          break
-        }
-        case 'context/message': {
-          const text = this._blocksToText(event.data.content)
-          if (text) lines.push(`[Context: ${text}]`)
-          break
-        }
-        case 'steering/message': {
-          const text = this._blocksToText(event.data.content)
-          if (text) lines.push(`[Steering: ${text}]`)
-          break
-        }
-        // SessionEventMap is merge-extensible — unknown types are
-        // non-message events that carry no extractable text.
-        /* v8 ignore next 2 -- seqs only name surface nodes, always one of the 5 handled SurfaceEventTypes; unreachable */
-        default:
-          break
-      }
-    }
-
-    return lines.join('\n\n')
-  }
-
-  /**
-   * Render content blocks to a single plain-text string for the summarization
-   * prompt. Text and reasoning contribute their text; every other block type
-   * contributes a type-tagged placeholder (`[tool-call: name(args)]`,
-   * `[tool-result: …]`, …) so the summarizer is told what non-text content
-   * existed in the region rather than silently losing it. Blocks join with
-   * newlines; empty-text blocks contribute nothing.
-   */
-  private _blocksToText(blocks: readonly ContentBlock[]): string {
-    const parts: string[] = []
-    for (const block of blocks) {
-      switch (block.type) {
-        case 'text':
-          if (block.text) parts.push(block.text)
-          break
-        case 'reasoning':
-          if (block.text) parts.push(`[reasoning: ${block.text}]`)
-          break
-        case 'tool-call':
-          parts.push(`[tool-call: ${block.name}(${block.arguments})]`)
-          break
-        case 'tool-result': {
-          const inner = this._blocksToText(block.content)
-          parts.push(inner ? `[tool-result: ${inner}]` : '[tool-result]')
-          break
-        }
-        // ContentBlockMap is merge-extensible — render an unknown block as a
-        // bare type-tagged placeholder so a plugin-added block type is still
-        // signalled to the summarizer rather than dropped.
-        default:
-          parts.push(`[${(block as ContentBlock).type}]`)
-      }
-    }
-    return parts.join('\n')
   }
 }
 
