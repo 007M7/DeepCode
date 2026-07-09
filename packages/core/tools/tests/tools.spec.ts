@@ -5,6 +5,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
+  type ToolExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -297,7 +298,7 @@ describe('ToolRegistry', () => {
     }))
 
     ctx.on('tools/pre-execute', async (_exec, next) => { order.push('pre'); return next() })
-    ctx.on('tools/execute', async (_exec, next) => {
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       order.push('execute:before')
       const result = await next()
       order.push('execute:after')
@@ -317,7 +318,10 @@ describe('ToolRegistry', () => {
 
     let entered = false
     ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'deny', reason: 'nope' }))
-    ctx.on('tools/execute', async (_exec, next) => { entered = true; return next() })
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      entered = true
+      return next()
+    })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
@@ -334,7 +338,7 @@ describe('ToolRegistry', () => {
     })
 
     let seen: { isError: boolean; error?: unknown } | undefined
-    ctx.on('tools/execute', async (_exec, next) => {
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       const result = await next()
       // The base next() IS dispatch-with-normalization: the wrapper sees the
       // normalized isError result, never a raw throw from the tool body.
@@ -357,7 +361,7 @@ describe('ToolRegistry', () => {
     })
 
     let postSaw: boolean | undefined
-    ctx.on('tools/execute', async (_exec, next) => next())
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => next())
     ctx.on('tools/post-execute', async (_exec, result, next) => {
       postSaw = result.isError
       return next()
@@ -383,7 +387,7 @@ describe('ToolRegistry', () => {
 
     const upstream = new AbortController().signal
     const replacement = new AbortController().signal
-    ctx.on('tools/execute', async (exec, next) => {
+    ctx.on('tools/execute', async (exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       expect(exec.signal).toBe(upstream)
       // Cordis next() ignores passed arguments, so a wrapper mutates exec in
       // place (the documented "mutate the shared object, then delegate" idiom).
@@ -404,7 +408,7 @@ describe('ToolRegistry', () => {
       async execute() { dispatched = true; return [] },
     })
 
-    ctx.on('tools/execute', async (exec, _next): Promise<import('@deepseek-ai/dsh-tools').ToolExecutionResult> =>
+    ctx.on('tools/execute', async (exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
       ({ callId: exec.callId, content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })

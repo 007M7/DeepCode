@@ -37,6 +37,8 @@ describe('dsh-stdio-agent app', () => {
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect(ctx.get('userInteraction')).toBeDefined()
+    expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
     // The pre-created `main` agent the UI drives.
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()
@@ -92,7 +94,7 @@ describe('dsh-stdio-agent app', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question'])
     await ctx.fiber.dispose()
   })
 

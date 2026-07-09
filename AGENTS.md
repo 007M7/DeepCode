@@ -22,7 +22,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   guard/       loop-hygiene plugins
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
+  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-interaction seam, ask-user tool
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
