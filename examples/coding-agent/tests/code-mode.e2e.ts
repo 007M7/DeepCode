@@ -22,11 +22,11 @@ import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
  * `[run_code]` as the wire tool list, each sub-call landed as a
  * `tool/code-dispatch` event, the file the program wrote exists on disk, and
  * the final answer is the program's curated output. Key-gated (see
- * vitest.e2e.config.ts); the keyless Loader-path smoke lives in
- * `keyless-smoke.e2e.ts`.
+ * vitest.e2e.config.ts); the keyless Loader-path smoke of the overlay lives
+ * in `code-mode-keyless-smoke.e2e.ts`.
  */
 
-const PERSONA = 'You are code-agent. You work by writing TypeScript programs for run_code: '
+const PERSONA = 'You are coding-agent. You work by writing TypeScript programs for run_code: '
   + 'batch related tool work into one program and print or return ONLY the findings that matter.'
 
 let ctx: Context | undefined

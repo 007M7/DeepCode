@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Keyless Loader-path smoke for examples/code-agent: boot the REAL example
- * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml`
- * (the cordis Loader, `unwrapExports`, the full plugin tree incl. the
- * worker-thread code runtime and the registry in `mode: code`), then close
- * stdin with no prompt and assert the ready banner + a clean exit.
+ * Keyless Loader-path smoke for the Code Mode overlay: boot the REAL
+ * example through the `@deepseek-ai/dsh-stdio-agent` bin against
+ * `code-mode.cordis.yml` (the cordis Loader, `unwrapExports`, the include
+ * patches over ./cordis.yml, the worker-thread code runtime, and the
+ * registry in `mode: code`), then close stdin with no prompt and assert
+ * the Code Mode banner + a clean exit.
  *
  * No prompt is ever sent, so the model is NEVER called and no `run_code`
  * turn happens — a dummy key lets `llm-deepseek`'s key-PRESENT check boot
@@ -19,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // Dev/test run UNBUILT: resolve `@deepseek-ai/dsh-*` through the root tsconfig
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
@@ -37,12 +38,12 @@ afterEach(async () => {
 })
 
 async function bootAndEof(): Promise<{ stdout: string; code: number }> {
-  workdir = await mkdtemp(join(tmpdir(), 'code-agent-smoke-'))
+  workdir = await mkdtemp(join(tmpdir(), 'code-mode-smoke-'))
   const cwd = workdir
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:code-mode).
+      // --expose-internals: the included cordis.yml loads the HMR plugin (mirrors demo:code-mode).
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,
@@ -66,13 +67,13 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`code-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+      reject(new Error(`code-mode overlay did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
     }, 10_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
       if (code === 0) resolve({ stdout, code })
-      else reject(new Error(`code-agent exited ${code}. stderr:\n${stderr}`))
+      else reject(new Error(`code-mode overlay exited ${code}. stderr:\n${stderr}`))
     })
     proc.on('error', (err) => { clearTimeout(timer); reject(err) })
 
@@ -81,7 +82,7 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
   })
 }
 
-describe('code-agent keyless smoke (real cordis.yml via the Loader)', () => {
+describe('code-mode overlay keyless smoke (real code-mode.cordis.yml via the Loader)', () => {
   it('boots the Code Mode plugin tree, prints its banner, and exits cleanly on EOF', async () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)

@@ -1,7 +1,0 @@
-{
-  "name": "code-agent-example",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "description": "Runnable demo: Code Mode — the model writes TypeScript against the tool registry"
-}
