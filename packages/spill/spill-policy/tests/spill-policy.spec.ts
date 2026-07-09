@@ -53,7 +53,7 @@ function exec(name: string, session = 's1'): ToolExecution {
  * Build a context with tools + the policy, and optionally a spill backend.
  * Returns the context and the backend handle (undefined when `withSpill` false).
  */
-async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubSpill }> {
+async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubSpill; fiber: Awaited<ReturnType<Context['plugin']>> }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -62,8 +62,8 @@ async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ct
     await ctx.plugin(StubSpill)
     spill = ctx.spillFiles as StubSpill
   }
-  await ctx.plugin(SpillPolicy, config)
-  return { ctx, ...spill ? { spill } : {} }
+  const fiber = await ctx.plugin(SpillPolicy, config)
+  return { ctx, fiber, ...spill ? { spill } : {} }
 }
 
 /** Flatten a result's text blocks. */
@@ -118,9 +118,9 @@ describe('oversized plain-text replacement', () => {
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(body.length)
   })
 
-  it('keeps the inline result when even the notice-only replacement is not smaller', async () => {
-    // A body just over a tiny cap: the notice alone is larger than the result,
-    // so spilling would only add bytes — the policy keeps the inline result.
+  it('keeps the inline result when the notice-only replacement would exceed the cap', async () => {
+    // A body just over a tiny cap: the notice alone is larger than the cap, so
+    // there is no within-cap replacement — the policy keeps the inline result.
     const { ctx } = await setup({ maxInlineBytes: 4 })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const body = 'xxxxx' // 5 bytes > 4, but far shorter than the notice
@@ -198,7 +198,7 @@ describe('best-effort fallback', () => {
 
 describe('composition', () => {
   it('bounds content a downstream post-execute listener replaced', async () => {
-    const { ctx, spill } = await setup({ maxInlineBytes: 10 })
+    const { ctx, spill } = await setup({ maxInlineBytes: 200 })
     // A later-registered listener replaces the (small) tool result with a big one;
     // the policy delegated via next(), so it bounds the replacement.
     ctx.on('tools/post-execute', async (_e, _r, _next) =>
@@ -210,7 +210,7 @@ describe('composition', () => {
   })
 
   it('preserves a downstream accept decision additionalContext when spilling', async () => {
-    const { ctx } = await setup({ maxInlineBytes: 10 })
+    const { ctx } = await setup({ maxInlineBytes: 200 })
     const context = { content: [{ type: 'text' as const, text: 'note' }], source: { kind: 'plugin' as const, plugin: 'test' } }
     ctx.on('tools/post-execute', async (_e, _r, _next) =>
       ({ kind: 'accept', additionalContext: context }))
@@ -218,5 +218,40 @@ describe('composition', () => {
     const result = await ctx.tools.execute(exec('big'))
     expect(textOf(result.content)).toContain('Full formatted result saved to')
     expect(result.additionalContext).toEqual(context)
+  })
+})
+
+describe('cap invariant', () => {
+  it('keeps the inline result when the notice alone exceeds the cap, even for a large original', async () => {
+    // A large body (so it is well over the cap) but a cap smaller than the
+    // notice itself: there is no within-cap replacement, so the policy must keep
+    // the inline result rather than emit content over maxInlineBytes.
+    const { ctx } = await setup({ maxInlineBytes: 8 })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const body = 'x'.repeat(5000)
+    ctx.tools.register(textTool('big', body))
+    const result = await ctx.tools.execute(exec('big'))
+    expect(textOf(result.content)).toBe(body)
+    expect(warn).toHaveBeenCalled()
+  })
+})
+
+describe('disposal (HMR safety)', () => {
+  it('stops transforming oversized results after the plugin fiber is disposed', async () => {
+    const { ctx, spill, fiber } = await setup({ maxInlineBytes: 200 })
+    const body = 'HEAD'.repeat(200) + 'TAIL'.repeat(200)
+    ctx.tools.register(textTool('big', body))
+
+    // Live: the listener spills and replaces.
+    const before = await ctx.tools.execute(exec('big'))
+    expect(textOf(before.content)).toContain('Full formatted result saved to')
+    expect(spill?.saves).toHaveLength(1)
+
+    // After disposal the listener is gone — the result passes through untouched
+    // and nothing more is spilled (no leaked registration across reload).
+    await fiber.dispose()
+    const after = await ctx.tools.execute(exec('big'))
+    expect(textOf(after.content)).toBe(body)
+    expect(spill?.saves).toHaveLength(1)
   })
 })

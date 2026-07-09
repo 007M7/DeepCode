@@ -157,12 +157,15 @@ export function apply(ctx: Context, config: Config): void {
     const { text: previewText, omitted } = preview(text, previewBudget)
     const notice = spillNotice(omitted, path)
     const replacedText = previewText.length > 0 ? `${previewText}\n\n${notice}` : notice
-    // Guard against a pathological tiny cap + long path where even the
-    // notice-only replacement is not smaller than the original: spilling then
-    // gains nothing and would only add bytes, so keep the inline result. (The
-    // spill file already written is a harmless orphan; cleanup is deferred.)
-    if (Buffer.byteLength(replacedText, 'utf8') >= totalBytes) {
-      ctx.logger.warn(`spill-policy: spill notice for ${exec.name} is not smaller than the result; keeping the inline result`)
+    // Invariant: the policy NEVER emits a replacement larger than the cap. When
+    // the notice alone exceeds maxInlineBytes (a tiny cap or a long spill root),
+    // there is no within-cap replacement, so keep the inline result — spilling
+    // would break the advertised context cap. (A within-cap replacement is
+    // always smaller than the original, which is > cap by the entry condition,
+    // so this one check subsumes "not smaller than the original" too. The spill
+    // file already written is a harmless orphan; cleanup is deferred.)
+    if (Buffer.byteLength(replacedText, 'utf8') > maxInlineBytes) {
+      ctx.logger.warn(`spill-policy: spill notice for ${exec.name} exceeds maxInlineBytes; keeping the inline result`)
       return decision
     }
     const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]

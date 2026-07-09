@@ -24,7 +24,7 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
    (Omitted N bytes. Full formatted result saved to: /…/session-…/…-web_fetch.txt. Use read with offset/limit to inspect it.)
    ```
 
-   When the notice alone fills the budget (a tiny cap or a long path) the preview is empty and only the notice is returned. If even that notice-only replacement is not smaller than the original result, the policy keeps the inline result — spilling would only add bytes.
+   When the notice alone fills the budget (a tiny cap or a long path) the preview is empty and only the notice is returned. If even that notice-only replacement would exceed `maxInlineBytes`, the policy keeps the inline result — it never emits a replacement over the cap (and a within-cap replacement is always smaller than the original, so this also means spilling never adds bytes).
 
 **Best-effort:** no session owner, no `ctx.spillFiles` backend, or a `saveText` rejection ⇒ the policy logs a warning and returns the original result. A spill failure never turns a successful call into an `isError` or hides the inline result.
 
