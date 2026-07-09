@@ -10,6 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -79,6 +80,20 @@ describe('disabled mode', () => {
     expect(textOf(result.content)).toBe('x'.repeat(1000))
     expect(result.isError).toBe(false)
     expect(spill?.saves).toHaveLength(0)
+  })
+})
+
+describe('loader export shape', () => {
+  it('has no default export and keeps name/inject/Config through unwrapExports', () => {
+    expect('default' in SpillPolicy).toBe(false)
+
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(SpillPolicy) as Record<string, unknown>
+    expect(unwrapped).toBe(SpillPolicy)
+    expect(unwrapped.name).toBe('spill-policy')
+    expect(unwrapped.inject).toEqual(['tools'])
+    expect(unwrapped.Config).toBeDefined()
+    expect(typeof unwrapped.apply).toBe('function')
   })
 })
 
