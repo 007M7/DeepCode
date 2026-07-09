@@ -32,6 +32,7 @@ flowchart LR
   svc_tools["ctx.tools<br/>Tool registry and execution waterfall"]
   pkg_tool_ask_user["tool-ask-user"]
   pkg_tool_bash["tool-bash"]
+  pkg_tool_cordis["tool-cordis"]
   pkg_tool_subagent["tool-subagent"]
   pkg_tool_todo["tool-todo"]
   pkg_user_interaction["user-interaction"]
@@ -128,6 +129,7 @@ flowchart LR
   svc_tools --> pkg_agent_loop
   svc_tools --> pkg_tool_ask_user
   svc_tools --> pkg_tool_bash
+  svc_tools --> pkg_tool_cordis
   svc_tools --> pkg_tool_fs
   svc_tools --> pkg_tool_subagent
   svc_tools --> pkg_tool_todo
@@ -145,7 +147,7 @@ flowchart LR
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`invariants`](../packages/support/invariants) | - | Owns append-only Session instances and emits the durable session event feed. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.systemPrompt` | `core` | [`system-prompt`](../packages/core/system-prompt) | - | [`agent-loop`](../packages/core/agent-loop), [`tools`](../packages/core/tools), [`tool-fs`](../packages/fs/tool-fs), [`tool-web`](../packages/web/tool-web) | - | Collects prompt sections and model-facing tool schemas for each step. |
-| `ctx.tools` | `core` | [`tools`](../packages/core/tools) | - | [`agent-loop`](../packages/core/agent-loop), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tool-bash`](../packages/bash/tool-bash), [`tool-fs`](../packages/fs/tool-fs), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-todo`](../packages/todo/tool-todo), [`tool-web`](../packages/web/tool-web), [`acp`](../packages/ui/acp) | - | Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute. |
+| `ctx.tools` | `core` | [`tools`](../packages/core/tools) | - | [`agent-loop`](../packages/core/agent-loop), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tool-bash`](../packages/bash/tool-bash), [`tool-cordis`](../packages/cordis/tool-cordis), [`tool-fs`](../packages/fs/tool-fs), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-todo`](../packages/todo/tool-todo), [`tool-web`](../packages/web/tool-web), [`acp`](../packages/ui/acp) | - | Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute. |
 | `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`stdio-agent`](../packages/ui/stdio-agent), [`invariants`](../packages/support/invariants) | - | Owns live Agent handles and the create/resume factory seam. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-core`](../packages/core/agent-core) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |

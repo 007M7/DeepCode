@@ -104,7 +104,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:64`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:65`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 

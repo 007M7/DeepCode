@@ -6,7 +6,7 @@ This package is the interface tier of the compaction capability, split so each c
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
 | `@deepseek-ai/dsh-compact-basic` (deferred) | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 

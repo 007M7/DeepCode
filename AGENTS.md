@@ -20,6 +20,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   todo/        the todo_write tool
   guard/       loop-hygiene plugins
+  cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-interaction seam, ask-user tool
@@ -48,6 +49,7 @@ pnpm run hygiene        # knip + publint + workspace constraints + NodeNext cons
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
 

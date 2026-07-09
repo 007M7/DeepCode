@@ -670,6 +670,24 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-cordis`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Config for the tool-cordis plugin: the sandbox evaluation bound. */
+export interface Config {
+  /**
+   * Milliseconds the SYNCHRONOUS portion of mount code may run in the vm
+   * before evaluation is aborted (default 5000). An async body escapes this
+   * bound — see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
+   */
+  vmTimeoutMs?: number
+}
+```
+
+Source: [`packages/cordis/tool-cordis/src/index.ts:53`](../packages/cordis/tool-cordis/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-fs`
 
 Requires: `tools` · `fs` · `systemPrompt`
