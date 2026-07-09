@@ -220,8 +220,6 @@ describe('cordis_mount', () => {
         return {
           name: 'raw-register-get',
           apply(ctx) {
-            const sp = ctx.get('systemPrompt')
-            console.log('systemPrompt is', typeof sp)
             ctx.get('tools').register({ name: 'raw_via_get', description: 'raw', parameters: {}, async execute() { return [] } })
           },
         }

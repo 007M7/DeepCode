@@ -154,3 +154,142 @@ describe('sandbox context façade — escape surface is closed', () => {
     expect(result.isError).toBe(false)
   })
 })
+
+describe('sandbox context façade — inject gate on services', () => {
+  it('denies an undeclared live service (property access), naming the inject fix', async () => {
+    // `systemPrompt` is a live global service in the setup harness, but this
+    // mount does not declare it — reaching it would let the mount depend on a
+    // provider cordis does not know about, so it is refused.
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'undeclared\', inject: [\'tools\'], apply(ctx) { const s = ctx.systemPrompt } }',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('service "systemPrompt" is not injected')
+    expect(text(result)).toContain('inject: [\'systemPrompt\', …]')
+  })
+
+  it('denies an undeclared live service reached through ctx.get too', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'undeclared-get\', inject: [\'tools\'], apply(ctx) { ctx.get(\'systemPrompt\') } }',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('service "systemPrompt" is not injected')
+  })
+
+  it('allows a service the mount DID declare in inject', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'declared',
+          inject: ['systemPrompt', 'tools'],
+          apply(ctx) { console.log('has systemPrompt:', typeof ctx.systemPrompt) }
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('state: active')
+  })
+
+  it('a cross-mount consumer must declare the provider — the undeclared path is refused, not left as a zombie tool', async () => {
+    // The finding's scenario: a consumer registers a tool built on a provider's
+    // service WITHOUT declaring inject. cordis would then never park the
+    // consumer when the provider unmounts, leaving a tool that fails only at
+    // execution. The gate refuses the undeclared access up front, so the
+    // dependency is always visible to cordis.
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'greeter-provider\', apply(ctx) { ctx.provide(\'greeter\', { greet: (n) => \'hi \' + n }) } }',
+    })
+    const undeclared = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'sloppy-consumer',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'greet_undeclared',
+              description: 'uses greeter without declaring it',
+              parameters: { n: { type: 'string', required: true } },
+              async execute(args) { return [{ type: 'text', text: ctx.greeter.greet(args.n) }] },
+            }))
+          },
+        }
+      `,
+    })
+    // The tool registers (its execute is lazy), but calling it hits the gate:
+    // `ctx.greeter` is undeclared, so it fails with the teaching error rather
+    // than silently working and later stranding.
+    expect(undeclared.isError).toBe(false)
+    const called = await call(ctx, 'greet_undeclared', { n: 'x' })
+    expect(called.isError).toBe(true)
+    expect(text(called)).toContain('service "greeter" is not injected')
+  })
+})
+
+describe('sandbox tools façade — get is a read-only schema view', () => {
+  it('ctx.tools.get returns a schema, not the live ToolDefinition with execute', async () => {
+    // The finding: returning the raw ToolDefinition hands mount code the
+    // tool's execute function, letting it bypass ToolRegistry.execute (and its
+    // pre/post hooks). get now returns the same name/description/parameters
+    // view as schemas(), with no execute. Asserted via a self-made tool that
+    // reports the shape it saw — world-checked, not self-reported.
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'reporter',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'report_view',
+              description: 'reports the shape of a tool view',
+              parameters: {},
+              async execute() {
+                const view = ctx.tools.get('cordis_mount')
+                return [{ type: 'text', text: JSON.stringify({
+                  hasExecute: 'execute' in view,
+                  hasPresentCall: 'presentCall' in view,
+                  name: view.name,
+                  keys: Object.keys(view).sort(),
+                }) }]
+              },
+            }))
+          },
+        }
+      `,
+    })
+    const reported = await call(ctx, 'report_view', {})
+    expect(reported.isError).toBe(false)
+    const shape = JSON.parse(text(reported)) as { hasExecute: boolean; hasPresentCall: boolean; name: string; keys: string[] }
+    expect(shape.hasExecute).toBe(false)
+    expect(shape.hasPresentCall).toBe(false)
+    expect(shape.name).toBe('cordis_mount')
+    expect(shape.keys).toEqual(['description', 'name', 'parameters'])
+  })
+
+  it('ctx.tools.get returns undefined for an unknown tool', async () => {
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'unknown-probe',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'probe_unknown',
+              description: 'reports whether an unknown tool resolves',
+              parameters: {},
+              async execute() {
+                return [{ type: 'text', text: String(ctx.tools.get('no_such_tool') === undefined) }]
+              },
+            }))
+          },
+        }
+      `,
+    })
+    expect(text(await call(ctx, 'probe_unknown', {}))).toBe('true')
+  })
+})

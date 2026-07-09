@@ -185,15 +185,19 @@ export function sandboxRegisterTool(ctx: Context, tool: unknown): () => void {
 const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setTimeout', 'setInterval', 'throttle', 'debounce'])
 
 /**
- * The tool-registry façade: only `register` (marker-guarded), plus the
- * read-only `schemas` / `get` a mount may legitimately want. No other registry
- * method (nothing that could re-enter the raw context) is exposed.
+ * The tool-registry façade: `register` (marker-guarded) plus READ-ONLY
+ * metadata (`schemas`, and `get` returning a schema view, never the live
+ * `ToolDefinition`). Exposing the raw definition would hand mount code the
+ * tool's `execute` function, letting it call another tool directly and bypass
+ * `ToolRegistry.execute` — the pre/post-execute waterfall (permission gates,
+ * accounting) and result normalization. So `get` returns the same
+ * name/description/parameters view as `schemas()`, and nothing invocable.
  */
 function sandboxTools(ctx: Context): Record<string, unknown> {
   return {
     register: (tool: unknown): (() => void) => sandboxRegisterTool(ctx, tool),
     schemas: () => ctx.tools.schemas(),
-    get: (name: string) => ctx.tools.get(name),
+    get: (name: string) => ctx.tools.schemas().find(schema => schema.name === name),
   }
 }
 
@@ -234,52 +238,84 @@ function guardedService(service: object, name: string): unknown {
 }
 
 /**
+ * The service names a plugin declared in `inject`, as a lookup set. Whatever
+ * declaration style the plugin used — an `inject: ['bash', 'tools']` array or
+ * the `{ required, optional }` object form — cordis resolves it into a single
+ * name-keyed map on the fiber before `apply` runs (`{ bash: null, tools: null }`),
+ * so the gate just reads that map's keys. A mount may reach only the services
+ * it declared — that is what lets cordis park the mount when a declared
+ * provider unmounts.
+ */
+function declaredInjects(ctx: Context): Set<string> {
+  return new Set(Object.keys(ctx.fiber.inject))
+}
+
+/**
  * The sandbox context façade handed to a mounted plugin's `apply` in place of
  * the real `ctx`. A whitelist (see the module doc): the registration/eventing
  * verbs, the timer helpers, a guarded `tools`, and injected services resolved
- * through a guarded `get` / property access. Every framework-plumbing member
- * is denied with a teaching error; there is no context-valued member to reach.
+ * through a guarded `get` / property access. A service is reachable only if the
+ * plugin DECLARED it in `inject` — an undeclared service is denied even when a
+ * global provider exists, so cordis's activation/unload semantics (park the
+ * mount when a declared provider goes away) actually bind. Every
+ * framework-plumbing member is denied with a teaching error; there is no
+ * context-valued member to reach.
  */
 function sandboxContext(ctx: Context): Context {
   const tools = sandboxTools(ctx)
-  // Resolve a named service to a guarded wrapper, or undefined when absent.
-  const resolveService = (name: string): unknown => {
-    if (name === 'tools') return tools
-    const service: unknown = ctx.get(name)
-    return service === undefined ? undefined : guardedService(service as object, name)
+  const declared = declaredInjects(ctx)
+  // A framework member or an undeclared service — distinguish the two so the
+  // error teaches the right fix (declare it in inject vs it is withheld).
+  const denyRead = (prop: string): never => {
+    if (ctx.get(prop) !== undefined) {
+      throw new Error(
+        `service "${prop}" is not injected. Declare it: inject: ['${prop}', …] on your plugin, `
+        + 'so cordis parks this mount if the provider is later unmounted.',
+      )
+    }
+    throw new Error(
+      `sandbox ctx does not expose "${prop}". Available: ctx.tools.register / ctx.on / ctx.provide / `
+      + 'the timer helpers (ctx.setTimeout, ctx.interval, …) and any service you declared in inject. '
+      + 'Framework internals (root, fiber, registry, extend, plugin, …) are withheld by design.',
+    )
   }
-  const get = (name: string): unknown => resolveService(name)
+  // Read a service for either access path (property or `get`). `tools` is the
+  // façade's own surface. An UNDECLARED name is denied with the teaching
+  // error; a DECLARED one resolves to the guarded service. A declared inject
+  // is required in cordis (the fiber only activates once every declared
+  // service is live), so at `apply`/`execute` time `ctx.get(name)` is present
+  // for a declared name — no undefined case to handle here.
+  const readService = (name: string): unknown => {
+    if (name === 'tools') return tools
+    if (!declared.has(name)) return denyRead(name)
+    return guardedService(ctx.get(name) as object, name)
+  }
+  const get = (name: string): unknown => readService(name)
   return new Proxy({}, {
     get(_target, prop) {
       if (prop === 'tools') return tools
       if (prop === 'get') return get
       if (typeof prop !== 'string') return undefined
       // Lazy verb forwarder — reads `ctx[verb]` only when called, so a plugin
-      // that never uses a timer never triggers the timer mixin's inject check.
+      // that never uses a timer never triggers the timer mixin's inject check
+      // (cordis raises its own "without inject" error there for undeclared timer use).
       if (CTX_VERBS.has(prop)) {
         return (...args: unknown[]): unknown => {
           const method = ctx[prop as keyof Context]
           return Reflect.apply(method as (...a: unknown[]) => unknown, ctx, args)
         }
       }
-      // A declared-and-injected service reads as a ctx property; resolve it
-      // through the same guard. Absent → the deny path (framework plumbing,
-      // an un-injected service, or a typo) with one teaching error.
-      const service = resolveService(prop)
-      if (service !== undefined) return service
-      throw new Error(
-        `sandbox ctx does not expose "${prop}". Available: ctx.tools.register / ctx.on / ctx.provide / `
-        + 'the timer helpers (ctx.setTimeout, ctx.interval, …) and any service you declared in inject. '
-        + 'Framework internals (root, fiber, registry, extend, plugin, …) are withheld by design.',
-      )
+      return readService(prop)
     },
     // A façade is not the real ctx; block writes rather than let mount code
     // stash state on a throwaway object and think it persisted.
     set(_target, prop) {
       throw new Error(`sandbox ctx is read-only; cannot assign "${String(prop)}"`)
     },
+    // `in` reflects reachability: the façade surface plus DECLARED services
+    // (whether or not currently live). Does not resolve/wrap — no throw.
     has: (_target, prop) => prop === 'tools' || prop === 'get'
-      || (typeof prop === 'string' && (CTX_VERBS.has(prop) || resolveService(prop) !== undefined)),
+      || (typeof prop === 'string' && (CTX_VERBS.has(prop) || declared.has(prop))),
   }) as unknown as Context
 }
 
