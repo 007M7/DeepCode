@@ -85,9 +85,14 @@ flowchart TD
   end
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
+    pkg_code_runtime_worker["code-runtime-worker"]
+  end
+  subgraph group_guard["packages/guard"]
+    pkg_repeat_tool_guard["repeat-tool-guard"]
   end
   pkg_llm --> pkg_brand
   pkg_bash --> pkg_brand
+  pkg_code_runtime_worker --> pkg_code_runtime
   pkg_llm_deepseek --> pkg_llm
   pkg_llm_pi_ai --> pkg_llm
   pkg_session --> pkg_brand
@@ -169,6 +174,8 @@ flowchart TD
   pkg_acp --> pkg_session
   pkg_acp --> pkg_session_persistence
   pkg_acp --> pkg_tools
+  pkg_repeat_tool_guard --> pkg_agent
+  pkg_repeat_tool_guard --> pkg_tools
   pkg_agent_core --> pkg_agent
   pkg_agent_core --> pkg_agent_loop
   pkg_agent_core --> pkg_invariants
@@ -226,6 +233,7 @@ flowchart TD
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`bash`](../packages/bash/bash) | `bash` | [`brand`](../packages/util/brand) |
+| [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`llm`](../packages/llm/llm) |
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`llm`](../packages/llm/llm) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
@@ -258,6 +266,7 @@ flowchart TD
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools) |
+| [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tools`](../packages/core/tools) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

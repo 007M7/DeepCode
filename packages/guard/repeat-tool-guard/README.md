@@ -1,0 +1,37 @@
+# @deepseek-ai/dsh-repeat-tool-guard
+
+An advisory loop-breaker, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The decision (retry differently, gather more evidence, or finish) stays entirely with the model: a legitimately repeated call is delayed by nothing and blocked by nothing. Decision record: [the repeat-tool-guard RFC](../../../docs/rfc/implemented/feature/2026-07-08-repeat-tool-guard.md).
+
+## Config
+
+```yaml
+- id: repeat-tool-guard
+  name: '@deepseek-ai/dsh-repeat-tool-guard'
+  config:
+    thresholds: [3, 5, 8]        # default; consecutive counts that trigger a reminder
+    include: []                  # tool-name patterns to track; empty ⇒ all tools
+    exclude: [todo_write]        # tool-name patterns transparent to the chain
+    argumentsPreviewChars: 500   # default; cap on arguments quoted in the detailed reminder
+```
+
+`thresholds` fails loud at plugin load: an empty list, a non-integer, a value below 2, or a duplicate throws, never a silent fall-back to defaults; `argumentsPreviewChars` equally rejects anything but an integer >= 1. The list is normalized to ascending order; the FIRST threshold delivers a short generic nudge, every later threshold delivers the detailed form naming the tool, the run length, and the canonical arguments — head-truncated at `argumentsPreviewChars` with an omitted-count marker, so a looping `write`/`edit` payload cannot ride into the next request unbounded (the chain key always compares the FULL canonical string; the cap bounds the reminder, never the detection).
+
+`include`/`exclude` entries support `*` wildcards and are predicates over whatever tools exist at call time, not references to registry entries — a pattern matching no currently registered tool is NOT an error (`exclude: [mcp_*]` stays valid in a deployment that loads no MCP tools), unlike `toolOrder`'s referent check.
+
+## Chain semantics
+
+The chain key is `(tool name, canonical arguments)` — canonicalization is a deep key-sort plus `JSON.stringify`, so argument objects differing only in property order count as identical. A call identical to the previous tracked call increments the agent's consecutive counter; a different tracked call resets it to 1.
+
+- **Untracked calls are transparent to the chain.** A call excluded by `include`/`exclude` neither increments nor resets the counter, so `grep X → todo_write → grep X` still counts as two consecutive `grep X` when `todo_write` is excluded. This is what makes exclusion useful: bookkeeping tools interleaved into a loop must not launder it.
+- **Denied calls count.** Detection sits on `tools/post-execute`, which also runs for calls a `tools/pre-execute` listener denied — a model hammering a denied call is exactly the loop worth breaking.
+- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no `AgentId` to key on.
+- **Per-agent keying.** The tool registry is context-level and subagents interleave through the same waterfall, so chains are keyed by `AgentId`; one agent's repetition never trips another's reminder. A user prompt (`agent/prompt-submit`) resets the submitting agent's chain; agent disposal drops its state.
+- **In-memory only.** A session resumed from persistence starts with a fresh chain — the guard is a heuristic nudge, not a logged invariant, later reminders are the accepted cost.
+
+## Reminder delivery
+
+Reminders ride the post-execute decision's `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as a `context/message` after the step's tool results, which the session renders as the tagged synthetic-user envelope — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and folds its reminder onto the downstream decision (both variants — a blocked call still gets the nudge); when a downstream listener attached its own `additionalContext`, the fold concatenates content and carries the guard's `source` (a `HookContext` holds one `MessageSource`; `source.kind` is what framing depends on).
+
+## Testing
+
+Unit suites drive a real agent loop against a mock adapter (no network) and cover the chain semantics above to per-file 100%. The snapshot tier owns the transcript surface: a scripted-replay scenario repeats a call five times and pins both reminder tiers (gentle at 3, detailed at 5) as `context/message`s in the ACP transcript.

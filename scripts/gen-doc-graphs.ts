@@ -154,7 +154,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'code-runtime',
     title: 'Code-execution seam',
     mode: 'seam',
-    implementations: [],
+    implementations: ['code-runtime-worker'],
     consumers: [],
     note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the Code Mode RFC specifies the worker-thread backend and the tool-registry consumer).',
   },

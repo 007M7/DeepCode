@@ -35,6 +35,7 @@
     { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/code-runtime/code-runtime" },
+    { "path": "./packages/code-runtime/code-runtime-worker" },
     { "path": "./packages/llm/llm-deepseek" },
     { "path": "./packages/llm/llm-pi-ai" },
     { "path": "./packages/bash/bash-local" },
@@ -67,6 +68,7 @@
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" }

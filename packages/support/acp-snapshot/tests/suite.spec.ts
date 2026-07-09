@@ -39,14 +39,14 @@ const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'no-model', hasModelTurn: false, recorded: false },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false },
-  { name: 'authored-error', hasModelTurn: true, recorded: false },
+  { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true },
 ]
 
 const RECORD_SCENARIOS: Scenario[] = [
   { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'rec-child', hasModelTurn: true, recorded: true, childSessions: 1 },
   // recorded:false in record mode → registered but skipped (never re-recorded).
-  { name: 'rec-skip', hasModelTurn: true, recorded: false },
+  { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
 
 // Record mode mutates its snapshots dir, so run it on a throwaway copy —
