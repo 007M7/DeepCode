@@ -54,6 +54,8 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
@@ -205,6 +207,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow',
+    dir: 'tool-workflow',
+    source: 'packages/workflow/tool-workflow/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workflows', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool injects `workflows`; boot the vm engine over a scripted
+      // subagent provider to satisfy it. The schema does not depend on which
+      // provider backs the engine.
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentMock, { name: 'mock' })
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolWorkflow)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',

@@ -774,6 +774,22 @@ export interface Config {
 
 Source: [`packages/web/tool-web/src/index.ts:40`](../packages/web/tool-web/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-workflow`
+
+Requires: `tools` · `workflows` · `systemPrompt`
+
+```ts config-catalog
+/** Config: the model-facing tool name plus result rendering caps. */
+export interface Config {
+  /** The model-facing tool name to register (default `workflow`). */
+  toolName?: string
+  /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
+  maxResultChars?: number
+}
+```
+
+Source: [`packages/workflow/tool-workflow/src/index.ts:39`](../packages/workflow/tool-workflow/src/index.ts)
+
 ## `@deepseek-ai/dsh-tools`
 
 Requires: `systemPrompt`
@@ -917,6 +933,34 @@ export interface Config {
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
+## `@deepseek-ai/dsh-workflow-workerthread`
+
+Requires: `subagents`
+
+```ts config-catalog
+/** Plugin config (all optional — `static Config` supplies the defaults). */
+export interface Config {
+  /** The `ctx.subagents` provider children run on (default `spawn`). */
+  provider?: string
+  /** Concurrent `agent()` ceiling; `0` (the default) auto-resolves to `min(16, max(1, cores - 2))`. */
+  maxConcurrentAgents?: number
+  /** Total `agent()` calls one run may start — the runaway-loop backstop (default 1000). */
+  maxTotalAgents?: number
+  /** Items accepted by a single `parallel()`/`pipeline()` call (default 4096). */
+  maxItemsPerCall?: number
+  /** vm timeout for the script's initial synchronous slice, inside the worker (default 5000 ms). */
+  syncTimeoutMs?: number
+  /**
+   * How long after a cancellation an unsettled script may keep running before
+   * the run force-settles `cancelled` and its worker is TERMINATED (default
+   * 5000 ms); also bounds `dispose()`.
+   */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/workflow/workflow-workerthread/src/index.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
@@ -941,6 +985,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
+- `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 
 ## Library packages (no plugin entry)
 

@@ -261,6 +261,23 @@ async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchRe
 
 Source: [`packages/web/web/src/index.ts:87`](../../packages/web/web/src/index.ts)
 
+## `ctx.workflows` — `WorkflowService` (abstract seam)
+
+Abstract workflow execution service. Subclass, implement start, and load the subclass as a plugin — it registers as `ctx.workflows` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` SETTLES within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation).
+- The `workflow/*` events fire through emitWorkflowEvent (data snapshots, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
+- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
+- Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to the `start()` caller and does not track its live runs — disposing the engine's own fiber mid-run deliberately leaves those runs to their holders' teardown, so an engine reload cannot yank a run out from under the consumer awaiting it.
+
+```ts cordis-catalog
+abstract start(request: WorkflowStartRequest): WorkflowRun
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:210`](../../packages/workflow/workflow/src/index.ts)
+
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
 The framework `ctx` surface every plugin also sees, beyond the harness services above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of what `ctx` offers, without elevating framework internals to the harness tier's prominence.

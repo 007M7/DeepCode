@@ -205,6 +205,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-web'],
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
   },
+  {
+    key: 'workflows',
+    pkg: 'workflow',
+    title: 'Workflow script engine',
+    mode: 'seam',
+    implementations: ['workflow-workerthread'],
+    consumers: ['tool-workflow'],
+    note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
+  },
 ]
 
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
@@ -213,6 +222,14 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // listeners or strand an already-started child run.
   { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
   { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
+  // The workflow/* lifecycle events dispatch the same way, for the same
+  // per-listener-containment reason (WorkflowService.emitWorkflowEvent).
+  { event: 'workflow/start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/phase', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/log', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
 ]
 
 function generatedHeader(title: string): string[] {

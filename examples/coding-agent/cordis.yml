@@ -102,6 +102,18 @@
     provider: fork
     toolName: subagent_fork
 
+
+# Dynamic workflows: the worker-thread engine (ctx.workflows) over the spawn
+# subagent backend above, plus the model-facing `workflow` tool. The model
+# writes a JavaScript orchestration script (meta + body); the engine runs it
+# in its own worker thread and fans agent() calls out as spawn children.
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
 # The model-facing todo_write tool: whole-list task tracking written to the
 # session log (todo/write), rendered as a stdio checklist / ACP plan.
 - id: tool-todo

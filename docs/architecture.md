@@ -31,6 +31,7 @@ Composition is preferred over inheritance. `packages/core/` is a repository grou
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 
 ## Event

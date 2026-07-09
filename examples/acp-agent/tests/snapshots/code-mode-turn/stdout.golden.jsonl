@@ -3,95 +3,51 @@
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" user"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" wants"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" me"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" to"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" write"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" a"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" single"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" `"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"run"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" run"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"_code"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" program"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" that"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":":\n"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"1"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Calls"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" `"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"bash"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" calls"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" bash"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" twice"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" -"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" once"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" `"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"echo"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" CODE"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"_"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ONE"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" and"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" once"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" `"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"echo"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" CODE"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"_T"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"WO"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`\n"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"2"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Jo"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ins"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":","}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" then"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" returns"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" the"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" two"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" outputs"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" joined"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" a"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" plus"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" sign"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\n"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"3"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Returns"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" that"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" joined"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" string"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\n\n"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Let"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Let"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" me"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" write"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" the"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" code"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" this"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_Km1jhimv1ZVR4qbgjxAo9869","title":"const r1 = await tools.bash({ command: \"echo CODE_ONE\", description: \"Echo CODE_ONE\" });\nconst r2 = await tools.bash({ command: \"echo CODE_TWO\", description: \"Echo CODE_TWO\" });\nreturn r1.trim() + \"+\" + r2.trim();","kind":"execute","status":"in_progress","rawInput":"const r1 = await tools.bash({ command: \"echo CODE_ONE\", description: \"Echo CODE_ONE\" });\nconst r2 = await tools.bash({ command: \"echo CODE_TWO\", description: \"Echo CODE_TWO\" });\nreturn r1.trim() + \"+\" + r2.trim();"}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_Km1jhimv1ZVR4qbgjxAo9869","status":"completed","content":[{"type":"content","content":{"type":"text","text":"CODE_ONE+CODE_TWO"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_DRxnM6R1TThfDwcudW0f2050","title":"const out1 = await tools.bash({ command: \"echo CODE_ONE\", description: \"First echo\" });\nconst out2 = await tools.bash({ command: \"echo CODE_TWO\", description: \"Second echo\" });\nreturn out1.trim() + \"+\" + out2.trim();","kind":"execute","status":"in_progress","rawInput":"const out1 = await tools.bash({ command: \"echo CODE_ONE\", description: \"First echo\" });\nconst out2 = await tools.bash({ command: \"echo CODE_TWO\", description: \"Second echo\" });\nreturn out1.trim() + \"+\" + out2.trim();"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_DRxnM6R1TThfDwcudW0f2050","status":"completed","content":[{"type":"content","content":{"type":"text","text":"CODE_ONE+CODE_TWO"}}]}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" result"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" output"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" is"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" exactly"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" what"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" was"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" requested"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" the"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" user"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" asked"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" for"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":":"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" \""}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"CODE"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" CODE"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"_"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ONE"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"+"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"CODE"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"_T"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"WO"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Let"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" me"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" reply"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" just"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" that"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" string"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"CODE"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"_"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ONE"}}}}

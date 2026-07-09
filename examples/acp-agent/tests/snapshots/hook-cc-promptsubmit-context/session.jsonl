@@ -1,51 +1,38 @@
-{"type":"session","version":0,"id":"14aa40a4-9aad-4536-bc8b-37719af77a90","createdAt":1783279424769,"cwd":"/tmp/acp-snap-cwd-jHjRG4"}
-{"type":"turn/start","seq":0,"time":1783279424773,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"hook/invoked","seq":1,"time":1783279424773,"data":{"turn":1,"point":"UserPromptSubmit","dialect":"claude","handlerId":"claude:UserPromptSubmit:1"}}
-{"type":"hook/result","seq":2,"time":1783279424786,"data":{"turn":1,"point":"UserPromptSubmit","handlerId":"claude:UserPromptSubmit:1","decision":"pass","exitCode":0,"durationMs":12.073233999999957}}
-{"type":"user/message","seq":3,"time":1783279424786,"data":{"content":[{"type":"text","text":"What is my favorite color? Reply with just the color and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":4,"time":1783279424786,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-claude"}},"surfaceOp":"append"}
-{"type":"step/start","seq":5,"time":1783279424787,"data":{"turn":1,"step":1}}
-{"type":"request/header","seq":6,"time":1783279424788,"data":{"header":{"config":{"model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
-{"type":"assistant/chunk","seq":7,"time":1783279425470,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":8,"time":1783279425471,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
-{"type":"assistant/chunk","seq":9,"time":1783279425619,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
-{"type":"assistant/chunk","seq":10,"time":1783279425646,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" asked"}}}
-{"type":"assistant/chunk","seq":11,"time":1783279425673,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
-{"type":"assistant/chunk","seq":12,"time":1783279425701,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
-{"type":"assistant/chunk","seq":13,"time":1783279425701,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
-{"type":"assistant/chunk","seq":14,"time":1783279425728,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
-{"type":"assistant/chunk","seq":15,"time":1783279425728,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" just"}}}
-{"type":"assistant/chunk","seq":16,"time":1783279425756,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" their"}}}
-{"type":"assistant/chunk","seq":17,"time":1783279425756,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" favorite"}}}
-{"type":"assistant/chunk","seq":18,"time":1783279425756,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" color"}}}
-{"type":"assistant/chunk","seq":19,"time":1783279425756,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
-{"type":"assistant/chunk","seq":20,"time":1783279425782,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" stop"}}}
-{"type":"assistant/chunk","seq":21,"time":1783279425810,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":","}}}
-{"type":"assistant/chunk","seq":22,"time":1783279425810,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" without"}}}
-{"type":"assistant/chunk","seq":23,"time":1783279425810,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" using"}}}
-{"type":"assistant/chunk","seq":24,"time":1783279425844,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" any"}}}
-{"type":"assistant/chunk","seq":25,"time":1783279425844,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" tools"}}}
-{"type":"assistant/chunk","seq":26,"time":1783279425844,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":27,"time":1783279425844,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" Based"}}}
-{"type":"assistant/chunk","seq":28,"time":1783279425865,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" on"}}}
-{"type":"assistant/chunk","seq":29,"time":1783279425865,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
-{"type":"assistant/chunk","seq":30,"time":1783279425866,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" context"}}}
-{"type":"assistant/chunk","seq":31,"time":1783279425866,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" provided"}}}
-{"type":"assistant/chunk","seq":32,"time":1783279425893,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":","}}}
-{"type":"assistant/chunk","seq":33,"time":1783279425893,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" their"}}}
-{"type":"assistant/chunk","seq":34,"time":1783279425893,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" favorite"}}}
-{"type":"assistant/chunk","seq":35,"time":1783279425893,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" color"}}}
-{"type":"assistant/chunk","seq":36,"time":1783279425920,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" is"}}}
-{"type":"assistant/chunk","seq":37,"time":1783279425921,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" te"}}}
-{"type":"assistant/chunk","seq":38,"time":1783279425921,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"al"}}}
-{"type":"assistant/chunk","seq":39,"time":1783279425921,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":40,"time":1783279425921,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":41,"time":1783279425921,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"te"}}}
-{"type":"assistant/chunk","seq":42,"time":1783279425948,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"al"}}}
-{"type":"assistant/chunk","seq":43,"time":1783279425949,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user asked me to reply with just their favorite color and stop, without using any tools. Based on the context provided, their favorite color is teal."}}}}
-{"type":"assistant/chunk","seq":44,"time":1783279425949,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"teal"}}}}
-{"type":"assistant/chunk","seq":45,"time":1783279425949,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":2120,"outputTokens":35,"cacheReadTokens":0,"reasoningTokens":32}}}}
-{"type":"assistant/chunk","seq":46,"time":1783279425949,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":47,"time":1783279425951,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user asked me to reply with just their favorite color and stop, without using any tools. Based on the context provided, their favorite color is teal."},{"type":"text","text":"teal"}],"usage":{"inputTokens":2120,"outputTokens":35,"cacheReadTokens":0,"reasoningTokens":32}},"sourceEventSeqs":[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46],"surfaceOp":"append"}
-{"type":"step/end","seq":48,"time":1783279425952,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":49,"time":1783279425952,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"session","version":0,"id":"d03c3a83-1238-4e2e-ad9a-b86a61840a40","createdAt":1783352160541,"cwd":"/tmp/acp-snap-cwd-QUDqlk"}
+{"type":"turn/start","seq":0,"time":1783352160545,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
+{"type":"hook/invoked","seq":1,"time":1783352160546,"data":{"turn":1,"point":"UserPromptSubmit","dialect":"claude","handlerId":"claude:UserPromptSubmit:1"}}
+{"type":"hook/result","seq":2,"time":1783352160564,"data":{"turn":1,"point":"UserPromptSubmit","handlerId":"claude:UserPromptSubmit:1","decision":"pass","exitCode":0,"durationMs":17.45639600000004}}
+{"type":"user/message","seq":3,"time":1783352160564,"data":{"content":[{"type":"text","text":"What is my favorite color? Reply with just the color and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"context/message","seq":4,"time":1783352160564,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-claude"}},"surfaceOp":"append"}
+{"type":"step/start","seq":5,"time":1783352160565,"data":{"turn":1,"step":1}}
+{"type":"request/header","seq":6,"time":1783352160566,"data":{"header":{"config":{"model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
+{"type":"assistant/chunk","seq":7,"time":1783352161228,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":8,"time":1783352161229,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":9,"time":1783352161335,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
+{"type":"assistant/chunk","seq":10,"time":1783352161363,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"'s"}}}
+{"type":"assistant/chunk","seq":11,"time":1783352161363,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" favorite"}}}
+{"type":"assistant/chunk","seq":12,"time":1783352161392,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" color"}}}
+{"type":"assistant/chunk","seq":13,"time":1783352161392,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" is"}}}
+{"type":"assistant/chunk","seq":14,"time":1783352161392,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" te"}}}
+{"type":"assistant/chunk","seq":15,"time":1783352161393,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"al"}}}
+{"type":"assistant/chunk","seq":16,"time":1783352161393,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":","}}}
+{"type":"assistant/chunk","seq":17,"time":1783352161420,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" as"}}}
+{"type":"assistant/chunk","seq":18,"time":1783352161421,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" stated"}}}
+{"type":"assistant/chunk","seq":19,"time":1783352161421,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" in"}}}
+{"type":"assistant/chunk","seq":20,"time":1783352161421,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":21,"time":1783352161449,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" context"}}}
+{"type":"assistant/chunk","seq":22,"time":1783352161449,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" provided"}}}
+{"type":"assistant/chunk","seq":23,"time":1783352161449,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" by"}}}
+{"type":"assistant/chunk","seq":24,"time":1783352161477,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":25,"time":1783352161478,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" plugin"}}}
+{"type":"assistant/chunk","seq":26,"time":1783352161478,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":27,"time":1783352161478,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":28,"time":1783352161478,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"te"}}}
+{"type":"assistant/chunk","seq":29,"time":1783352161511,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"al"}}}
+{"type":"assistant/chunk","seq":30,"time":1783352161512,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user's favorite color is teal, as stated in the context provided by the plugin."}}}}
+{"type":"assistant/chunk","seq":31,"time":1783352161512,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"teal"}}}}
+{"type":"assistant/chunk","seq":32,"time":1783352161512,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":2892,"outputTokens":22,"cacheReadTokens":0,"reasoningTokens":19}}}}
+{"type":"assistant/chunk","seq":33,"time":1783352161512,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":34,"time":1783352161515,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user's favorite color is teal, as stated in the context provided by the plugin."},{"type":"text","text":"teal"}],"usage":{"inputTokens":2892,"outputTokens":22,"cacheReadTokens":0,"reasoningTokens":19}},"sourceEventSeqs":[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33],"surfaceOp":"append"}
+{"type":"step/end","seq":35,"time":1783352161516,"data":{"turn":1,"step":1}}
+{"type":"turn/end","seq":36,"time":1783352161516,"data":{"turn":1,"reason":{"kind":"completed"}}}

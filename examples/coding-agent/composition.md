@@ -35,6 +35,10 @@ flowchart LR
   cfg --> plugin_coding_tool_subagent
   plugin_coding_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_coding_tool_subagent_fork
+  plugin_coding_workflow_workerthread["workflow-workerthread<br/>@deepseek-ai/dsh-workflow-workerthread"]
+  cfg --> plugin_coding_workflow_workerthread
+  plugin_coding_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
+  cfg --> plugin_coding_tool_workflow
   plugin_coding_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_coding_tool_todo
   plugin_coding_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
@@ -57,6 +61,8 @@ flowchart LR
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
+| `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
+| `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
