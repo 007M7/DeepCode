@@ -21,7 +21,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) + the app packages | Product — stable surface |
+| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, app packages, user-interaction seam, ask-user tool | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
 

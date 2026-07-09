@@ -121,8 +121,17 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and execution waterfall',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-bash', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
     note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
+  },
+  {
+    key: 'userInteraction',
+    pkg: 'user-interaction',
+    title: 'Human question/answer seam',
+    mode: 'seam',
+    implementations: ['stdio-agent', 'acp'],
+    consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
+    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
     key: 'agents',
