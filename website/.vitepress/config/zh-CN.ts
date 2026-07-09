@@ -1,0 +1,99 @@
+import type { DefaultTheme, LocaleSpecificConfig } from 'vitepress'
+
+const guideSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: '入门',
+    items: [
+      { text: '介绍', link: '/zh-CN/guide/' },
+      { text: '快速开始', link: '/zh-CN/guide/quickstart' },
+      { text: '配置文件', link: '/zh-CN/guide/config' },
+    ],
+  },
+]
+
+const developSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: '基础',
+    items: [
+      { text: '第一个插件', link: '/zh-CN/develop/basic/' },
+      { text: '开发一个 Tool', link: '/zh-CN/develop/basic/tool' },
+      { text: '插件配置', link: '/zh-CN/develop/basic/config' },
+    ],
+  },
+  {
+    text: '框架能力',
+    items: [
+      { text: '插件与生命周期', link: '/zh-CN/develop/framework/' },
+      { text: '服务与依赖', link: '/zh-CN/develop/framework/service' },
+      { text: '事件系统', link: '/zh-CN/develop/framework/events' },
+    ],
+  },
+  {
+    text: '实战',
+    items: [
+      { text: '能力的三层拆分', link: '/zh-CN/develop/practice/' },
+      { text: 'LLM 适配器', link: '/zh-CN/develop/practice/llm-adapter' },
+    ],
+  },
+]
+
+const apiSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: '框架 API',
+    items: [
+      { text: '总览', link: '/zh-CN/api/' },
+      { text: 'Context', link: '/zh-CN/api/cordis/context' },
+      { text: 'Events', link: '/zh-CN/api/cordis/events' },
+      { text: 'Fiber', link: '/zh-CN/api/cordis/fiber' },
+      { text: 'Registry', link: '/zh-CN/api/cordis/registry' },
+      { text: 'Service', link: '/zh-CN/api/cordis/service' },
+    ],
+  },
+  {
+    text: 'Harness API',
+    items: [
+      { text: 'Tools (dsh-tools)', link: '/zh-CN/api/harness/tools' },
+      { text: 'LLM (dsh-llm)', link: '/zh-CN/api/harness/llm' },
+      { text: 'Session (dsh-session)', link: '/zh-CN/api/harness/session' },
+      { text: 'Agent (dsh-agent)', link: '/zh-CN/api/harness/agent' },
+      { text: 'Bash (dsh-bash)', link: '/zh-CN/api/harness/bash' },
+      { text: 'Filesystem (dsh-fs)', link: '/zh-CN/api/harness/fs' },
+      { text: 'Subagent (dsh-subagent)', link: '/zh-CN/api/harness/subagent' },
+    ],
+  },
+]
+
+const designSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: '系统设计',
+    items: [
+      { text: '概述', link: '/zh-CN/design/' },
+      { text: '可组合性与插件系统', link: '/zh-CN/design/composability' },
+      { text: '作用与余作用', link: '/zh-CN/design/effects-coeffects' },
+      { text: '可逆作用', link: '/zh-CN/design/revertible-effects' },
+      { text: '响应式余作用', link: '/zh-CN/design/reactive-coeffects' },
+      { text: '上下文模型', link: '/zh-CN/design/context-model' },
+    ],
+  },
+]
+
+export const zhCN: LocaleSpecificConfig<DefaultTheme.Config> = {
+  label: '简体中文',
+  lang: 'zh-CN',
+  themeConfig: {
+    nav: [
+      { text: '入门', link: '/zh-CN/guide/', activeMatch: '/zh-CN/guide/' },
+      { text: '开发', link: '/zh-CN/develop/basic/', activeMatch: '/zh-CN/develop/' },
+      { text: 'API', link: '/zh-CN/api/', activeMatch: '/zh-CN/api/' },
+      { text: '设计', link: '/zh-CN/design/', activeMatch: '/zh-CN/design/' },
+    ],
+    sidebar: {
+      '/zh-CN/guide/': guideSidebar,
+      '/zh-CN/develop/': developSidebar,
+      '/zh-CN/api/': apiSidebar,
+      '/zh-CN/design/': designSidebar,
+    },
+    outline: { label: '本页目录' },
+    docFooter: { prev: '上一篇', next: '下一篇' },
+  },
+}
