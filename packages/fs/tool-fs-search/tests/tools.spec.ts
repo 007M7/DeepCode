@@ -392,6 +392,18 @@ describe('raw output acquisition', () => {
     expect(text(result)).toContain('narrow pattern, path, or include')
   })
 
+  it('fails with SEARCH_RAW_OUTPUT_OVERFLOW when UNTRUNCATED inline stdout exceeds the cap', async () => {
+    // An executor retaining more inline than this package's cap (or a
+    // deployment lowering rawOutputMaxBytes below the bash retention) must not
+    // smuggle an over-cap parse through the untruncated path.
+    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
+    const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 16 } })
+    bash.handler = () => runResult(`${'x'.repeat(64)}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    expect(text(result)).toContain('narrow pattern, path, or include')
+  })
+
   it('fails with SEARCH_RAW_OUTPUT_OVERFLOW when truncated stdout has no spill path', async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
     const { ctx, bash } = await setup()

@@ -103,15 +103,26 @@ function classifyRunFailure(toolName: string, result: BashRunResult): SearchErro
 }
 
 /**
- * Acquire the COMPLETE raw stdout of a finished run. Untruncated stdout is used
- * as-is; truncated stdout is recovered from the executor's local raw spill file
- * only when the complete file fits within `rawOutputMaxBytes`. A missing spill
- * path or an over-cap file is a clear failure telling the model to narrow the
- * search — never a silently-partial parse.
+ * Acquire the COMPLETE raw stdout of a finished run, enforcing
+ * `rawOutputMaxBytes` on BOTH transports: inline executor text (an executor
+ * retaining more than this package's cap must not smuggle an over-cap parse
+ * through the untruncated path) and the executor's local raw spill file, read
+ * only when the complete file fits the cap. A missing spill path or over-cap
+ * output is a clear failure telling the model to narrow the search — never a
+ * silently-partial parse.
  */
 async function completeStdout(toolName: string, result: BashRunResult, rawOutputMaxBytes: number): Promise<string> {
-  if (!result.stdout.truncated) return result.stdout.text
   const narrow = 'narrow pattern, path, or include and retry'
+  if (!result.stdout.truncated) {
+    const inlineBytes = Buffer.byteLength(result.stdout.text, 'utf8')
+    if (inlineBytes > rawOutputMaxBytes) {
+      throw new SearchError(
+        `${toolName} produced ${inlineBytes} bytes of raw output, over the ${rawOutputMaxBytes}-byte cap; ${narrow}`,
+        'SEARCH_RAW_OUTPUT_OVERFLOW',
+      )
+    }
+    return result.stdout.text
+  }
   const spillPath = result.stdout.spillPath
   if (spillPath === undefined) {
     throw new SearchError(
