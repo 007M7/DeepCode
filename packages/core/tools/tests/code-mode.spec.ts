@@ -444,34 +444,33 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('requires a code runtime')
   })
 
-  it('presents the pending call as a generic execute card carrying the program, and the result with the captured output', async () => {
+  it('presents the PROGRAM as the execute-card title on both call and result (the one slot execute cards always show)', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
+    // The program IS the title, mirroring how command tools title their cards
+    // with the command: an ACP client's execute-card header is the only
+    // always-visible slot (Zed renders no body content and no raw input for
+    // execute-kind cards without a real terminal).
     expect(tool.presentCall?.({ code: 'return 1' })).toEqual({
       card: 'generic',
-      title: 'Run code',
+      title: 'return 1',
       kind: 'execute',
       rawInput: 'return 1',
-      // The program rides the card BODY as a fenced block — visible in ACP
-      // clients that never open the rawInput detail view.
-      content: [{ type: 'text', text: '```ts\nreturn 1\n```' }],
     })
     const view = tool.presentResult?.({ code: 'return 1' }, {
       content: [{ type: 'text', text: 'model-facing' }],
       isError: false,
       meta: { logs: [{ source: 'console', level: 'log', text: 'printed' }], dispatches: 1 },
     })
-    // The result re-carries the fenced program before the output: the ACP
-    // update's content REPLACES the pending card's, so omitting it would
-    // wipe the code from the card the moment the run completes.
+    // The result omits the title — an update replaces only provided fields,
+    // so the pending card's program title persists through completion.
     expect(view).toEqual({
       card: 'generic',
-      title: 'Run code (1 tool call)',
-      content: [{ type: 'text', text: '```ts\nreturn 1\n```' }, { type: 'text', text: 'printed' }],
+      content: [{ type: 'text', text: 'printed' }],
     })
-    // Plural title, and the program alone when it printed nothing.
+    // No captured output → no content either; everything pending persists.
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [], dispatches: 2 } }))
-      .toEqual({ card: 'generic', title: 'Run code (2 tool calls)', content: [{ type: 'text', text: '```ts\nx\n```' }] })
+      .toEqual({ card: 'generic' })
     // Replay with an unrecognizable meta falls back to the generic rendering.
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()
