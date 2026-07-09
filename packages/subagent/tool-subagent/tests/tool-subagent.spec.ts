@@ -81,6 +81,21 @@ describe('dsh-tool-subagent', () => {
     expect(schema!.description).not.toContain('task_output')
   })
 
+  it('refuses a forced run_in_background at execution time when the instance disables it (review finding)', async () => {
+    // Schema omission is advertising, not enforcement: the arg validator
+    // allows undeclared keys, so the opt-out must also hold in execute().
+    const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
+    const parent = { id: AgentId('agent-sess-off'), inject: () => {}, session: { header: { version: 0, id: 'sess-off', createdAt: 0 } } } as unknown as Agent
+
+    const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
+    expect(forced.isError).toBe(true)
+    expect(text(forced)).toContain('run_in_background is disabled for this tool instance')
+    // The provider was never asked to start a child.
+    expect(ctx.subagents.getProvider('mock')).toBeDefined()
+    const foreground = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: parent })
+    expect(foreground.isError).toBe(false)
+  })
+
   it.each([
     { stopReason: 'aborted' as const, fragment: 'cancelled' },
     { stopReason: 'error' as const, fragment: 'failed' },

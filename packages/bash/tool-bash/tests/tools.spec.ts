@@ -408,6 +408,15 @@ describe('background execution through the task runtime', () => {
     // The registry-held definition agrees (schema and capability never disagree).
     const parameters = ctx.tools.get('bash')!.parameters as { properties: Record<string, unknown> }
     expect('run_in_background' in parameters.properties).toBe(false)
+
+    // Schema omission is advertising, not enforcement: the arg validator
+    // allows undeclared keys, so a forced run_in_background must be REFUSED
+    // at execution time (review finding) — while foreground still works.
+    const forced = await call(ctx, 'bash', { command: 'echo hi', description: 'test command', run_in_background: true })
+    expect(forced.isError).toBe(true)
+    expect(text(forced)).toContain('run_in_background is disabled for this deployment')
+    const foreground = await call(ctx, 'bash', { command: 'echo hi', description: 'test command' })
+    expect(foreground.isError).toBe(false)
   })
 })
 

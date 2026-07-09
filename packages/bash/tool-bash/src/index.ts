@@ -350,6 +350,13 @@ export function apply(ctx: Context, config: Config): void {
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
       }
       if (args.run_in_background === true) {
+        // The schema omission is advertising, not enforcement — the arg
+        // validator deliberately allows undeclared keys, so a caller (or a
+        // model that has seen the parameter elsewhere) can still send it.
+        // A disabled deployment must refuse at execution time, loud.
+        if (!backgroundEnabled) {
+          throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
+        }
         // The generic runtime owns everything task-shaped; without it a task
         // id would be uncollectable — fail loud with the fix, not a dangle.
         const tasks = ctx.get('tasks')

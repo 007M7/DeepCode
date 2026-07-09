@@ -10,7 +10,7 @@ The plugin also contributes the `tool:bash` prompt section (order 105) — the c
 
 | key | default | meaning |
 |---|---|---|
-| `enableRunInBackground` | `true` | Expose `run_in_background` in the schema. Disabled, the parameter is absent entirely (schema and capability never disagree) and the description says background execution is unavailable. |
+| `enableRunInBackground` | `true` | Expose `run_in_background` in the schema. Disabled, the parameter is absent entirely (schema and capability never disagree), the description says background execution is unavailable, and a caller that forces the key anyway is refused at execution time (the arg validator allows undeclared keys, so the schema omission alone is not enforcement). |
 
 ## The `bash` tool
 

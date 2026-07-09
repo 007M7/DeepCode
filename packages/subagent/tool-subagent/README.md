@@ -14,7 +14,7 @@ The tool description and the `prompt` parameter description are DERIVED from the
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
 | `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
-| `enableRunInBackground` | Expose `run_in_background` in this instance's schema (default `true`). Disabled, the parameter is absent entirely — delegation through this instance stays strictly synchronous. |
+| `enableRunInBackground` | Expose `run_in_background` in this instance's schema (default `true`). Disabled, the parameter is absent entirely AND a caller that forces the key anyway is refused at execution time (the arg validator allows undeclared keys) — delegation through this instance stays strictly synchronous. |
 | `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
 
 ## Foreground lifecycle (synchronous collect)
