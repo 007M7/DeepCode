@@ -254,6 +254,24 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBe('fine')
     })
+
+    it('the worker spawns with an EMPTY environment: an escaped script finds no ambient credentials', async () => {
+      const { ctx, parent } = await setup()
+      // A canary in the HARNESS process's env: with an inherited environment
+      // the escape below would read it back (exactly how DEEPSEEK_API_KEY
+      // would leak); env: {} in the spawn options is what keeps it out.
+      process.env.WORKFLOW_ENV_CANARY = 'leak me'
+      try {
+        const result = await run(ctx, parent, scripted(`
+          const proc = ${ESCAPE}
+          return { canary: proc.env.WORKFLOW_ENV_CANARY ?? null, keys: Object.keys(proc.env).length }
+        `))
+        expect(result.stopReason).toBe('completed')
+        expect(result.value).toEqual({ canary: null, keys: 0 })
+      } finally {
+        delete process.env.WORKFLOW_ENV_CANARY
+      }
+    })
   })
 
   describe('lifecycle: parse errors, cancellation, termination, disposal', () => {

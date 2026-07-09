@@ -56,20 +56,30 @@ import type { ChildStartRequest, WorkerInit } from './types.ts'
  * vitest (vite transforms in-process, not via a node loader), and passing
  * execArgv explicitly also shields the worker from any loader flags the
  * parent was started with. Built (`lib/index.js`), the entry is the sibling
- * bundle the package tsdown config emits and no loader is needed.
+ * bundle the package tsdown config emits and no loader is needed (execArgv
+ * pinned empty — hermetic, like the environment).
+ *
+ * Both shapes spawn with an EMPTY environment (`env: {}`): the documented vm
+ * escape reaches `process`, and the harness's ambient credentials
+ * (`DEEPSEEK_API_KEY` et al.) must not ride along — the same stance as
+ * `dsh-code-runtime-worker`, stronger than the scrubbed env the
+ * defensive-patterns rule requires for spawned commands (a shell needs PATH;
+ * this worker needs nothing). This closes the AMBIENT channel only — an
+ * escapee still holds process-wide privileges like fs access (the README's
+ * trust premise stands).
  * @param init - the run payload, passed as `workerData`.
  * @returns the entry URL and the Worker options to spawn it with.
  */
 function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOptions } {
   /* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/); the built-worker e2e exercises this shape for real */
   if (!import.meta.url.endsWith('.ts')) {
-    return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init } }
+    return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init, env: {}, execArgv: [] } }
   }
   // Lazy tsx resolution: only the unbuilt shape needs it, so the built
   // bundle never requires tsx to be installed.
   return {
     entry: new URL('./worker.ts', import.meta.url),
-    options: { workerData: init, execArgv: ['--import', fileURLToPath(import.meta.resolve('tsx'))] },
+    options: { workerData: init, env: {}, execArgv: ['--import', fileURLToPath(import.meta.resolve('tsx'))] },
   }
 }
 
