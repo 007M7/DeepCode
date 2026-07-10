@@ -379,6 +379,29 @@ describe('the soft layer', () => {
     expect(sdk).not.toContain('write(args:')
   })
 
+  it('filters native wire schemas by the allowlist under mode both, alongside the pruned SDK', async () => {
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'both' })
+    await ctx.plugin(FakeRuntime)
+    await ctx.plugin(ModesService)
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    // ONE visibility rule covers both surfaces: the denied write is absent
+    // from the native wire schemas AND from the SDK declaration.
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code'])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toContain('read(args:')
+    expect(sdk).not.toContain('write(args:')
+  })
+
   it('leaves the Code Mode SDK section untouched in the default mode', async () => {
     class FakeRuntime extends CodeRuntime {
       readonly language = 'typescript'
