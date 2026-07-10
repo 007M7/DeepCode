@@ -288,6 +288,14 @@ describe('background execution through the task runtime', () => {
     expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
   })
 
+  it('a self-signal background exit is reported as killed through the REAL task_output tool', async () => {
+    const ctx = await setupWithTasks()
+    await call(ctx, 'bash', { command: 'kill -TERM $$', description: 'test command', run_in_background: true })
+
+    const final = await call(ctx, 'task_output', { task_id: 'bash-1', wait: true })
+    expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
+  })
+
   it('a background task started by an agent is registered with that agent as owner', async () => {
     // The fence SEMANTICS are pinned in dsh-tasks; this only pins that
     // tool-bash forwards exec.agent as the registration's owner.

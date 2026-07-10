@@ -175,10 +175,12 @@ export class LocalBashExecutor extends BashExecutor {
       exitCode: null,
       signal: null,
       done: running.done.then((outcome) => {
-        // Abort-killed processes report as killed, not completed. Background
-        // runs forward only the upstream signal (no timeout), so its aborted
-        // state is the authoritative "was this cancelled" signal.
-        if (proc.status === 'running') proc.status = spec.signal?.aborted === true ? 'killed' : 'completed'
+        // Caller-aborted and signal-terminated processes report as killed, not
+        // completed. The signal check also covers commands that terminate
+        // themselves without aborting the upstream signal.
+        if (proc.status === 'running') {
+          proc.status = spec.signal?.aborted === true || outcome.signal !== null ? 'killed' : 'completed'
+        }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
         this.live.delete(proc)

@@ -249,6 +249,15 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     expect(proc.signal).toBe('SIGTERM')
   })
 
+  it('a self-signal exit settles the handle as killed, not completed', async () => {
+    const { bash } = await setup()
+    const proc = bash.start(bash.resolve({ command: 'kill -TERM $$' }))
+    await proc.done
+    expect(proc.status).toBe('killed')
+    expect(proc.exitCode).toBeNull()
+    expect(proc.signal).toBe('SIGTERM')
+  })
+
   it('a background spawn failure settles as killed with the error readable on stderr', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'true', workdir: '/nonexistent-dsh' }))
