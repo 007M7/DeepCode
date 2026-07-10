@@ -370,6 +370,31 @@ describe('the soft layer', () => {
     // Code Mode's only wire tool survives the filter — without it the model
     // would have NO tools at all, not even a path to the exit review.
     expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+    // The SDK section is Code Mode's soft surface: it is re-rendered under
+    // the same visibility rule, so plan mode documents exactly the callable
+    // bindings — the allowlisted read and the exit — and never the denied write.
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toContain('read(args:')
+    expect(sdk).toContain('exit_plan_mode(args:')
+    expect(sdk).not.toContain('write(args:')
+  })
+
+  it('leaves the Code Mode SDK section untouched in the default mode', async () => {
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(FakeRuntime)
+    await ctx.plugin(ModesService)
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = agentWithSession()
+    const sdk = (await ctx.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toContain('read(args:')
+    expect(sdk).toContain('write(args:')
   })
 
   it('treats a dropped folded definition as the default mode', async () => {

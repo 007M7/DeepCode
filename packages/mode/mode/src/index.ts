@@ -26,7 +26,7 @@
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineTool, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import { defineTool, renderToolsSdk, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
@@ -267,14 +267,26 @@ export class ModesService extends Service {
         return result
       }
       const allowed = new Set(active.definition.tools)
+      const visible = (name: string): boolean =>
+        allowed.has(name) && (name !== EXIT_PLAN_MODE || active.name === PLAN_MODE)
       // run_code is a TRANSPORT, not a capability: under the registry's Code
       // Mode it is the only wire tool (filtering it would leave the model
       // with nothing, not even the exit), and every bridged sub-call
       // re-enters tools/pre-execute with the same agent, where the allowlist
       // governs each capability individually.
-      result.tools = result.tools.filter(tool =>
-        (allowed.has(tool.name) || tool.name === RUN_CODE_NAME)
-        && (tool.name !== EXIT_PLAN_MODE || active.name === PLAN_MODE))
+      result.tools = result.tools.filter(tool => visible(tool.name) || tool.name === RUN_CODE_NAME)
+      // Code Mode's soft surface is the SDK section, not the wire schemas —
+      // section text resolves in assemble's base, so the outermost wrapper
+      // can re-render it here from the same visibility rule the wire filter
+      // applies (minus run_code, mirroring the registry's own exclusion).
+      // Without this the prompt would document bindings the gate denies.
+      const sdkIndex = result.sections.findIndex(section => section.name === 'tools:sdk')
+      if (sdkIndex >= 0) {
+        const sdkText = renderToolsSdk(ctx.tools.schemas().filter(schema =>
+          visible(schema.name) && schema.name !== RUN_CODE_NAME))
+        result.sections = result.sections.map((section, index) =>
+          index === sdkIndex ? { ...section, text: sdkText } : section)
+      }
       return result
     }, { prepend: true })
 
