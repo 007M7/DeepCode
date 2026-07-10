@@ -1,0 +1,215 @@
+/**
+ * The model-facing `workflow` tool: run a JavaScript orchestration script that
+ * fans out subagents, and return the script's final value. Pure schema +
+ * lifecycle shaping — script parsing, execution, caps, and cancellation live
+ * behind `ctx.workflows` (`@deepseek-ai/dsh-workflow`), so a hardened engine
+ * swaps in without touching what the model sees.
+ *
+ * Collection is SYNCHRONOUS this cut (like `dsh-tool-subagent`): `execute`
+ * starts a run and awaits `run.result` inside a `try/finally` that always
+ * disposes the run, so the script and its children are torn down on every
+ * path. A non-`completed` stop reason maps to an `isError` tool result (by
+ * throwing) rather than returning partial output as success. Background
+ * collection is deferred to the cross-tool background redesign.
+ *
+ * Render intent (decided up front, per the render-intent RFC): a `generic`
+ * card whose title carries the workflow's `meta.name`, read directly from the
+ * call's `meta` parameter — presentation is a pure function of `args`.
+ *
+ * Usage policy ships with the tool as a `tool:<toolName>` system-prompt
+ * section (explicit-ask-only guidance) — tool guidance lives in tool plugins,
+ * never in the deployment persona.
+ *
+ * @module @deepseek-ai/dsh-tool-workflow
+ */
+
+import type { Context } from 'cordis'
+import z from 'schemastery'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
+// Declaration merge only: makes ctx.systemPrompt visible for the section registration.
+import type {} from '@deepseek-ai/dsh-system-prompt'
+
+export const name = 'tool-workflow'
+export const inject = ['tools', 'workflows', 'systemPrompt']
+
+/** Config: the model-facing tool name plus result rendering caps. */
+export interface Config {
+  /** The model-facing tool name to register (default `workflow`). */
+  toolName?: string
+  /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
+  maxResultChars?: number
+}
+
+export const Config: z<Config> = z.object({
+  toolName: z.string().default('workflow'),
+  maxResultChars: z.natural().min(1).default(50_000),
+})
+
+type ResolvedConfig = Required<Config>
+
+/**
+ * The script-authoring contract, embedded in the tool description. This IS the
+ * model-facing spec: the meta block, the hooks and their exact semantics, and
+ * the supported schema subset.
+ */
+const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
+
+The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, model?}\`). The \`script\` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
+
+Script-body hooks:
+- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), \`model\` (override). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
+- \`pipeline(items, ...stages): Promise<any[]>\` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives \`(prev, item, index)\`. An ordinary stage throw drops that ITEM to \`null\` and skips its remaining stages.
+- \`parallel(thunks): Promise<any[]>\` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to \`null\`.
+- \`phase(title)\` — start a progress phase; \`log(message)\` — narrate progress; \`args\` — the tool call's \`args\` input, verbatim.
+
+Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item \`null\`.
+
+Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.`
+
+type WorkflowCallArgs = {
+  script: string
+  meta: { name: string; description: string; whenToUse?: string; phases?: { title: string; detail?: string; model?: string }[] }
+  args?: Record<string, unknown>
+}
+
+/** The pending-state card: a generic card titled by the workflow's meta name. */
+function presentWorkflowCall(args: WorkflowCallArgs): ToolCallView {
+  return {
+    card: 'generic',
+    title: `workflow: ${args.meta.name}`,
+    rawInput: args.script,
+  }
+}
+
+/** The completed-state card: keep the pending title; render the result content as-is. */
+function presentWorkflowResult(args: WorkflowCallArgs, result: { content: ContentBlock[]; isError: boolean }): ToolResultView {
+  void args
+  void result
+  return { card: 'generic' }
+}
+
+/** A non-`completed` stop reason means the script did not finish cleanly. */
+function stopReasonError(result: WorkflowResult): string | undefined {
+  switch (result.stopReason) {
+    case 'completed':
+      return undefined
+    case 'cancelled':
+      return `workflow run was cancelled${result.error !== undefined ? ` (${result.error})` : ''}`
+    case 'error':
+      return `workflow run failed: ${result.error ?? 'unknown error'}`
+    /* v8 ignore start -- defensive: WorkflowStopReason is a closed union, exhaustive by construction; a future variant fails here loudly */
+    default:
+      return `workflow run ended abnormally (${String(result.stopReason satisfies never)})`
+    /* v8 ignore stop */
+  }
+}
+
+/** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
+function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number): string {
+  // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
+  const rendered = JSON.stringify(result.value, null, 2)
+  const clipped = rendered.length > maxChars
+    ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]`
+    : rendered
+  return `workflow "${run.meta.name}" completed (${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+}
+
+export function apply(ctx: Context, config: Config): void {
+  // schemastery (the exported Config schema) has already filled the defaulted
+  // fields; the assertion records that resolution, not a hidden fallback.
+  const { toolName, maxResultChars } = config as ResolvedConfig
+  // Usage policy ships with the tool (the master convention: tool guidance
+  // lives in tool plugins as prompt sections, not in the deployment persona).
+  ctx.systemPrompt.section({
+    name: `tool:${toolName}`,
+    order: 115,
+    text: `Use the ${toolName} tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.`,
+  })
+  ctx.tools.register(defineTool({
+    name: toolName,
+    description: DESCRIPTION,
+    parameters: {
+      script: {
+        type: 'string',
+        required: true,
+        description: 'The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`).',
+      },
+      meta: {
+        type: 'object',
+        required: true,
+        description: 'The workflow identity block (plain JSON — never code).',
+        properties: {
+          name: { type: 'string', required: true, description: 'Short kebab-case workflow name.' },
+          description: { type: 'string', required: true, description: 'One-line description of what the workflow does.' },
+          whenToUse: { type: 'string', description: 'Optional guidance on when this workflow applies.' },
+          phases: {
+            type: 'array',
+            description: 'Optional phase declarations matched by phase() calls.',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', required: true, description: 'The phase title phase() calls match by exact string.' },
+                detail: { type: 'string', description: 'Optional one-line description of the phase.' },
+                model: { type: 'string', description: 'Optional model override this phase is expected to use.' },
+              },
+            },
+          },
+        },
+      },
+      args: {
+        type: 'object',
+        description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
+      },
+    },
+    async execute(args, exec): Promise<ContentBlock[]> {
+      const parent = exec.agent
+      if (!parent) {
+        // The loop sets `exec.agent` for every model-driven call; its absence
+        // means a non-agent caller invoked the tool directly, which has no
+        // parent to attribute the children to. Fail loud rather than guess.
+        throw new Error('workflow tool requires a calling agent (exec.agent was undefined)')
+      }
+
+      // Meta/body validation failures (META_INVALID/SCRIPT_PARSE) throw
+      // synchronously here and become isError results via the registry — the
+      // model sees the violation list and can correct the call.
+      const run: WorkflowRun = ctx.workflows.start({
+        script: args.script,
+        meta: args.meta,
+        ...args.args !== undefined ? { args: args.args } : {},
+        parent,
+        ...exec.signal ? { signal: exec.signal } : {},
+      })
+
+      // Bridge the tool's abort signal to the run: if the parent step is
+      // aborted while the script is in flight, cancel the whole run. The
+      // engine also receives `signal` directly, but an explicit bridge keeps
+      // the tool's contract local (and covers an engine that ignores it).
+      const onAbort = (): void => { run.cancel('parent step aborted') }
+      exec.signal?.addEventListener('abort', onAbort, { once: true })
+      // `addEventListener` does NOT fire for a signal already aborted before
+      // this line — cancel explicitly in that case.
+      if (exec.signal?.aborted) run.cancel('parent step aborted')
+
+      try {
+        const result = await run.result
+        const error = stopReasonError(result)
+        if (error !== undefined) {
+          // Map a non-clean finish to an isError result (the registry turns a
+          // throw into an isError). Report the reason, not partial output.
+          throw new Error(error)
+        }
+        return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
+      } finally {
+        exec.signal?.removeEventListener('abort', onAbort)
+        // Always reach run quiescence — never leak a live script or children.
+        await run.dispose()
+      }
+    },
+    presentCall: args => presentWorkflowCall(args),
+    presentResult: (args, result) => presentWorkflowResult(args, result),
+  }))
+}

@@ -9,20 +9,21 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
-| [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
-| [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
-| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
-| [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
-| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
-| [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
-| [`tasks/`](tasks/README.md) | Background task family: the `ctx.tasks` registry + the generic `task_*` control tools | Product — stable surface |
-| [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
+| [`llm/`](llm/README.md) | LLM service and provider adapters | Product — stable surface |
+| [`bash/`](bash/README.md) | Bash executor seam, local backend, and tool | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Model-written code seam and worker-thread backend | Product — stable surface |
+| [`fs/`](fs/README.md) | Filesystem seam, local backend, and file tools | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction seam and basic backend (tool deferred) | Product — stable surface |
+| [`subagent/`](subagent/README.md) | Subagent provider registry and delegation tool | Product — stable surface |
+| [`tasks/`](tasks/README.md) | Background-task registry and generic `task_*` controls | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Workflow seam, worker-thread engine, and tool | Product — stable surface |
+| [`web/`](web/README.md) | Web provider registry and search/fetch tools | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
 | [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
-| [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
+| [`session-persistence/`](session-persistence/README.md) | Persistence seam and JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, app packages, user-interaction seam, ask-user tool | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
