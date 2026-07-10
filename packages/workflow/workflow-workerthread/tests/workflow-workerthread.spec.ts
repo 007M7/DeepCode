@@ -21,12 +21,18 @@ function fakeParent(): Agent {
 vi.setConfig({ testTimeout: 30_000 })
 
 /**
- * `vi.waitFor` with a contention-proof timeout: the 1s default flaked
- * repeatedly on the CI coverage lane, where worker-thread cold start competes
- * with three sibling vitest workers for CPU. Every wait in this file is for
- * something that WILL happen (a worker starting, a child registering) — a
- * generous bound only removes the flake, it cannot mask a genuine hang (the
- * file-wide test timeout above still fences those).
+ * `vi.waitFor` with a contention-proof default timeout: the 1s default
+ * flaked repeatedly on the CI coverage lane, where worker-thread cold start
+ * (CPU-bound — a fresh thread compiles the runtime) competes with three
+ * sibling vitest workers for CPU. The 10s default is for exactly those
+ * races — waiting for a worker to start, run its first script line, or
+ * deliver an async child-registration message to the host. It is NOT for a
+ * wait that asserts the HOST reacted PROMPTLY to something that already
+ * happened (a settled result, an observed worker death): those keep an
+ * explicit tight override below, or the generous default would silently
+ * accept a multi-second regression in host-side reap latency as passing
+ * (proven by injecting a 6s delay into one such reap and watching the
+ * un-overridden version of this helper still pass in ~6s).
  * @param assertion - retried until it stops throwing or the timeout elapses.
  * @param timeout - override for a wait that must stay deliberately tight.
  * @returns resolves when the assertion passes.
@@ -545,8 +551,11 @@ describe('dsh-workflow-workerthread', () => {
       const result = await handle.result
       expect(result.stopReason).toBe('completed')
       // BEFORE dispose(): the settlement itself must have aborted the signal —
-      // without it this child would stay live until dispose's terminate.
-      await waitFor(() => { expect(aborted).toEqual(['workflow settled']) })
+      // without it this child would stay live until dispose's terminate. This
+      // is a HOST-PROMPTNESS claim, not a cold-start race — a tight explicit
+      // bound (unlike the file default) so a multi-second reap regression
+      // cannot pass by outlasting the wait.
+      await waitFor(() => { expect(aborted).toEqual(['workflow settled']) }, 1000)
       await handle.dispose()
     })
 
@@ -769,7 +778,9 @@ describe('dsh-workflow-workerthread', () => {
       // A worker death is a stop reason like any other: workflow/end fires
       // with the error outcome — for a bus observer it is the only obituary.
       expect(runEnds).toEqual([{ stopReason: 'error', error: result.error, agentsStarted: 1 }])
-      await waitFor(() => { expect(cancelled.length).toBe(1) })
+      // Result already settled — this is the reap's promptness, not a
+      // cold-start race; tight explicit bound (see the helper's doc comment).
+      await waitFor(() => { expect(cancelled.length).toBe(1) }, 1000)
       await handle.dispose()
     }, 15_000)
 
@@ -790,10 +801,12 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('worker blew up')
       // The reap wound the stray child down (cancel + a CLEAN dispose).
+      // Result already settled — this is the reap's promptness, not a
+      // cold-start race; tight explicit bound (see the helper's doc comment).
       await waitFor(() => {
         expect(provider.runs.length).toBe(1)
         expect(provider.runs[0]!.disposed).toBe(true)
-      })
+      }, 1000)
       await handle.dispose()
     }, 15_000)
 
@@ -857,7 +870,10 @@ describe('dsh-workflow-workerthread', () => {
       const result = await handle.result
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('exit code 5')
-      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) })
+      // Result already settled — this is the reap's promptness (bounded
+      // above the mock's fixed 300ms dispose delay, not a cold-start race);
+      // tight explicit bound (see the helper's doc comment).
+      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
       await handle.dispose()
     }, 15_000)
 
