@@ -58,29 +58,26 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude coverage — config option arms + substitution + skip warning', () => {
-  async function captureTranscriptPath(sessionRoot?: string): Promise<{ payload: { transcript_path: string }; expected: string | undefined }> {
-    const d = dir()
-    const cap = join(d, 'payload')
-    const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'capture.sh', `#!/usr/bin/env bash\ncat > "${cap}"\n`) }] }] })
-    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
-    const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
-    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('transcript'), { model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
-    await waitForIdle(ctx, agent)
-    return {
-      payload: JSON.parse(readFileSync(cap, 'utf8')) as { transcript_path: string },
-      expected: ctx.get('sessionPersistence')?.locate(agent.session.header)?.path,
+  it('uses the persistence locator for transcript_path and an empty string without one', async () => {
+    async function capture(sessionRoot?: string): Promise<{ payload: { transcript_path: string }; expected: string | undefined }> {
+      const d = dir()
+      const cap = join(d, 'payload')
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'capture.sh', `#!/usr/bin/env bash\ncat > "${cap}"\n`) }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
+      ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(AgentId('transcript'), { model: 'mock' })
+      agent.send([{ type: 'text', text: 'go' }])
+      await waitForIdle(ctx, agent)
+      return {
+        payload: JSON.parse(readFileSync(cap, 'utf8')) as { transcript_path: string },
+        expected: ctx.get('sessionPersistence')?.locate(agent.session.header)?.path,
+      }
     }
-  }
 
-  it('uses the persistence locator for transcript_path', async () => {
-    const located = await captureTranscriptPath(dir())
+    const located = await capture(dir())
     expect(located.payload.transcript_path).toBe(located.expected)
-  })
-
-  it('uses an empty transcript_path without a persistence locator', async () => {
-    expect((await captureTranscriptPath()).payload.transcript_path).toBe('')
+    expect((await capture()).payload.transcript_path).toBe('')
   })
 
   it('honors pluginRoot + projectDir substitution and warns on a skipped non-command hook', async () => {
