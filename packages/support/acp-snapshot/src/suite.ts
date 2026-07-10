@@ -23,8 +23,11 @@
  *
  * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
  * `session.jsonl` fixtures against the real API and refreshes the stdout golden
- * in one pass; the caller resolves that env into {@link SnapshotSuiteOptions}
- * (env reading stays at the suite edge, not in this library).
+ * in one pass. `pnpm run test:snapshot:refresh` (DSH_SNAPSHOT=refresh) instead
+ * replays the committed model scripts keylessly and writes the current stdout
+ * + persisted-log goldens back without calling a live LLM. The caller resolves
+ * that env into {@link SnapshotSuiteOptions} (env reading stays at the suite
+ * edge, not in this library).
  *
  * @module @deepseek-ai/dsh-acp-snapshot/suite
  */
@@ -124,12 +127,13 @@ export interface SnapshotSuiteOptions {
   /** The scenario table; exactly one entry must set `pinsHeader`. */
   scenarios: Scenario[]
   /**
-   * `replay` (keyless, the default tier) or `record` (live API; re-records the
-   * `recorded` scenarios' fixtures and refreshes the vitest goldens under
-   * `--update`). The caller derives this from `$DSH_SNAPSHOT` — env reading
-   * stays outside this library.
+   * `replay` (keyless, the default tier), `record` (live API; re-records the
+   * `recorded` scenarios' fixtures and refreshes the Vitest goldens under
+   * `--update`), or `refresh` (keyless replay that rewrites stdout goldens and
+   * comparable session fixtures from the replay run). The caller derives this
+   * from `$DSH_SNAPSHOT` — env reading stays outside this library.
    */
-  mode: 'replay' | 'record'
+  mode: 'replay' | 'record' | 'refresh'
 }
 
 /**
@@ -201,6 +205,86 @@ export function headerDeltaCount(rawLog: string): number {
     .length
 }
 
+/** A literal string replacement used to carry an existing fixture's volatile value into a refreshed log. */
+export interface FixtureReplacement {
+  /** The fresh replay-run value to replace. */
+  from: string
+  /** The existing fixture value to keep. */
+  to: string
+}
+
+function parseJsonlRecords(text: string): Record<string, unknown>[] {
+  return text.split('\n')
+    .filter(line => line.trim().length > 0)
+    .map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+/**
+ * Build the cross-log id/cwd replacements used by refresh write-back.
+ *
+ * @param logs The freshly harvested logs, in fixture order.
+ * @param fixtures The existing fixture contents, in matching order.
+ * @returns Literal replacements from fresh volatile values to the fixture's old values.
+ */
+export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
+  const replacements: FixtureReplacement[] = []
+  for (let i = 0; i < logs.length; i++) {
+    const fresh = parseJsonlRecords((logs[i] as HarvestedLog).content)[0]
+    const existing = parseJsonlRecords(fixtures[i] ?? '')[0]
+    for (const field of ['id', 'cwd'] as const) {
+      const from = fresh?.[field]
+      const to = existing?.[field]
+      if (typeof from === 'string' && typeof to === 'string' && from.length > 0 && from !== to) {
+        replacements.push({ from, to })
+      }
+    }
+  }
+  return replacements
+}
+
+function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Record<string, unknown> | undefined): void {
+  if (existing === undefined || existing.type !== record.type) return
+  if (record.type === 'session') {
+    for (const field of ['id', 'createdAt', 'cwd', 'parentSession'] as const) {
+      if (field in record && field in existing) record[field] = existing[field]
+    }
+    return
+  }
+  if ('time' in record && 'time' in existing) record.time = existing.time
+  if (record.type !== 'hook/result') return
+  const data = record.data
+  const existingData = existing.data
+  if (
+    data !== null && typeof data === 'object'
+    && existingData !== null && typeof existingData === 'object'
+    && 'durationMs' in data && 'durationMs' in existingData
+  ) {
+    (data as Record<string, unknown>).durationMs = (existingData as Record<string, unknown>).durationMs
+  }
+}
+
+/**
+ * Rewrite a fresh replay-produced log so repeated refreshes do not churn
+ * volatile fixture fields. Meaningful event payloads come from `fresh`; the
+ * existing fixture lends session ids, cwd, creation times, event times, and
+ * hook durations where the record shape still matches.
+ *
+ * @param fresh The newly harvested session JSONL.
+ * @param existing The committed fixture JSONL being refreshed.
+ * @param replacements Cross-log literal replacements from {@link refreshFixtureReplacements}.
+ * @returns The stabilized JSONL content to write back.
+ */
+export function stabilizeRefreshLog(fresh: string, existing: string, replacements: FixtureReplacement[]): string {
+  let stable = fresh
+  for (const { from, to } of replacements) stable = stable.split(from).join(to)
+  const existingRecords = parseJsonlRecords(existing)
+  const records = parseJsonlRecords(stable)
+  for (let i = 0; i < records.length; i++) {
+    preserveFixtureVolatiles(records[i] as Record<string, unknown>, existingRecords[i])
+  }
+  return records.map(record => JSON.stringify(record)).join('\n') + '\n'
+}
+
 /**
  * Register the suite: one `describe` per scenario (the golden/log compares and
  * the header-uniformity guard) plus the fixture guard block (no orphan
@@ -215,6 +299,8 @@ export function headerDeltaCount(rawLog: string): number {
 export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   const { agent, snapshotsDir, scenarios, mode } = options
   const RECORDING = mode === 'record'
+  const REFRESHING = mode === 'refresh'
+  const childMode: 'replay' | 'record' = RECORDING ? 'record' : 'replay'
 
   /** The class a scenario's header composition belongs to (see {@link Scenario.headerClass}). */
   const classOf = (scenario: Scenario): string => scenario.headerClass ?? 'default'
@@ -238,15 +324,18 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     describe(`snapshot: ${scenario.name}`, () => {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the
       // `authored` ones (sidecar-driven errors/cancel) are never re-recorded.
+      // REFRESH mode is replay-backed and deterministic, so it runs every
+      // scenario and rewrites the comparable fixtures from that replay run.
       it.skipIf(RECORDING && !scenario.recorded)('matches the goldens', async () => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
         const workspaceDir = join(dir, 'workspace')
         const childSessions = scenario.childSessions ?? 0
+        const comparesLog = scenario.comparesLog ?? scenario.hasModelTurn
         const result = await runScenario(input, {
           agent,
-          mode,
+          mode: childMode,
           fixtureFile: join(dir, 'session.jsonl'),
           ...existsSync(overrideFile) ? { overrideFile } : {},
           // In REPLAY, forward the recorded child fixtures so each subagent session
@@ -271,30 +360,47 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         }
 
         // RECORD mode (recorded model scenarios only): persist the freshly-harvested
-        // logs back to their fixtures — the primary to session.jsonl, each child to
-        // session.<n>.jsonl in harvest order. `--update` refreshes the Vitest
-        // goldens but NOT these fixtures, so write them here. A non-pinning
-        // scenario's fixtures are written header-scrubbed, so a re-record can
-        // never smuggle the full prompt/schema content back into every fixture.
+        // live logs back to their fixtures. REFRESH mode does the same from a
+        // keyless replay run for every comparable log, including authored
+        // scenarios that live record deliberately skips. The primary goes to
+        // session.jsonl, each child to session.<n>.jsonl in harvest order. A
+        // non-pinning scenario's fixtures are written header-scrubbed, so a
+        // re-record/refresh can never smuggle the full prompt/schema content
+        // back into every fixture.
         const scrub = scenario.pinsHeader === true
           ? (log: string): string => log
           : scrubRequestHeaders
-        if (RECORDING && scenario.recorded && scenario.hasModelTurn) {
-          expect(result.sessionLogs.length, 'record produced no session log to harvest').toBeGreaterThan(0)
+        const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
+        const existingFixtures = REFRESHING
+          ? await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))
+          : []
+        const replacements = REFRESHING ? refreshFixtureReplacements(result.sessionLogs, existingFixtures) : []
+        const writesSessionFixtures = (RECORDING && scenario.recorded && scenario.hasModelTurn)
+          || (REFRESHING && comparesLog)
+        if (writesSessionFixtures) {
+          expect(result.sessionLogs.length, `${mode} produced no session log to harvest`).toBeGreaterThan(0)
           expect(result.sessionLogs.length, `expected ${childSessions + 1} session logs (parent + children)`)
             .toBe(childSessions + 1)
-          await writeFile(join(dir, 'session.jsonl'), scrub((result.sessionLogs[0] as HarvestedLog).content))
+          const primary = (result.sessionLogs[0] as HarvestedLog).content
+          await writeFile(join(dir, 'session.jsonl'), scrub(
+            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements) : primary,
+          ))
           for (let i = 1; i < result.sessionLogs.length; i++) {
-            await writeFile(join(dir, `session.${i}.jsonl`), scrub((result.sessionLogs[i] as HarvestedLog).content))
+            const child = (result.sessionLogs[i] as HarvestedLog).content
+            await writeFile(join(dir, `session.${i}.jsonl`), scrub(
+              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements) : child,
+            ))
           }
         }
 
-        await expect(normalizeStdout(result.rawStdout, ctx))
-          .toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
+        const stdout = normalizeStdout(result.rawStdout, ctx)
+        if (REFRESHING) {
+          await writeFile(join(dir, 'stdout.golden.jsonl'), stdout)
+        }
+        await expect(stdout).toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
         // A model turn always produces a log worth comparing; a hook scenario can
         // produce one without a model turn (a `rejected` turn carrying `hook/*`).
-        const comparesLog = scenario.comparesLog ?? scenario.hasModelTurn
         if (comparesLog) {
           // The harvested logs (primary-first) must match their committed fixtures
           // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
@@ -307,7 +413,6 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // reason, and config, but not its bulk content (pinned once, in the
           // `pinsHeader` scenario).
           expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
-          const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
           for (let i = 0; i < fixtureFiles.length; i++) {
             const harvested = scrub((result.sessionLogs[i] as HarvestedLog).content)
             const fixture = scrub(await readFile(join(dir, fixtureFiles[i] as string), 'utf8'))
