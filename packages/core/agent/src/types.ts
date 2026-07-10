@@ -17,7 +17,8 @@
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
- *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
+ *   `agent/request`/`agent/session-prefix`/`agent/step-result`/
+ *   `agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
  *   `agent/disposed`, `agent/queued`, `agent/session-start`)
@@ -332,21 +333,28 @@ declare module 'cordis' {
      * value; this event is typed and documented as `void`, so listeners must not
      * return a semantic veto value. `fullSystemPrompt` is the assembled prompt a
      * listener needs to measure pressure (the system prompt counts toward the
-     * budget). `signal` cancels any in-flight work a listener starts (e.g. a
+     * budget), and `sessionPrefix` is the instance's composed
+     * {@link agent/session-prefix} product for the same reason — every request
+     * carries it in front of the derived history, and it is composed BEFORE
+     * this seam fires precisely so a pressure gate counts the prefix the
+     * request will actually send (never a stale logged one). `signal` cancels
+     * any in-flight work a listener starts (e.g. a
      * summarization model call).
      * @param agent - the agent about to open the step.
      * @param turn - the already-open turn this step belongs to.
      * @param step - the number of the step about to start.
      * @param fullSystemPrompt - the assembled prompt, for measuring token pressure.
+     * @param sessionPrefix - the instance's frozen session prefix, for the same measurement.
      * @param signal - aborts in-flight listener work when the turn is torn down.
      * @mode serial
      */
-    // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
-    // is its only consumer, so a wide event carries a string just one listener
+    // TODO: `fullSystemPrompt`/`sessionPrefix` are a smell on a generic
+    // per-step seam — compaction
+    // is their only consumer, so a wide event carries payloads just one listener
     // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
     // prompt provider, or move token-pressure measurement behind a
     // compaction-specific seam instead of the shared pre-step checkpoint.
-    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: decide what happens to ONE drained queued message before it
      * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
@@ -367,8 +375,9 @@ declare module 'cordis' {
      * ALL a listener shapes here: every request is a pure function of the
      * session log (the reconstructability RFC), so model-visible content
      * flows through the log channels — `inject()`, steering, prompt-submit
-     * `additionalContext`, prompt sections via `system-prompt/assemble` —
-     * never through request mutation, and the loop records whatever config
+     * `additionalContext`, prompt sections via `system-prompt/assemble`, or
+     * the header-logged session prefix via {@link agent/session-prefix}
+     * — never through request mutation, and the loop records whatever config
      * the request actually uses as a `request/header*` event before dispatch.
      * The step's messages are already snapshotted when this fires (the
      * `step/start` boundary): an `inject()` from a listener here lands in the
@@ -383,6 +392,53 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    /**
+     * Waterfall: compose the SESSION PREFIX — request-only messages placed in
+     * front of the ENTIRE derived history (directly after the provider's
+     * system slot) on every request this loop instance sends. Fired ONCE per
+     * loop instance, lazily before its first step's {@link agent/pre-step}
+     * seam — BEFORE the pre-step so a token-pressure gate (compaction) counts
+     * the prefix this instance will actually send, never a previous
+     * instance's logged one. The composed
+     * result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the
+     * instance's anchoring `'initial'`/`'resume'` header snapshot, and reused
+     * verbatim for every subsequent request — never recomputed mid-session,
+     * so the provider prefix cache holds by construction (a process restart
+     * or `ctx.agents.resume()` is a new instance: it recomposes, and any
+     * drift lands attributably on the `'resume'` snapshot). Composition runs
+     * outside the step, before the boundary snapshot: a composing listener's
+     * session append joins the CURRENT request's derived history. A
+     * composition interrupted by a cancel/dispose landing inside the
+     * waterfall is discarded — never cached, logged, or sent — and the next
+     * turn recomposes under a live signal, so an abort-aware listener's
+     * degraded fallback cannot leak into later requests.
+     *
+     * This is the home for session-stable openers the model must always see
+     * but that must NOT become durable history — a skills catalog, an
+     * AGENTS.md digest, a workspace baseline: `Session.deriveMessages()`
+     * never returns the prefix, and the header events are its only durable
+     * record, so the request stays reconstructable from the log. Content
+     * that CHANGES mid-session belongs in the append-only history channels
+     * instead — `agent.inject()`, a `tools/post-execute` decision's
+     * `additionalContext`, prompt-submit `additionalContext` — each a
+     * durable `context/message` paid once and prefix-cached thereafter.
+     *
+     * The seed is a frozen empty list; a contributing listener returns a NEW
+     * array — never an in-place push. The canonical contribution is a
+     * PREPEND, `[mine, ...await next()]`: the waterfall unwinds
+     * innermost-first (the LAST-registered listener's `next()` resolves
+     * first), so prepending yields registration order on the wire, and every
+     * plugin using it composes deterministically. The append form
+     * `[...await next(), mine]` is legal but places a contribution AFTER
+     * every later-registered plugin's — reverse registration order when all
+     * contributors append. Call `next()` to
+     * delegate, or return a list without it to short-circuit.
+     * @param agent - the agent whose session prefix is being composed.
+     * @param prefix - the frozen empty seed; return an extended replacement to contribute.
+     * @param signal - aborts in-flight listener work (e.g. a discovery scan) when the step is torn down.
+     * @mode waterfall
+     */
+    'agent/session-prefix'(agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).

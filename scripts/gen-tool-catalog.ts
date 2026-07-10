@@ -38,7 +38,7 @@ import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -49,10 +49,13 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
@@ -87,6 +90,13 @@ interface ToolPackage {
    * carries `systemPrompt` + `tools`. */
   mount: (ctx: Context) => Promise<void>
   /**
+   * Config for the caller's `ToolRegistry` mount. The registry itself ships a
+   * model-facing tool (`run_code`, registered under a non-native `mode`), so
+   * ITS catalog entry boots the registry in the mode that surfaces it;
+   * every other entry uses the default (native) registry.
+   */
+  toolsConfig?: ToolsConfig
+  /**
    * A deployment note rendered after the package's tools, for a fact that
    * booting the package alone cannot show. The registered tool NAME can be a
    * load-time config (`tool-subagent`'s `toolName`), so one package may surface
@@ -116,6 +126,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tools',
+    dir: 'tools',
+    source: 'packages/core/tools/src/code-mode.ts',
+    requires: ['ctx.tools', 'ctx.codeRuntime (execution time)', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'one tool/code-dispatch per bridged sub-call', 'tool/result'],
+    // The registry's OWN tool: run_code exists only under a non-native mode
+    // (the registry registers it in its constructor; the code runtime is read
+    // at assembly/execution time, so the schema harvest needs none mounted).
+    toolsConfig: { mode: 'code' },
+    async mount() {},
+    note:
+      'Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
@@ -127,6 +151,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-cordis',
+    dir: 'tool-cordis',
+    source: 'packages/cordis/tool-cordis/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result', 'live plugin-tree mutations (mount/unmount)'],
+    async mount(ctx) {
+      await ctx.plugin(ToolCordis)
+    },
+    note:
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
@@ -171,6 +207,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow',
+    dir: 'tool-workflow',
+    source: 'packages/workflow/tool-workflow/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workflows', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool injects `workflows`; boot the vm engine over a scripted
+      // subagent provider to satisfy it. The schema does not depend on which
+      // provider backs the engine.
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentMock, { name: 'mock' })
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolWorkflow)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',
@@ -246,7 +298,7 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     // fiber) — the repo's "dispose must reach quiescence" rule.
     try {
       await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(ToolRegistry, entry.toolsConfig ?? {})
       await entry.mount(ctx)
       const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
       catalog.push({

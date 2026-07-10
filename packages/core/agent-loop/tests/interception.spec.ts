@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
@@ -309,6 +309,162 @@ describe('agent/session-start', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 })
+
+describe('agent/session-prefix', () => {
+  it('composes once per loop instance and fronts every request; the header records it; history stays untouched', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', { text: 'ping' }),
+      textResponse('done'),
+      textResponse('again'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
+      async execute(args) { return [{ type: 'text', text: String(args.text) }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reminder: Message = { role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }] }
+    let composed = 0
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      composed += 1
+      return [...await next(), reminder]
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    send(agent, 'next turn')
+    await waitForIdle(ctx, agent)
+
+    // Three requests (two turns), ONE composition: the frozen product is
+    // reused verbatim, so the prefix cannot drift mid-session.
+    expect(adapter.requests).toHaveLength(3)
+    expect(composed).toBe(1)
+    for (const request of adapter.requests) {
+      expect(request.messages[0]).toEqual(reminder)
+    }
+    // The anchoring snapshot is the prefix's durable record — and the ONLY
+    // header event: reuse means no request/header-delta ever.
+    const headerEvents = events(agent).filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+    expect(headerEvents).toHaveLength(1)
+    expect(headerEvents[0]?.type === 'request/header' && headerEvents[0].data.header.messagePrefix).toEqual([reminder])
+    // Never session history: the derivation starts at the real user prompt.
+    expect(agent.session.deriveMessages()[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'go' }] })
+  })
+
+  it('composes before the first pre-step and hands the prefix to the seam (pressure gates see the real value)', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reminder: Message = { role: 'user', content: [{ type: 'text', text: 'opener' }] }
+    const order: string[] = []
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      order.push('compose')
+      return [reminder, ...await next()]
+    })
+    const seen: (readonly Message[])[] = []
+    ctx.on('agent/pre-step', (_agent, _turn, _step, _system, sessionPrefix) => {
+      order.push('pre-step')
+      seen.push(sessionPrefix)
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    // Composition precedes the pre-step seam, and the seam receives THIS
+    // instance's composed prefix — a token-pressure gate (compaction) counts
+    // what the request will actually carry, never a stale logged prefix.
+    expect(order).toEqual(['compose', 'pre-step'])
+    expect(seen[0]).toEqual([reminder])
+  })
+
+  it('the canonical prepend pattern composes contributions in registration order', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // Both listeners use the canonical `[mine, ...await next()]` prepend: the
+    // waterfall unwinds innermost-first (the second listener's array is built
+    // first), so prepending puts the FIRST-registered contribution first.
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      return [{ role: 'user', content: [{ type: 'text', text: 'first' }] }, ...await next()]
+    })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      return [{ role: 'user', content: [{ type: 'text', text: 'second' }] }, ...await next()]
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    const texts = adapter.requests[0]!.messages.map(m => m.content[0]?.type === 'text' ? m.content[0].text : '')
+    expect(texts).toEqual(['first', 'second', 'hi'])
+  })
+
+  it('with no contributions the header omits messagePrefix and the request is the bare derivation', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // A listener that delegates without contributing — the canonical no-op.
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => next())
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    const headerEvent = events(agent).find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && 'messagePrefix' in headerEvent.data.header).toBe(false)
+    expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+  })
+
+  it('the frozen seed rejects in-place mutation — a contribution is a returned extension', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let mutationError: unknown
+    ctx.on('agent/session-prefix', async (_agent, prefix, _signal, next): Promise<Message[]> => {
+      try {
+        prefix.push({ role: 'user', content: [{ type: 'text', text: 'smuggled' }] })
+      } catch (error: unknown) {
+        mutationError = error
+      }
+      return next()
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(mutationError).toBeInstanceOf(TypeError)
+    expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+  })
+
+  it('mutating a listener-held reference after composition cannot alter later requests (the cache is a frozen clone)', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', { text: 'ping' }),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
+      async execute(args) { return [{ type: 'text', text: String(args.text) }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const held: Message = { role: 'user', content: [{ type: 'text', text: 'v1' }] }
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => [...await next(), held])
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // The listener mutates the object it contributed AFTER composition; the
+    // cached prefix is a deep-frozen clone, so step 2's request is unchanged.
+    held.content = [{ type: 'text', text: 'v2' }]
+    expect(adapter.requests[1]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'v1' }] })
+    expect(events(agent).filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+  })
+})
+
 
 describe('agent/turn-continuation (ContinuationDecision)', () => {
   it('a continue decision with a reason records next-step steering in the same turn', async () => {
