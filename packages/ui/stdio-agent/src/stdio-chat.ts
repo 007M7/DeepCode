@@ -349,21 +349,21 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     })
 
     reader.on('line', (line) => {
-      if (activeQuestion !== undefined) {
-        answerQuestion(line)
-        return
-      }
       const text = line.trim()
-      if (!text) return
-      const agent = ctx.agents.get(agentId)
-      if (!agent) {
-        ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
-        return
-      }
       if (text === '/mode' || text.startsWith('/mode ')) {
-        // A command line, never sent to the model: print or switch the session
-        // mode. The switch is a pending intent the mode service flushes at the
-        // next turn boundary (dsh-mode's turn-enclosure contract).
+        // A command line, never sent to the model — and reserved even while a
+        // question prompt is active: a command swallowed as a free-text answer
+        // would land in the tool result as model-visible feedback (the plan
+        // review is exactly such a prompt), so command handling runs before
+        // answer dispatch. The switch is a pending intent the mode service
+        // flushes at the next turn boundary (dsh-mode's turn-enclosure
+        // contract); an active question stays pending and still owns the
+        // next non-command line.
+        const agent = ctx.agents.get(agentId)
+        if (!agent) {
+          ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
+          return
+        }
         const modes = ctx.get('modes')
         if (modes === undefined) {
           output.write('session modes are not composed in this deployment\n> ')
@@ -383,6 +383,16 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
           // ModesService.set throws only Error (its unknown-name validation).
           output.write(`${(error as Error).message}\n> `)
         }
+        return
+      }
+      if (activeQuestion !== undefined) {
+        answerQuestion(line)
+        return
+      }
+      if (!text) return
+      const agent = ctx.agents.get(agentId)
+      if (!agent) {
+        ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
         return
       }
       submittedWork = true

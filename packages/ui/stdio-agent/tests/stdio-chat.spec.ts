@@ -871,3 +871,49 @@ describe('createStdioChat /mode command', () => {
     expect(ctx.modes.get(agent)).toEqual({ current: 'default' })
   })
 })
+
+describe('createStdioChat /mode during an active question', () => {
+  it('reserves /mode while a question is pending — the command is never recorded as the answer', async () => {
+    const bundle = await setup()
+    await bundle.ctx.plugin(SystemPrompt)
+    await bundle.ctx.plugin(ToolRegistry)
+    await bundle.ctx.plugin(ModesService)
+    const agent = {
+      id: 'main' as Agent['id'],
+      status: 'idle',
+      options: {},
+      session: new RealSession(SessionId('main-session')),
+      send: () => {},
+      steer: () => {},
+    } as never as Agent
+    bundle.ctx.agents.register(agent)
+
+    const answer = bundle.ctx.userInteraction.ask({
+      questions: [{
+        id: 'plan-review',
+        header: 'Plan review',
+        question: 'Approve this plan and leave plan mode?',
+        options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+
+    // The command runs as a command: the mode switches, the question stays
+    // pending (it still owns the next non-command line).
+    bundle.input.feed('/mode plan')
+    await new Promise(r => setImmediate(r))
+    expect(bundle.out.text()).toContain('mode → plan (applies from the next turn)')
+    expect(bundle.ctx.modes.get(agent)).toEqual({ current: 'default', pending: PLAN_MODE })
+
+    bundle.input.feed('1')
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
+  })
+
+  it('logs and drops /mode when the target agent is not running', async () => {
+    const { ctx, input } = await setup()
+    const spy = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    input.feed('/mode plan')
+    await new Promise(r => setImmediate(r))
+    expect(spy).toHaveBeenCalledWith('ui-stdio: agent "%s" is not running', 'main')
+  })
+})
