@@ -148,7 +148,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ModesService)
     },
     note:
-      'exit_plan_mode presents the plan for the user\'s review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default. The assemble filter shows it only while the folded mode is plan.',
+      'exit_plan_mode presents the plan for the user\'s review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default at the step boundary (same-batch calls stay plan-gated). The assemble filter shows it only while the folded mode is plan.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',

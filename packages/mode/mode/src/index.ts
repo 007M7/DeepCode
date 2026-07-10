@@ -205,8 +205,13 @@ export class ModesService extends Service {
   /** Validated definitions (built-in `plan` merged unless overridden). */
   readonly resolved: ResolvedModes
 
-  /** The latest user-selected mode per session, awaiting its turn-boundary flush. */
-  private readonly pendingIntents = new WeakMap<Session, string>()
+  /**
+   * The latest selected mode per session, awaiting its turn-boundary flush.
+   * `narrate` is true for user selections (the flush appends the coalesced
+   * notice when the header disagrees) and false for the exit tool's own
+   * switch, which narrates through its tool result instead.
+   */
+  private readonly pendingIntents = new WeakMap<Session, { mode: string; narrate: boolean }>()
 
   /** The unknown folded-mode name already narrated per session (once per name). */
   private readonly droppedNoticed = new WeakMap<Session, string>()
@@ -302,7 +307,14 @@ export class ModesService extends Service {
             ? 'The user chose to keep planning; revise the plan and present it again.'
             : `The user chose to keep planning; their feedback: ${feedback}`)
         }
-        agent.session.append('mode/set', { mode: DEFAULT_MODE })
+        // A boundary-applied switch, NOT a direct append: the loop may still
+        // execute further tool calls from the SAME assistant response after
+        // this one, and they were requested under the plan-shaped header — a
+        // same-batch exit_plan_mode + write pair must not smuggle the write
+        // past the gate. The flush at this step's end appends the mode/set
+        // (still in-turn), so the next step's assembly widens; narrate: false —
+        // this result IS the narration.
+        this.pendingIntents.set(agent.session, { mode: DEFAULT_MODE, narrate: false })
         const note = item.custom === undefined || item.custom === '' ? '' : ` User note: ${item.custom}`
         return [{ type: 'text', text: `Plan approved — plan mode exited; the full toolset returns on your next step.${note}` }]
       },
@@ -341,7 +353,7 @@ export class ModesService extends Service {
   get(agent: Agent): { current: string; pending?: string } {
     const current = this.activeDefinition(agent.session)?.name ?? DEFAULT_MODE
     const pending = this.pendingIntents.get(agent.session)
-    return pending === undefined ? { current } : { current, pending }
+    return pending === undefined ? { current } : { current, pending: pending.mode }
   }
 
   /**
@@ -358,9 +370,9 @@ export class ModesService extends Service {
       throw new Error(`unknown mode "${mode}" — available modes: ${this.list().join(', ')}`)
     }
     const session = agent.session
-    const target = this.pendingIntents.get(session) ?? this.get(agent).current
+    const target = this.pendingIntents.get(session)?.mode ?? this.get(agent).current
     if (mode === target) return
-    this.pendingIntents.set(session, mode)
+    this.pendingIntents.set(session, { mode, narrate: true })
   }
 
   /** The folded mode's definition, or `undefined` for the default mode and for a folded name the config no longer defines. */
@@ -381,11 +393,13 @@ export class ModesService extends Service {
    */
   private onBoundary(session: Session, turnStart: boolean): void {
     if (turnStart) this.noticeDroppedDefinition(session)
-    const target = this.pendingIntents.get(session)
-    if (target === undefined) return
+    const pending = this.pendingIntents.get(session)
+    if (pending === undefined) return
     this.pendingIntents.delete(session)
+    const target = pending.mode
     if (target === foldMode(session.events)) return
     session.append('mode/set', { mode: target })
+    if (!pending.narrate) return
     const told = modeAtLastHeader(session.events)
     if (told === undefined || told === target) return
     const text = target === DEFAULT_MODE

@@ -452,15 +452,47 @@ describe('exit_plan_mode', () => {
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
   })
 
-  it('approve: appends mode/set default in-turn and confirms', async () => {
+  it('approve: records the boundary-applied switch and confirms (the fold flips at the flush)', async () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; the full toolset returns on your next step.' }])
+    // Boundary-applied, not a direct append: the fold stays plan until the
+    // step's end, so the gate covers any remaining call of the SAME batch.
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+    expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE, pending: DEFAULT_MODE })
+    boundary(ctx, agent.session, 'step/end')
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
     expect(asked).toHaveLength(1)
     expect(asked[0]?.agent).toBe(agent)
     expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
+  })
+
+  it('an approved exit cannot smuggle a same-batch call past the gate', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
+    registerNamedTools(ctx, ['write'])
+    const approved = await callExit(ctx, agent)
+    expect(approved.isError).toBe(false)
+    // The next call of the SAME assistant response (no boundary between):
+    // requested under the plan-shaped header, so the gate must still deny it.
+    const smuggled = await execute(ctx, 'write', agent)
+    expect(smuggled.isError).toBe(true)
+    expect(smuggled.content).toEqual([{
+      type: 'text',
+      text: 'Error: tool "write" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
+    }])
+    boundary(ctx, agent.session, 'step/end')
+    const next = await execute(ctx, 'write', agent)
+    expect(next.isError).toBe(false)
+  })
+
+  it('the exit flush narrates nothing — the tool result is the narration', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
+    header(agent.session)
+    await callExit(ctx, agent)
+    boundary(ctx, agent.session, 'step/end')
+    expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
+    expect(noticeTexts(agent.session)).toEqual([])
   })
 
   it('approve with a note carries the note into the confirmation', async () => {
