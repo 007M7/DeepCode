@@ -115,7 +115,12 @@ const PLAN_SECTION
   + 'its review fails, ask the user to switch the session out of plan mode instead '
   + 'of retrying denied tools.'
 
-const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', EXIT_PLAN_MODE]
+// 'structured_output' is a structured subagent child's result channel (pure
+// reporting, the ask/exit class of read-only-safe): its runtime re-injects the
+// schema into the FINAL assembly from an outermost per-spawn listener, so
+// allowlisting is what keeps the soft filter, that re-injection, and the hard
+// gate telling one consistent story when such a child runs in plan mode.
+const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', 'structured_output', EXIT_PLAN_MODE]
 
 /** The review question's approve option label — the answer item is matched by it. */
 const APPROVE_LABEL = 'Approve'
@@ -246,6 +251,12 @@ export class ModesService extends Service {
       text: context => (context.agent === undefined ? '' : this.activeDefinition(context.agent.session)?.definition.section ?? ''),
     })
 
+    // prepend: the filter wraps OUTSIDE every append-registered listener
+    // regardless of load order, so their post-next() additions are filtered
+    // too. A listener that ALSO prepends after this plugin loads (the
+    // structured runtime's per-spawn wrapper) still wins the wrap — for that
+    // one the allowlist carries the contract, and the hard gate covers
+    // execution either way.
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const result = await next()
       const agent = context.agent
@@ -259,7 +270,7 @@ export class ModesService extends Service {
       result.tools = result.tools.filter(tool =>
         allowed.has(tool.name) && (tool.name !== EXIT_PLAN_MODE || active.name === PLAN_MODE))
       return result
-    })
+    }, { prepend: true })
 
     ctx.on('tools/pre-execute', (exec, next): Promise<PreToolDecision> => {
       if (exec.agent === undefined) return next()

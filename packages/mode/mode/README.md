@@ -34,9 +34,9 @@ The model-facing exit tool. Its single required argument is the plan text — a 
       plan:
         section: |
           You are in plan mode: ...
-        tools: [read, todo_write, web_search, web_fetch, ask_user_question, exit_plan_mode]
+        tools: [read, todo_write, web_search, web_fetch, ask_user_question, structured_output, exit_plan_mode]
 ```
 
-Definitions are validated at load (`resolveConfig`): the built-in `plan` (read-only allowlist plus `ask_user_question`, `bash`/`subagent` excluded) merges unless overridden, `default` is rejected as a key, and allowlists may name not-yet-registered tools (registration is dynamic). An unknown name fails loudly at `set()` time.
+Definitions are validated at load (`resolveConfig`): the built-in `plan` (read-only allowlist plus the ask/report channels `ask_user_question`/`structured_output`, `bash`/`subagent` excluded) merges unless overridden, `default` is rejected as a key, and allowlists may name not-yet-registered tools (registration is dynamic). An unknown name fails loudly at `set()` time.
 
 RFC: [plan mode](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md).

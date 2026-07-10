@@ -159,7 +159,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:205`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:210`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

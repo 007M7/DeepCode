@@ -75,7 +75,7 @@ describe('resolveConfig', () => {
   it('merges the built-in plan definition with the read-only allowlist', () => {
     const resolved = resolveConfig({})
     const plan = resolved.definitions.get(PLAN_MODE)
-    expect(plan?.tools).toEqual(['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', EXIT_PLAN_MODE])
+    expect(plan?.tools).toEqual(['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', 'structured_output', EXIT_PLAN_MODE])
     expect(plan?.section).toContain('plan mode')
   })
 
@@ -325,6 +325,28 @@ describe('the soft layer', () => {
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.map(tool => tool.name)).toEqual(['read'])
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('reviewing')
+  })
+
+  it('filters additions from an append-registered final-assembly mutator, regardless of load order', async () => {
+    // A foreign listener that post-processes await next() and was registered
+    // BEFORE dsh-mode loaded: under append ordering it would wrap OUTSIDE the
+    // filter and its re-added tool would leak into the plan-mode header. The
+    // filter registers with prepend, so it wraps outside every
+    // append-registered listener and filters their additions too.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const final = await next()
+      final.tools = [...final.tools, { name: 'smuggled', description: 'added after next()', parameters: {} }]
+      return final
+    })
+    await ctx.plugin(ModesService)
+    registerNamedTools(ctx, ['read'])
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
   })
 
   it('treats a dropped folded definition as the default mode', async () => {
