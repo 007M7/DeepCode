@@ -14,7 +14,7 @@ The shared abstraction the tools need is **retention**, not generic collection. 
 
 The library has two independent retainers:
 
-- `ItemRetainer<T>` handles ordered logical units such as paths, grep matches, or search sources. It supports `head` retention only in v1.
+- `ItemRetainer<T>` handles ordered logical units such as paths, grep matches, or search sources. It supports `head` retention only in v1, while keeping the retainer shape open to additional retention strategies later.
 - `TextRetainer` handles byte-oriented text streams such as bash stdout/stderr or web response bodies. It supports `head`, `tail`, and `headTail` retention while preserving UTF-8 boundaries at `finish()`.
 
 Both retainers return a small `PushDecision` after each `push()` so callers can tell whether that unit/chunk was fully retained and whether the accumulated result is now truncated. Omission counts are exact because callers keep feeding every observed item/chunk.

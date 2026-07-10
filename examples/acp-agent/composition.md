@@ -41,6 +41,10 @@ flowchart LR
   cfg --> plugin_acp_fs_policy
   plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
   cfg --> plugin_acp_tool_fs
+  plugin_acp_spill_local["spill-local<br/>@deepseek-ai/dsh-spill-local"]
+  cfg --> plugin_acp_spill_local
+  plugin_acp_spill_policy["spill-policy<br/>@deepseek-ai/dsh-spill-policy"]
+  cfg --> plugin_acp_spill_policy
   plugin_acp_hooks_claude["hooks-claude<br/>@deepseek-ai/dsh-hooks-claude"]
   cfg --> plugin_acp_hooks_claude
   plugin_acp_hooks_codex["hooks-codex<br/>@deepseek-ai/dsh-hooks-codex"]
@@ -62,6 +66,8 @@ flowchart LR
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
+| `spill-local` | `@deepseek-ai/dsh-spill-local` |
+| `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
 | `hooks-claude` | `@deepseek-ai/dsh-hooks-claude` |
 | `hooks-codex` | `@deepseek-ai/dsh-hooks-codex` |
 

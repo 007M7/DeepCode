@@ -109,6 +109,21 @@
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
+# Tool-output spill stack: a local backend that saves oversized plain-text tool
+# results under the session cwd, and the post-execute policy that replaces the
+# model-facing result with a bounded preview + read path. Snapshots lower the
+# cap so a deterministic bash result exercises this transcript surface without a
+# real model call; normal demo runs keep the coding-agent cap.
+- id: spill-local
+  name: '@deepseek-ai/dsh-spill-local'
+  config:
+    root: ./.spill
+
+- id: spill-policy
+  name: '@deepseek-ai/dsh-spill-policy'
+  config:
+    maxInlineBytes: !!js process.env.DSH_SNAPSHOT && 800 || 50000
+
 # The Claude Code hook bridge. `configPath` is PROCESS-LEVEL: it is read ONCE at
 # load and the relative `./hooks.json` resolves against the ACP server's launch
 # cwd, NOT each `session/new.cwd`. So a single `hooks.json` next to where the
