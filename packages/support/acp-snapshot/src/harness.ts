@@ -180,6 +180,9 @@ export interface RunOptions {
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
+  // Fixed path length: spill-policy budgets the preview against the REAL path
+  // before stdout normalization, so tmpdir() length differences churn goldens.
+  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
   // Everything past the temp-dir creation runs under a try/finally that always
   // removes both dirs — so a failure in workspace seeding, spawn, or any step
   // never leaks them (the "e2e tests own their resources" rule).
@@ -201,6 +204,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
@@ -310,6 +314,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     await rm(cwd, { recursive: true, force: true })
     await rm(sessionsRoot, { recursive: true, force: true })
+    await rm(spillRoot, { recursive: true, force: true })
   }
 
   return {
