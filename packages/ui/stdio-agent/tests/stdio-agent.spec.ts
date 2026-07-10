@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
@@ -33,9 +34,20 @@ async function mount(config: stdioAgent.Config): Promise<Context> {
   return ctx
 }
 
-async function isolatedSkillsConfig(): Promise<NonNullable<stdioAgent.Config['skills']>> {
+async function isolatedSkillsConfig(catalogDescriptionMaxLength?: number): Promise<NonNullable<stdioAgent.Config['skills']>> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-skills-'))
-  return { local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') } }
+  return {
+    local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') },
+    ...catalogDescriptionMaxLength !== undefined ? { tool: { catalogDescriptionMaxLength } } : {},
+  }
+}
+
+async function composePrefix(ctx: Context): Promise<Message[]> {
+  const empty: Message[] = []
+  return await ctx.waterfall(
+    'agent/session-prefix', { session: { header: { cwd: '/tmp' } } } as never,
+    empty, new AbortController().signal, () => Promise.resolve(empty),
+  )
 }
 
 async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
@@ -117,8 +129,9 @@ describe('dsh-stdio-agent app', () => {
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig() })
-    expect(await ctx.skills.list()).toEqual([])
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
+    expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()
   })
 

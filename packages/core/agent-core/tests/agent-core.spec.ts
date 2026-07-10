@@ -7,6 +7,15 @@ import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Message } from '@deepseek-ai/dsh-llm'
+
+async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
+  const empty: Message[] = []
+  return await ctx.waterfall(
+    'agent/session-prefix', { session: { header: { cwd } } } as never,
+    empty, new AbortController().signal, () => Promise.resolve(empty),
+  )
+}
 
 /**
  * Unit coverage for the @deepseek-ai/dsh-agent-core bundle: mounting it brings
@@ -120,7 +129,7 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards skill config to the registry and local provider', async () => {
+  it('forwards skill config to the registry, local provider, and model-facing consumer', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-home-'))
     const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-agents-'))
     const custom = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-custom-'))
@@ -129,16 +138,17 @@ describe('dsh-agent-core bundle', () => {
     const ctx = await mount({
       agents: [],
       skills: {
-        registry: { promptFieldMaxLength: 6 },
+        registry: { collectCacheMaxEntries: 4 },
         local: {
           dshHome: join(home, '.dsh'),
           agentsHome: join(agentsHome, '.agents'),
           customSkillDirs: [custom],
         },
+        tool: { catalogDescriptionMaxLength: 6 },
       },
     })
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['custom-skill'])
-    expect(await ctx.skills.renderModelListing()).toContain('description: Cus...')
+    expect(JSON.stringify(await composePrefix(ctx, '/tmp'))).toContain('- `custom-skill`: Cus...')
     await ctx.fiber.dispose()
   })
 

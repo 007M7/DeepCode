@@ -33,13 +33,13 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../core/skill"
+      "path": "../../skill/skill"
     },
     {
-      "path": "../../core/skill-local"
+      "path": "../../skill/skill-local"
     },
     {
-      "path": "../../core/tool-skill"
+      "path": "../../skill/tool-skill"
     },
     {
       "path": "../../core/agent"

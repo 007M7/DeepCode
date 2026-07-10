@@ -14,12 +14,12 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-session          event-sourced session log + store
 @deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
 @deepseek-ai/dsh-tools            tool registry + tools/pre-execute/post-execute
-@deepseek-ai/dsh-skill            skill provider registry + prompt listing
+@deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
-@deepseek-ai/dsh-tool-skill       the model-facing skill loader schema
+@deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
                                   (dsh-system-prompt gets the forwarded `persona`)
 ```
@@ -43,7 +43,7 @@ import type { Config } from '@deepseek-ai/dsh-agent-core'
 // so validation and defaulting can never drift from the owners.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section; `toolOrder` to `dsh-system-prompt` (absent — lexicographic), the explicit model-facing tool order; and `skills.registry` / `skills.local` to the skill registry and local provider. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section; `toolOrder` to `dsh-system-prompt` (absent — lexicographic), the explicit model-facing tool order; and `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
 
 ## Why a code bundle, not a shared YAML include
 

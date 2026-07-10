@@ -1,11 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SkillService, { type SkillCandidate, type SkillDefinition, type SkillLookupOptions, type SkillProvider } from '@deepseek-ai/dsh-skill'
-import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-
-function agentForCwd(cwd: string): never {
-  return { session: { header: { cwd } } } as never
-}
 
 function memorySkill(name: string, description: string, rank: number, body = `${name} body.`): SkillCandidate {
   return {
@@ -113,6 +108,9 @@ describe('SkillService registry', () => {
   })
 
   it('validates provider candidates and invalid registry caps', async () => {
+    const defaultedService = new SkillService(new Context())
+    expect(await defaultedService.list()).toEqual([])
+
     const ctx = new Context()
     await ctx.plugin(SkillService)
     ctx.skills.registerProvider({
@@ -146,8 +144,31 @@ describe('SkillService registry', () => {
       await expect(invalid.skills.list()).rejects.toThrow('skill provider')
     }
 
-    await expect(new Context().plugin(SkillService, { promptFieldMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
     await expect(new Context().plugin(SkillService, { collectCacheMaxEntries: 1.5 })).rejects.toThrow('collectCacheMaxEntries')
+  })
+
+  it('sorts model-visible summaries without locale-sensitive collation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    ctx.skills.registerProvider(new MemoryProvider([
+      memorySkill('z-skill', 'Z skill', 10),
+      memorySkill('a-skill', 'A skill', 10),
+    ]))
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare')
+    const sort = vi.spyOn(Array.prototype, 'sort')
+
+    try {
+      const skills = await ctx.skills.list()
+      expect(skills.map(skill => skill.name)).toEqual(['a-skill', 'z-skill'])
+      expect(localeCompare).not.toHaveBeenCalled()
+
+      const summaryComparator = sort.mock.calls.at(-1)?.[0]
+      expect(summaryComparator).toBeTypeOf('function')
+      expect(summaryComparator?.(skills[0], skills[0])).toBe(0)
+    } finally {
+      sort.mockRestore()
+      localeCompare.mockRestore()
+    }
   })
 
   it('caches provider discovery, skips failing providers, and invalidates on runtime skills', async () => {
@@ -203,43 +224,106 @@ describe('SkillService registry', () => {
     expect(flakyCalls).toBe(3)
   })
 
-  it('renders stable prompt guidance and omits it when no skills exist', async () => {
+  it('abandons an in-flight catalog when provider registrations change', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: 'base' })
-    await ctx.plugin(SkillService, { promptFieldMaxLength: 6 })
-    ctx.skills.registerProvider(new MemoryProvider([
-      {
-        ...memorySkill('escaped-skill', 'Use </available_skills><oops> safely', 10),
-        whenToUse: 'Handle <tag> & marker',
+    await ctx.plugin(SkillService)
+    let markStarted: (() => void) | undefined
+    let release: (() => void) | undefined
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const dispose = ctx.skills.registerProvider({
+      name: 'delayed',
+      async list() {
+        markStarted?.()
+        await gate
+        return [{ ...memorySkill('stale-skill', 'Stale', 10), provider: 'delayed' }]
       },
-    ]))
+      async get(candidate) {
+        return { ...candidate, content: 'Stale body.' }
+      },
+    })
 
-    const listing = await ctx.skills.renderModelListing()
-    expect(listing).toContain('description: Use...')
-    expect(listing).toContain('whenToUse: Han...')
-    expect(listing).not.toContain('</available_skills><oops>')
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/tmp') }))).toContain('## Skills')
-    expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('## Skills')
+    const pending = ctx.skills.list()
+    await started
+    dispose()
+    release?.()
 
-    const empty = new Context()
-    await empty.plugin(SystemPrompt, { persona: 'base' })
-    await empty.plugin(SkillService)
-    expect(await empty.skills.renderModelListing()).toBe('')
-    expect(renderPrompt(await empty.systemPrompt.assemble({ agent: agentForCwd('/tmp') }))).not.toContain('## Skills')
+    expect(await pending).toEqual([])
+  })
 
-    const direct = new SkillService(new Context(), {})
-    expect(await direct.renderModelListing()).toBe('')
-    const short = new Context()
-    await short.plugin(SkillService)
-    short.skills.registerProvider(new MemoryProvider([memorySkill('short-skill', 'Short', 10)]))
-    expect(await short.skills.renderModelListing()).toContain('description: Short')
+  it('stops waiting for discovery when its lookup signal aborts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let markStarted: (() => void) | undefined
+    let release: (() => void) | undefined
+    let seenSignal: AbortSignal | undefined
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const held = new Promise<SkillCandidate[]>((resolve) => {
+      release = () => { resolve([]) }
+    })
+    ctx.skills.registerProvider({
+      name: 'uncooperative',
+      list(options) {
+        seenSignal = options.signal
+        markStarted?.()
+        return held
+      },
+      async get() {
+        return undefined
+      },
+    })
+    const controller = new AbortController()
+    const reason = 'discovery cancelled'
+    const pending = ctx.skills.list({ signal: controller.signal })
+    const outcome = pending.then(
+      () => 'resolved',
+      (error: unknown) => error instanceof Error && error.message === reason ? 'aborted' : 'other-error',
+    )
+    await started
+    controller.abort(reason)
 
-    const templated = new Context()
-    await templated.plugin(SystemPrompt, { persona: 'base' })
-    await templated.plugin(SkillService)
-    templated.skills.registerProvider(new MemoryProvider([memorySkill('templated-skill', 'Use {{placeholder}} safely', 10)]))
-    const prompt = renderPrompt(await templated.systemPrompt.assemble({ agent: agentForCwd('/tmp') }))
-    expect(prompt).toContain('description: Use { {placeholder} } safely')
+    const settled = await Promise.race([
+      outcome,
+      new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 25)),
+    ])
+    release?.()
+    await pending.catch(() => undefined)
+
+    expect(seenSignal).toBe(controller.signal)
+    expect(settled).toBe('aborted')
+  })
+
+  it('does not miss an abort racing listener installation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const reason = new Error('racing abort')
+    let aborted = false
+    const signal = {
+      get aborted() {
+        return aborted
+      },
+      reason,
+      throwIfAborted() {
+        if (aborted) throw reason
+      },
+      addEventListener(_type: string, listener: () => void) {
+        aborted = true
+        listener()
+      },
+      removeEventListener() {},
+    } as unknown as AbortSignal
+    ctx.skills.registerProvider({
+      name: 'racing-abort',
+      list() {
+        return Promise.reject(new Error('late provider failure'))
+      },
+      async get() {
+        return undefined
+      },
+    })
+
+    await expect(ctx.skills.list({ signal })).rejects.toBe(reason)
+    await Promise.resolve()
   })
 
   it('rejects invalid runtime skill registrations and ignores duplicates', async () => {

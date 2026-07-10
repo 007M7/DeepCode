@@ -156,7 +156,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'register(skill: SkillRegistration): () => void',
       'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
       'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
-      'async renderModelListing(options: SkillLookupOptions = {}): Promise<string>',
     ],
   },
   {
@@ -691,7 +690,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillLookupOptions',
-    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n}',
+    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n    signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SkillProvider',

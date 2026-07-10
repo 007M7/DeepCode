@@ -348,7 +348,7 @@ The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `
 
 ### `skill`
 
-Load the full instructions for one available skill by name. Use this when the current task matches a skill listed in the system prompt.
+Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.
 
 ```json
 {
@@ -365,7 +365,7 @@ Load the full instructions for one available skill by name. Use this when the cu
 }
 ```
 
-Source: [`packages/core/tool-skill/src/index.ts`](../packages/core/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 

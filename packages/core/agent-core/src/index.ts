@@ -62,12 +62,14 @@ import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agen
 
 export const name = 'agent-core'
 
-/** Skill bundle config forwarded to the registry and the local provider. */
+/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
-  /** Registry-level prompt/cache settings. */
+  /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
   local?: SkillLocal.Config
+  /** Model-facing skill catalog and tool settings. */
+  tool?: toolSkill.Config
 }
 
 /**
@@ -75,7 +77,7 @@ export interface SkillConfig {
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order), and `skills` to the skill registry/local provider. Every field is
+ * order), and `skills` to the skill registry/local provider/tool consumer. Every field is
  * optional INPUT here because each owner's schema supplies the default (`[]` /
  * `''` / absent — lexicographic / the DSH skill roots); the schema is the
  * INTERSECTION of the owners' own schemas, so validation and defaulting can
@@ -88,7 +90,7 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
-  /** Skill registry and local provider config. */
+  /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
 }
 
@@ -96,6 +98,7 @@ export interface Config {
 export const SkillConfigSchema: z<SkillConfig> = z.object({
   registry: SkillService.Config,
   local: SkillLocal.Config,
+  tool: toolSkill.Config,
 })
 
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
@@ -134,6 +137,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
-  ctx.plugin(toolSkill)
+  ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

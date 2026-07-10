@@ -53,7 +53,7 @@ export interface Config {
   toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** Skill registry/local-provider config forwarded to the shared agent-core spine. */
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
 }
 ```
@@ -70,7 +70,7 @@ Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/i
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order), and `skills` to the skill registry/local provider. Every field is
+ * order), and `skills` to the skill registry/local provider/tool consumer. Every field is
  * optional INPUT here because each owner's schema supplies the default (`[]` /
  * `''` / absent — lexicographic / the DSH skill roots); the schema is the
  * INTERSECTION of the owners' own schemas, so validation and defaulting can
@@ -83,22 +83,24 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
-  /** Skill registry and local provider config. */
+  /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
 }
 
-/** Skill bundle config forwarded to the registry and the local provider. */
+/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
-  /** Registry-level prompt/cache settings. */
+  /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
   local?: SkillLocal.Config
+  /** Model-facing skill catalog and tool settings. */
+  tool?: toolSkill.Config
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/core/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:84`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:86`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -496,14 +498,12 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
 ```ts config-catalog
 /** Skill registry configuration. */
 export interface Config {
-  /** Maximum rendered description/whenToUse length in the prompt listing; minimum 3. */
-  promptFieldMaxLength?: number
-  /** Maximum number of cwd/provider discovery promises kept in the in-memory cache. */
+  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
   collectCacheMaxEntries?: number
 }
 ```
 
-Source: [`packages/core/skill/src/index.ts:111`](../packages/core/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:112`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -521,7 +521,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/skill-local/src/index.ts:39`](../packages/core/skill-local/src/index.ts)
+Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-stdio-agent`
 
@@ -547,7 +547,7 @@ export interface Config {
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
-  /** Skill registry/local-provider config forwarded to the shared agent-core spine. */
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
@@ -763,6 +763,20 @@ export interface Config {
 
 Source: [`packages/fs/tool-fs/src/index.ts:48`](../packages/fs/tool-fs/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-skill`
+
+Requires: `tools` · `skills`
+
+```ts config-catalog
+/** Model-facing skill catalog configuration. */
+export interface Config {
+  /** Maximum normalized description length rendered in the session catalog; minimum 3. */
+  catalogDescriptionMaxLength?: number
+}
+```
+
+Source: [`packages/skill/tool-skill/src/index.ts:19`](../packages/skill/tool-skill/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 Requires: `tools` · `subagents`
@@ -941,7 +955,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
-- `@deepseek-ai/dsh-tool-skill` — requires `tools` · `skills` ([`packages/core/tool-skill/src/index.ts`](../packages/core/tool-skill/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-tools` — requires `systemPrompt` ([`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))

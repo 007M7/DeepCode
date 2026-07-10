@@ -163,7 +163,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-skill',
     dir: 'tool-skill',
-    source: 'packages/core/tool-skill/src/index.ts',
+    source: 'packages/skill/tool-skill/src/index.ts',
     requires: ['ctx.tools', 'ctx.skills'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {

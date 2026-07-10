@@ -1,10 +1,10 @@
 /**
- * Agent skill registry and request-time catalog rendering.
+ * Agent skill provider registry.
  *
  * This package is the interface third of the skill capability seam. Concrete
  * providers such as `@deepseek-ai/dsh-skill-local` decide where skills come
  * from; this service only merges provider catalogs, resolves the winning skill
- * for a name, and exposes the model-facing catalog/tool consumers use.
+ * for a name, and exposes the winning summaries and definitions to consumers.
  *
  * @module @deepseek-ai/dsh-skill
  */
@@ -12,15 +12,11 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type Schema from 'schemastery'
-import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-agent'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const DEFAULT_PROMPT_FIELD_LENGTH = 500
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
-const SKILL_PROMPT_SECTION_ORDER = 1000
 
 /**
  * Return whether a string is a valid kebab-case skill name.
@@ -83,9 +79,11 @@ export interface SkillDefinition extends SkillSummary {
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
 export type SkillRegistration = Omit<SkillDefinition, 'provider'> & { provider?: string }
 
-/** Workspace selector used for cwd-sensitive provider discovery. */
+/** Caller context used for cwd-sensitive and abortable provider work. */
 export interface SkillLookupOptions {
   cwd?: string | undefined
+  /** Abort discovery or loading work for the current caller. */
+  signal?: AbortSignal | undefined
 }
 
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -93,15 +91,18 @@ export interface SkillProvider {
   /** Unique provider name in the `ctx.skills` registry. */
   name: string
   /**
-   * List available skill candidates for the current lookup context.
-   * @param options - lookup options; `cwd` selects workspace-sensitive skills.
+   * List available skill candidates for the current lookup context. Provider
+   * plugins register synchronously during `apply()`; remote initialization,
+   * authentication, and discovery are awaited inside this method. Implementations
+   * should settle promptly when `options.signal` aborts.
+   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns provider candidates with precedence ranks and opaque locators.
    */
   list(options: SkillLookupOptions): Promise<SkillCandidate[]>
   /**
    * Load a complete skill body for a previously listed candidate.
    * @param candidate - the winning candidate originally returned by this provider.
-   * @param options - lookup options; `cwd` selects workspace-sensitive skills.
+   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns the full skill body, or `undefined` if it is no longer loadable.
    */
   get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>
@@ -109,9 +110,7 @@ export interface SkillProvider {
 
 /** Skill registry configuration. */
 export interface Config {
-  /** Maximum rendered description/whenToUse length in the prompt listing; minimum 3. */
-  promptFieldMaxLength?: number
-  /** Maximum number of cwd/provider discovery promises kept in the in-memory cache. */
+  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
   collectCacheMaxEntries?: number
 }
 
@@ -152,52 +151,35 @@ interface CollectResult {
 
 /**
  * Registry of skill providers. It merges provider catalogs with stable
- * first-wins duplicate handling, exposes sorted model-visible summaries, loads
- * full skill bodies on demand, and renders the request-time catalog fragment.
+ * first-wins duplicate handling, exposes sorted model-visible summaries, and
+ * loads full skill bodies on demand.
  */
 export class SkillService extends Service {
   static Config: Schema<Config> = z.object({
-    promptFieldMaxLength: z.number().default(DEFAULT_PROMPT_FIELD_LENGTH),
     collectCacheMaxEntries: z.number().default(DEFAULT_COLLECT_CACHE_ENTRIES),
   })
 
-  private readonly promptFieldMaxLength: number
   private readonly collectCacheMaxEntries: number
   private readonly providers = new Map<string, { provider: SkillProvider; order: number }>()
   private readonly runtime = new Map<string, SkillDefinition>()
-  private readonly collectCache = new Map<string, Promise<IndexedCandidate[]>>()
+  private readonly collectCache = new Map<string, IndexedCandidate[]>()
   private providerRevision = 0
   private nextProviderOrder = 0
   private runtimeRevision = 0
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'skills')
-    this.promptFieldMaxLength = config.promptFieldMaxLength ?? DEFAULT_PROMPT_FIELD_LENGTH
     this.collectCacheMaxEntries = config.collectCacheMaxEntries ?? DEFAULT_COLLECT_CACHE_ENTRIES
-    assertPositiveInteger('promptFieldMaxLength', this.promptFieldMaxLength, 3)
     assertPositiveInteger('collectCacheMaxEntries', this.collectCacheMaxEntries)
-
-    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      const result = await next()
-      const agent = context.agent
-      if (agent === undefined) return result
-      const listing = await this.renderModelListing({ cwd: agent.session.header.cwd })
-      if (listing.length > 0) {
-        result.sections.push({
-          name: 'skills:available',
-          order: SKILL_PROMPT_SECTION_ORDER,
-          text: listing,
-        })
-      }
-      return result
-    })
   }
 
   /**
-   * Register a skill provider. Throws if another provider already owns the same
-   * provider name, including the reserved runtime provider name. Effect-scoped
-   * and HMR-safe: disposing the caller's fiber unregisters the provider and
-   * invalidates cached catalogs.
+   * Register a skill provider synchronously during the provider plugin's
+   * `apply()`. Throws if another provider already owns the same provider name,
+   * including the reserved runtime provider name. Providers that need remote
+   * initialization do that work inside `list()` after registration. Effect-
+   * scoped and HMR-safe: disposing the caller's fiber unregisters the provider
+   * and invalidates cached catalogs.
    * @param provider - the provider to register by `provider.name`.
    * @returns a disposer that unregisters this provider.
    */
@@ -252,7 +234,7 @@ export class SkillService extends Service {
 
   /**
    * List model-invocable skill summaries for a workspace.
-   * @param options - lookup options; `cwd` selects the project roots to scan.
+   * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
    * @returns sorted summaries, excluding skills disabled for model invocation.
    */
   async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
@@ -260,13 +242,13 @@ export class SkillService extends Service {
       .map(entry => entry.candidate)
       .filter(skill => skill.disableModelInvocation !== true)
       .map(toSummary)
-      .sort(compareSummary)
+      .sort(compareSkillSummary)
   }
 
   /**
    * Load one full skill definition by name.
    * @param name - kebab-case skill name.
-   * @param options - lookup options; `cwd` selects workspace-sensitive skills.
+   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns the full skill, including body content, or `undefined`.
    */
   async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined> {
@@ -276,51 +258,27 @@ export class SkillService extends Service {
     return await match.provider.get(match.candidate, options)
   }
 
-  /**
-   * Render the request-time `## Skills` prompt fragment.
-   * @param options - lookup options; `cwd` selects workspace-sensitive skills.
-   * @returns an empty string when no model-invocable skills are available.
-   */
-  async renderModelListing(options: SkillLookupOptions = {}): Promise<string> {
-    const skills = await this.list(options)
-    if (skills.length === 0) return ''
-    const entries = skills.map((skill) => {
-      const lines = [
-        `<skill name="${escapeAttr(skill.name)}" source="${escapeAttr(skill.source)}">`,
-        `description: ${promptLine(skill.description, this.promptFieldMaxLength)}`,
-        ...skill.whenToUse ? [`whenToUse: ${promptLine(skill.whenToUse, this.promptFieldMaxLength)}`] : [],
-        '</skill>',
-      ]
-      return lines.join('\n')
-    }).join('\n')
-    return [
-      '## Skills',
-      'Available skills are listed below. Load a skill with the `skill` tool before following its instructions; do not infer or follow instructions from a skill body that has not been loaded.',
-      '<available_skills>',
-      entries,
-      '</available_skills>',
-    ].join('\n')
-  }
-
   private async collect(options: SkillLookupOptions): Promise<IndexedCandidate[]> {
-    const key = collectCacheKey(options, this.providerRevision, this.runtimeRevision)
-    const cached = this.collectCache.get(key)
-    if (cached !== undefined) return cached
+    options.signal?.throwIfAborted()
+    while (true) {
+      const providerRevision = this.providerRevision
+      const runtimeRevision = this.runtimeRevision
+      const key = collectCacheKey(options, providerRevision, runtimeRevision)
+      const cached = this.collectCache.get(key)
+      if (cached !== undefined) return cached
 
-    const collected = this.collectFresh(options)
-    const cachedPromise = collected.then((result) => {
-      if (!result.cacheable) this.collectCache.delete(key)
+      const result = await this.collectFresh(options)
+      options.signal?.throwIfAborted()
+      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) continue
+      if (result.cacheable) {
+        this.collectCache.set(key, result.entries)
+        if (this.collectCache.size > this.collectCacheMaxEntries) {
+          const oldest = this.collectCache.keys().next() as IteratorYieldResult<string>
+          this.collectCache.delete(oldest.value)
+        }
+      }
       return result.entries
-    }).catch((error: unknown) => {
-      this.collectCache.delete(key)
-      throw error
-    })
-    this.collectCache.set(key, cachedPromise)
-    if (this.collectCache.size > this.collectCacheMaxEntries) {
-      const oldest = this.collectCache.keys().next() as IteratorYieldResult<string>
-      this.collectCache.delete(oldest.value)
     }
-    return cachedPromise
   }
 
   private async collectFresh(options: SkillLookupOptions): Promise<CollectResult> {
@@ -341,10 +299,11 @@ export class SkillService extends Service {
   }
 
   private async listAllCandidates(options: SkillLookupOptions): Promise<CollectResult> {
+    options.signal?.throwIfAborted()
     const candidates: IndexedCandidate[] = []
     let cacheable = true
     let runtimeOrder = 0
-    for (const skill of [...this.runtime.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const skill of [...this.runtime.values()].sort((a, b) => compareCodePoints(a.name, b.name))) {
       candidates.push({
         candidate: runtimeCandidate(skill),
         provider: RUNTIME_SKILL_PROVIDER,
@@ -353,13 +312,16 @@ export class SkillService extends Service {
       })
       runtimeOrder += 1
     }
-    for (const { provider, order } of this.providers.values()) {
+    for (const { provider, order } of [...this.providers.values()]) {
       let localOrder = 0
-      const listed = await provider.list(options).catch((error: unknown) => {
+      let listed: SkillCandidate[] | undefined
+      try {
+        listed = await waitWithAbort(provider.list(options), options.signal)
+      } catch (error) {
+        if (options.signal?.aborted === true) throw toError(options.signal.reason)
         cacheable = false
         this.ctx.logger.warn(`skill provider "${provider.name}" skipped: ${errorMessage(error)}`)
-        return undefined
-      })
+      }
       if (listed === undefined) continue
       for (const candidate of listed) {
         validateCandidate(candidate, provider.name)
@@ -436,8 +398,14 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
   }
 }
 
-function compareSummary(left: SkillSummary, right: SkillSummary): number {
-  return left.name.localeCompare(right.name)
+function compareSkillSummary(left: SkillSummary, right: SkillSummary): number {
+  return compareCodePoints(left.name, right.name)
+}
+
+function compareCodePoints(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
 }
 
 function compareIndexedCandidates(left: IndexedCandidate, right: IndexedCandidate): number {
@@ -446,34 +414,44 @@ function compareIndexedCandidates(left: IndexedCandidate, right: IndexedCandidat
     || left.localOrder - right.localOrder
 }
 
-function promptLine(value: string, maxLength: number): string {
-  const normalized = value.replaceAll(/\s+/g, ' ').trim()
-  const truncated = normalized.length <= maxLength
-    ? normalized
-    : `${normalized.slice(0, maxLength - 3)}...`
-  return escapeText(breakPromptTemplateDelimiters(truncated))
-}
-
-function breakPromptTemplateDelimiters(value: string): string {
-  return value.replaceAll('{{', '{ {').replaceAll('}}', '} }')
-}
-
 function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
 }
 
-function escapeAttr(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
-}
-
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
 function collectCacheKey(options: SkillLookupOptions, providerRevision: number, runtimeRevision: number): string {
   return JSON.stringify({ cwd: options.cwd, providerRevision, runtimeRevision })
+}
+
+function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort)
+    }
+    const onAbort = (): void => {
+      cleanup()
+      reject(toError(signal.reason))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void promise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error: unknown) => {
+        cleanup()
+        reject(toError(error))
+      },
+    )
+    if (signal.aborted) onAbort()
+  })
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
 }
 
 function errorMessage(error: unknown): string {

@@ -259,7 +259,7 @@ A skill provider became resolvable in the `ctx.skills` registry. Consumers can o
 'skill/provider-added'(provider: SkillProvider): void
 ```
 
-Source: [`packages/core/skill/src/index.ts:131`](../../packages/core/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:130`](../../packages/skill/skill/src/index.ts)
 
 ### `skill/provider-removed` — emit
 
@@ -269,7 +269,7 @@ A skill provider left the registry because its plugin fiber was disposed.
 'skill/provider-removed'(name: string): void
 ```
 
-Source: [`packages/core/skill/src/index.ts:137`](../../packages/core/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:136`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 

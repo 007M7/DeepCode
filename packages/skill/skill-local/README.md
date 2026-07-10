@@ -2,7 +2,7 @@
 
 Local filesystem provider for the `ctx.skills` registry.
 
-This package implements one skill source. It scans local project, custom, and user skill roots, parses `SKILL.md` or flat Markdown skill files, and registers the provider on `ctx.skills`. The registry, prompt listing, and model-facing loader tool remain in `@deepseek-ai/dsh-skill` and `@deepseek-ai/dsh-tool-skill`.
+This package implements one skill source. It scans local project, custom, and user skill roots, parses `SKILL.md` or flat Markdown skill files, and registers the provider on `ctx.skills`. The registry remains in `@deepseek-ai/dsh-skill`; the session-prefix catalog and model-facing loader tool remain in `@deepseek-ai/dsh-tool-skill`.
 
 ## Plugin
 

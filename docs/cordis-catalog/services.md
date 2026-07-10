@@ -189,17 +189,16 @@ Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/s
 
 ## `ctx.skills` — `SkillService`
 
-Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, loads full skill bodies on demand, and renders the request-time catalog fragment.
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 registerProvider(provider: SkillProvider): () => void
 register(skill: SkillRegistration): () => void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
-async renderModelListing(options: SkillLookupOptions = {}): Promise<string>
 ```
 
-Source: [`packages/core/skill/src/index.ts:158`](../../packages/core/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

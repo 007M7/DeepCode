@@ -56,7 +56,7 @@ export interface Config {
   toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** Skill registry/local-provider config forwarded to the shared agent-core spine. */
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
 }
 
