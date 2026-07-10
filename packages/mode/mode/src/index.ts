@@ -26,7 +26,7 @@
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
@@ -267,8 +267,14 @@ export class ModesService extends Service {
         return result
       }
       const allowed = new Set(active.definition.tools)
+      // run_code is a TRANSPORT, not a capability: under the registry's Code
+      // Mode it is the only wire tool (filtering it would leave the model
+      // with nothing, not even the exit), and every bridged sub-call
+      // re-enters tools/pre-execute with the same agent, where the allowlist
+      // governs each capability individually.
       result.tools = result.tools.filter(tool =>
-        allowed.has(tool.name) && (tool.name !== EXIT_PLAN_MODE || active.name === PLAN_MODE))
+        (allowed.has(tool.name) || tool.name === RUN_CODE_NAME)
+        && (tool.name !== EXIT_PLAN_MODE || active.name === PLAN_MODE))
       return result
     }, { prepend: true })
 
@@ -276,6 +282,11 @@ export class ModesService extends Service {
       if (exec.agent === undefined) return next()
       const active = this.activeDefinition(exec.agent.session)
       if (active === undefined) return next()
+      // Transport pass-through: a run_code program's every tool call is
+      // serialized back through ToolRegistry.execute() with the same agent,
+      // so each sub-call is judged here individually — gating the wrapper
+      // would only remove the vehicle, not widen or narrow any capability.
+      if (exec.name === RUN_CODE_NAME) return next()
       if (active.definition.tools.includes(exec.name)) return next()
       const reason = active.name === PLAN_MODE
         ? `tool "${exec.name}" is not available in plan mode; continue planning and present your plan with ${EXIT_PLAN_MODE} when ready`

@@ -7,6 +7,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
+import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
 import type { ModeConfig } from '../src/index.ts'
 
@@ -349,6 +350,28 @@ describe('the soft layer', () => {
     expect(assembly.tools.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
   })
 
+  it('keeps run_code visible in plan mode under the registry Code Mode (transport, not capability)', async () => {
+    // Minimal scriptable runtime: the SDK section resolves ctx.codeRuntime at
+    // assembly time (the code-mode.spec fake's shape).
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(FakeRuntime)
+    await ctx.plugin(ModesService)
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    // Code Mode's only wire tool survives the filter — without it the model
+    // would have NO tools at all, not even a path to the exit review.
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+  })
+
   it('treats a dropped folded definition as the default mode', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['read', 'write'])
@@ -393,6 +416,25 @@ describe('the hard layer', () => {
     const denied = await execute(ctx, 'write', agent)
     expect(denied.isError).toBe(true)
     expect(denied.content).toEqual([{ type: 'text', text: 'Error: tool "write" is not available in "review" mode' }])
+  })
+
+  it('passes run_code through the gate; bridged sub-calls are judged individually', async () => {
+    const ctx = await setup()
+    // Native mode here, so a stand-in run_code can register without clashing
+    // with the registry's own (Code Mode) instance; the gate exempts by name.
+    registerNamedTools(ctx, ['run_code', 'write'])
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const wrapper = await execute(ctx, 'run_code', agent)
+    expect(wrapper.isError).toBe(false)
+    // A sub-dispatch re-enters execute() with the same agent — the capability
+    // is what the allowlist judges, exactly like a native call.
+    const sub = await execute(ctx, 'write', agent)
+    expect(sub.isError).toBe(true)
+    expect(sub.content).toEqual([{
+      type: 'text',
+      text: 'Error: tool "write" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
+    }])
   })
 
   it('judges by the logged mode only — a pending intent does not gate', async () => {
