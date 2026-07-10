@@ -22,7 +22,7 @@
  * @module @deepseek-ai/dsh-subagent-acp/run
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { Readable, Writable } from 'node:stream'
 import {
@@ -40,6 +40,7 @@ import {
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
 
 /**
  * How the client answers a child's `session/request_permission`. The first cut
@@ -111,31 +112,6 @@ export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
- * Credential-shaped ambient env vars are NOT forwarded to the child by default
- * (the parent harness's own `DEEPSEEK_API_KEY`/secrets must not leak into a
- * spawned process implicitly). Same pattern as the bash executor. The child
- * agent needs its OWN credentials to reach a model — those are supplied
- * explicitly via {@link AcpRunSpec.env}, which is layered on top AFTER the
- * scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental
- * `AWS_SECRET_ACCESS_KEY` does not.
- */
-export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
-
-/**
- * The ambient env minus credential-shaped vars, plus the spec's explicit env.
- * @param extra - explicit vars layered on top AFTER the scrub, so a
- * credential-shaped name supplied deliberately still reaches the child.
- * @returns the environment to spawn the child with.
- */
-export function buildChildEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
-  }
-  return { ...env, ...extra }
-}
-
-/**
  * Map an ACP {@link StopReason} to a harness {@link SubagentStopReason}.
  * @param reason - the terminal reason from the child's `session/prompt` response.
  * @returns the harness equivalent; `max_turn_requests` and any unknown future
@@ -196,24 +172,6 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
 }
 
-/** Resolve once the child process exits (any code/signal); immediate if gone. */
-function waitForExit(child: ChildProcess): Promise<void> {
-  // Already-exited fast path: dispose guards on exitCode before calling, so in
-  // tests the child is always still alive here.
-  /* v8 ignore next */
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
-}
-
-/** Resolve `true` if the child exits within `ms`, `false` on timeout. */
-function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
-  return Promise.race([
-    waitForExit(child).then(() => true),
-    // `.unref()` so a pending grace timer never keeps the parent's loop alive.
-    new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, ms).unref()),
-  ])
-}
-
 /**
  * Start an out-of-process ACP child for `request` and return a {@link SubagentRun}.
  *
@@ -254,13 +212,11 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     env: buildChildEnv(spec.env),
     stdio: ['pipe', 'pipe', 'inherit'],
   })
-  // A spawn-level failure (e.g. ENOENT for a bad command) is emitted as an
-  // `error` event, NOT a thrown exception — without a listener Node treats it as
-  // an unhandled error and crashes the parent. Capture it into a promise the
-  // result path races, so a bad command settles `error` like any child failure.
-  const spawnFailed = new Promise<Error>((resolve) => {
-    child.once('error', (err) => { resolve(err) })
-  })
+  // Same-tick capture (the library's contract): a spawn-level failure (e.g.
+  // ENOENT for a bad command) is an `error` EVENT that would crash the parent
+  // unheard; the result path races this promise, so a bad command settles
+  // `error` like any child failure.
+  const spawnFailed = spawnFailure(child)
 
   // Accumulate the child's streamed assistant text — the SubagentResult output.
   const output: string[] = []
@@ -393,33 +349,19 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     },
     async dispose(): Promise<void> {
       request.signal?.removeEventListener('abort', onAbort)
-      // Reach quiescence, not merely request it (dispose must AWAIT the child
-      // actually stopping). If the child is already gone, nothing to do.
-      if (child.exitCode !== null || child.signalCode !== null) return
-      const eofGraceMs = spec.disposeEofGraceMs
-      const graceMs = spec.disposeGraceMs
-      // 1. Graceful: end the ACP request stream (stdin EOF) and let the child
-      //    quiesce ON ITS OWN. Our acp-agent has NO SIGTERM handler in a normal
-      //    session — it tears down via the server bridge's connection-close path
-      //    (conn.closed → per-agent dispose → final session/flush), driven by the
-      //    stdin EOF, NOT by a signal. A prompt response can resolve from a
-      //    turn/end BEFORE that post-turn flush lands, so the child still has
-      //    durable work owed when dispose runs. Give the EOF-driven quiesce a real
-      //    window — wider than a single signal-grace, since the child's own
-      //    teardown may itself be awaiting a signal-trapping grandchild (a bash
-      //    subprocess in its own SIGTERM→SIGKILL grace) plus a flush — and only
-      //    escalate if it overruns. Sending SIGTERM in the same tick (or too soon)
-      //    would default-terminate the child mid-flush, orphaning its nested work.
-      child.stdin.end()
-      if (await exitsWithin(child, eofGraceMs)) return
-      // 2. SIGTERM, then escalate to SIGKILL if it still does not exit within the
-      //    grace period — a child that ignores EOF and traps SIGTERM must not
-      //    wedge dispose forever (the seam requires bounded quiescence).
-      child.kill('SIGTERM')
-      if (await exitsWithin(child, graceMs)) return
-      // 3. Force-kill and await the (now-certain) exit.
-      child.kill('SIGKILL')
-      await waitForExit(child)
+      // Quiescent teardown via the shared ladder (stdin EOF → SIGTERM →
+      // SIGKILL, awaiting the actual exit). For THIS child the EOF tier is the
+      // one that matters: our acp-agent has NO SIGTERM handler in a normal
+      // session — it tears down via the server bridge's connection-close path
+      // (conn.closed → per-agent dispose → final session/flush), driven by the
+      // stdin EOF, NOT by a signal — and a prompt response can resolve from a
+      // turn/end BEFORE that post-turn flush lands, so the child still has
+      // durable work owed when dispose runs (hence the wide EOF grace; see
+      // DEFAULT_DISPOSE_EOF_GRACE_MS).
+      await disposeChildProcess(child, {
+        disposeEofGraceMs: spec.disposeEofGraceMs,
+        disposeGraceMs: spec.disposeGraceMs,
+      })
     },
   }
 }
