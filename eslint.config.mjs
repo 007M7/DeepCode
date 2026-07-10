@@ -22,6 +22,7 @@ export default tseslint.config(
       '**/lib/**',
       '**/node_modules/**',
       '**/.sessions/**',
+      '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
       'vendor/**', // vendored source keeps upstream style and idioms
       '**/*.js',
@@ -38,7 +39,14 @@ export default tseslint.config(
     ],
     languageOptions: {
       parserOptions: {
-        project: ['./packages/*/*/tsconfig.json', './tsconfig.json'],
+        // One shared tsserver-style project service instead of 60+ standalone
+        // per-package programs: the old `project` glob built every package's
+        // full dependency closure (sibling sources via the dev `paths` map +
+        // the vendored Cordis stack) as its own program and kept them all
+        // resident — ~5 GB peak, an OOM past node's default heap. The service
+        // resolves each file to its nearest owning tsconfig and shares the
+        // graph.
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -89,7 +97,9 @@ export default tseslint.config(
     ],
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.json'],
+        // Same shared project service as the src block: test files resolve
+        // through the root tsconfig (its include covers every tests/ tree).
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
