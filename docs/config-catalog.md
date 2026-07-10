@@ -53,10 +53,14 @@ export interface Config {
   toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
+  workspaceContext?: agentCore.Config['workspaceContext']
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/index.ts)
+Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts)
+
+Source: [`packages/ui/acp-agent/src/index.ts:51`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
@@ -66,9 +70,10 @@ Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/i
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order). Every field is optional INPUT here because each owner's schema
- * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
- * the INTERSECTION of the owners' own schemas, so validation and defaulting
+ * order), and `workspaceContext` to the workspace-context plugin. Every
+ * field is optional INPUT here because each owner's schema supplies the
+ * default (`[]` / `''` / absent — lexicographic / loader defaults); the schema
+ * is the INTERSECTION of the owners' own schemas, so validation and defaulting
  * can never drift from them.
  */
 export interface Config {
@@ -78,12 +83,14 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
+  /** Workspace-context loader controls; set `false` for hermetic prompts. */
+  workspaceContext?: workspaceContext.Config | false
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`workspaceContext`](../packages/prompt/workspace-context/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:70`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -228,7 +235,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:58`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:62`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -502,10 +509,14 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
+  workspaceContext?: agentCore.Config['workspaceContext']
 }
 ```
 
-Source: [`packages/ui/stdio-agent/src/index.ts:62`](../packages/ui/stdio-agent/src/index.ts)
+Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts)
+
+Source: [`packages/ui/stdio-agent/src/index.ts:63`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -874,6 +885,24 @@ export interface Config {
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
+## `@deepseek-ai/dsh-workspace-context`
+
+```ts config-catalog
+/** User-facing workspace instruction loader configuration. */
+export interface Config {
+  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+  /** Directory entries that identify the project root while walking upward from the session cwd. */
+  projectRootMarkers?: string[]
+  /** Maximum UTF-8 bytes in one rendered baseline or dynamic instruction batch; non-positive disables loading. */
+  maxBytes?: number
+  /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
+  instructionFileCandidates?: string[]
+}
+```
+
+Source: [`packages/prompt/workspace-context/src/config.ts:10`](../packages/prompt/workspace-context/src/config.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
@@ -908,5 +937,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
+- `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-timeout` ([`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts))

@@ -211,7 +211,11 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
   return { version: versionOf(info), mode: info.mode & 0o777, type: pathType(info), size: info.size }
 }
 
-/** Probe a path without following the final symlink component. Null if absent. */
+/**
+ * Probe a path without following the final symlink component.
+ * @param absolutePath - the path entry to inspect with `lstat` semantics.
+ * @returns path-entry metadata, or null when the entry is absent.
+ */
 export async function probeNoFollow(absolutePath: string): Promise<PathLinkInfo | null> {
   const info = await probeStats(absolutePath, lstat)
   if (!info) return null

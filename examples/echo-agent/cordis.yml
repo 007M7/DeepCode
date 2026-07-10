@@ -27,7 +27,7 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-# Local filesystem provider for agent-core's project-instructions loader. This
+# Local filesystem provider for agent-core's workspace-context loader. This
 # does not expose model-facing read/write/edit tools in the echo demo.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'

@@ -90,8 +90,8 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('loads project instructions into requests through the bundled spine', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-project-instructions-'))
+  it('loads workspace instructions into requests through the bundled spine', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-workspace-context-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
@@ -122,13 +122,13 @@ describe('dsh-agent-core bundle', () => {
     }
   })
 
-  it('forwards project-instructions config to the bundled loader', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-project-instructions-disabled-'))
+  it('forwards workspace-context config to the bundled loader', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-workspace-context-disabled-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'must not be injected')
       const adapter = new MockAdapter([textResponse('ok')])
-      const ctx = await mount({ projectInstructions: { baselineMaxBytes: 0 } })
+      const ctx = await mount({ workspaceContext: { maxBytes: 0 } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = ctx.agents.create({
         agentId: AgentId('main'),
@@ -165,9 +165,9 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('supports direct apply with project instructions disabled and no forwarded agents', async () => {
+  it('supports direct apply with workspace instructions disabled and no forwarded agents', async () => {
     const ctx = new Context()
-    agentCore.apply(ctx, { projectInstructions: false })
+    agentCore.apply(ctx, { workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 50))
 
     expect(ctx.get('agents')?.list()).toEqual([])

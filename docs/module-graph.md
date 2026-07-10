@@ -97,7 +97,7 @@ flowchart TD
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
   subgraph group_prompt["packages/prompt"]
-    pkg_project_instructions["project-instructions"]
+    pkg_workspace_context["workspace-context"]
   end
   pkg_llm --> pkg_brand
   pkg_bash --> pkg_brand
@@ -192,20 +192,21 @@ flowchart TD
   pkg_tool_ask_user --> pkg_user_interaction
   pkg_repeat_tool_guard --> pkg_agent
   pkg_repeat_tool_guard --> pkg_tools
-  pkg_project_instructions --> pkg_agent
-  pkg_project_instructions --> pkg_fs
-  pkg_project_instructions --> pkg_llm
-  pkg_project_instructions --> pkg_paths
-  pkg_project_instructions --> pkg_tools
+  pkg_workspace_context --> pkg_agent
+  pkg_workspace_context --> pkg_fs
+  pkg_workspace_context --> pkg_llm
+  pkg_workspace_context --> pkg_paths
+  pkg_workspace_context --> pkg_session
+  pkg_workspace_context --> pkg_tools
   pkg_agent_core --> pkg_agent
   pkg_agent_core --> pkg_agent_loop
   pkg_agent_core --> pkg_invariants
   pkg_agent_core --> pkg_llm
-  pkg_agent_core --> pkg_project_instructions
   pkg_agent_core --> pkg_session
   pkg_agent_core --> pkg_system_prompt
   pkg_agent_core --> pkg_tool_bash
   pkg_agent_core --> pkg_tools
+  pkg_agent_core --> pkg_workspace_context
   pkg_subagent_acp --> pkg_agent
   pkg_subagent_acp --> pkg_llm
   pkg_subagent_acp --> pkg_subagent
@@ -237,18 +238,18 @@ flowchart TD
   pkg_acp_agent --> pkg_acp
   pkg_acp_agent --> pkg_agent_core
   pkg_acp_agent --> pkg_app_boot
-  pkg_acp_agent --> pkg_project_instructions
   pkg_acp_agent --> pkg_session_persistence_jsonl
   pkg_acp_agent --> pkg_user_interaction
+  pkg_acp_agent --> pkg_workspace_context
   pkg_stdio_agent --> pkg_agent
   pkg_stdio_agent --> pkg_agent_core
   pkg_stdio_agent --> pkg_app_boot
   pkg_stdio_agent --> pkg_llm
-  pkg_stdio_agent --> pkg_project_instructions
   pkg_stdio_agent --> pkg_session
   pkg_stdio_agent --> pkg_session_persistence_jsonl
   pkg_stdio_agent --> pkg_tool_ask_user
   pkg_stdio_agent --> pkg_user_interaction
+  pkg_stdio_agent --> pkg_workspace_context
 ```
 
 | Package | Group | Depends on |
@@ -298,8 +299,8 @@ flowchart TD
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
-| [`project-instructions`](../packages/prompt/project-instructions) | `prompt` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`tools`](../packages/core/tools) |
-| [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`project-instructions`](../packages/prompt/project-instructions), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tools`](../packages/core/tools) |
+| [`workspace-context`](../packages/prompt/workspace-context) | `prompt` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
+| [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tools`](../packages/core/tools), [`workspace-context`](../packages/prompt/workspace-context) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
@@ -307,5 +308,5 @@ flowchart TD
 | [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
-| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`project-instructions`](../packages/prompt/project-instructions), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`user-interaction`](../packages/ui/user-interaction) |
-| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`project-instructions`](../packages/prompt/project-instructions), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`user-interaction`](../packages/ui/user-interaction) |
+| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/prompt/workspace-context) |
+| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/prompt/workspace-context) |

@@ -2,7 +2,7 @@
 
 The **DeepSeek Harness SDK** is an SDK for building agent harnesses on the Cordis framework. The governing principle is simple: **everything is a plugin**. The shipped agent loop is one plugin in the default bundle, not a privileged kernel.
 
-Read this page as the system map before changing `packages/`. It explains how the runtime is shaped, how the default loop moves work, where state lives, and where extensions attach. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). New to Cordis? Start with the [Cordis primer](cordis-primer.md).
+Use this system map before changing `packages/`. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact signatures in generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts in the [package map](../packages/README.md); rationale in [RFCs](rfc/README.md). New to Cordis? Start with the [primer](cordis-primer.md).
 
 ## System Shape
 
@@ -51,7 +51,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains queued work, assembles a request, streams a model answer, executes tools, decides whether to continue, and checkpoints durable state. The important architecture is where it pauses: each pause is a documented service call or event seam other plugins program against.
+The shipped loop drains work, assembles requests, streams answers, executes tools, decides continuation, and checkpoints state. Each pause below is a service or event seam.
 
 A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension seams.
 
@@ -126,9 +126,9 @@ Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAs
 
 A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and vocabulary; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability seam graph](capability-seams.md) shows the package families.
 
-Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
+Some seams bend the template. LLM combines interface and consumer vocabulary; filesystem adds policy gates; web has search/fetch provider registries, preserving model tool names. Subagents use named coexisting providers: `spawn` starts fresh, `fork` seeds from completed turns, and ACP drives out-of-process children ([subagent.md](core-data-structures/subagent.md)).
 
-Prompt/context extensions without a core service live under `packages/prompt/`. `dsh-project-instructions` uses per-agent `agent/pre-step`, not global `ctx.systemPrompt.section()`, for multi-cwd isolation; it reads through `ctx.fs` and injects nested files via `tools/post-execute`. Shared path conventions live in `dsh-paths`.
+Service-free context extensions live under `packages/prompt/`. `dsh-workspace-context` composes per-agent baselines on `agent/session-prefix`, reads `ctx.fs`, and appends nested changes on `tools/post-execute`; its [decision record](rfc/implemented/feature/2026-06-24-workspace-context.md) owns the isolation rationale. Shared paths live in `dsh-paths`.
 
 ### Bundles And Apps
 

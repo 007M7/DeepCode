@@ -33,7 +33,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../prompt/project-instructions"
+      "path": "../../prompt/workspace-context"
     },
     {
       "path": "../../core/agent-loop"

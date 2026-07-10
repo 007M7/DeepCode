@@ -62,8 +62,8 @@ describe('dsh-stdio-agent app', () => {
     const ctx = await mount({
       model: 'mock',
       persona: 'hi',
-      persistenceRoot: '/tmp/dsh-stdio-agent-spec-project-instructions',
-      projectInstructions: false,
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-workspace-context',
+      workspaceContext: false,
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()

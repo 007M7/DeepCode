@@ -11,7 +11,7 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
@@ -75,6 +75,22 @@ function renderTagged(tag: string, content: ContentBlock[], source: MessageSourc
     ...content,
     { type: 'text', text: close },
   ]
+}
+
+/**
+ * Render one context contribution exactly as it will appear in model history.
+ * @param content - content blocks supplied by the context producer.
+ * @param source - attribution used by the canonical context envelope.
+ * @param envelope - canonical tagged framing or caller-owned raw framing.
+ * @returns a detached block list ready for the derived model transcript.
+ */
+export function renderContextContent(
+  content: ContentBlock[],
+  source: MessageSource,
+  envelope: ContextEnvelope = 'context',
+): ContentBlock[] {
+  const cloned = structuredClone(content)
+  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
 }
 
 /**
@@ -355,8 +371,8 @@ export class Session {
         }
       }
       case 'context/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('context', structuredClone(content), source) }
+        const { content, source, envelope } = event.data
+        return { role: 'user', content: renderContextContent(content, source, envelope) }
       }
       case 'steering/message': {
         const { content, source } = event.data

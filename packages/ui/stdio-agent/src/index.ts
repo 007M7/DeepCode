@@ -44,7 +44,7 @@ import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
-import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
@@ -78,7 +78,7 @@ export interface Config {
    */
   resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  projectInstructions?: agentCore.Config['projectInstructions']
+  workspaceContext?: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
@@ -91,7 +91,7 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   resumeSessionId: z.string(),
-  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]),
 }) as unknown as z<Config>
 
 /**
@@ -111,7 +111,7 @@ export function apply(ctx: Context, config: Config): void {
       model: config.model,
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
-    ...config.projectInstructions !== undefined ? { projectInstructions: config.projectInstructions } : {},
+    ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

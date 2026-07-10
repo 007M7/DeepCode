@@ -96,10 +96,16 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    const meta = { kind: 'prompt-context', version: 1 }
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContext: { content: [{ type: 'text', text: 'extra ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContext: {
+          content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
+          source: { kind: 'plugin', plugin: 'test' },
+          envelope: 'raw',
+          meta,
+        },
       }))
 
     send(agent, 'go')
@@ -109,8 +115,10 @@ describe('agent/prompt-submit', () => {
     const userMsg = log.find(e => e.type === 'user/message')
     const ctxMsg = log.find(e => e.type === 'context/message')
     expect(userMsg).toBeDefined()
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: 'extra ctx' }])
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.envelope).toBe('raw')
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     // both the prompt and the injected context reach the model
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
@@ -537,7 +545,15 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
 
     // Each call attaches additionalContext naming itself.
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } } }))
+      ({
+        kind: 'accept',
+        additionalContext: {
+          content: [{ type: 'text', text: `ctx-${exec.callId}` }],
+          source: { kind: 'plugin', plugin: 'p' },
+          envelope: 'raw',
+          meta: { callId: exec.callId },
+        },
+      }))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -557,6 +573,9 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       .flatMap(e => (e.type === 'context/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
+    const contextEvents = events(agent).filter(e => e.type === 'context/message')
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.envelope)).toEqual(['raw', 'raw'])
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
   })
 })
 

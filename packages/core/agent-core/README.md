@@ -2,7 +2,7 @@
 
 The **providerless, executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
-This is the package to read to see **the whole plugin tree at once** — the teaching role the inlined `echo-agent` `cordis.yml` used to play before the spine moved behind this bundle.
+This is the package to read to see **the whole plugin tree at once** and the canonical teaching map for the shared spine.
 
 ## The tree it loads
 
@@ -17,7 +17,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
-@deepseek-ai/dsh-project-instructions  AGENTS.md/CLAUDE.md workspace context loader
+@deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
                                   (dsh-system-prompt gets the forwarded `persona`)
 ```
@@ -36,12 +36,12 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-core'
-// { agents?, persona?, toolOrder? } — the schema is z.intersect([AgentLoop.Config, SystemPrompt.Config]),
+// { agents?, persona?, toolOrder?, workspaceContext? } — the schema intersects the child owners,
 // so validation and defaulting can never drift from the owners'.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section — and `toolOrder` to `dsh-system-prompt` (absent — lexicographic), the explicit model-facing tool order. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section — `toolOrder` to `dsh-system-prompt` (absent — lexicographic), the explicit model-facing tool order — and `workspaceContext` to `dsh-workspace-context` (`false` disables automatic instruction-file loading). Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
 
 ## Why a code bundle, not a shared YAML include
 
-A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only *describe* the front-door coupling in a comment and trust each leaf to obey. Moving the spine into a package, and the front-door cluster into the app packages, means the default leaf for an ACP server has no logger entry to copy wrong — "the ACP app never logs to stdout" stops being a prose warning a leaf must remember and becomes the app package's default shape (a leaf can still add a sibling logger, so the rule stays documented — but it has nothing to get wrong by default). Services register in the root store keyed by their isolate symbol, so a child loaded here is visible to the bundle's siblings (the leaf's adapter and executor) exactly as a nested `plugin-include` subtree's services were — cordis gates every read on `inject`, never on load order.
+A YAML include can dedupe config, but it cannot own a `bin` or enforce front-door coupling. The app packages own that cluster, so the default ACP shape contains no stdout logger entry for a leaf to reproduce; a deployment can still add a sibling logger explicitly. Services register in the root store keyed by their isolate symbol, so a child loaded here is visible to the bundle's siblings (the leaf's adapter and executor); Cordis gates every read on `inject`, never on load order.

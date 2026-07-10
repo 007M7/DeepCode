@@ -425,7 +425,11 @@ async function runTurn(
       // `allow.additionalContext` is a SEPARATE context/message the next request
       // also sees. The turn is open, so inject() appends it into THIS turn.
       if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+        agent.inject(decision.additionalContext.content, {
+          source: decision.additionalContext.source,
+          ...decision.additionalContext.envelope !== undefined ? { envelope: decision.additionalContext.envelope } : {},
+          ...decision.additionalContext.meta !== undefined ? { meta: decision.additionalContext.meta } : {},
+        })
       }
     }
 
@@ -929,7 +933,11 @@ async function runStep(
   // tool-call/result adjacency across the whole batch. inject() appends into the
   // open turn (a context/message at its chronological position).
   for (const context of pendingContext) {
-    agent.inject(context.content, { source: context.source })
+    agent.inject(context.content, {
+      source: context.source,
+      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+      ...context.meta !== undefined ? { meta: context.meta } : {},
+    })
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }

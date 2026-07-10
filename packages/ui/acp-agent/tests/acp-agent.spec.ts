@@ -54,8 +54,8 @@ describe('dsh-acp-agent composition', () => {
     const ctx = await mount({
       model: 'mock',
       persona: 'hi',
-      persistenceRoot: '/tmp/dsh-acp-agent-project-instructions',
-      projectInstructions: false,
+      persistenceRoot: '/tmp/dsh-acp-agent-workspace-context',
+      workspaceContext: false,
     })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()

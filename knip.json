@@ -48,7 +48,7 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/prompt/project-instructions": {
+    "packages/prompt/workspace-context": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },

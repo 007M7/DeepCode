@@ -59,7 +59,7 @@ export type AgentId = Branded<'AgentId'>
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { ContextEnvelope, JsonValue, Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -95,6 +95,14 @@ export interface SendOptions {
   source?: MessageSource
 }
 
+/** Options specific to durable synthetic context injection. */
+export interface InjectOptions extends SendOptions {
+  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
+}
+
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
@@ -117,6 +125,10 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
@@ -189,8 +201,10 @@ export interface Agent {
   /**
    * Inject in-session context (file-change notices, skill content, cron
    * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as tagged synthetic
-   * context rather than a user prompt. Does not run the model.
+   * request sees at its chronological position, rendered as synthetic context
+   * rather than a user prompt. The default uses the canonical context tag;
+   * `options.envelope: 'raw'` preserves caller-owned framing. Does not run the
+   * model.
    *
    * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
@@ -200,11 +214,11 @@ export interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * Live-adapter review has validated the tagged-envelope rendering against
-   * current DeepSeek behavior; provider-specific mismatches belong in that
-   * adapter, not in the canonical session vocabulary.
+   * Live-adapter review has validated the canonical tagged-envelope rendering
+   * against current DeepSeek behavior; provider-specific mismatches belong in
+   * that adapter, not in the canonical session vocabulary.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Cancel ALL pending work for the agent. `cancel()`:

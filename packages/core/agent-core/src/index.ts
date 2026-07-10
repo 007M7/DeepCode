@@ -4,7 +4,7 @@
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
  * agent registry, the dev-mode invariants, the model-facing `bash` tool
- * schemas, project instruction loading, and the concrete `agent-loop` — and
+ * schemas, workspace-context loading, and the concrete `agent-loop` — and
  * forwards the loop's `agents` list as its OWN config (default `[]`), so each
  * app supplies its own pre-created agents.
  *
@@ -28,10 +28,9 @@
  *
  * Services register in the root store keyed by their isolate symbol, so a child
  * loaded here via `ctx.plugin(...)` is visible to the bundle's SIBLINGS (the
- * leaf's adapter and executor) exactly as a nested `plugin-include` subtree's
- * services were before this bundle existed — cordis gates every read on
- * `inject`, never on load order, so the fixed child set resolves regardless of
- * which entry loads first.
+ * leaf's adapter and executor). Cordis gates every read on `inject`, never on
+ * load order, so the fixed child set resolves regardless of which entry loads
+ * first.
  *
  * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
  * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
@@ -52,7 +51,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
-import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 
 export const name = 'agent-core'
@@ -62,7 +61,7 @@ export const name = 'agent-core'
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order), and `projectInstructions` to the project-instructions plugin. Every
+ * order), and `workspaceContext` to the workspace-context plugin. Every
  * field is optional INPUT here because each owner's schema supplies the
  * default (`[]` / `''` / absent — lexicographic / loader defaults); the schema
  * is the INTERSECTION of the owners' own schemas, so validation and defaulting
@@ -75,25 +74,23 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
-  /** Project-instruction loader controls; set `false` for hermetic prompts. */
-  projectInstructions?: projectInstructions.Config | false
+  /** Workspace-context loader controls; set `false` for hermetic prompts. */
+  workspaceContext?: workspaceContext.Config | false
 }
-
-const ProjectInstructionsConfig = z.object({
-  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
-}) as unknown as z<Pick<Config, 'projectInstructions'>>
 
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
   SystemPrompt.Config,
-  ProjectInstructionsConfig,
+  z.object({
+    workspaceContext: z.union([z.const(false), workspaceContext.Config]),
+  }) as unknown as z<Pick<Config, 'workspaceContext'>>,
 ]) as unknown as z<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
  * `agent-loop` receives the forwarded `agents` list and `system-prompt` the
- * forwarded `persona` and `toolOrder`. Project-instructions receives its own
+ * forwarded `persona` and `toolOrder`. Workspace-context receives its own
  * forwarded config or loads with defaults. Load order is irrelevant (cordis
  * pends each fiber on its `inject` until the services it needs exist), but the
  * listing mirrors the dependency layering for readability: the LLM vocabulary
@@ -118,8 +115,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
-  if (config.projectInstructions !== false) {
-    ctx.plugin(projectInstructions, config.projectInstructions ?? {})
+  if (config.workspaceContext !== false) {
+    ctx.plugin(workspaceContext, config.workspaceContext ?? {})
   }
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

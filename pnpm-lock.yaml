@@ -267,9 +267,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-project-instructions':
+      '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
-        version: link:../../prompt/project-instructions
+        version: link:../../prompt/workspace-context
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../session
@@ -601,7 +601,7 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
-  packages/prompt/project-instructions:
+  packages/prompt/workspace-context:
     dependencies:
       schemastery:
         specifier: ^3.18.0
@@ -1069,9 +1069,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../app-boot
-      '@deepseek-ai/dsh-project-instructions':
+      '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
-        version: link:../../prompt/project-instructions
+        version: link:../../prompt/workspace-context
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -1123,9 +1123,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-project-instructions':
+      '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
-        version: link:../../prompt/project-instructions
+        version: link:../../prompt/workspace-context
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

@@ -246,6 +246,15 @@ The fifteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, 
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
+`InjectOptions` extends ordinary message attribution with context-only framing and durable model-hidden JSON metadata:
+
+```ts type-equiv
+interface InjectOptions extends SendOptions {
+  envelope?: ContextEnvelope
+  meta?: JsonValue
+}
+```
+
 ```ts type-equiv
 interface Agent {
   readonly id: AgentId
@@ -265,8 +274,10 @@ interface Agent {
   /**
    * Inject in-session context (file-change notices, skill content, cron
    * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as tagged synthetic
-   * context rather than a user prompt. Does not run the model.
+   * request sees at its chronological position, rendered as synthetic context
+   * rather than a user prompt. The default uses the canonical context tag;
+   * `options.envelope: 'raw'` preserves caller-owned framing. Does not run the
+   * model.
    *
    * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
@@ -276,11 +287,11 @@ interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * Live-adapter review has validated the tagged-envelope rendering against
-   * current DeepSeek behavior; provider-specific mismatches belong in that
-   * adapter, not in the canonical session vocabulary.
+   * Live-adapter review has validated the canonical tagged-envelope rendering
+   * against current DeepSeek behavior; provider-specific mismatches belong in
+   * that adapter, not in the canonical session vocabulary.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Cancel ALL pending work for the agent. `cancel()`:
@@ -330,11 +341,11 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, the serial `agent/pre-step` surface-mutation seam, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The generated [events catalog](../cordis-catalog/events.md) owns the exact `agent/*` vocabulary; turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one envelope for model-facing context, `HookContext`, which is `inject()`ed as a `context/message` and so carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt).
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its optional `envelope` selects the canonical context tag or caller-owned raw framing, while JSON `meta` persists plugin state without exposing it to the model.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -342,6 +353,8 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  envelope?: ContextEnvelope
+  meta?: JsonValue
 }
 ```
 

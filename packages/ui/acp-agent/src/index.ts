@@ -34,7 +34,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
-import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
@@ -58,7 +58,7 @@ export interface Config {
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  projectInstructions?: agentCore.Config['projectInstructions']
+  workspaceContext?: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
@@ -69,7 +69,7 @@ export const Config: z<Config> = z.object({
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   persistenceRoot: z.string().default('./.sessions'),
-  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]),
 }) as unknown as z<Config>
 
 /**
@@ -82,8 +82,8 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.projectInstructions !== undefined ? { projectInstructions: config.projectInstructions } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
+    ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
   })
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
