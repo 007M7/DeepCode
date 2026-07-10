@@ -15,6 +15,26 @@ function fakeParent(): Agent {
   return { id: AgentId('workflow-parent'), options: {} } as unknown as Agent
 }
 
+// Worker-thread startup is CPU-bound (a fresh thread compiles the runtime on
+// every start): on a contended CI runner it regularly blows past vitest's 5s
+// default test timeout, observed repeatedly on the coverage lane.
+vi.setConfig({ testTimeout: 30_000 })
+
+/**
+ * `vi.waitFor` with a contention-proof timeout: the 1s default flaked
+ * repeatedly on the CI coverage lane, where worker-thread cold start competes
+ * with three sibling vitest workers for CPU. Every wait in this file is for
+ * something that WILL happen (a worker starting, a child registering) — a
+ * generous bound only removes the flake, it cannot mask a genuine hang (the
+ * file-wide test timeout above still fences those).
+ * @param assertion - retried until it stops throwing or the timeout elapses.
+ * @param timeout - override for a wait that must stay deliberately tight.
+ * @returns resolves when the assertion passes.
+ */
+function waitFor(assertion: () => void, timeout = 10_000): Promise<void> {
+  return vi.waitFor(assertion, { timeout, interval: 50 })
+}
+
 /** The vm-context escape hatch, spelled once: real Worker tests use it to make the WORKER misbehave. */
 const ESCAPE = "globalThis.constructor.constructor('return process')()"
 
@@ -316,7 +336,7 @@ describe('dsh-workflow-workerthread', () => {
       const runEnds: WorkflowResultInfo[] = []
       ctx.on('workflow/end', (_info, result) => { runEnds.push(result) })
       const handle = ctx.workflows.start({ ...scripted("return await agent('long job')"), parent })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await waitFor(() => { expect(provider.runs.length).toBe(1) })
       handle.cancel('user stopped it')
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
@@ -357,7 +377,7 @@ describe('dsh-workflow-workerthread', () => {
 
       const controller = new AbortController()
       const second = ctx.workflows.start({ ...scripted("return await agent('job')"), parent, signal: controller.signal })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await waitFor(() => { expect(provider.runs.length).toBe(1) })
       controller.abort()
       expect((await second.result).stopReason).toBe('cancelled')
       await second.dispose()
@@ -400,7 +420,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(narration).toContain('started') })
+      await waitFor(() => { expect(narration).toContain('started') })
       handle.cancel('raced the completion')
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
@@ -480,7 +500,7 @@ describe('dsh-workflow-workerthread', () => {
       })
       const result = await handle.result
       expect(result.stopReason).toBe('completed')
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await waitFor(() => { expect(provider.runs.length).toBe(1) })
       await handle.dispose()
       // Not a waitFor: by the time dispose() returns, the slow child disposal
       // must already be complete (host-side registry quiescence).
@@ -526,7 +546,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.stopReason).toBe('completed')
       // BEFORE dispose(): the settlement itself must have aborted the signal —
       // without it this child would stay live until dispose's terminate.
-      await vi.waitFor(() => { expect(aborted).toEqual(['workflow settled']) })
+      await waitFor(() => { expect(aborted).toEqual(['workflow settled']) })
       await handle.dispose()
     })
 
@@ -572,9 +592,9 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent: fakeParent(),
       })
-      await vi.waitFor(() => { expect(starts).toBe(1) })
+      await waitFor(() => { expect(starts).toBe(1) })
       handle.cancel('stop now')
-      await vi.waitFor(() => { expect(cancelled).toEqual(['stop now']) }, { timeout: 800 })
+      await waitFor(() => { expect(cancelled).toEqual(['stop now']) }, 800)
       // The wedged worker's own completion loses to the in-flight cancel.
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
@@ -602,7 +622,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await waitFor(() => { expect(provider.runs.length).toBe(1) })
       const before = Date.now()
       await handle.dispose()
       // Bounded by the grace (plus the terminate), never by the 1.5s spin.
@@ -625,7 +645,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await waitFor(() => { expect(provider.runs.length).toBe(1) })
       const handleDispose = handle.dispose()
       const result = await handle.result
       // The script itself settled (the wrapper's own dispose RPC found the
@@ -663,7 +683,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      await waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
       handle.cancel('stop now')
@@ -694,7 +714,7 @@ describe('dsh-workflow-workerthread', () => {
         ...scripted("await parallel([() => agent('a'), () => agent('b')])\nreturn 'unreachable'"),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(2) })
+      await waitFor(() => { expect(provider.runs.length).toBe(2) })
       handle.cancel('user stop')
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
@@ -749,7 +769,7 @@ describe('dsh-workflow-workerthread', () => {
       // A worker death is a stop reason like any other: workflow/end fires
       // with the error outcome — for a bus observer it is the only obituary.
       expect(runEnds).toEqual([{ stopReason: 'error', error: result.error, agentsStarted: 1 }])
-      await vi.waitFor(() => { expect(cancelled.length).toBe(1) })
+      await waitFor(() => { expect(cancelled.length).toBe(1) })
       await handle.dispose()
     }, 15_000)
 
@@ -770,7 +790,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('worker blew up')
       // The reap wound the stray child down (cancel + a CLEAN dispose).
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(provider.runs.length).toBe(1)
         expect(provider.runs[0]!.disposed).toBe(true)
       })
@@ -802,7 +822,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      await waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
       const result = await handle.result
@@ -837,7 +857,7 @@ describe('dsh-workflow-workerthread', () => {
       const result = await handle.result
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('exit code 5')
-      await vi.waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) })
+      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) })
       await handle.dispose()
     }, 15_000)
 
@@ -855,7 +875,7 @@ describe('dsh-workflow-workerthread', () => {
       })
       const logs: string[] = []
       ctx.on('workflow/log', (_info, message) => { logs.push(message) })
-      await vi.waitFor(() => { expect(logs).toContain('armed') })
+      await waitFor(() => { expect(logs).toContain('armed') })
       handle.cancel('stop it')
       // The grace is deliberately huge: only the worker's own death (exit 3,
       // unreachable by the cancel — the script ignores hooks) settles this.
