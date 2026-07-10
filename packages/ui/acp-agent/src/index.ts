@@ -35,6 +35,7 @@ import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
@@ -46,7 +47,8 @@ export const name = 'acp-agent'
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * `persistenceRoot` is the JSONL backend's directory.
+ * `tools` is the tool registry's config (its presentation `mode`, forwarded
+ * through agent-core); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
@@ -55,6 +57,8 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
@@ -68,6 +72,7 @@ export const Config: z<Config> = z.object({
   // order" (the owning dsh-system-prompt schema does the same), while
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
+  tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]),
 }) as unknown as z<Config>
@@ -83,6 +88,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
+    ...config.tools !== undefined ? { tools: config.tools } : {},
     ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
   })
   ctx.plugin(UserInteractionService)

@@ -323,7 +323,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:118`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:132`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -335,7 +335,7 @@ Around-dispatch waterfall wrapping the registry's core tool dispatch, between th
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:97`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:111`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -347,7 +347,7 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:127`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -359,7 +359,69 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:77`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:91`](../../packages/core/tools/src/index.ts)
+
+## `workflow/*`
+
+### `workflow/agent-end` — emit
+
+One `agent()` call settled (clean result, child failure, or run cancellation). Paired with Events['workflow/agent-start'] by `agent.seq`, exactly once per started call on every stop path — on an engine termination path (a worker killed past its grace) the end is engine-synthesized with outcome `'cancelled'`.
+
+```ts cordis-catalog
+'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:96`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/agent-start` — emit
+
+One `agent()` call started a child run. Paired with Events['workflow/agent-end'] by `agent.seq`.
+
+```ts cordis-catalog
+'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:85`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/end` — emit
+
+A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves. Paired with Events['workflow/start'].
+
+```ts cordis-catalog
+'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:106`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/log` — emit
+
+The script emitted a narration line (a `log(message)` call).
+
+```ts cordis-catalog
+'workflow/log'(info: WorkflowRunInfo, message: string): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:77`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/phase` — emit
+
+The script entered a phase (a `phase(title)` call) — progress grouping for observers; no execution semantics.
+
+```ts cordis-catalog
+'workflow/phase'(info: WorkflowRunInfo, title: string): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/start` — emit
+
+A workflow run started — the script's meta block validated, the body about to execute. Paired with Events['workflow/end'].
+
+```ts cordis-catalog
+'workflow/start'(info: WorkflowRunInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:62`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

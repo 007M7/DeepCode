@@ -6,15 +6,26 @@
  * (inspect/replace the result, attach context) for sandbox, permission, and hook
  * plugins to gate or transform a call.
  *
+ * The registry also owns HOW its tools are presented to the model — its
+ * `mode` config: `'native'` (every tool as a wire function definition,
+ * today's behavior and the default), `'code'` (the wire carries exactly one
+ * tool, `run_code`, plus a generated TypeScript SDK prompt section), or
+ * `'both'`. See `code-mode.ts` (the tool + dispatch bridge) and
+ * `ts-types.ts` (the SDK codegen); design in the Code Mode RFC.
+ *
  * @module @deepseek-ai/dsh-tools
  */
 
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
+import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
+import { renderToolsSdk } from './ts-types.ts'
 
 export {
   defineTool,
@@ -38,6 +49,9 @@ export {
   type StructuredSchemaType,
   type StructuredScalar,
 } from './json-schema.ts'
+
+export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
+export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
@@ -298,20 +312,100 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
   return error instanceof HarnessError ? { name: error.name, code: error.code } : undefined
 }
 
+/** How the registry presents its tools to the model (see {@link Config.mode}). */
+export type ToolPresentationMode = 'native' | 'code' | 'both'
+
+/** Plugin config: how the registered tools are presented to the model. */
+export interface Config {
+  /**
+   * The presentation mode. `'native'` (the default) contributes every
+   * registered tool as a wire function definition — byte-for-byte today's
+   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
+   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * TypeScript API the program calls. `'both'` contributes every native
+   * definition AND `run_code` + the SDK section. Non-native modes require a
+   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
+   * or mismatched runtime rejects every prompt assembly with an actionable
+   * error (misconfiguration fails loud, before any model request). A
+   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
+   * every assembly under `'code'` (those names are no longer contributed) —
+   * a deployment switching modes updates its order config or drops it.
+   */
+  mode?: ToolPresentationMode
+}
+
 /**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
  * loop executes calls through the `tools/pre-execute` → `tools/execute` →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
- * system-prompt assembly.
+ * system-prompt assembly — WHICH schemas is governed by its `mode` config
+ * (see {@link Config.mode}); under a non-native mode it also registers the
+ * `run_code` tool and the `tools:sdk` prompt section itself.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
 
-  private store = new Map<string, ToolDefinition>()
+  static Config: z<Config> = z.object({
+    mode: z.union(['native', 'code', 'both'] as const).default('native'),
+  })
 
-  constructor(ctx: Context) {
+  private store = new Map<string, ToolDefinition>()
+  private readonly mode: ToolPresentationMode
+
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
-    ctx.systemPrompt.tools(() => this.schemas())
+    // The schema already defaulted an omitted mode; the ?? narrows the
+    // optional-input type for direct (non-Loader) construction in tests.
+    this.mode = config.mode ?? 'native'
+    ctx.systemPrompt.tools(() => this.wireSchemas())
+    if (this.mode !== 'native') {
+      this.register(createRunCodeTool(this, () => this.requireCodeRuntime()))
+      ctx.systemPrompt.section({
+        name: 'tools:sdk',
+        order: SDK_SECTION_ORDER,
+        // A lazy thunk over the live store: regenerated at each assembly, in
+        // lexicographic tool order, so an unchanged tool set renders
+        // byte-identical text (prefix-cache-friendly) and a mid-session
+        // registration surfaces exactly like a native-mode tool change.
+        text: () => {
+          this.requireCodeRuntime()
+          return renderToolsSdk(this.schemas().filter(schema => schema.name !== RUN_CODE_NAME))
+        },
+      })
+    }
+  }
+
+  /**
+   * The registry's contribution to the wire tool list, per {@link Config.mode}.
+   * Because `PromptAssembly.tools` is what the loop's request header
+   * snapshots, the mode's collapse is logged and reconstructable for free.
+   * Under a non-native mode this is also the loud misconfiguration gate: no
+   * usable code runtime → every assembly rejects before any model request.
+   */
+  private wireSchemas(): ToolSchema[] {
+    if (this.mode === 'native') return this.schemas()
+    this.requireCodeRuntime()
+    const all = this.schemas()
+    return this.mode === 'code' ? all.filter(schema => schema.name === RUN_CODE_NAME) : all
+  }
+
+  /**
+   * Resolve the code runtime or throw the actionable misconfiguration error.
+   * Read at use time (assembly / run_code execution), NOT via static
+   * `inject`: an inject entry would hold `ctx.tools` — and every tool plugin
+   * behind it — hostage to a code runtime existing even under `mode:
+   * 'native'` (the loop's optional-backend idiom, same as
+   * `sessionPersistence`).
+   */
+  private requireCodeRuntime(): CodeRuntime {
+    const runtime = this.ctx.get('codeRuntime')
+    if (!runtime) {
+      throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+    }
+    if (runtime.language !== 'typescript') {
+      throw new Error(`dsh-tools: mode "${this.mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+    }
+    return runtime
   }
 
   /**
