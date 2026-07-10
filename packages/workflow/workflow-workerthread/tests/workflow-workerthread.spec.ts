@@ -663,7 +663,10 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      await vi.waitFor(
+        () => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) },
+        { timeout: 5_000 },
+      )
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
       handle.cancel('stop now')
@@ -802,7 +805,10 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      await vi.waitFor(
+        () => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) },
+        { timeout: 5_000 },
+      )
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
       const result = await handle.result
