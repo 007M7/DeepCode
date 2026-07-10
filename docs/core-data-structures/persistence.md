@@ -73,6 +73,20 @@ interface CreateSessionOptions {
 
 Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resuming a *persisted* session into a live agent is `ctx.agents.resume({ resumeSessionId })`.
 
+## `SessionPersistedChange` — committed-log notification range
+
+The observe-only `session/persisted` event carries the canonical header and the committed range. A repair can report `toSeq < fromSeq` when it only removes a torn fragment.
+
+Source: [`packages/session-persistence/session-persistence/src/index.ts`](../../packages/session-persistence/session-persistence/src/index.ts)
+
+```ts type-equiv
+export interface SessionPersistedChange {
+  kind: 'append' | 'repair'
+  fromSeq: number
+  toSeq: number
+}
+```
+
 ## The backends
 
 Both implement the same abstract `SessionPersistence` (create/append/load/list over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:

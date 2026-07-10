@@ -118,7 +118,7 @@ export interface SessionSearchHit extends SessionRecord {
 export interface SessionSearchPage<T> {
   /** Stable id of the provider that produced this page. */
   providerId: string
-  /** Ranked hits in deterministic provider order. */
+  /** Ranked hits in deterministic provider order, no longer than the requested limit. */
   items: readonly T[]
   /** Opaque next-page cursor, absent when the result is exhausted. */
   nextCursor?: string

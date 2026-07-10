@@ -106,7 +106,15 @@ export class EventsService {
 
   /** Run listeners concurrently and wait for all of them. */
   async parallel(...args: any[]) {
-    await Promise.all(this.dispatch('emit', args).map(cb => cb(...args)))
+    const callbacks = this.dispatch('emit', args)
+    const results = callbacks.map((cb) => {
+      try {
+        return Promise.resolve(cb(...args))
+      } catch (error: unknown) {
+        return Promise.reject(error)
+      }
+    })
+    await Promise.all(results)
   }
 
   /** Run listeners synchronously without waiting for returned promises. */

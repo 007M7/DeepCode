@@ -12,8 +12,16 @@ interface PersistenceBinding {
   token: symbol
   service: SessionPersistence
   headers: Map<SessionId, SessionHeader>
+  /** Notifications retained until a list that began after them completes. */
+  observations: Map<SessionId, PersistedObservation>
+  observationGeneration: number
   error?: unknown
   refreshing: Promise<void> | undefined
+}
+
+interface PersistedObservation {
+  generation: number
+  header: SessionHeader
 }
 
 /** Active persistence view used by provider reconciliation. */
@@ -132,6 +140,8 @@ export class SessionCorpus {
       token: Symbol('session-query-persistence'),
       service,
       headers: new Map(),
+      observations: new Map(),
+      observationGeneration: 0,
       refreshing: undefined,
     }
     this._persistence = binding
@@ -140,7 +150,10 @@ export class SessionCorpus {
     ctx.on('session/persisted', (header) => {
       /* v8 ignore next -- a stale notification can race optional-service disposal */
       if (this._persistence?.token !== binding.token) return
-      binding.headers.set(header.id, structuredClone(header))
+      const snapshot = structuredClone(header)
+      const observation = { generation: ++binding.observationGeneration, header: snapshot }
+      binding.headers.set(header.id, snapshot)
+      binding.observations.set(header.id, observation)
       this._onPersistenceChange(true)
     })
     ctx.effect(() => () => { this._detachPersistence(binding) }, 'sessionQuery.persistenceBinding')
@@ -155,10 +168,21 @@ export class SessionCorpus {
 
   private _refreshPersistence(binding: PersistenceBinding): Promise<void> {
     if (binding.refreshing !== undefined) return binding.refreshing
+    const startGeneration = binding.observationGeneration
     const refresh = binding.service.list().then((headers) => {
       /* v8 ignore next -- a list completion can race optional-service disposal */
       if (this._persistence?.token !== binding.token) return
-      binding.headers = new Map(headers.map(header => [header.id, structuredClone(header)]))
+      const nextHeaders = new Map(headers.map(header => [header.id, structuredClone(header)]))
+      for (const [id, observation] of binding.observations) {
+        // A notification newer than this list's snapshot is the authoritative
+        // read-your-writes layer; older ones must already be present in list().
+        if (observation.generation > startGeneration) {
+          nextHeaders.set(id, structuredClone(observation.header))
+        } else {
+          binding.observations.delete(id)
+        }
+      }
+      binding.headers = nextHeaders
       binding.error = undefined
       this._onPersistenceChange(true)
     }).catch((error: unknown) => {

@@ -52,11 +52,15 @@ class TestPersistence extends SessionPersistence {
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listFailure: unknown
   static loadFailure: unknown
+  static listBarrier: Promise<void> | undefined
+  static onList: (() => void) | undefined
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map(entries.map(entry => [entry.meta.id, structuredClone(entry)]))
     this.listFailure = undefined
     this.loadFailure = undefined
+    this.listBarrier = undefined
+    this.onList = undefined
   }
 
   create(meta: SessionHeader): Promise<void> {
@@ -80,7 +84,9 @@ class TestPersistence extends SessionPersistence {
 
   list(): Promise<SessionHeader[]> {
     if (TestPersistence.listFailure !== undefined) return Promise.reject(asError(TestPersistence.listFailure))
-    return Promise.resolve([...TestPersistence.entries.values()].map(entry => structuredClone(entry.meta)))
+    const snapshot = [...TestPersistence.entries.values()].map(entry => structuredClone(entry.meta))
+    TestPersistence.onList?.()
+    return (TestPersistence.listBarrier ?? Promise.resolve()).then(() => snapshot)
   }
 }
 
@@ -180,6 +186,12 @@ function expectCode(code: string): Error {
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
 }
 
 describe('pure result filters', () => {
@@ -379,8 +391,8 @@ describe('provider selection and synchronization', () => {
       { ...record, bestMatch }, { ...record, bestMatch }, { ...record, bestMatch },
     ], nextCursor: 'next' }
 
-    const page = await ctx.sessionQuery.searchSessions({ query: ' hello ', sessionFilters: [{ kind: 'availability', values: ['live'] }] })
-    expect(page.items).toHaveLength(2)
+    await expect(ctx.sessionQuery.searchSessions({ query: ' hello ', sessionFilters: [{ kind: 'availability', values: ['live'] }] }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PROVIDER_ERROR'))
     expect(provider.sessionRequests[0]).toMatchObject({ query: 'hello', limit: 2 })
     expect(provider.live.get(session.id)?.documents[0]?.text).toBe('hello')
     await expect(ctx.sessionQuery.searchSessions({ query: ' ' })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
@@ -534,6 +546,30 @@ describe('provider selection and synchronization', () => {
     expect(provider.persisted.has(persisted.id)).toBe(true)
   })
 
+  it('preserves persisted observations that race an older inventory listing', async () => {
+    TestPersistence.reset()
+    const listStarted = deferred()
+    const releaseList = deferred()
+    TestPersistence.onList = listStarted.resolve
+    TestPersistence.listBarrier = releaseList.promise
+    const ctx = await liveContext()
+    const provider = new FakeProvider()
+    ctx.sessionQuery.registerSearchProvider(provider)
+    await ctx.plugin(TestPersistence)
+    await listStarted.promise
+
+    const announced = header('racing-announcement', 3)
+    TestPersistence.entries.set(announced.id, { meta: announced, events: eventLog('after durable notification') })
+    await ctx.parallel('session/persisted', announced, { kind: 'append', fromSeq: 0, toSeq: 0 })
+    const search = ctx.sessionQuery.searchSessions({ query: 'notification' })
+    releaseList.resolve()
+
+    await expect(search).resolves.toMatchObject({ providerId: provider.id })
+    expect(provider.persisted.get(announced.id)?.documents[0]?.text).toBe('after durable notification')
+    TestPersistence.listBarrier = undefined
+    TestPersistence.onList = undefined
+  })
+
   it('synchronizes only a live target for event search and retries dirty failures', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('target'))
@@ -646,11 +682,9 @@ describe('semantic text extractors', () => {
     session.append('user/message', { content: [{ type: 'test/text', value: 'block note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const provider = new FakeProvider()
     ctx.sessionQuery.registerSearchProvider(provider)
-    let disposeEvent!: () => void
-    let disposeContent!: () => void
     const extractorFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      disposeEvent = inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v1', extract: event => [event.data.note] })
-      disposeContent = inner.sessionQuery.registerContentTextExtractor('test/text', { version: 'block-v1', extract: block => [block.value] })
+      inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v1', extract: event => [event.data.note] })
+      inner.sessionQuery.registerContentTextExtractor('test/text', { version: 'block-v1', extract: block => [block.value] })
     }, { inject: ['sessionQuery'] }))
 
     await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
@@ -663,13 +697,21 @@ describe('semantic text extractors', () => {
     expect(() => ctx.sessionQuery.registerContentTextExtractor('test/text', { version: ' ', extract: () => [] }))
       .toThrow(expectCode('SESSION_QUERY_INVALID_EXTRACTOR'))
 
-    disposeEvent()
-    disposeContent()
+    await extractorFiber.dispose()
     await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
     const second = provider.live.get(session.id)
     expect(second?.documents).toEqual([])
     expect(second?.fingerprint).not.toBe(first?.fingerprint)
-    await extractorFiber.dispose()
+
+    const replacementFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v2', extract: event => [`replacement ${event.data.note}`] })
+      inner.sessionQuery.registerContentTextExtractor('test/text', { version: 'block-v2', extract: block => [`replacement ${block.value}`] })
+    }, { inject: ['sessionQuery'] }))
+    await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
+    const third = provider.live.get(session.id)
+    expect(third?.documents.map(document => document.text)).toEqual(['replacement event note', 'replacement block note'])
+    expect(third?.fingerprint).not.toBe(second?.fingerprint)
+    await replacementFiber.dispose()
   })
 })
 

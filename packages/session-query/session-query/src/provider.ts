@@ -292,7 +292,10 @@ export class SessionProviderCoordinator {
     if (page.providerId !== state.provider.id) {
       throw new SessionQueryError(`session-query provider "${state.provider.id}" returned providerId "${page.providerId}"`, 'SESSION_QUERY_PROVIDER_ERROR')
     }
-    return page.items.length <= limit ? page : { ...page, items: page.items.slice(0, limit) }
+    if (page.items.length > limit) {
+      throw new SessionQueryError(`session-query provider "${state.provider.id}" returned ${page.items.length} items for limit ${limit}`, 'SESSION_QUERY_PROVIDER_ERROR')
+    }
+    return page
   }
 }
 
