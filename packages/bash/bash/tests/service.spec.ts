@@ -13,6 +13,7 @@ class StubExecutor extends BashExecutor {
       command: request.command,
       workdir: request.workdir ?? '/stub',
       timeoutMs: request.timeoutMs ?? 1000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       ...request.signal ? { signal: request.signal } : {},
       owner: request.owner,
     }

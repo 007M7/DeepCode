@@ -77,7 +77,7 @@ The `path` field follows the same split as Claude Code: `grep.path` is a file-or
 
 `grep` builds a fixed line-oriented `rg --json` command against the supplied file/directory target (`path` when supplied, else the bash workdir) so file path, line number, and line text are parsed without colon-splitting ambiguity. It consumes `match` records, treats malformed JSON or malformed match records as `SEARCH_FAILED`, maps result paths relative to the bash workdir when possible, applies per-line preview retention with `grepMaxLineBytes`, pushes each match into `ItemRetainer({ kind: 'head', maxItems: grepMaxMatches })`, then groups only the retained preview matches by file for inline output. The spill file stores the full formatted match list, not only the omitted tail, so `read offset/limit` works against the same logical result the model saw.
 
-Raw `rg` stdout is an internal transport detail. If `ctx.bash.run()` returns untruncated stdout, the tool parses `stdout.text`. If stdout is truncated and `stdout.spillPath` is present, the tool reads that local raw spill file up to `rawOutputMaxBytes + 1` bytes and parses it only when the complete file fits within `rawOutputMaxBytes`. If the raw spill file is larger than `rawOutputMaxBytes`, or stdout is truncated without a spill path, the tool fails with a clear search error telling the model to narrow `pattern`, `path`, or `include`. The tool never exposes raw `rg` output or bash raw spill paths to the model.
+Raw `rg` stdout is an internal transport detail. The tool requests `stdoutMaxBytes: rawOutputMaxBytes` through `ctx.bash.resolve()` and parses `stdout.text` only when the executor returns untruncated stdout within that cap. If stdout is larger than `rawOutputMaxBytes`, or the executor still returns `stdout.truncated`, the tool fails with a clear search error telling the model to narrow `pattern`, `path`, or `include`. The tool never exposes raw `rg` output or bash raw spill paths to the model.
 
 Only stdout is a parse source. Stderr is diagnostic text for invalid patterns, missing `rg`, and search failures; if bash truncates stderr, the tool uses the retained stderr tail with a truncation note and does not read `stderr.spillPath`.
 
@@ -93,7 +93,7 @@ When a search produces more logical results than the inline cap and `ctx.spillFi
 
 When spill storage is absent, the call has no session owner, or saving fails, the tool still returns the inline page and a footer explaining that the complete result could not be saved. Search success must not turn into an `isError` result solely because formatted-result spill storage is unavailable.
 
-The bash raw spill file and the formatted search spill file are different artifacts. The raw bash spill file is a local executor implementation detail used only so the search tool can parse complete `rg` stdout. The formatted spill file is the stable model-facing recovery path produced by `ctx.spillFiles.saveText()`.
+The bash raw output stream and the formatted search spill file are different artifacts. Raw `rg` stdout is parsed only in memory within the requested bash stdout cap; the formatted spill file is the stable model-facing recovery path produced by `ctx.spillFiles.saveText()`.
 
 ### Result shape
 
@@ -122,13 +122,13 @@ If the complete logical result fits under the inline cap, no formatted spill fil
 
 **Put `glob` / `grep` on `ctx.fs`.** Rejected for v1: it forces every filesystem backend to grow a search API and makes local ripgrep behavior part of the provider seam. Search is useful product behavior, but it is not a universal text-storage primitive like `readText` or `writeText`.
 
-**Directly spawn ripgrep from `dsh-fs-local`.** Rejected for this RFC's v1: direct spawn gives the cleanest argv boundary, stdout/stderr control, and early-stop control, but it duplicates process execution concerns that the bash seam already owns: environment scrubbing, process-group kill, timeout propagation, sandbox/remote executor substitution, and raw output spill. It remains a reasonable optimization if bash-backed search proves too shell-string-sensitive or if raw bash spill recovery is not portable enough.
+**Directly spawn ripgrep from `dsh-fs-local`.** Rejected for this RFC's v1: direct spawn gives the cleanest argv boundary, stdout/stderr control, and early-stop control, but it duplicates process execution concerns that the bash seam already owns: environment scrubbing, process-group kill, timeout propagation, sandbox/remote executor substitution, and bounded output capture. It remains a reasonable optimization if bash-backed search proves too shell-string-sensitive or if foreground streaming becomes necessary.
 
 **Use `ctx.bash.start()` for streaming early stop.** Rejected: `start()` creates model-visible background task semantics: task ids, owner tokens, `bash_output`, `bash_kill`, completion notifications, and no built-in timeout. `grep` needs a foreground tool result, not a background bash workflow. If streaming search becomes necessary, the right abstraction is a foreground streaming process handle on the bash/process seam, not borrowing the public background-task API.
 
-**Expose bash raw spill paths to the model.** Rejected: a bash raw spill path contains raw `rg` stdout (`rg --json` records for grep), not the stable formatted search result. The search tool may read raw spill internally, but model recovery uses a formatted result saved through `ctx.spillFiles.saveText()`.
+**Expose bash raw spill paths to the model.** Rejected: a bash raw spill path contains raw `rg` stdout (`rg --json` records for grep), not the stable formatted search result. Search parses raw stdout only as an internal transport; model recovery uses a formatted result saved through `ctx.spillFiles.saveText()`.
 
-**Add `spillFiles.saveFile()` for bash output normalization first.** Rejected for this RFC's v1: `saveFile()` would help a future bash normalization pass move existing executor spill files into session-scoped spill storage, but search still has to parse raw `rg` output before producing the model-facing artifact. `saveText()` is sufficient for the formatted search result, and raw bash spill remains an executor-local recovery detail.
+**Add `spillFiles.saveFile()` for bash output normalization first.** Rejected for this RFC's v1: `saveFile()` would help a future bash normalization pass move existing executor spill files into session-scoped spill storage, but search only needs bounded in-memory raw `rg` stdout before producing the model-facing artifact. `saveText()` is sufficient for the formatted search result.
 
 **Rely on the generic `dsh-spill-policy`.** Rejected: generic post-execute spill sees only the final tool result. If `grep` / `glob` return the first page inline, the generic policy cannot recover omitted results. The search tools must save the complete formatted result themselves before returning the bounded model-facing text.
 
@@ -136,7 +136,7 @@ If the complete logical result fits under the inline cap, no formatted spill fil
 
 **Keep early-stop search and skip formatted spill files.** Rejected for this proposal: early stop is more efficient but gives the model no path to inspect later results. The chosen v1 optimizes result recoverability and implementation simplicity, with `timeoutMs`, `rawOutputMaxBytes`, bash backend caps, and formatted spill files as safety backstops.
 
-**Expand the bash seam with a raw-output reader first.** Deferred: a remote bash backend may eventually need a portable `readRawOutput(ref, maxBytes)` style API instead of local `spillPath` reads. v1 uses the existing local-readable `stdout.spillPath` to avoid widening the bash seam for one consumer.
+**Expand the bash seam with a raw-output reader first.** Rejected: a portable `readRawOutput(ref, maxBytes)` API would add reference lifetime, permission, and backend storage semantics. A per-run `stdoutMaxBytes` request is the narrower seam: search either receives complete stdout within `rawOutputMaxBytes` or fails clearly.
 
 ## Testing
 
@@ -151,7 +151,7 @@ If the complete logical result fits under the inline cap, no formatted spill fil
 - `glob` and `grep` are model-facing tools in `@deepseek-ai/dsh-tool-fs-search`, not `ctx.fs` provider methods and not part of the existing `@deepseek-ai/dsh-tool-fs` root plugin. The package injects `tools`, `systemPrompt`, and `bash`; it does not inject `fs`, and `ctx.spillFiles` stays optional via `ctx.get('spillFiles')`.
 - The schemas are exactly `glob(pattern, path?)` and `grep(pattern, path?, include?)`; search caps and timeout are defaulted, validated Config fields (`globMaxResults`, `grepMaxMatches`, `grepMaxLineBytes`, `rawOutputMaxBytes`, `timeoutMs`).
 - The tools execute through `ctx.bash.resolve(request)` → `ctx.bash.run(spec)`, forward `exec.signal`, never call `ctx.bash.start()`, and never expose a bash task id. The bash request workdir comes from `exec.agent?.session.header.cwd` when available; the resolved `spec.workdir` drives execution and relative-path display.
-- When bash stdout is truncated, the tools parse the full raw stdout only through a local `stdout.spillPath` that fits within `rawOutputMaxBytes`; missing spill paths or over-cap raw output are clear search failures, and raw `rg` output is never exposed to the model.
+- The tools request `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam, parse only untruncated stdout within that cap, and treat over-cap or still-truncated raw output as a clear search failure; raw `rg` output is never exposed to the model.
 - Oversized complete formatted results are saved through `ctx.spillFiles.saveText()` when available while inline results stay bounded; spill failure, a missing backend, or a missing owner preserves the inline result and reports the unsaved remainder — never an `isError`.
 - The package README, the generated config catalog, and exported JSDoc document the Config fields and `SEARCH_*` codes; the coding-agent example ships the tools (the acp-agent tree waits on the snapshot re-record above); the fs group README records the co-located bash/filesystem deployment requirement.
 
@@ -162,7 +162,5 @@ Full-run `grep` can be slower than an early-stop search on broad patterns. The v
 Shell command construction is the sharpest safety edge. Because `ctx.bash` accepts a command string rather than an argv vector, the implementation must centralize shell quoting and test malicious patterns, paths with spaces, leading-dash patterns, quotes, newlines, and glob metacharacters.
 
 The v1 assumes a co-located bash/filesystem deployment. If bash searches one workspace and the `read` tool resolves paths against another, returned paths may not be follow-up-readable. The package documents this requirement but does not verify it at runtime.
-
-Raw bash spill recovery is local-path-shaped in v1. A remote or sandboxed bash backend may return no readable `spillPath` or may require a future raw-output read API. In that case broad searches fail clearly instead of pretending a truncated raw result is complete.
 
 Spill paths are local filesystem paths in v1. The formatted-result design works for local deployments where `read` can open spill files; remote or workspace-confined deployments need either an allowlist for spill paths or a future virtual spill URI bridge.

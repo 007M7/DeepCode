@@ -7,17 +7,15 @@
  * Both tools execute through `ctx.bash.resolve(request)` → `ctx.bash.run(spec)`
  * as ordinary foreground tool calls — never `ctx.bash.start()`, never a
  * model-visible background task. Raw `rg` stdout is an internal transport
- * detail: when the executor truncates it, the ONLY recovery source is the
- * executor's local raw spill file, read here up to `rawOutputMaxBytes` and
- * never exposed to the model. The model-facing recovery artifact is the
+ * detail: the tools request a per-run stdout capture budget from the bash seam,
+ * parse only complete in-memory stdout within `rawOutputMaxBytes`, and never
+ * read executor spill files. The model-facing recovery artifact is the
  * formatted result saved through `ctx.spillFiles.saveText()`
- * ({@link trySaveFormattedResult}) — a different artifact from the bash raw
- * spill file.
+ * ({@link trySaveFormattedResult}).
  *
  * @module @deepseek-ai/dsh-tool-fs-search/search-core
  */
 
-import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -45,7 +43,7 @@ export const SEARCH_TIMEOUT_MS = 30_000
  * glob; `SEARCH_FAILED` — the search could not run or its output could not be
  * parsed (missing `rg`, inaccessible target, signal kill, malformed `--json`);
  * `SEARCH_RAW_OUTPUT_OVERFLOW` — raw `rg` output exceeded `rawOutputMaxBytes`
- * (or was truncated with no recovery file); `SEARCH_ABORTED` — the tool
+ * or stayed truncated after that requested stdout budget; `SEARCH_ABORTED` — the tool
  * timeout, caller cancellation, or the bash executor's own timeout cut the
  * search short.
  */
@@ -72,7 +70,7 @@ export class SearchError extends HarnessError {
 
 /** The completed acquisition of one `rg` run: complete stdout plus the resolved workdir. */
 export interface RipgrepRun {
-  /** Complete raw stdout — inline executor text, or the raw spill file's content. */
+  /** Complete raw stdout retained by the bash executor within the requested cap. */
   stdout: string
   /** True when ripgrep exited 1: a successful search with zero results. */
   noMatches: boolean
@@ -104,14 +102,11 @@ function classifyRunFailure(toolName: string, result: BashRunResult): SearchErro
 
 /**
  * Acquire the COMPLETE raw stdout of a finished run, enforcing
- * `rawOutputMaxBytes` on BOTH transports: inline executor text (an executor
- * retaining more than this package's cap must not smuggle an over-cap parse
- * through the untruncated path) and the executor's local raw spill file, read
- * only when the complete file fits the cap. A missing spill path or over-cap
- * output is a clear failure telling the model to narrow the search — never a
- * silently-partial parse.
+ * `rawOutputMaxBytes` on the in-memory transport. A truncated result means the
+ * bash backend could not retain complete stdout within the requested budget, so
+ * the tool fails clearly instead of parsing a silently-partial stream.
  */
-async function completeStdout(toolName: string, result: BashRunResult, rawOutputMaxBytes: number): Promise<string> {
+function completeStdout(toolName: string, result: BashRunResult, rawOutputMaxBytes: number): string {
   const narrow = 'narrow pattern, path, or include and retry'
   if (!result.stdout.truncated) {
     const inlineBytes = Buffer.byteLength(result.stdout.text, 'utf8')
@@ -123,26 +118,10 @@ async function completeStdout(toolName: string, result: BashRunResult, rawOutput
     }
     return result.stdout.text
   }
-  const spillPath = result.stdout.spillPath
-  if (spillPath === undefined) {
-    throw new SearchError(
-      `${toolName} produced more raw output than the bash executor retained and no raw spill file is available; ${narrow}`,
-      'SEARCH_RAW_OUTPUT_OVERFLOW',
-    )
-  }
-  try {
-    const { size } = await stat(spillPath)
-    if (size > rawOutputMaxBytes) {
-      throw new SearchError(
-        `${toolName} produced ${size} bytes of raw output, over the ${rawOutputMaxBytes}-byte cap; ${narrow}`,
-        'SEARCH_RAW_OUTPUT_OVERFLOW',
-      )
-    }
-    return await readFile(spillPath, 'utf8')
-  } catch (error: unknown) {
-    if (error instanceof SearchError) throw error
-    throw new SearchError(`${toolName} could not read the executor's raw output spill file`, 'SEARCH_FAILED', { cause: error })
-  }
+  throw new SearchError(
+    `${toolName} produced more raw output than the bash executor retained within the ${rawOutputMaxBytes}-byte cap; ${narrow}`,
+    'SEARCH_RAW_OUTPUT_OVERFLOW',
+  )
 }
 
 /**
@@ -181,6 +160,7 @@ export async function runRipgrep(
   const cwd = exec.agent?.session.header.cwd
   const spec = ctx.bash.resolve({
     command,
+    stdoutMaxBytes: rawOutputMaxBytes,
     ...cwd !== undefined ? { workdir: cwd } : {},
     ...exec.signal ? { signal: exec.signal } : {},
   })
@@ -208,7 +188,7 @@ export async function runRipgrep(
   if (result.exitCode !== 0 && result.exitCode !== 1) {
     throw classifyRunFailure(toolName, result)
   }
-  const stdout = await completeStdout(toolName, result, rawOutputMaxBytes)
+  const stdout = completeStdout(toolName, result, rawOutputMaxBytes)
   return { stdout, noMatches: result.exitCode === 1, workdir: spec.workdir }
 }
 

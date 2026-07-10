@@ -26,7 +26,8 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
   return {
     command,
     cwd: process.cwd(),
-    maxOutputBytes: 64_000,
+    stdoutMaxBytes: 64_000,
+    stderrMaxBytes: 64_000,
     graceMs: 3_000,
     ...overrides,
   }
@@ -229,10 +230,24 @@ describe('stdin and extra env (set by in-process plugins)', () => {
 })
 
 describe('output truncation and spill', () => {
+  it('applies stdout and stderr caps independently', async () => {
+    const result = await runBash(
+      spec('printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2', {
+        stdoutMaxBytes: 500,
+        stderrMaxBytes: 100,
+      }),
+      { spillDir },
+    ).done
+    expect(result.stdout.truncated).toBe(false)
+    expect(result.stdout.text).toBe('x'.repeat(500))
+    expect(result.stderr.truncated).toBe(true)
+    expect(result.stderr.text.length).toBeLessThanOrEqual(100)
+  })
+
   it('keeps the tail and spills the full stream to disk', async () => {
     // 200 numbered lines of ~10 bytes; cap at 500 bytes keeps a late tail.
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(true)
@@ -247,7 +262,7 @@ describe('output truncation and spill', () => {
 
   it('does not truncate output exactly at the cap', async () => {
     const result = await runBash(
-      spec('printf "%.0sx" $(seq 1 500)', { maxOutputBytes: 500 }),
+      spec('printf "%.0sx" $(seq 1 500)', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(false)
@@ -258,7 +273,7 @@ describe('output truncation and spill', () => {
   it('settles with the tail and no spill path when final spill close fails', async () => {
     failNextClose.value = true
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(failNextClose.value).toBe(false)
@@ -377,7 +392,7 @@ describe('review fixes: env scrubbing and spill hardening', () => {
 
   it('creates spill files with owner-only permissions and random names', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     const path = result.stdout.spillPath!
@@ -388,7 +403,7 @@ describe('review fixes: env scrubbing and spill hardening', () => {
 
   it('defaults spills into a private per-process directory', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
     ).done
     const dir = dirname(result.stdout.spillPath!)
     expect(dir).toMatch(/dsh-bash-/)

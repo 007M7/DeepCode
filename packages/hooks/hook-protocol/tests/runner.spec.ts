@@ -22,6 +22,7 @@ function recordingBash(run: (spec: BashExecSpec) => Promise<BashRunResult>): {
         command: request.command,
         workdir: request.workdir ?? '/stub',
         timeoutMs: request.timeoutMs ?? 0,
+        stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},

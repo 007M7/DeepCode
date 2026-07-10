@@ -2,7 +2,7 @@
  * Consumer-surface tests for the search tools over a FAKE bash executor and a
  * FAKE spill backend, exercised through `ctx.tools.execute()` so nothing
  * bypasses the tool registry. The fake executor makes every seam outcome
- * scriptable — truncated stdout with/without a raw spill file, abort/timeout,
+ * scriptable — truncated stdout with/without a raw spill path, abort/timeout,
  * signal kills, ripgrep exit codes — so these tests verify schemas, argument
  * validation, shell-safe command construction, workdir derivation, signal
  * forwarding, `SEARCH_*` error classification, retention, formatted-result
@@ -10,10 +10,7 @@
  * pinned separately in integration.spec.ts.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -66,6 +63,7 @@ class FakeBash extends BashExecutor {
       command: request.command,
       workdir: request.workdir ?? '/work',
       timeoutMs: request.timeoutMs ?? 60_000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
       owner: request.owner,
     }
@@ -388,28 +386,18 @@ describe('exit semantics and failure classification', () => {
 })
 
 describe('raw output acquisition', () => {
-  let dir: string
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true })
+  it('passes rawOutputMaxBytes to bash as the stdout capture budget', async () => {
+    const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 1234 } })
+    bash.handler = () => runResult('', { exitCode: 1 })
+    await call(ctx, 'glob', { pattern: '*.ts' })
+    await call(ctx, 'grep', { pattern: 'needle' })
+    expect(bash.requests.map(request => request.stdoutMaxBytes)).toEqual([1234, 1234])
+    expect(bash.specs.map(spec => spec.stdoutMaxBytes)).toEqual([1234, 1234])
   })
 
-  it('parses the complete raw spill file when stdout is truncated', async () => {
-    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
-    const spillPath = join(dir, 'raw.txt')
-    await writeFile(spillPath, 'one.ts\ntwo.ts\nthree.ts\n')
-    const { ctx, bash } = await setup()
-    bash.handler = () => runResult('', { stdout: { text: 'one.ts\n', truncated: true, spillPath } })
-    const result = await call(ctx, 'glob', { pattern: '*.ts' })
-    expect(result.isError).toBe(false)
-    expect(text(result)).toBe('one.ts\ntwo.ts\nthree.ts')
-  })
-
-  it('fails with SEARCH_RAW_OUTPUT_OVERFLOW when the raw spill file exceeds the cap', async () => {
-    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
-    const spillPath = join(dir, 'raw.txt')
-    await writeFile(spillPath, 'x'.repeat(64))
+  it('fails with SEARCH_RAW_OUTPUT_OVERFLOW when truncated stdout has a raw spill path', async () => {
     const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 16 } })
-    bash.handler = () => runResult('', { stdout: { text: 'x', truncated: true, spillPath } })
+    bash.handler = () => runResult('', { stdout: { text: 'x', truncated: true, spillPath: '/does/not/get-read' } })
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.error).toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
     expect(text(result)).toContain('narrow pattern, path, or include')
@@ -419,7 +407,6 @@ describe('raw output acquisition', () => {
     // An executor retaining more inline than this package's cap (or a
     // deployment lowering rawOutputMaxBytes below the bash retention) must not
     // smuggle an over-cap parse through the untruncated path.
-    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
     const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 16 } })
     bash.handler = () => runResult(`${'x'.repeat(64)}\n`)
     const result = await call(ctx, 'grep', { pattern: 'x' })
@@ -428,20 +415,10 @@ describe('raw output acquisition', () => {
   })
 
   it('fails with SEARCH_RAW_OUTPUT_OVERFLOW when truncated stdout has no spill path', async () => {
-    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { stdout: { text: 'partial', truncated: true } })
     const result = await call(ctx, 'grep', { pattern: 'x' })
     expect(result.error).toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
-  })
-
-  it('fails with SEARCH_FAILED when the raw spill file cannot be read', async () => {
-    dir = await mkdtemp(join(tmpdir(), 'dsh-search-raw-'))
-    const { ctx, bash } = await setup()
-    bash.handler = () => runResult('', { stdout: { text: 'partial', truncated: true, spillPath: join(dir, 'gone.txt') } })
-    const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
-    expect(text(result)).toContain('raw output spill file')
   })
 })
 
