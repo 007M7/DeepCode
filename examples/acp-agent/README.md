@@ -4,9 +4,10 @@ The DeepSeek Harness SDK agent demo exposed as an **Agent Client Protocol (ACP)*
 
 ```sh
 pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
+pnpm run demo:code-mode acp   # the same server in Code Mode: one wire tool, run_code
 ```
 
-This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek, bash, and filesystem backends, the model-facing `read`/`write`/`edit`/`subagent`/`subagent_fork`/`todo_write` tool entries, and the advisory `repeat-tool-guard` loop-hygiene plugin. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
+This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek, bash, and filesystem backends, the model-facing `read`/`write`/`edit`/`subagent`/`subagent_fork`/`todo_write` tool entries, and the advisory `repeat-tool-guard` loop-hygiene plugin. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC. `demo:code-mode acp` boots the same tree through the [`code-mode.cordis.yml`](code-mode.cordis.yml) overlay — the tool surface collapses to `run_code` + the generated TypeScript SDK, dispatching through the worker-thread code runtime (see the [dsh-tools Code Mode section](../../packages/core/tools/README.md#code-mode)).
 
 ## stdout is the protocol
 

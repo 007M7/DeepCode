@@ -21,6 +21,11 @@ const AGENT = {
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 
+// The Code Mode overlay configs (include-patched variants of cordis.yml; the
+// replay swap resolves each one's sibling `*cordis.snapshot.yml`).
+const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
+const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
@@ -31,7 +36,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
-  { name: 'skill-load', hasModelTurn: true, recorded: false, overridden: true, variesHeader: true },
+  { name: 'skill-load', hasModelTurn: true, recorded: false, overridden: true, pinsHeader: true, headerClass: 'skill' },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
@@ -51,6 +56,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  // The workflow tool: the model writes a one-child orchestration script; the
+  // child runs as a spawn subagent under the worker-thread engine (its session is the
+  // child fixture), and the tool result carries the script's return value.
+  { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
   // Hook matrix — one scenario per hook point × its headline Decision outcome,
   // across BOTH bridges (Claude `hooks.json`, Codex `codex-hooks.json`, seeded in
   // workspace/). The block scenarios need no model call: a UserPromptSubmit hook
@@ -90,6 +99,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
+  // Code Mode: the registry in `mode: code` — the wire tool list collapses to
+  // [run_code], the tools:sdk section rides in the prompt, and the program's
+  // tool calls land as tool/code-dispatch events. Each mode boots its own
+  // overlay config, composes a different header by construction, and
+  // therefore pins its own class.
+  { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
+  { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
 ]
 
 defineAcpSnapshotSuite({

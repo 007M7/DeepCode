@@ -1,10 +1,10 @@
 # Packages
 
-Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin, declares its ctx key/events through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) (subtree) and the root [AGENTS.md](../AGENTS.md) § Conventions.
+Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis plugin: a default `Service` subclass or functional plugin declaring ctx keys/events through declaration merging and contributing through `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) and root [AGENTS.md](../AGENTS.md) § Conventions.
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json` of its own); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. **Each group README is the canonical per-package map** — package roles, ctx keys, and the product-vs-support split live there, next to the code.
+Packages are grouped by role at `packages/<group>/<pkg>/`. Group directories are containers without a `package.json`; package names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical per-package map** for roles, ctx keys, and the product/support split.
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -16,6 +16,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
