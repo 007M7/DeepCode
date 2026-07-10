@@ -1,6 +1,6 @@
 # Packages
 
-Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin, declares its ctx key/events through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) (subtree) and the root [AGENTS.md](../AGENTS.md) § Conventions.
+Harness packages use the `@deepseek-ai/dsh-*` scope and Cordis plugin model. Authoring conventions live in [packages/AGENTS.md](AGENTS.md) and the root [AGENTS.md](../AGENTS.md) § Conventions.
 
 ## Hierarchy
 
@@ -23,6 +23,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
+| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, filters, tracing, and full-text provider seam | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, app packages, user-interaction seam, ask-user tool | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |

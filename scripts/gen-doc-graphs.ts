@@ -78,6 +78,7 @@ const GROUP_ORDER = [
   'cordis',
   'hooks',
   'session-persistence',
+  'session-query',
   'support',
   'ui',
 ]
@@ -97,7 +98,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -106,8 +107,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp'],
+    consumers: ['agent-loop', 'acp', 'session-query'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'sessionQuery',
+    pkg: 'session-query',
+    title: 'Session retrieval read model',
+    mode: 'seam',
+    note: 'Resolves live and optional persisted logs into one corpus and coordinates registered full-text providers.',
   },
   {
     key: 'systemPrompt',

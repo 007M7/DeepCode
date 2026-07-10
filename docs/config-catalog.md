@@ -483,6 +483,26 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:50`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
+## `@deepseek-ai/dsh-session-query`
+
+Requires: `sessions`
+
+```ts config-catalog
+/** Configuration for the provider-neutral session-query service. */
+export interface Config {
+  /** Explicit provider id; omitted auto-selects exactly one usable provider. */
+  searchProvider?: string
+  /** Default search result page size. Defaults to 20. */
+  defaultLimit?: number
+  /** Maximum accepted search page size. Defaults to 100. */
+  maxLimit?: number
+  /** Maximum accepted raw read context on either side. Defaults to 50. */
+  readWindowMax?: number
+}
+```
+
+Source: [`packages/session-query/session-query/src/config.ts:17`](../packages/session-query/session-query/src/config.ts)
+
 ## `@deepseek-ai/dsh-stdio-agent`
 
 ```ts config-catalog

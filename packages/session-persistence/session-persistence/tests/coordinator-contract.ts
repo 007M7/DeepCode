@@ -31,6 +31,7 @@ import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '../src/index.ts'
+import type { SessionPersistedChange } from '../src/index.ts'
 import { meta, oneTurnLog, appendLog } from './contract.ts'
 
 /**
@@ -119,6 +120,40 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         expect(loaded.meta.cwd).toBe(WORK)
       } finally {
         await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('announces committed append and repair ranges without coupling listener failures to writes', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      const observed: Array<{ headerId: SessionId; change: SessionPersistedChange }> = []
+      ctx.on('session/persisted', (header, change) => {
+        observed.push({ headerId: header.id, change: structuredClone(change) })
+        header.createdAt = -1
+        return Promise.reject(new Error('derived read model failed'))
+      })
+      try {
+        const m = meta('notifications', WORK)
+        await ctx.sessionPersistence.create(m)
+        await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
+        await ctx.sessionPersistence.append(m.id, [
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
+        ])
+        await expect(ctx.sessionPersistence.load(m.id)).resolves.toMatchObject({ meta: { createdAt: m.createdAt } })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(observed).toEqual([
+          { headerId: m.id, change: { kind: 'append', fromSeq: 0, toSeq: 5 } },
+          { headerId: m.id, change: { kind: 'append', fromSeq: 6, toSeq: 7 } },
+          { headerId: m.id, change: { kind: 'repair', fromSeq: 8, toSeq: 9 } },
+        ])
+        expect((await ctx.sessionPersistence.load(m.id)).meta.createdAt).toBe(m.createdAt)
+      } finally {
+        await fiber.dispose()
+        await ctx.fiber.dispose()
         await fix.cleanup()
       }
     })
@@ -368,6 +403,10 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // Crash-tail a torn fragment past the (open) committed turn, then reload.
         await first.dispose()
         if (fix.corruptTail) await fix.corruptTail(SessionId('hmr-open'), WORK)
+        const repairs: SessionPersistedChange[] = []
+        ctx.on('session/persisted', (_header, change) => {
+          if (change.kind === 'repair') repairs.push(structuredClone(change))
+        })
         const second = await fix.mount(ctx)
         // The live session is still the authority: it appends the REAL step/turn
         // end. Adoption must truncate the torn tail but NOT synthesize closers.
@@ -378,8 +417,37 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const loaded = await ctx.sessionPersistence.load(SessionId('hmr-open'))
         expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
         expect(loaded.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+        expect(repairs).toEqual([])
         await second.dispose()
       } finally {
+        await ctx.fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('a query-side load preserves the existing live owner binding', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      let session!: Session
+      const liveFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(SessionId('load-owner'), { meta: { cwd: WORK } })
+        send(session, oneTurnLog())
+      }, { inject: ['sessions'] }))
+      try {
+        await ctx.parallel('session/flush', session)
+        const loaded = await ctx.sessionPersistence.load(session.id)
+        await liveFiber.dispose()
+
+        let replacement!: Session
+        await ctx.plugin(Object.assign((inner: Context) => {
+          replacement = inner.sessions.create(session.id, {
+            seed: loaded.events,
+            meta: { cwd: WORK, createdAt: loaded.meta.createdAt },
+          })
+        }, { inject: ['sessions'] }))
+        await expect(inits(ctx.sessionPersistence).get(replacement)).rejects.toThrow(/different live session|id collision/)
+      } finally {
+        await fiber.dispose()
         await ctx.fiber.dispose()
         await fix.cleanup()
       }
