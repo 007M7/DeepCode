@@ -483,6 +483,28 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
+  it('resolves error (never rejects) even when the onError sink itself throws', async () => {
+    // onError is a caller-supplied callback boundary: its own exception must be
+    // contained, or it would reject `result` and break the seam's "result never
+    // rejects" contract that the flattening above exists to uphold.
+    const run = startAcpRun(
+      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+      {
+        command: '/nonexistent/acp-agent-binary',
+        args: [],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: {},
+        disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+        disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+        onError: () => { throw new Error('sink boom') },
+      },
+    )
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    await run.dispose()
+  })
+
   it('settles aborted when the child crashes (tears the pipe) AFTER a cancel', async () => {
     // The child hangs, we cancel, and instead of answering the child exits hard
     // — the pending prompt RPC rejects. With a cancel already requested, the
