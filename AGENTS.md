@@ -78,6 +78,12 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests
 
 `test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.
 
+## Agent efficiency
+
+Habits that cut agent round-trips, each earned by measured session waste.
+
+- **One-round gate runs**: any command beyond a few seconds lands its FULL output in a temp file, prints a short summary, and on non-zero exit auto-expands capped failure context (`grep -B3 -A15 -E 'FAIL|ERROR' "$out" | head -60`) in the SAME invocation — never re-run a gate to recover detail a filter discarded.
+
 ## Secrets / .env
 
 Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_URL`) from the environment or a gitignored root `.env` loaded via `process.loadEnvFile()`. cordis.yml references env vars with the `!!js` tag (never `!js`). Never commit credentials. CI has no secrets, so e2e suites self-skip without a key — a CI accommodation, not a cost signal; the with-key policy is in [docs/testing.md](docs/testing.md).
