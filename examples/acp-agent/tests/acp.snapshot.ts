@@ -29,6 +29,7 @@ const SCENARIOS: Scenario[] = [
   // committed and compared verbatim.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
