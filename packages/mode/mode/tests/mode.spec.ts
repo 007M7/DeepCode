@@ -402,22 +402,33 @@ describe('the soft layer', () => {
     expect(sdk).not.toContain('write(args:')
   })
 
-  it('leaves the Code Mode SDK section untouched in the default mode', async () => {
+  it('default-mode Code Mode SDK is byte-identical to a no-dsh-mode deployment (exit binding hidden)', async () => {
     class FakeRuntime extends CodeRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
       run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
     }
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry, { mode: 'code' })
-    await ctx.plugin(FakeRuntime)
-    await ctx.plugin(ModesService)
-    registerNamedTools(ctx, ['read', 'write'])
+    const withModes = new Context()
+    await withModes.plugin(SystemPrompt)
+    await withModes.plugin(ToolRegistry, { mode: 'code' })
+    await withModes.plugin(FakeRuntime)
+    await withModes.plugin(ModesService)
+    registerNamedTools(withModes, ['read', 'write'])
     const agent = agentWithSession()
-    const sdk = (await ctx.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    const sdk = (await withModes.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(sdk).toContain('read(args:')
     expect(sdk).toContain('write(args:')
+    // The always-registered exit tool is callable only in plan mode, so a
+    // default-mode SDK advertising it would offer a binding that can only
+    // error — and diverge from a deployment that never loaded dsh-mode:
+    const bare = new Context()
+    await bare.plugin(SystemPrompt)
+    await bare.plugin(ToolRegistry, { mode: 'code' })
+    await bare.plugin(FakeRuntime)
+    registerNamedTools(bare, ['read', 'write'])
+    const bareSdk = (await bare.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toBe(bareSdk)
+    expect(sdk).not.toContain('exit_plan_mode(args:')
   })
 
   it('treats a dropped folded definition as the default mode', async () => {

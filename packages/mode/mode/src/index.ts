@@ -264,6 +264,13 @@ export class ModesService extends Service {
       const active = this.activeDefinition(agent.session)
       if (active === undefined) {
         result.tools = result.tools.filter(tool => tool.name !== EXIT_PLAN_MODE)
+        // The default mode hides exactly one thing on BOTH soft surfaces: the
+        // exit tool (registered always, callable only in plan). Without the
+        // SDK re-render a Code Mode deployment would still advertise an
+        // exit_plan_mode binding that can only error — and the default-mode
+        // assembly would no longer be byte-identical to a no-dsh-mode
+        // deployment, whose registry never saw the tool at all.
+        rerenderSdk(result, name => name !== EXIT_PLAN_MODE)
         return result
       }
       const allowed = new Set(active.definition.tools)
@@ -277,18 +284,26 @@ export class ModesService extends Service {
       result.tools = result.tools.filter(tool => visible(tool.name) || tool.name === RUN_CODE_NAME)
       // Code Mode's soft surface is the SDK section, not the wire schemas —
       // section text resolves in assemble's base, so the outermost wrapper
-      // can re-render it here from the same visibility rule the wire filter
-      // applies (minus run_code, mirroring the registry's own exclusion).
+      // re-renders it under the same visibility rule the wire filter applies.
       // Without this the prompt would document bindings the gate denies.
-      const sdkIndex = result.sections.findIndex(section => section.name === 'tools:sdk')
-      if (sdkIndex >= 0) {
-        const sdkText = renderToolsSdk(ctx.tools.schemas().filter(schema =>
-          visible(schema.name) && schema.name !== RUN_CODE_NAME))
-        result.sections = result.sections.map((section, index) =>
-          index === sdkIndex ? { ...section, text: sdkText } : section)
-      }
+      rerenderSdk(result, visible)
       return result
     }, { prepend: true })
+
+    /**
+     * Re-render the `tools:sdk` section (present only under the registry's
+     * Code Mode) from the registry schemas the given rule admits — minus
+     * `run_code` itself, mirroring the registry's own exclusion. A no-op when
+     * the section is absent (native mode).
+     */
+    function rerenderSdk(result: { sections: { name: string; order: number; text: string }[] }, include: (name: string) => boolean): void {
+      const sdkIndex = result.sections.findIndex(section => section.name === 'tools:sdk')
+      if (sdkIndex < 0) return
+      const sdkText = renderToolsSdk(ctx.tools.schemas().filter(schema =>
+        include(schema.name) && schema.name !== RUN_CODE_NAME))
+      result.sections = result.sections.map((section, index) =>
+        index === sdkIndex ? { ...section, text: sdkText } : section)
+    }
 
     ctx.on('tools/pre-execute', (exec, next): Promise<PreToolDecision> => {
       if (exec.agent === undefined) return next()
