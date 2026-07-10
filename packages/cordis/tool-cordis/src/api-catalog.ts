@@ -129,6 +129,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'sessionPersistence',
     summary: 'Abstract durable session-persistence service.',
     methods: [
+      'abstract locate(meta: SessionHeader): SessionLocation | undefined',
       'abstract create(meta: SessionHeader): Promise<void>',
       'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
       'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
@@ -700,6 +701,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionLocation',
+    declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
   },
   {
     name: 'StreamChunk',

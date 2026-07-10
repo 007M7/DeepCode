@@ -43,6 +43,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
@@ -278,6 +279,22 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
+/**
+ * Build the trusted per-execution session environment. Identity always comes
+ * from the calling agent's immutable session header; an optional JSONL path
+ * comes from the active persistence backend's side-effect-free locator. A
+ * non-agent caller has no current session, so it receives neither variable.
+ */
+function sessionEnvironment(ctx: Context, exec: { agent?: Agent }): Record<string, string> | undefined {
+  const agent = exec.agent
+  if (agent === undefined) return undefined
+
+  const env: Record<string, string> = { DSH_SESSION_ID: agent.session.header.id }
+  const location = ctx.get('sessionPersistence')?.locate(agent.session.header)
+  if (location?.kind === 'jsonl') env.DSH_SESSION_JSONL = location.path
+  return env
+}
+
 /** Status line for background task reads. */
 function statusLine(task: BashTask): string {
   switch (task.status) {
@@ -360,6 +377,8 @@ export function apply(ctx: Context): void {
     description: 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
       + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
       + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
+      + 'The current agent session id is available as `$DSH_SESSION_ID`; when JSONL persistence is configured, '
+      + '`$DSH_SESSION_JSONL` is its absolute target path and may not exist or contain the current unflushed turn yet. '
       + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
       + 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
       + 'poll it with `bash_output` and stop it with `bash_kill`.',
@@ -385,11 +404,13 @@ export function apply(ctx: Context): void {
       // session runs in its own workspace (see resolveWorkdir); an explicit
       // model workdir still wins.
       const workdir = resolveWorkdir(args.workdir, exec)
+      const env = sessionEnvironment(ctx, exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         ...exec.signal ? { signal: exec.signal } : {},
+        ...env !== undefined ? { env } : {},
       }
       if (args.run_in_background === true) {
         // Stamp the owner token (the agent's session id) onto the spec so the

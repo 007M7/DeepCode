@@ -11,8 +11,9 @@
  * Like the JSONL backend it supplies ONLY the storage primitives (the
  * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
  * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
+ * {@link PersistenceCoordinator} this class composes. The four stateful public
+ * {@link SessionPersistence} methods delegate to the coordinator; the pure
+ * locator remains backend-owned.
  *
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
@@ -24,7 +25,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -108,6 +109,11 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** SQLite has one database, not an independent local artifact per session. */
+  locate(_meta: SessionHeader): SessionLocation | undefined {
+    return undefined
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)

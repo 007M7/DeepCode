@@ -10,6 +10,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { renderResult } from '@deepseek-ai/dsh-tool-bash'
@@ -910,15 +912,110 @@ describe('the model-facing bash tool builds its request from named args only (no
     kill(): boolean { return false }
   }
 
-  async function setupRecording() {
+  async function setupRecording(withJsonl = false) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
+    if (withJsonl) {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionPersistenceJsonl, { root: join(spillDir, 'jsonl') })
+    }
     await ctx.plugin(RecordingBashExecutor)
     await ctx.plugin(ToolBash)
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
+
+  it('describes the trusted session variables to the model', async () => {
+    const { ctx } = await setupRecording()
+    const description = ctx.tools.get('bash')?.description ?? ''
+    expect(description).toContain('DSH_SESSION_ID')
+    expect(description).toContain('DSH_SESSION_JSONL')
+  })
+
+  it('injects the session id and JSONL target path into a foreground request', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const agent = registerFakeAgent(ctx, 'request-fg', () => undefined)
+    const path = ctx.sessionPersistence.locate(agent.session.header)?.path
+
+    await ctx.tools.execute({
+      callId: CallId('session-env-fg'),
+      name: 'bash',
+      arguments: { command: 'true', description: 'run command' },
+      agent,
+    })
+
+    expect(bash.requests[0]?.env).toEqual({
+      DSH_SESSION_ID: 'request-fg',
+      DSH_SESSION_JSONL: path,
+    })
+  })
+
+  it('injects the same trusted variables into a background request without forwarding model env', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const agent = registerFakeAgent(ctx, 'request-bg', () => undefined)
+    const path = ctx.sessionPersistence.locate(agent.session.header)?.path
+
+    await ctx.tools.execute({
+      callId: CallId('session-env-bg'),
+      name: 'bash',
+      arguments: {
+        command: 'sleep 1',
+        description: 'run command',
+        run_in_background: true,
+        env: { DSH_SESSION_ID: 'spoofed', DSH_SESSION_JSONL: '/tmp/spoofed' },
+      },
+      agent,
+    })
+
+    expect(bash.requests[0]?.env).toEqual({
+      DSH_SESSION_ID: 'request-bg',
+      DSH_SESSION_JSONL: path,
+    })
+  })
+
+  it('injects only the stable session id when no JSONL locator is available', async () => {
+    const { ctx, bash } = await setupRecording()
+    const agent = registerFakeAgent(ctx, 'request-id-only', () => undefined)
+    const ambient = process.env.DSH_SESSION_ID
+
+    await ctx.tools.execute({
+      callId: CallId('session-env-id-only'),
+      name: 'bash',
+      arguments: { command: 'true', description: 'run command' },
+      agent,
+    })
+
+    expect(bash.requests[0]?.env).toEqual({ DSH_SESSION_ID: 'request-id-only' })
+    expect(process.env.DSH_SESSION_ID).toBe(ambient)
+  })
+
+  it('keeps parent and child agent session environments isolated', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const parent = registerFakeAgent(ctx, 'request-parent', () => undefined)
+    const child = registerFakeAgent(ctx, 'request-child', () => undefined)
+
+    for (const [callId, agent] of [['parent', parent], ['child', child]] as const) {
+      await ctx.tools.execute({
+        callId: CallId(`session-env-${callId}`),
+        name: 'bash',
+        arguments: { command: 'true', description: 'run command' },
+        agent,
+      })
+    }
+
+    expect(bash.requests.map(request => request.env)).toEqual([
+      {
+        DSH_SESSION_ID: 'request-parent',
+        DSH_SESSION_JSONL: ctx.sessionPersistence.locate(parent.session.header)?.path,
+      },
+      {
+        DSH_SESSION_ID: 'request-child',
+        DSH_SESSION_JSONL: ctx.sessionPersistence.locate(child.session.header)?.path,
+      },
+    ])
+    expect(bash.requests[0]?.env?.DSH_SESSION_JSONL).not.toBe(bash.requests[1]?.env?.DSH_SESSION_JSONL)
+  })
 
   it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
     const { ctx, bash } = await setupRecording()

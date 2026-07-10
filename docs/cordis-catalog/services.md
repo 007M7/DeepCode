@@ -159,6 +159,7 @@ Contracts every implementation MUST honor (a DB backend asserts them inside a tr
 - **Durability.** append returns only once the batch is durable (the file backend fsyncs; a DB commits). create MAY defer the physical write until the first append (lazy materialization).
 
 ```ts cordis-catalog
+abstract locate(meta: SessionHeader): SessionLocation | undefined
 abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
@@ -167,7 +168,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:114`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 

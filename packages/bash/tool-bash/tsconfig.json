@@ -24,6 +24,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../bash/bash"
     }
   ]

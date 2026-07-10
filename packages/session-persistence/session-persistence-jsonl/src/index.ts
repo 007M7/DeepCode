@@ -11,8 +11,9 @@
  * (the `session/event` → buffer → `session/flush` drain, per-session
  * serialization, write cursors, fork-seed persistence, HMR live-adoption,
  * crash-repair sequencing, dispose quiescence) lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
+ * {@link PersistenceCoordinator} this class composes. The four stateful public
+ * {@link SessionPersistence} methods delegate to the coordinator; the pure
+ * locator remains backend-owned.
  *
  * @module @deepseek-ai/dsh-session-persistence-jsonl
  */
@@ -24,7 +25,7 @@ import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -89,6 +90,11 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** Resolve the absolute target path without touching the filesystem. */
+  locate(meta: SessionHeader): SessionLocation {
+    return { kind: 'jsonl', path: logPath(this.root, meta.cwd, meta.id) }
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)

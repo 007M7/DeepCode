@@ -27,6 +27,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
   appendHookInvoked,
@@ -246,7 +247,7 @@ export function apply(ctx: Context, config: Config): void {
   // to the interception seams; today the contract is "injected as soon as the
   // hook resolves", not "before the first request". ---
   ctx.on('agent/session-start', (agent, source) => {
-    detached.track(runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent, signal: detached.signal })
+    detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context) agent.inject(context.content, { source: context.source })
@@ -260,7 +261,7 @@ export function apply(ctx: Context, config: Config): void {
   // matcher subject (CC ignores matchers for this event). ---
   ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(agent, content), { agent, turn })
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn })
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
@@ -281,7 +282,7 @@ export function apply(ctx: Context, config: Config): void {
   // --- PreToolUse → PreToolDecision. Matcher subject is the tool name. ---
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     const turn = lastTurn(exec.agent)
-    const merged = await runPoint('PreToolUse', exec.name, preToolPayload(exec), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
     if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
     if (merged.decision === 'ask') return { kind: 'ask', ...merged.reason !== undefined ? { reason: merged.reason } : {} }
     return next()
@@ -290,7 +291,7 @@ export function apply(ctx: Context, config: Config): void {
   // --- PostToolUse → PostToolDecision. Matcher subject is the tool name. ---
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const turn = lastTurn(exec.agent)
-    const merged = await runPoint('PostToolUse', exec.name, postToolPayload(exec, result), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    const merged = await runPoint('PostToolUse', exec.name, postToolPayload(ctx, exec, result), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
       return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
@@ -317,7 +318,7 @@ export function apply(ctx: Context, config: Config): void {
   // false, so a Stop hook that unconditionally blocks would force-continue every
   // step — a hook author must self-limit until the guard lands. ---
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
-    const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn })
+    const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation. It carries its reason as
       // next-step steering; a blocking hook that emitted no reason (exit 2, empty
@@ -339,7 +340,7 @@ export function apply(ctx: Context, config: Config): void {
   // a specific-kind matcher does not (documented in the RFC). ---
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
-    detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload('SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
+    detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context && child) child.inject(context.content, { source: context.source })
@@ -355,7 +356,7 @@ export function apply(ctx: Context, config: Config): void {
     // reject — no `.catch` is needed (the tracker's settlement bookkeeping
     // would absorb one anyway).
     const child = ctx.get('agents')?.get(info.id)
-    detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child } : {}, signal: detached.signal }))
+    detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStop', info, child), { ...child ? { agent: child } : {}, signal: detached.signal }))
   })
 }
 
@@ -385,28 +386,31 @@ function blocksToText(content: ContentBlock[]): string {
   return content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join('')
 }
 
-function base(agent: Agent | undefined, event: string): Record<string, unknown> {
+function base(ctx: Context, agent: Agent | undefined, event: string): Record<string, unknown> {
   return {
     session_id: agent?.session.header.id ?? '',
+    transcript_path: agent === undefined
+      ? ''
+      : ctx.get('sessionPersistence')?.locate(agent.session.header)?.path ?? '',
     cwd: agent?.session.header.cwd ?? process.cwd(),
     hook_event_name: event,
   }
 }
 
-function sessionStartPayload(agent: Agent, source: string): Record<string, unknown> {
-  return { ...base(agent, 'SessionStart'), source }
+function sessionStartPayload(ctx: Context, agent: Agent, source: string): Record<string, unknown> {
+  return { ...base(ctx, agent, 'SessionStart'), source }
 }
-function promptPayload(agent: Agent, content: ContentBlock[]): Record<string, unknown> {
-  return { ...base(agent, 'UserPromptSubmit'), prompt: blocksToText(content) }
+function promptPayload(ctx: Context, agent: Agent, content: ContentBlock[]): Record<string, unknown> {
+  return { ...base(ctx, agent, 'UserPromptSubmit'), prompt: blocksToText(content) }
 }
-function preToolPayload(exec: ToolExecution): Record<string, unknown> {
-  return { ...base(exec.agent, 'PreToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId }
+function preToolPayload(ctx: Context, exec: ToolExecution): Record<string, unknown> {
+  return { ...base(ctx, exec.agent, 'PreToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId }
 }
-function postToolPayload(exec: ToolExecution, result: ToolExecutionResult): Record<string, unknown> {
-  return { ...base(exec.agent, 'PostToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+function postToolPayload(ctx: Context, exec: ToolExecution, result: ToolExecutionResult): Record<string, unknown> {
+  return { ...base(ctx, exec.agent, 'PostToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }
-function stopPayload(agent: Agent): Record<string, unknown> {
-  return { ...base(agent, 'Stop'), stop_hook_active: false }
+function stopPayload(ctx: Context, agent: Agent): Record<string, unknown> {
+  return { ...base(ctx, agent, 'Stop'), stop_hook_active: false }
 }
 /**
  * Build a SubagentStart/SubagentStop payload from the CC base (the child's
@@ -414,9 +418,9 @@ function stopPayload(agent: Agent): Record<string, unknown> {
  * fields. `agent_type` is the CC-default {@link SUBAGENT_TYPE}; `stop_hook_active`
  * is present on SubagentStop only (the loop-guard flag, always false this cut).
  */
-function subagentPayload(event: 'SubagentStart' | 'SubagentStop', info: { id: string }, child: Agent | undefined): Record<string, unknown> {
+function subagentPayload(ctx: Context, event: 'SubagentStart' | 'SubagentStop', info: { id: string }, child: Agent | undefined): Record<string, unknown> {
   return {
-    ...base(child, event),
+    ...base(ctx, child, event),
     agent_id: info.id,
     agent_type: SUBAGENT_TYPE,
     ...event === 'SubagentStop' ? { stop_hook_active: false } : {},

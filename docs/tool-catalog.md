@@ -124,7 +124,7 @@ Registered by the tool registry itself under `mode: code` / `mode: both` (see th
 
 ### `bash`
 
-Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; poll it with `bash_output` and stop it with `bash_kill`.
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. The current agent session id is available as `$DSH_SESSION_ID`; when JSONL persistence is configured, `$DSH_SESSION_JSONL` is its absolute target path and may not exist or contain the current unflushed turn yet. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; poll it with `bash_output` and stop it with `bash_kill`.
 
 ```json
 {

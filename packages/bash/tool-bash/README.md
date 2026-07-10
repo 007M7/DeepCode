@@ -20,6 +20,12 @@ The plugin also contributes the `tool:bash` prompt section (order 105) — the c
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
+### Session identity environment
+
+Every foreground and background call made for an agent receives `DSH_SESSION_ID=agent.session.header.id`. When the active persistence backend locates a JSONL artifact, the call also receives `DSH_SESSION_JSONL=<absolute target path>`; absent persistence and non-file backends still provide the id but omit the JSONL variable. The path is a location hint: lazy materialization means it may not exist on the first turn, and during an open turn it can omit buffered events that have not reached `session/flush`. Neither value is an authorization credential.
+
+The overlay is computed from `ToolExecution.agent` for each call and passed through `BashExecRequest.env`; `process.env` is never modified, so concurrent parent/child agents keep separate values. The tool description names both variables so the model can inspect them without a permanent system-prompt section.
+
 Result text: stdout, then a `[stderr]` section, then status markers — `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
 
 ### `bash_output`
@@ -44,7 +50,7 @@ When a background task finishes, a short notice is injected into the owning agen
 
 ## The tool builds its request from named args only
 
-The `BashExecRequest` seam carries optional `stdin` and `env`, used by the hooks bridges to feed a hook command its JSON payload and `CLAUDE_*` env. This tool does **not** expose them as parameters: its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only, so a model that includes `env` or `stdin` keys in its tool arguments has them ignored. This is not a trust boundary — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), and the real defense against leaking the harness's ambient secrets is `dsh-bash-local`'s credential scrub, which works regardless. A regression guard drives the real tool with those extra args and asserts the resulting request carries neither field — its job is to catch a future refactor that blindly spreads `...args` into the request (which would silently forward model input into the post-scrub `env` merge), not to defend a wall. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+The `BashExecRequest` seam carries optional `stdin` and `env`, used by trusted consumers. This tool does **not** expose them as model parameters: it builds the request from named schema fields and adds only the session overlay above, so model-supplied `env`/`stdin` keys are ignored and cannot replace the trusted values. This is not a trust boundary — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), and the real defense against leaking ambient secrets is `dsh-bash-local`'s credential scrub. Regression guards assert extra model fields never enter the request while the trusted overlay still does. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
 ## Permissions
 

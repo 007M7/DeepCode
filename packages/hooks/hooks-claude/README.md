@@ -46,6 +46,8 @@ The three emit points run detached — no seam awaits a `SessionStart`/`Subagent
 
 The matcher subject is the tool name (`PreToolUse`/`PostToolUse`), the session source (`SessionStart`), or a constant `agent_type` of `general-purpose` (`SubagentStart`/`SubagentStop` — the harness subagent seam carries no per-kind label, so the bridge reports Claude Code's own Task-tool default; a default/`*`/empty `agent_type` matcher fires, a specific-kind matcher does not); `UserPromptSubmit`/`Stop` ignore matchers. Multiple file-configured hooks on one point run **serially, in config order**, and fold most-restrictively (`deny > ask > allow`, see `dsh-hook-protocol`); serial keeps each hook's `hook/invoked`/`hook/result` pair adjacent in the log, and the fold is order-independent for the decision (see the RFC's "run serially, not concurrently" note).
 
+Every agent-scoped stdin payload carries `session_id` and string-shaped `transcript_path`. The bridge resolves the latter through `ctx.sessionPersistence.locate(session.header)` when available and otherwise sends `''`. Lookup does not create or flush the artifact, so a path can be absent before the first turn-end checkpoint or omit the current open turn.
+
 ## Context source
 
 Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }` source. `agent.inject()` defaults a missing source to `{ kind: 'user' }`, which would mislabel plugin context as a user prompt — so the bridge always names itself.
