@@ -403,6 +403,43 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
+  packages/fs/tool-fs-search:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-bash':
+        specifier: workspace:^
+        version: link:../../bash/bash
+      '@deepseek-ai/dsh-bash-local':
+        specifier: workspace:^
+        version: link:../../bash/bash-local
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-retention':
+        specifier: workspace:^
+        version: link:../../util/retention
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-spill':
+        specifier: workspace:^
+        version: link:../../spill/spill
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
   packages/guard/repeat-tool-guard:
     dependencies:
       schemastery:

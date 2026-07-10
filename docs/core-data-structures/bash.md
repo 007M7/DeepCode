@@ -6,7 +6,7 @@ Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.t
 
 ## Request vs. spec: the `resolve()` split
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
 
 ```ts type-equiv
 interface BashExecRequest {
@@ -15,6 +15,13 @@ interface BashExecRequest {
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -52,6 +59,11 @@ interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -84,7 +96,9 @@ interface BashExecSpec {
 
 The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
 
-`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin`/`stdoutMaxBytes` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+
+`stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer ask the executor to retain complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary `maxOutputBytes` behavior.
 
 Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
 

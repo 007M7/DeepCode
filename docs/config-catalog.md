@@ -724,6 +724,28 @@ export interface Config {
 
 Source: [`packages/fs/tool-fs/src/index.ts:48`](../packages/fs/tool-fs/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-fs-search`
+
+Requires: `tools` · `systemPrompt` · `bash`
+
+```ts config-catalog
+/** Plugin config (all optional — `Config` supplies the defaults). */
+export interface Config {
+  /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */
+  globMaxResults?: number
+  /** Max flat matches one `grep` call retains inline; later matches go to the formatted spill file. */
+  grepMaxMatches?: number
+  /** Max bytes retained for one matched-line preview (the cut preserves UTF-8 boundaries). */
+  grepMaxLineBytes?: number
+  /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
+  rawOutputMaxBytes?: number
+  /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/fs/tool-fs-search/src/index.ts:59`](../packages/fs/tool-fs-search/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 Requires: `tools` · `subagents`

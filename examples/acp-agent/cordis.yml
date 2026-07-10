@@ -113,11 +113,13 @@
 # results under the session cwd, and the post-execute policy that replaces the
 # model-facing result with a bounded preview + read path. Snapshots lower the
 # cap so a deterministic bash result exercises this transcript surface without a
-# real model call; normal demo runs keep the coding-agent cap.
+# real model call. The snapshot harness supplies a fixed spill root so the
+# spill-policy preview budget is stable across macOS/Linux path lengths; normal
+# demo runs keep the session-local `.spill` root and the coding-agent cap.
 - id: spill-local
   name: '@deepseek-ai/dsh-spill-local'
   config:
-    root: ./.spill
+    root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT ?? './.spill'
 
 - id: spill-policy
   name: '@deepseek-ai/dsh-spill-policy'

@@ -38,6 +38,11 @@ const LOCAL_SPILL_PATH_RE = new RegExp(
   + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
   'g',
 )
+const SNAPSHOT_SPILL_PATH_RE = new RegExp(
+  String.raw`/tmp/dsh-acp-snapshot-spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  'g',
+)
 
 /** Inputs the normalizers need to recognize a run's volatile values. */
 export interface NormalizeContext {
@@ -55,6 +60,7 @@ function scrubString(value: string, ctx: NormalizeContext): string {
   out = out.split(ctx.cwd).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillPath:${name}}}`)
+  out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillPath:${name}}}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out
