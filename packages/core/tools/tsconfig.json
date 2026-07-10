@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../code-runtime/code-runtime"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {

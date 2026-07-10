@@ -55,12 +55,15 @@ forever:
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
-      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
+                                                session prefix; on the header, never history
+      await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
+                                                pressure gates see the prefix the request carries
       boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
       session('step/start')                     strictly before step/start
       config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
       session('request/header'[-delta])      ⟵ the header event this request owes the log
-      stream llm.stream(freeze({header..., messages: boundary})) → session('assistant/chunk')
+      stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
       each tool-call: session('tool/call')
@@ -84,7 +87,7 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/session-prefix`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
 - Compaction: `agent/pre-step`
 - Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.

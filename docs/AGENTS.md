@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file is the contract for every Markdown surface in the repo: each tier's job, the writing rules, and the word budgets the `verify-doc-budgets` gate enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This file is the contract for every Markdown files in the repo: each tier's job, the writing rules, and the word budgets that `verify-doc-budgets` enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
 
 ## The tier taxonomy: one home per fact
 
@@ -31,14 +31,19 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 - **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
+- Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
 
-## Budgets and the ceiling gate
+## Wordcount Budgets
 
-Standing docs accrete: every PR has a lesson it wants to append, and without displacement pressure nothing ever leaves. The gate is that pressure. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) lists the accretion-prone standing docs with a word ceiling each; `pnpm run verify-doc-budgets` (part of `doc-sync`, so CI and pre-push run it) fails when a doc exceeds its ceiling, and fails when a budgeted file is missing so a rename cannot orphan its budget.
+Every PR has a lesson it wants to append, and without pressure nothing leaves. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) stores the allowed word-count ceiling for each budgeted standing doc; `pnpm run verify-doc-budgets` fails when a doc exceeds its ceiling or a budgeted file is missing.
 
-- Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine edits pass, real growth trips the gate — and ratchets down, keeping the margin, as the doc reaches target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,250; `packages/README.md` ≤ 600.
-- When the gate goes red, first ask whether the added words belong in this tier and whether the existing wording can be condensed. If the words do not belong, relocate per the taxonomy above; if they belong but can be shorter, condense. If they truly need the space, raise the ceiling and justify the manifest diff in the PR. A ceiling set too low is a budget bug, and correcting it is the fix.
-- Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling — length is legitimate there when every row is a fact. Review and the slop checklist govern them instead.
+When the gate goes red:
+
+1. **Relocate** content that belongs in another tier; leave a one-line link if needed.
+2. **Condense** content that belongs here but can be shorter.
+3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
+
+Ceilings keep working headroom: at least 5% above the current size, ratcheted down after trims. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling; review and the slop checklist govern them.
 
 ## The slop checklist
 

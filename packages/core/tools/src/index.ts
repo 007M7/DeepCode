@@ -1,19 +1,31 @@
 /**
  * Tool registry and execution pipeline. Plugins register tools; the registry
  * feeds schemas into the system prompt, and `execute()` dispatches each call
- * through `tools/pre-execute` (the allow/deny gate) → core dispatch →
- * `tools/post-execute` (inspect/replace the result, attach context) for
- * sandbox, permission, and hook plugins to gate or transform a call.
+ * through `tools/pre-execute` (the allow/deny gate) → `tools/execute` (an
+ * around-dispatch wrapper for timeout/retry/metrics plugins) → `tools/post-execute`
+ * (inspect/replace the result, attach context) for sandbox, permission, and hook
+ * plugins to gate or transform a call.
+ *
+ * The registry also owns HOW its tools are presented to the model — its
+ * `mode` config: `'native'` (every tool as a wire function definition,
+ * today's behavior and the default), `'code'` (the wire carries exactly one
+ * tool, `run_code`, plus a generated TypeScript SDK prompt section), or
+ * `'both'`. See `code-mode.ts` (the tool + dispatch bridge) and
+ * `ts-types.ts` (the SDK codegen); design in the Code Mode RFC.
  *
  * @module @deepseek-ai/dsh-tools
  */
 
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
+import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
+import { renderToolsSdk } from './ts-types.ts'
 
 export {
   defineTool,
@@ -37,6 +49,9 @@ export {
   type StructuredSchemaType,
   type StructuredScalar,
 } from './json-schema.ts'
+
+export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
+export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
@@ -75,16 +90,36 @@ declare module 'cordis' {
      */
     'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
     /**
+     * Around-dispatch waterfall wrapping the registry's core tool dispatch,
+     * between the `tools/pre-execute` gate and the `tools/post-execute` seam. A
+     * listener receives `(exec, next)`: call `next()` to delegate to dispatch
+     * (returning its {@link ToolExecutionResult}, optionally wrapped), or return a
+     * replacement result without calling `next()` to short-circuit dispatch. The
+     * base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or
+     * unknown tool) is already normalized to an `isError` result by the time a
+     * listener's `await next()` returns, so a wrapper never sees a raw throw from
+     * the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can
+     * mutate `exec` (e.g. replace `exec.signal` with a per-call deadline) BEFORE
+     * `next()` and inspect the result AFTER. (Cordis `next()` ignores any passed
+     * arguments and re-invokes downstream with the shared payload, so a wrapper
+     * mutates `exec` in place rather than passing a new object to `next()`.)
+     * Multiple listeners compose by registration order — an outer one wraps the
+     * inner ones plus dispatch.
+     * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
+     * @mode waterfall
+     */
+    'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+    /**
      * Waterfall AFTER a tool runs — where hook plugins inspect the result and
      * accept it (optionally REPLACING the model-facing content, and/or attaching
      * `additionalContext` for the next request) or block it with corrective
      * `feedback` (Claude Code's `PostToolUse`). Listeners receive
      * `(exec, result, next)`: call `next()` to delegate to the default (accept
-     * unchanged), or return a {@link PostToolDecision} to override. The core tool
-     * dispatch sits between the two waterfalls as plain code, all inside
-     * `execute`'s outer try/catch (and the tool body keeps its own inner
-     * try/catch, so a thrown tool still reaches `post-execute` as an `isError`
-     * result).
+     * unchanged), or return a {@link PostToolDecision} to override. Core tool
+     * dispatch runs earlier as the base `next()` of the `tools/execute`
+     * waterfall, all inside `execute`'s outer try/catch (and the tool body keeps
+     * its own inner try/catch, so a thrown tool still reaches `post-execute` as an
+     * `isError` result).
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
@@ -117,6 +152,14 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
   execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  /**
+   * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
+   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * parameters. Declaring it asserts this tool forwards `exec.signal` to a
+   * cooperative implementation that can reach quiescence when the signal aborts.
+   */
+  timeoutMs?: number
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -269,20 +312,100 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
   return error instanceof HarnessError ? { name: error.name, code: error.code } : undefined
 }
 
+/** How the registry presents its tools to the model (see {@link Config.mode}). */
+export type ToolPresentationMode = 'native' | 'code' | 'both'
+
+/** Plugin config: how the registered tools are presented to the model. */
+export interface Config {
+  /**
+   * The presentation mode. `'native'` (the default) contributes every
+   * registered tool as a wire function definition — byte-for-byte today's
+   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
+   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * TypeScript API the program calls. `'both'` contributes every native
+   * definition AND `run_code` + the SDK section. Non-native modes require a
+   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
+   * or mismatched runtime rejects every prompt assembly with an actionable
+   * error (misconfiguration fails loud, before any model request). A
+   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
+   * every assembly under `'code'` (those names are no longer contributed) —
+   * a deployment switching modes updates its order config or drops it.
+   */
+  mode?: ToolPresentationMode
+}
+
 /**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
- * loop executes calls through the `tools/pre-execute` → dispatch →
+ * loop executes calls through the `tools/pre-execute` → `tools/execute` →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
- * system-prompt assembly.
+ * system-prompt assembly — WHICH schemas is governed by its `mode` config
+ * (see {@link Config.mode}); under a non-native mode it also registers the
+ * `run_code` tool and the `tools:sdk` prompt section itself.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
 
-  private store = new Map<string, ToolDefinition>()
+  static Config: z<Config> = z.object({
+    mode: z.union(['native', 'code', 'both'] as const).default('native'),
+  })
 
-  constructor(ctx: Context) {
+  private store = new Map<string, ToolDefinition>()
+  private readonly mode: ToolPresentationMode
+
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
-    ctx.systemPrompt.tools(() => this.schemas())
+    // The schema already defaulted an omitted mode; the ?? narrows the
+    // optional-input type for direct (non-Loader) construction in tests.
+    this.mode = config.mode ?? 'native'
+    ctx.systemPrompt.tools(() => this.wireSchemas())
+    if (this.mode !== 'native') {
+      this.register(createRunCodeTool(this, () => this.requireCodeRuntime()))
+      ctx.systemPrompt.section({
+        name: 'tools:sdk',
+        order: SDK_SECTION_ORDER,
+        // A lazy thunk over the live store: regenerated at each assembly, in
+        // lexicographic tool order, so an unchanged tool set renders
+        // byte-identical text (prefix-cache-friendly) and a mid-session
+        // registration surfaces exactly like a native-mode tool change.
+        text: () => {
+          this.requireCodeRuntime()
+          return renderToolsSdk(this.schemas().filter(schema => schema.name !== RUN_CODE_NAME))
+        },
+      })
+    }
+  }
+
+  /**
+   * The registry's contribution to the wire tool list, per {@link Config.mode}.
+   * Because `PromptAssembly.tools` is what the loop's request header
+   * snapshots, the mode's collapse is logged and reconstructable for free.
+   * Under a non-native mode this is also the loud misconfiguration gate: no
+   * usable code runtime → every assembly rejects before any model request.
+   */
+  private wireSchemas(): ToolSchema[] {
+    if (this.mode === 'native') return this.schemas()
+    this.requireCodeRuntime()
+    const all = this.schemas()
+    return this.mode === 'code' ? all.filter(schema => schema.name === RUN_CODE_NAME) : all
+  }
+
+  /**
+   * Resolve the code runtime or throw the actionable misconfiguration error.
+   * Read at use time (assembly / run_code execution), NOT via static
+   * `inject`: an inject entry would hold `ctx.tools` — and every tool plugin
+   * behind it — hostage to a code runtime existing even under `mode:
+   * 'native'` (the loop's optional-backend idiom, same as
+   * `sessionPersistence`).
+   */
+  private requireCodeRuntime(): CodeRuntime {
+    const runtime = this.ctx.get('codeRuntime')
+    if (!runtime) {
+      throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+    }
+    if (runtime.language !== 'typescript') {
+      throw new Error(`dsh-tools: mode "${this.mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+    }
+    return runtime
   }
 
   /**
@@ -345,18 +468,20 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/pre-execute` → dispatch →
-   * `tools/post-execute` pipeline. The two waterfalls are the gate (allow/deny)
-   * and the inspect/transform seam; core dispatch sits between them as plain
-   * code. The whole thing is wrapped in one outer try/catch so a throwing
-   * listener (in either waterfall) becomes an `isError` result instead of
-   * failing the turn; the tool body ALSO keeps its own inner try/catch, so a
-   * thrown tool becomes an `isError` result that `post-execute` listeners can
-   * still inspect. If the tool is not registered, the result is an `isError`
-   * carrying a `UNKNOWN_TOOL` structured error. A thrown {@link HarnessError}
-   * surfaces its `{ name, code }` on the result.
+   * Execute one tool call through the `tools/pre-execute` → `tools/execute`
+   * (around dispatch) → `tools/post-execute` pipeline. `pre-execute` is the gate
+   * (allow/deny), `tools/execute` wraps core dispatch (a timeout/retry/metrics
+   * seam), and `post-execute` is the inspect/transform seam; core dispatch sits
+   * as the base `next()` of the `tools/execute` waterfall. The whole thing is
+   * wrapped in one outer try/catch so a throwing listener (in any waterfall)
+   * becomes an `isError` result instead of failing the turn; the tool body ALSO
+   * keeps its own inner try/catch, so a thrown tool becomes an `isError` result
+   * that `tools/execute` and `post-execute` listeners can still inspect. If the
+   * tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. A thrown {@link HarnessError} surfaces its `{ name, code }`
+   * on the result.
    * @param exec - the call to run (name, parsed arguments, caller agent, signal).
-   * @returns the final result after both waterfalls; failures resolve as
+   * @returns the final result after every waterfall; failures resolve as
    *   `isError` results, never rejections.
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
@@ -382,23 +507,30 @@ export class ToolRegistry extends Service {
         return await this.postExecute(exec, denied)
       }
 
-      // --- Core dispatch (plain code between the waterfalls). The tool body's
-      // own try/catch turns a throw into an isError result so post-execute can
-      // inspect it; an unknown tool routes through the same catch. ---
-      let result: ToolExecutionResult
-      try {
-        const tool = this.store.get(exec.name)
-        if (!tool) throw new ToolNotFoundError(exec.name)
-        // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
-        // meta) or a { content, meta } object (a tool attaching a private
-        // presentation payload). An array IS the content; the object carries it.
-        const returned = await tool.execute(exec.arguments, exec)
-        const content = Array.isArray(returned) ? returned : returned.content
-        const meta = Array.isArray(returned) ? undefined : returned.meta
-        result = { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
-      } catch (error: unknown) {
-        result = toolErrorResult(exec.callId, error)
-      }
+      // --- Around-dispatch: tools/execute. The base `next` is the dispatch-
+      // with-normalization thunk — the tool body's own try/catch turns a throw
+      // into an isError result so a wrapper (and post-execute) can inspect it;
+      // an unknown tool routes through the same catch. A `tools/execute` listener
+      // (e.g. a timeout plugin) wraps this thunk: it may mutate `exec` before
+      // delegating and inspect the normalized result after. ---
+      const result = await this.ctx.waterfall(
+        this, 'tools/execute', exec,
+        async (): Promise<ToolExecutionResult> => {
+          try {
+            const tool = this.store.get(exec.name)
+            if (!tool) throw new ToolNotFoundError(exec.name)
+            // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
+            // meta) or a { content, meta } object (a tool attaching a private
+            // presentation payload). An array IS the content; the object carries it.
+            const returned = await tool.execute(exec.arguments, exec)
+            const content = Array.isArray(returned) ? returned : returned.content
+            const meta = Array.isArray(returned) ? undefined : returned.meta
+            return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
+          } catch (error: unknown) {
+            return toolErrorResult(exec.callId, error)
+          }
+        },
+      )
 
       return await this.postExecute(exec, result)
     } catch (error: unknown) {

@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import { buildChildEnv, SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subagent-subprocess'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
-import { acpStopReason, acpContentText, buildChildEnv, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, SENSITIVE_ENV_PATTERN, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
+import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 
 /**
  * Keyless integration tests for the ACP subagent backend. Each spawns a REAL

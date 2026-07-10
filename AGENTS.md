@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+The DeepSeek Harness group monorepo, hosting **DeepSeek Harness SDK** — a plugin-based SDK for building agent harnesses on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Pre-release stance: foundation over blast radius
 
-**This applies only while the harness is unreleased — remove this section at the first tagged release.** There are no external consumers, so optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
+**Applies only while the harness is unreleased — remove this section at the first tagged release.** With no external consumers, optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
 
 ## Repository layout
 
@@ -18,12 +18,15 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
+  guard/       loop-hygiene plugins
+  cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
-  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
-  util/        zero-dependency utilities (Branded<B>)
+  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-interaction seam, ask-user tool
+  support/     dev/test infrastructure packages
+  util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
@@ -47,6 +50,7 @@ pnpm run hygiene        # knip + publint + workspace constraints + NodeNext cons
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
 
@@ -69,7 +73,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.
