@@ -116,11 +116,12 @@ export class LocalSkillProvider implements SkillProvider {
   /**
    * Load a complete local skill body from the candidate's file locator.
    * @param candidate - the winning candidate returned by this provider.
+   * @param options - lookup options whose signal cancels filesystem reads.
    * @returns the full local skill, or `undefined` if the file disappeared.
    */
-  async get(candidate: SkillCandidate): Promise<SkillDefinition | undefined> {
+  async get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined> {
     const locator = candidate.locator as LocalLocator
-    const parsed = await parseSkillFile(locator.path, this.ctx)
+    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal)
     if (parsed === undefined) return undefined
     return {
       name: parsed.name,
@@ -223,8 +224,9 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   return result
 }
 
-async function parseSkillFile(path: string, ctx: Context): Promise<ParsedSkill | undefined> {
-  const raw = await readSkillText(ctx, path)
+async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal): Promise<ParsedSkill | undefined> {
+  const raw = await readSkillText(ctx, path, signal)
+  signal?.throwIfAborted()
   if (raw === undefined) {
     return undefined
   }
@@ -263,30 +265,39 @@ function optionalFileSystem(ctx: Context): FileSystem | undefined {
   return ctx.get('fs')
 }
 
-async function readSkillText(ctx: Context, path: string): Promise<string | undefined> {
+async function readSkillText(ctx: Context, path: string, signal?: AbortSignal): Promise<string | undefined> {
+  signal?.throwIfAborted()
   const fs = optionalFileSystem(ctx)
   if (fs !== undefined) {
-    return await readSkillTextFromFileSystem(ctx, fs, path)
+    return await readSkillTextFromFileSystem(ctx, fs, path, signal)
   }
   try {
-    return await readFile(path, 'utf8')
+    return await readFile(path, { encoding: 'utf8', signal })
   } catch {
+    signal?.throwIfAborted()
     return undefined
   }
 }
 
-async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: string): Promise<string | undefined> {
+async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: string, signal?: AbortSignal): Promise<string | undefined> {
   // A missing or temporarily inaccessible skill file is not fatal to discovery.
+  signal?.throwIfAborted()
   const target = await fs.resolve(path).catch(() => undefined)
+  signal?.throwIfAborted()
   if (target === undefined) return undefined
-  const info = await fs.stat(target).catch((error: unknown) => {
+  let info
+  try {
+    info = await fs.stat(target, signal)
+  } catch (error) {
+    signal?.throwIfAborted()
     ctx.logger.warn(`skill file ${path} ignored: failed to stat through filesystem service: ${errorMessage(error)}`)
     return undefined
-  })
+  }
   if (info === undefined || info.type !== 'file') return undefined
   try {
-    return await fs.readText(target)
+    return await fs.readText(target, signal)
   } catch (error) {
+    signal?.throwIfAborted()
     ctx.logger.warn(`skill file ${path} ignored: ${fsReadErrorMessage(target, error)}`)
     return undefined
   }

@@ -27,13 +27,17 @@ class TestFileSystem extends FileSystem {
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
   statOverrides = new Map<string, FsInfo | undefined>()
+  statSignals: Array<AbortSignal | undefined> = []
+  readTextSignals: Array<AbortSignal | undefined> = []
+  readTextOverride?: (target: FsTarget, signal?: AbortSignal) => Promise<string>
 
   override async resolve(path: string): Promise<FsTarget> {
     if (this.failResolvePaths.has(path)) throw new Error('resolve failed')
     return { targetKey: path as never, displayPath: path }
   }
 
-  override async stat(target: FsTarget): Promise<FsInfo | undefined> {
+  override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
+    this.statSignals.push(signal)
     if (this.failStatPaths.has(target.displayPath)) throw new Error('stat failed')
     if (this.statOverrides.has(target.displayPath)) return this.statOverrides.get(target.displayPath)
     try {
@@ -49,7 +53,9 @@ class TestFileSystem extends FileSystem {
     }
   }
 
-  override async readText(target: FsTarget): Promise<string> {
+  override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+    this.readTextSignals.push(signal)
+    if (this.readTextOverride !== undefined) return await this.readTextOverride(target, signal)
     const text = await readFile(target.displayPath, 'utf8')
     if (text.includes('\uFFFD')) throw new Error('not text')
     return text
@@ -315,6 +321,41 @@ describe('LocalSkillProvider', () => {
     ])
     expect(fs.listDirCalls).toBeGreaterThan(0)
     expect(await ctx.skills.get('binary-skill')).toBeUndefined()
+  })
+
+  it('forwards cancellation to filesystem reads while loading a skill', async () => {
+    const home = await tempDir('skill-read-abort')
+    await writeSkill(join(home, '.dsh/skills'), 'abortable-skill', 'Abortable skill')
+
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['abortable-skill'])
+
+    fs.statSignals = []
+    fs.readTextSignals = []
+    const started = Promise.withResolvers<undefined>()
+    fs.readTextOverride = async (_target, signal) => {
+      if (signal === undefined) throw new Error('expected the skill lookup signal')
+      started.resolve(undefined)
+      return await new Promise<string>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          const abortReason = signal.reason as unknown
+          reject(abortReason instanceof Error ? abortReason : new Error(String(abortReason)))
+        }, { once: true })
+      })
+    }
+    const controller = new AbortController()
+    const reason = new Error('turn cancelled')
+    const loading = ctx.skills.get('abortable-skill', { signal: controller.signal })
+    await started.promise
+    controller.abort(reason)
+
+    await expect(loading).rejects.toBe(reason)
+    expect(fs.statSignals).toEqual([controller.signal])
+    expect(fs.readTextSignals).toEqual([controller.signal])
   })
 
   it('uses default home root resolution without exposing builtin skills', async () => {

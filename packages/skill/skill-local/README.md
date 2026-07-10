@@ -30,7 +30,7 @@ Default roots are resolved in this provider's rank order:
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child so system-owned directories are not accidentally treated as normal user skills. DeepSeek Harness no longer ships built-in system skills from this provider; additional built-ins can be supplied later by another provider.
 
-When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and probes `.git` through the filesystem service. Without a filesystem service, the provider falls back to Node filesystem I/O so minimal local contexts can still load skills. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
+When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and probes `.git` through the filesystem service. Full skill loads forward the lookup abort signal to filesystem metadata and content reads. Without a filesystem service, the provider falls back to abortable Node filesystem I/O so minimal local contexts can still load skills. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
 
 ## Skill Format
 
