@@ -107,12 +107,15 @@ export interface ResolvedModes {
 const PLAN_SECTION
   = 'You are in plan mode: a read-only planning state. Explore, analyze, and design; '
   + 'do not attempt to modify anything — mutating tools are not available and calls '
-  + 'to them are denied. When your plan is ready, present it with the exit_plan_mode '
-  + 'tool and wait for the user\'s review. If exit_plan_mode is unavailable or its '
-  + 'review fails, ask the user to switch the session out of plan mode instead of '
-  + 'retrying denied tools.'
+  + 'to them are denied. When a decision or a missing detail blocks the plan, ask the '
+  + 'user through the ask_user_question tool where it is available. A finished plan '
+  + 'is delivered by calling exit_plan_mode — that call is what puts it in front of '
+  + 'the user for review, so prefer it over pasting the plan as a plain reply or '
+  + 'asking the user to switch modes themselves. If exit_plan_mode is unavailable or '
+  + 'its review fails, ask the user to switch the session out of plan mode instead '
+  + 'of retrying denied tools.'
 
-const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', EXIT_PLAN_MODE]
+const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', EXIT_PLAN_MODE]
 
 /** The review question's approve option label — the answer item is matched by it. */
 const APPROVE_LABEL = 'Approve'

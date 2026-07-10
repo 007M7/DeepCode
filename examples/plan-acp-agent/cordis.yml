@@ -45,6 +45,23 @@
 - id: mode
   name: '@deepseek-ai/dsh-mode'
 
+# Local bash executor + the model-facing bash tools: available in the default
+# mode, EXCLUDED by plan mode's allowlist — running the two modes against the
+# same task shows the difference (`rm`/`git` work only after the exit review).
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+
+# The model-facing ask_user_question tool: ON plan mode's allowlist, so the
+# model can raise a blocking decision to the user while planning; the review
+# and the questions ride the same elicitation flow.
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
 # Filesystem capability stack: local provider, read-before-write/edit policy
 # gate, then the model-facing read/write/edit tools — `read` is on plan mode's
 # allowlist; `write`/`edit` are what the plan-mode gate denies.

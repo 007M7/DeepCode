@@ -21,6 +21,12 @@ flowchart LR
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
   plugin_plan-acp_mode["mode<br/>@deepseek-ai/dsh-mode"]
   cfg --> plugin_plan-acp_mode
+  plugin_plan-acp_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
+  cfg --> plugin_plan-acp_bash
+  plugin_plan-acp_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
+  cfg --> plugin_plan-acp_tool_bash
+  plugin_plan-acp_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
+  cfg --> plugin_plan-acp_tool_ask_user
   plugin_plan-acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
   cfg --> plugin_plan-acp_fs_local
   plugin_plan-acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
@@ -36,6 +42,9 @@ flowchart LR
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-agent` |
 | `mode` | `@deepseek-ai/dsh-mode` |
+| `bash` | `@deepseek-ai/dsh-bash-local` |
+| `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
+| `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |

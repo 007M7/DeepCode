@@ -75,7 +75,7 @@ describe('resolveConfig', () => {
   it('merges the built-in plan definition with the read-only allowlist', () => {
     const resolved = resolveConfig({})
     const plan = resolved.definitions.get(PLAN_MODE)
-    expect(plan?.tools).toEqual(['read', 'todo_write', 'web_search', 'web_fetch', EXIT_PLAN_MODE])
+    expect(plan?.tools).toEqual(['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', EXIT_PLAN_MODE])
     expect(plan?.section).toContain('plan mode')
   })
 

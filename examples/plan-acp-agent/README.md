@@ -4,7 +4,7 @@ The coding agent as an ACP server with **session modes** composed — the live c
 
 ## What it demonstrates
 
-`session/new` advertises the mode picker (`default` / `plan`); the editor's `session/set_mode` switches the session, applied at the next turn boundary. In plan mode the model sees only the read-only allowlist (`read`, `todo_write`, `exit_plan_mode` here — this tree loads no web tools) plus the plan-mode guidance section, and every call outside the allowlist is denied at `tools/pre-execute` with a reason that steers it back to planning. The model leaves by presenting its plan through `exit_plan_mode`: the plan markdown renders as the tool's call card, the review question arrives as an elicitation form (approve / keep planning, free text welcome), and a keep-planning answer returns the feedback to the model verbatim.
+`session/new` advertises the mode picker (`default` / `plan`); the editor's `session/set_mode` switches the session, applied at the next turn boundary. The default mode carries the full composition — `bash`, `read`/`write`/`edit`, `todo_write`, `ask_user_question` — while plan mode narrows it to the read-only allowlist (`read`, `todo_write`, `ask_user_question`, `exit_plan_mode` here — this tree loads no web tools) plus the plan-mode guidance section; every call outside the allowlist is denied at `tools/pre-execute` with a reason that steers it back to planning, and a blocking decision goes to the user through `ask_user_question`. The model leaves by presenting its plan through `exit_plan_mode`: the plan markdown renders as the tool's call card, the review question arrives as an elicitation form (approve / keep planning, free text welcome), and a keep-planning answer returns the feedback to the model verbatim.
 
 ## Run
 
