@@ -511,6 +511,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
       enabled: rec.terminalEnabled,
       cwd: session.header.cwd,
     }, { includeUserMessages: false })
+    // Re-notify from the EVENT's value, not from modes.get(): the service
+    // holds one coalesced pending slot (every flush reads the latest
+    // selection, so a flush can never be stale against the picker), and for
+    // any other writer — the exit tool, a test, a foreign plugin — the logged
+    // value IS the truth the picker should track, in log order.
     if (event.type === 'mode/set' && event.data.mode !== rec.lastModeId) {
       rec.lastModeId = event.data.mode
       notify({ sessionId: rec.sessionId, update: { sessionUpdate: 'current_mode_update', currentModeId: event.data.mode } })

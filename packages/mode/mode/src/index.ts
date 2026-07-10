@@ -398,10 +398,17 @@ export class ModesService extends Service {
     if (turnStart) this.noticeDroppedDefinition(session)
     const pending = this.pendingIntents.get(session)
     if (pending === undefined) return
-    this.pendingIntents.delete(session)
     const target = pending.mode
-    if (target === foldMode(session.events)) return
+    if (target === foldMode(session.events)) {
+      this.pendingIntents.delete(session)
+      return
+    }
     session.append('mode/set', { mode: target })
+    // Clear the intent only AFTER the append landed: if a backend rejects the
+    // write, the intent stays parked and the next boundary retries — the UI's
+    // optimistic picker state and the log re-converge instead of diverging
+    // forever on a swallowed one-shot.
+    this.pendingIntents.delete(session)
     if (!pending.narrate) return
     const told = modeAtLastHeader(session.events)
     if (told === undefined || told === target) return

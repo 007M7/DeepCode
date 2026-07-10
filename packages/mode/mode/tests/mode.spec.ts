@@ -278,6 +278,14 @@ describe('the boundary flush', () => {
     agent.session.append = (() => { throw new Error('backend gone') })
     ctx.emit('session/event', agent.session, event as SessionEvent)
     expect(warn).toHaveBeenCalledOnce()
+    // The failed flush re-parks the intent (cleared only after a landed
+    // append), so the next healthy boundary converges the log with the
+    // picker's optimistic state instead of dropping the switch forever.
+    expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
+    agent.session.append = original
+    boundary(ctx, agent.session, 'step/end')
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+    expect(ctx.modes.get(agent).pending).toBeUndefined()
   })
 })
 
