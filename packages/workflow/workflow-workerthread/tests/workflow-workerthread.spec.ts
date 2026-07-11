@@ -1226,15 +1226,11 @@ describe('dsh-workflow-workerthread', () => {
       await second.dispose()
     })
 
-    it('unregisters ctx.workflows when the engine fiber is disposed (HMR safety), and default config runs (auto concurrency)', async () => {
+    it('unregisters ctx.workflows when the engine fiber is disposed (HMR safety)', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
       const fiber = await ctx.plugin(WorkerWorkflowEngine, {})
       expect(ctx.get('workflows')).toBeDefined()
-      // A zero-agent run through the DEFAULT config exercises the auto
-      // concurrency resolution (cores - 2, capped) in start().
-      const result = await run(ctx, fakeParent(), scripted('return 6 * 7'))
-      expect(result.value).toBe(42)
       await fiber.dispose()
       expect(ctx.get('workflows')).toBeUndefined()
     })

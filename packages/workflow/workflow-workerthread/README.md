@@ -21,7 +21,7 @@ What the seam guarantees regardless, because benign scripts hit these constantly
 
 ## How a run executes
 
-`start()` shape-validates the meta DATA host-side and parse-checks the body with the identical wrapper the worker compiles (`new vm.Script`, discarded), preserving the seam's synchronous `META_INVALID`/`SCRIPT_PARSE` throws; one redundant parse per run is the deliberate price. It then spawns the worker (`src/worker.ts` unbuilt via an explicit tsx `execArgv`; the sibling `lib/worker.js` bundle when built) with the meta, body, `args`, and worker-side limits as `workerData`.
+`start()` shape-validates the meta DATA host-side and parse-checks the body with the identical wrapper the worker compiles (`new vm.Script`, discarded), preserving the seam's synchronous `META_INVALID`/`SCRIPT_PARSE` throws; one redundant parse per run is the deliberate price. It then spawns the worker (unbuilt: a JavaScript data-URL bootstrap registers tsx's ESM and CommonJS transforms inside the worker before importing `src/worker.ts`, giving the whole mixed-module source graph full TypeScript and tsconfig-path transformation on every supported Node line; built: the sibling `lib/worker.js` bundle) with the meta, body, `args`, and worker-side limits as `workerData`.
 
 Inside the worker, `runWorkerSession` builds the execution core (hooks, combinators, concurrency semaphore, caps, fatal-error discipline) over a **child port**. `agent()` sends `child-start`, and the host starts the child on `ctx.subagents` with parent attribution, the shared per-run abort signal, and `outputSchema`/`model` pass-through.
 

@@ -41,7 +41,6 @@
  * @module @deepseek-ai/dsh-workflow-workerthread/host
  */
 
-import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import type { WorkerOptions } from 'node:worker_threads'
 import type { Context } from 'cordis'
@@ -59,13 +58,16 @@ import type { ChildResult, ChildStartRequest, WorkerInit } from './types.ts'
 /**
  * Resolve the worker entry and spawn options for the current runtime shape.
  * Unbuilt (tsx demos, vitest — `import.meta.url` points into `src/`), the
- * entry is the TypeScript sibling and the worker needs the tsx loader
- * registered explicitly: a worker thread inherits no transform pipeline from
- * vitest (vite transforms in-process, not via a node loader), and passing
- * execArgv explicitly also shields the worker from any loader flags the
- * parent was started with. Built (`lib/index.js`), the entry is the sibling
- * bundle the package tsdown config emits and no loader is needed (execArgv
- * pinned empty — hermetic, like the environment).
+ * entry is a JavaScript data-URL bootstrap. That bootstrap runs INSIDE the
+ * user worker, registers tsx's ESM AND CommonJS transforms there, and only
+ * then imports the TypeScript sibling. The whole mixed-module source graph
+ * therefore receives TypeScript transformation and the tsconfig paths map in
+ * the worker's own module-loader realm. A worker inherits no
+ * transform pipeline from vitest (vite transforms in-process), and a parent
+ * `--import tsx` registration is not a contract that user workers share on
+ * every supported Node line. Built (`lib/index.js`), the entry is the sibling
+ * bundle the package tsdown config emits and no loader is needed (`execArgv`
+ * pinned empty in both shapes — hermetic, like the environment).
  *
  * Both shapes spawn with an EMPTY environment (`env: {}`): the documented vm
  * escape reaches `process`, and the harness's ambient credentials
@@ -85,19 +87,31 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOpti
   if (!import.meta.url.endsWith('.ts')) {
     return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init, env: {}, execArgv: [] } }
   }
-  // Lazy tsx resolution: only the unbuilt shape needs it, so the built
-  // bundle never requires tsx to be installed. TSX_TSCONFIG_PATH is the one
-  // variable forwarded through the scrub: tsx finds a tsconfig by searching
-  // UP from the worker's cwd, and a parent running with its cwd outside the
-  // repo (the ACP snapshot harness pins the tsconfig through this exact
-  // variable) would otherwise lose the dsh-* paths map and resolve workspace
-  // imports to unbuilt lib/ bundles. Loader plumbing, not a secret.
+  // Resolve tsx lazily: only the unbuilt shape executes this arm, so a built
+  // consumer never needs the dev-only loader installed. A JavaScript entry is
+  // essential — it can install tsx's ESM and CommonJS hooks from INSIDE the
+  // user worker before any TypeScript enters Node's native strip-only parser.
+  // Both hooks are load-bearing because the source graph crosses both module
+  // shapes on supported Node lines. TSX_TSCONFIG_PATH is
+  // the one variable forwarded through the scrub: a parent running outside
+  // the repo cwd (the ACP snapshot harness is the real case) pins the paths
+  // map through it. Loader plumbing, not a secret.
+  const workerEntry = new URL('./worker.ts', import.meta.url)
+  const tsxEsmApiEntry = import.meta.resolve('tsx/esm/api')
+  const tsxCjsApiEntry = import.meta.resolve('tsx/cjs/api')
+  const bootstrap = [
+    `import { register as registerEsm } from ${JSON.stringify(tsxEsmApiEntry)}`,
+    `import { register as registerCjs } from ${JSON.stringify(tsxCjsApiEntry)}`,
+    'registerCjs()',
+    'registerEsm()',
+    `await import(${JSON.stringify(workerEntry.href)})`,
+  ].join('\n')
   return {
-    entry: new URL('./worker.ts', import.meta.url),
+    entry: new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`),
     options: {
       workerData: init,
       env: process.env.TSX_TSCONFIG_PATH === undefined ? {} : { TSX_TSCONFIG_PATH: process.env.TSX_TSCONFIG_PATH },
-      execArgv: ['--import', fileURLToPath(import.meta.resolve('tsx'))],
+      execArgv: [],
     },
   }
 }
