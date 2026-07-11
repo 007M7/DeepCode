@@ -11,6 +11,7 @@ import {
   formatSystemPromptSnapshot,
   headerDeltaCount,
   normalizedHeaders,
+  normalizedSystemPromptDeltas,
   normalizedSystemPrompts,
   refreshFixtureReplacements,
   stabilizeRefreshLog,
@@ -50,7 +51,7 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // is what this suite can exercise; the real overlay boot is the acp-agent
 // example's code-mode scenarios).
 const REPLAY_SCENARIOS: Scenario[] = [
-  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'main' },
+  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
@@ -128,7 +129,14 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(authored).toContain('"error":"model exploded"')
     expect(authored).not.toContain('"error":"stale"')
 
-    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe('SYS PROMPT\n')
+    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe([
+      'SYS PROMPT',
+      '',
+      '<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->',
+      '',
+      'NEW PROMPT LINE',
+      '',
+    ].join('\n'))
   })
 })
 
@@ -239,10 +247,31 @@ describe('normalizedSystemPrompts', () => {
   })
 })
 
+describe('normalizedSystemPromptDeltas', () => {
+  it('extracts and normalizes well-formed system edits', () => {
+    const log = [
+      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":["work in /w"]}}}',
+      '{"type":"request/header-delta","data":{"tools":{"replace":[]}}}',
+      '{"type":"request/header-delta","data":{"system":{"keepStart":"1","keepEnd":0,"insert":[]}}}',
+      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":[null]}}}',
+      '',
+    ].join('\n')
+    expect(normalizedSystemPromptDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
+      { keepStart: 1, keepEnd: 0, insert: ['work in {{cwd}}'] },
+    ])
+  })
+})
+
 describe('formatSystemPromptSnapshot', () => {
   it('adds a missing terminal newline without changing an existing one', () => {
     expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
     expect(formatSystemPromptSnapshot('prompt\n')).toBe('prompt\n')
+  })
+
+  it('renders readable system-prompt delta sections', () => {
+    expect(formatSystemPromptSnapshot('prompt', [
+      { keepStart: 1, keepEnd: 0, insert: ['new', 'lines'] },
+    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\nnew\nlines\n')
   })
 })
 

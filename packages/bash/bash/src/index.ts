@@ -15,13 +15,16 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types.ts'
 
 export { BashTaskId, OwnerToken } from './types.ts'
+export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 export type {
   BashExecRequest,
   BashExecSpec,
   BashRunResult,
+  BashSandboxInfo,
   BashTask,
   BashTaskListener,
   BashTaskRead,
@@ -68,6 +71,22 @@ export abstract class BashExecutor extends Service {
       this.listenersClosed = true
       this.listeners.clear()
     }, 'bash listener teardown')
+  }
+
+  /**
+   * The sandbox mode this executor confines commands under BY DEFAULT, or
+   * `undefined` when it does not sandbox at all — the capability fact the
+   * tool and ACP layers read to advertise sandbox controls honestly. The
+   * getter proves a sandboxing executor is mounted and supplies its fallback
+   * mode; a session override may make the effective mode narrower or wider,
+   * so strict escalation widening is checked per call rather than encoded in
+   * this default-relative capability fact. The base class reports
+   * `undefined`; a sandboxing implementation overrides the getter.
+   * @returns the configured default mode of a sandboxing executor;
+   *   `undefined` for an executor that never confines.
+   */
+  get sandboxMode(): SandboxMode | undefined {
+    return undefined
   }
 
   /**

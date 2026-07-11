@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import * as acpAgent from '../src/index.ts'
 
 /**
@@ -23,9 +27,47 @@ async function mount(config: acpAgent.Config): Promise<Context> {
   return ctx
 }
 
+async function isolatedSkillsConfig(catalogDescriptionMaxLength?: number): Promise<NonNullable<acpAgent.Config['skills']>> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-acp-agent-skills-'))
+  return {
+    local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') },
+    ...catalogDescriptionMaxLength !== undefined ? { tool: { catalogDescriptionMaxLength } } : {},
+  }
+}
+
+async function composePrefix(ctx: Context): Promise<Message[]> {
+  const empty: Message[] = []
+  return await ctx.waterfall(
+    'agent/session-prefix', { session: { header: { cwd: '/tmp' } } } as never,
+    empty, new AbortController().signal, () => Promise.resolve(empty),
+  )
+}
+
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  const home = await mkdtemp(join(tmpdir(), 'dsh-acp-agent-default-skills-'))
+  process.env.DSH_HOME = join(home, '.dsh')
+  process.env.DSH_AGENTS_HOME = join(home, '.agents')
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
 describe('dsh-acp-agent composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test' })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test', skills: await isolatedSkillsConfig() })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
@@ -44,9 +86,27 @@ describe('dsh-acp-agent composition', () => {
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { model: 'mock' })
+    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('uses default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      acpAgent.apply(ctx, { model: 'mock' })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(ctx.skills).toBeDefined()
+      expect(await ctx.skills.list()).toEqual([])
+      await ctx.fiber.dispose()
+    })
+  })
+
+  it('forwards skill config into agent-core', async () => {
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
+    expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()
   })
 
@@ -72,7 +132,7 @@ describe('dsh-acp-agent composition', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill'])
     await ctx.fiber.dispose()
   })
 
