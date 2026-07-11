@@ -42,6 +42,9 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
 // emits any output; 30s still detects a wedged process without confusing
 // bounded CI contention with a lifecycle failure.
 const PROCESS_TIMEOUT_MS = 30_000
+// Leave enough room for the process-owned timeout to report captured output
+// before Vitest aborts the test itself.
+const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
 
 let child: ChildProcessWithoutNullStreams | undefined
 let workdir: string | undefined
@@ -110,19 +113,19 @@ describe('echo-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await runEcho([])
     expect(code).toBe(0)
     expect(stdout).toContain('echo-agent ready.')
-  }, PROCESS_TIMEOUT_MS + 5_000)
+  }, TEST_TIMEOUT_MS)
 
   it('runs the echo tool round-trip for an "echo …" line', async () => {
     const { stdout } = await runEcho(['echo hello world'])
     // mock-llm.ts emits a tool-call for the echo tool; echo-tool.ts uppercases.
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HELLO WORLD')
-  }, PROCESS_TIMEOUT_MS + 5_000)
+  }, TEST_TIMEOUT_MS)
 
   it('streams a direct canned reply for a non-echo line', async () => {
     const { stdout } = await runEcho(['just chatting'])
     // The direct-response branch of mock-llm.ts quotes the input back.
     expect(stdout).toContain('just chatting')
     expect(stdout).not.toContain('[tool call]')
-  }, PROCESS_TIMEOUT_MS + 5_000)
+  }, TEST_TIMEOUT_MS)
 })

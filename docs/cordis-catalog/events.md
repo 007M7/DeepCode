@@ -431,17 +431,17 @@ One `agent()` call settled (clean result, child failure, or run cancellation). P
 'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:96`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:98`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/agent-start` — emit
 
-One `agent()` call started a child run. Paired with Events['workflow/agent-end'] by `agent.seq`.
+One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never crosses the provider's publication/readiness boundary emits neither event in this pair.
 
 ```ts cordis-catalog
 'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:85`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:87`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/end` — emit
 
@@ -451,7 +451,7 @@ A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves
 'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:106`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:108`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/log` — emit
 

@@ -55,9 +55,6 @@
     # else the local ./.sessions default.
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working
-      directory is {{cwd}}. Your bash tool runs under a file sandbox — a
-      `[sandbox: file access denied …]` result is policy, not a command bug.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
-      Verify your work by running the code or tests. Keep answers brief and
-      factual.
+      Verify your work by running the code or tests. Keep answers brief and factual.

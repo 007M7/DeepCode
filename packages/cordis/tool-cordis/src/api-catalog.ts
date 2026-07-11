@@ -453,7 +453,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
-    summary: 'One `agent()` call started a child run.',
+    summary: 'One `agent()` call established a ready child run.',
   },
   {
     name: 'workflow/end',

@@ -69,9 +69,9 @@ export enum HostToWorkerType {
   Go = 'go',
   /** Cancel the run: hooks start throwing and the script dies at its next await. */
   Cancel = 'cancel',
-  /** Child RPC reply: the start succeeded (exactly one of ChildStarted/ChildStartError per ChildStart). */
+  /** Child RPC reply: provider publication/readiness fulfilled (exactly one start reply per ChildStart). */
   ChildStarted = 'child-started',
-  /** Child RPC reply: the start was refused or threw. */
+  /** Child RPC reply: synchronous start or asynchronous publication/readiness failed. */
   ChildStartError = 'child-start-error',
   /** Child RPC: a started child's result RESOLVED (its JSON projection). */
   ChildSettled = 'child-settled',

@@ -76,8 +76,10 @@ declare module 'cordis' {
      */
     'workflow/log'(info: WorkflowRunInfo, message: string): void
     /**
-     * One `agent()` call started a child run. Paired with
-     * {@link Events['workflow/agent-end']} by `agent.seq`.
+     * One `agent()` call established a ready child run. Paired with
+     * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
+     * crosses the provider's publication/readiness boundary emits neither
+     * event in this pair.
      * @param info - the run's identity snapshot.
      * @param agent - the call's sequence number, label, phase, and child id.
      * @mode emit
@@ -129,10 +131,12 @@ export type WorkflowEventName =
  * - `UNSUPPORTED_SCHEMA` — an `agent()` schema outside the structured-output
  *   subset (see dsh-tools).
  * - `AGENT_CAP` / `ITEM_CAP` — the run/agent caps tripped.
- * - `AGENT_START` — the subagent seam refused to start a child.
- * - `AGENT_RESULT` — a child's `result` REJECTED: an infrastructure fault at
- *   the subagent seam, distinct from a child that failed and resolved (which
- *   is the per-item `null`, never an error).
+ * - `AGENT_START` — synchronous subagent start or the provider's asynchronous
+ *   publication/readiness boundary failed before cancellation took precedence.
+ * - `AGENT_RESULT` — a run whose readiness FULFILLED had its `result` REJECT: an
+ *   infrastructure fault at the subagent seam, even if the rejection settled
+ *   before readiness. This is distinct from a child that failed and resolved
+ *   (which is the per-item `null`, never an error).
  * - `RESULT_UNSERIALIZABLE` — a value crossing the script/host value boundary
  *   is not plain JSON data.
  * - `CANCELLED` — the run was cancelled; pending and future hooks reject

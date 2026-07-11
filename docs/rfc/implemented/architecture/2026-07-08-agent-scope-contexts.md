@@ -553,7 +553,17 @@ SubagentService.start(...):
   attach result settlement handlers immediately
   await returnedRun.started
   emit subagent/start; later emit the buffered or eventual subagent/end
+
+Workflow worker bridge after receiving returnedRun:
+  register the run so cancellation can reach pre-publication work
+  attach result settlement handlers immediately and snapshot the outcome
+  if returnedRun.started fulfills:
+    send ChildStarted; then send the buffered or eventual outcome
+  else:
+    send ChildStartError and dispose the attempt
 ```
+
+Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, sends `ChildStarted` only after `started` fulfills, and sends `ChildStartError` plus host-driven disposal when readiness rejects. This keeps cancellation able to reach pending creation, prevents an early result rejection from going unhandled, and ensures `workflow/agent-start` never names an unpublished child.
 
 Parent teardown reaches `runOwner` by nesting; the provider and returned run handle reach the same node through their explicit disposers.
 

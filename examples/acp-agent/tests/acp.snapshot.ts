@@ -45,9 +45,8 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
-  // text-turn is the pinned-header scenario: the minimal single text turn,
-  // whose fixture is the ONE place the full system prompt + tool schemas are
-  // committed and compared verbatim.
+  // text-turn is the pinned-header scenario: the minimal single text turn.
+  // Its system-prompt.golden.md and JSONL tool list pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },

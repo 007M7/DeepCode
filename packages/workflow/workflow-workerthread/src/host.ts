@@ -14,12 +14,16 @@
  * (a script that never settles is force-settled `cancelled` and its worker
  * terminated — the real kill an in-process engine could not perform).
  *
- * Children live in a host-side registry (callId → run): the worker drives
- * their disposal by RPC on the graceful path, `dispose()` host-drives every
- * registered child's disposal immediately (a wedged worker can relay no
- * dispose RPC, and child teardown must overlap the grace, not start after
- * it), and the registry is what lets the host abort and dispose every
- * survivor when the worker dies or is terminated mid-flight. The three
+ * Children live in a host-side registry (callId → run) as soon as the provider
+ * accepts them, so cancellation reaches even a pre-publication attempt. The
+ * host observes `result` immediately but acknowledges the child to the worker
+ * only after `started` fulfills; readiness failure is a start error and the
+ * host disposes the attempt because the worker never received a handle. The
+ * worker drives disposal by RPC on the graceful path, `dispose()` host-drives
+ * every registered child's disposal immediately (a wedged worker can relay no
+ * dispose RPC, and child teardown must overlap the grace, not start after it),
+ * and the registry lets the host abort and dispose every survivor when the
+ * worker dies or is terminated mid-flight. The three
  * paths share ONE disposal per child (memoized by callId; the seam's
  * dispose() is idempotent anyway, the memo keeps the bookkeeping and the
  * containment warn single). Lifecycle pairing is host-guaranteed the same
@@ -46,7 +50,7 @@ import { renderThrown } from './realm.ts'
 import type { ExecutionObserver } from './runtime.ts'
 import { HostToWorkerType, WorkerToHostType } from './protocol.ts'
 import type { HostToWorkerPayloads, WorkerToHostMessage } from './protocol.ts'
-import type { ChildStartRequest, WorkerInit } from './types.ts'
+import type { ChildResult, ChildStartRequest, WorkerInit } from './types.ts'
 
 /**
  * Resolve the worker entry and spawn options for the current runtime shape.
@@ -307,19 +311,49 @@ export class WorkerRun implements WorkflowRun {
       return
     }
     this.children.set(callId, run)
-    this.post(HostToWorkerType.ChildStarted, { callId, childId: run.id })
-    run.result.then(
+    const childId = run.id
+
+    // Observe settlement IMMEDIATELY, before readiness. A provider may reject
+    // result and started in the same turn; delaying this handler would make the
+    // result transiently unhandled. Buffer a forwarding closure so the worker
+    // still sees ChildStarted before ChildSettled/ChildFailed. Snapshot a
+    // resolved result now: a provider mutating its resolved object while
+    // publication is pending must not change what crosses the worker boundary.
+    const forwardResult = run.result.then<() => void, () => void>(
       (result) => {
-        this.post(HostToWorkerType.ChildSettled, {
-          callId,
-          result: {
+        try {
+          const snapshot: ChildResult = structuredClone({
             output: result.output,
             ...result.structured !== undefined ? { structured: result.structured } : {},
             stopReason: result.stopReason,
-          },
-        })
+          })
+          return () => { this.post(HostToWorkerType.ChildSettled, { callId, result: snapshot }) }
+        } catch (error: unknown) {
+          const rendered = `workflow child result could not cross the worker boundary: ${renderThrown(error)}`
+          return () => { this.post(HostToWorkerType.ChildFailed, { callId, rendered }) }
+        }
       },
-      (error: unknown) => { this.post(HostToWorkerType.ChildFailed, { callId, rendered: renderThrown(error) }) },
+      (error: unknown) => {
+        const rendered = renderThrown(error)
+        return () => { this.post(HostToWorkerType.ChildFailed, { callId, rendered }) }
+      },
+    )
+
+    // The provider owns the publication boundary. Only acknowledge the child
+    // after it is real, then flush any result that settled unusually early. A
+    // readiness rejection is a START failure, not AGENT_RESULT: the worker
+    // never receives a handle, so the host must also dispose the registered
+    // attempt. A concurrent host disposal may already have removed it; the
+    // identity guard preserves the one-disposal memo in that race.
+    void run.started.then(
+      () => {
+        this.post(HostToWorkerType.ChildStarted, { callId, childId })
+        void forwardResult.then((forward) => { forward() })
+      },
+      (error: unknown) => {
+        this.post(HostToWorkerType.ChildStartError, { callId, rendered: renderThrown(error) })
+        if (this.children.get(callId) === run) void this.disposeChild(callId, run)
+      },
     )
   }
 
@@ -350,7 +384,10 @@ export class WorkerRun implements WorkflowRun {
   private disposeChild(callId: number, run: SubagentRun): Promise<void> {
     let disposal = this.childDisposals.get(callId)
     if (disposal === undefined) {
-      disposal = run.dispose().then(
+      // The seam promises a Promise, but invoke inside an async boundary so a
+      // contract-violating synchronous throw is contained exactly like a
+      // rejected disposal and cannot break host quiescence.
+      disposal = (async () => { await run.dispose() })().then(
         () => { this.finishChild(callId) },
         (error: unknown) => {
           this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
