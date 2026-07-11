@@ -371,7 +371,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:173`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:176`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -383,7 +383,7 @@ Around-dispatch waterfall wrapping the registry's core tool dispatch, between th
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:128`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:131`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -395,11 +395,11 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:148`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:151`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
-Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` is serviced by the `ctx.approval` seam when one is mounted, and degrades to deny otherwise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a listener registered through `agent.ctx` fires only for that agent's calls, while a plain plugin listener fires for every call (including agent-less ones, which dispatch subject-less).
+Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` is serviced by the `ctx.approval` seam when one is mounted, and degrades to deny otherwise. The returned union is validated as an exact runtime shape before approval or guards run; a malformed JavaScript/casted decision fails closed as an `isError` result and the tool body never runs. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a listener registered through `agent.ctx` fires only for that agent's calls, while a plain plugin listener fires for every call (including agent-less ones, which dispatch subject-less).
 
 ```ts cordis-catalog
 'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
@@ -407,7 +407,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:101`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:104`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — parallel
 
@@ -419,7 +419,7 @@ Awaited notification of the authoritative FINAL tool outcome, after the complete
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:163`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:166`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 
