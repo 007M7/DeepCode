@@ -22,7 +22,7 @@ pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build    # lib/ artifac
 pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=node24-linux-x64,node24-linux-arm64,node24-macos-arm64
 ```
 
-产物落入 `dist-exe/`（CI 产物形态），并同步进本包的 `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`），构建完成后 SDK 不需要额外设置就能找到可执行文件。也可以从 `build-exe-for-python-sdk` CI workflow（手动触发）下载对应平台的产物放到同一路径。exe 内置哪些插件、载体如何组织，见 [sdk-runtime README](sdk-runtime/README.md)；构建还会顺带刷新仅供开发用的 node 载体（见下文「对着 Node 源码运行」）。
+产物落入 `dist-exe/`（CI 产物形态），并同步进本包的 `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`），构建完成后 SDK 不需要额外设置就能找到可执行文件。也可以从 `build-exe-for-python-sdk` CI workflow（手动触发，或给 PR 打 `build-exe` 标签）下载对应平台的产物放到同一路径。exe 内置哪些插件、载体如何组织，见 [sdk-runtime README](sdk-runtime/README.md)；构建还会顺带刷新仅供开发用的 node 载体（见下文「对着 Node 源码运行」）。
 
 ## 用可执行文件验证 SDK
 

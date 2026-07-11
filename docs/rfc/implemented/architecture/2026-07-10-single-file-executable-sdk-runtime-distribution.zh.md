@@ -42,7 +42,7 @@ deploy root 是 [`python/sdk-runtime/package.json`](../../../../python/sdk-runti
 
 [`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：`pnpm run build` →（清空后）`pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **直落** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`→ 注入 pkg 配置（`bin` 指闭包内 `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，`assets` 全量 glob——动态 import 对 pkg 静态分析不可见，必须显式全量打入）→ 每 target 一次 `pkg --sea` → 产物 `dsh-jsonrpc-agent-pkg-<platform>-<arch>` 落 `dist-exe/`（CI artifact）并拷回 runtime 目录。deploy 四 flag 均有实测依据：`--legacy` 是未开 inject-workspace-packages 时的必选路径；hoisted 产出零符号链接文件树（pkg VFS 最稳、物理保证 cordis 单实例）；关 peer 自动安装避免未发布包名触发 registry 解析；link-workspace-packages 让闭包指向 workspace/vendor 源。
 
-CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅 `workflow_dispatch` 手动触发，linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，`~/.pkg-cache` 缓存，artifact 按平台上传；macOS ad-hoc 签名由 pkg 处理。Windows 是非目标。
+CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅显式触发——`workflow_dispatch` 手动派发，或给 PR 打 `build-exe` 标签；linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，`~/.pkg-cache` 缓存，artifact 按平台上传；macOS ad-hoc 签名由 pkg 处理。Windows 是非目标。
 
 ### Python SDK 分发：双载体，exe 为生产、node 为开发
 

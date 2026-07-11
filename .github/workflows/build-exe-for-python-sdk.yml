@@ -2,10 +2,11 @@ name: Build single-exe
 
 # Single-file executable (single-exe) builds of the DeepSeek Harness SDK
 # runtime. The build pipeline and target platforms are specified in
-# docs/rfc/implemented/architecture/2026-07-10-single-exe-sdk-runtime.md: each target is
-# built natively on a runner of its own platform (no cross-compilation) by
-# scripts/build-exe-for-python-sdk.ts, which deploys the dsh-jsonrpc-agent-pkg closure manifest
-# closure with @yao-pkg/pkg into dist-exe/.
+# docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md:
+# each target is built natively on a runner of its own platform (no
+# cross-compilation) by scripts/build-exe-for-python-sdk.ts, which deploys
+# the dsh-jsonrpc-agent-pkg closure manifest with @yao-pkg/pkg into
+# dist-exe/.
 #
 # Each build leg uploads two artifacts:
 #   - dsh-jsonrpc-agent-pkg-<target> — the bare single-file exe, for
@@ -16,13 +17,15 @@ name: Build single-exe
 #     as-is, the checked-in default runtime/cordis.yml is editable in
 #     place, and the embedded exe also runs directly.
 #
-# workflow_dispatch ONLY — deliberately not triggered by push/pull_request:
-# the exe is a release-style deliverable, and the build (full pnpm build +
-# pnpm deploy + pkg across a 3-platform matrix, ~100MB per artifact) is far
-# too expensive to run as a per-commit CI signal. Dispatch it from the
-# Actions tab when artifacts are needed. There is no `ref` input on purpose:
-# actions/checkout already checks out the branch/tag the run was dispatched
-# on.
+# Two explicit triggers, deliberately no per-commit CI: the exe is a
+# release-style deliverable, and the build (full pnpm build + pnpm deploy +
+# pkg across a 3-platform matrix, ~100MB per artifact) is far too expensive
+# to run on every push. Either dispatch it from the Actions tab, or put the
+# `build-exe` label on a pull request to build that PR's merge result
+# (remove and re-apply the label to rerun); any other label leaves the jobs
+# skipped. There is no `ref` input on purpose: actions/checkout already
+# checks out the ref the run was triggered on — the dispatched branch/tag,
+# or the PR merge ref.
 on:
   workflow_dispatch:
     inputs:
@@ -30,11 +33,15 @@ on:
         description: >-
           Comma-separated pkg targets to build. Any subset of:
           node24-linux-x64, node24-linux-arm64, node24-macos-arm64.
+          Empty builds all three.
         type: string
         required: false
-        default: node24-linux-x64,node24-linux-arm64,node24-macos-arm64
+        default: ''
+  pull_request:
+    types: [labeled]
 
-# Manual runs on the same ref supersede each other.
+# Runs on the same ref supersede each other (per branch/tag for dispatch,
+# per PR merge ref for label runs).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -49,9 +56,11 @@ jobs:
   # not available in a job-level `if:` (jobs.<job_id>.if only sees
   # github/needs/vars/inputs), so target selection happens here instead of
   # skipping matrix legs; an unknown target name fails the whole run loudly
-  # instead of being silently ignored.
+  # instead of being silently ignored. The label gate lives here too: `build`
+  # needs this job, so skipping it skips the whole run.
   plan:
     name: plan targets
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -60,7 +69,9 @@ jobs:
       - name: Compute matrix from targets input
         id: plan
         env:
-          TARGETS: ${{ inputs.targets }}
+          # Empty on label runs and on dispatch with the input left blank —
+          # both mean "all three targets".
+          TARGETS: ${{ inputs.targets || 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64' }}
         run: |
           set -euo pipefail
           matrix='[]'
