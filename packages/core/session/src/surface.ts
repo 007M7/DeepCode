@@ -85,7 +85,6 @@ export interface SurfaceFoldResult {
 interface SurfaceFoldState {
   nodes: SurfaceNode[]
   nodeBySeq: Map<number, SurfaceNode>
-  replacements: SurfaceFoldReplacement[]
   replaceGeneration: number
 }
 
@@ -94,13 +93,15 @@ function createFoldState(replaceGeneration = 0): SurfaceFoldState {
   return {
     nodes: [],
     nodeBySeq: new Map(),
-    replacements: [],
     replaceGeneration,
   }
 }
 
-/** Apply one event to a surface fold state. */
-function applySurfaceEvent(state: SurfaceFoldState, event: SessionEvent): void {
+/** Apply one event and return replacement metadata only when one occurred. */
+function applySurfaceEvent(
+  state: SurfaceFoldState,
+  event: SessionEvent,
+): SurfaceFoldReplacement | undefined {
   if (!isSurfaceEvent(event)) return
 
   if (event.surfaceOp === 'append') {
@@ -112,13 +113,12 @@ function applySurfaceEvent(state: SurfaceFoldState, event: SessionEvent): void {
     return
   }
 
-  const shadowedSeqs = replaceSurface(state, event.seq, event.surfaceOp)
-  state.replacements.push({
+  return {
     seq: event.seq,
     start: event.surfaceOp.start,
     end: event.surfaceOp.end,
-    shadowedSeqs,
-  })
+    shadowedSeqs: replaceSurface(state, event.seq, event.surfaceOp),
+  }
 }
 
 /** Apply one positional replacement and return the nodes it removed. */
@@ -170,13 +170,14 @@ function replaceSurface(
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
-  for (const event of events) applySurfaceEvent(state, event)
+  const replacements: SurfaceFoldReplacement[] = []
+  for (const event of events) {
+    const replacement = applySurfaceEvent(state, event)
+    if (replacement !== undefined) replacements.push(replacement)
+  }
   return {
     nodes: state.nodes.map(node => ({ ...node })),
-    replacements: state.replacements.map(replacement => ({
-      ...replacement,
-      shadowedSeqs: [...replacement.shadowedSeqs],
-    })),
+    replacements,
   }
 }
 

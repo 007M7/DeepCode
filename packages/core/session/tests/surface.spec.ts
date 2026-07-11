@@ -33,6 +33,19 @@ describe('SurfaceManager', () => {
     expect(foldSurface(s.events).replacements[0]!.shadowedSeqs).toEqual([0])
   })
 
+  it('does not retain fold-only replacement history in incremental state', () => {
+    const s = new Session(SessionId('incremental-state'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 } })
+
+    expect(s.surface.nodes).toEqual([{ seq: 1, prev: null, next: null }])
+    const manager = s.surface as unknown as { _state: object }
+    expect(Object.hasOwn(manager._state, 'replacements')).toBe(false)
+    expect(foldSurface(s.events).replacements).toEqual([
+      { seq: 1, start: 0, end: 0, shadowedSeqs: [0] },
+    ])
+  })
+
   it('foldSurface reports the same invalid replacement failures as the incremental manager', () => {
     const s = new Session(SessionId('shared-fold-invalid'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
