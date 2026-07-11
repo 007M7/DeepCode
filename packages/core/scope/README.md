@@ -15,6 +15,6 @@ Scoped-context registration primitive. `createScope(ctx, key)` mints a Cordis co
 
 ## Design contract
 
-Ownership and visibility derive from ONE fact — which context a registration went through. An explicit `{ scope }` registration parameter could express "visible to X, disposed with Y", which is almost always a bug; the scoped context makes it unrepresentable. Rationale and alternatives: the agent-scoped-registration RFC (`docs/rfc/implemented/architecture/2026-07-08-agent-scoped-registration.md`, landing with this change set).
+Ownership and visibility derive from ONE fact — which context a registration went through. An explicit `{ scope }` registration parameter could express "visible to X, disposed with Y", which is almost always a bug; the scoped context makes it unrepresentable. Rationale and alternatives: [the agent-scope RFC](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md).
 
 Handing out a scoped context hands out the minting plugin's service-resolution capability (resolution walks the minting fiber's dependency chain, not the holder's) — mint scopes from a plugin whose `inject` surface is what scope holders should reach.

@@ -23,10 +23,10 @@ Runs a child as a child [`Agent`](../../core/agent) on the same cordis context (
 
 `attachStructuredRuntime(childCtx, schema)` registers the run's whole enforcement surface as SCOPED registrations on the child's `agent.ctx` — riding the child's fiber (a backend hot-reload mid-run cannot unregister anything; a disposed child leaves no residue) and visible to that child alone (two concurrent structured runs never interact; no placeholder schema, no strip-for-everyone-else, no refcounted global state):
 
-- the `structured_output` capture tool with the run's REAL schema as its registered `parameters`, validating each call (`validateStructuredValue`) — violations become an `INVALID_ARGS` isError the model retries in-turn; a valid call STAGES the value keyed by its call id;
+- the `structured_output` capture tool with the run's REAL schema as its registered `parameters`, validating each call (`validateStructuredValue`) — violations become an `INVALID_ARGS` isError the model retries in-turn; a valid call STAGES the value in a `WeakMap` keyed by that call's `ToolExecution` object;
 - the calling instruction as an ordinary order-190 scoped prompt section (the demand travels with the tool, as prompt state of exactly one agent);
-- a scoped `system-prompt/assemble` re-assert (`prepend: true` = outermost): whatever downstream listeners mutate or replace, the child's assembly always carries its capture tool and instruction — the loop logs the rendered assembly as the step's `request/header`, so the demand is reconstructable log state;
-- a scoped `tools/post-execute` COMMIT (`prepend: true`): the staged value becomes the run's result only when the final decision accepts THE SAME CALL that staged it — call-keyed, so a stale stage orphaned by an outer short-circuiting listener is dropped, never promoted on a later call's acceptance;
+- a scoped `system-prompt/assemble` re-assert (`prepend: true`) that post-processes its downstream chain, replacing conflicting entries with the child's capture tool and instruction — the loop logs the rendered assembly as the step's `request/header`, so the demand is reconstructable log state;
+- a scoped `tools/post-execute` COMMIT (`prepend: true`): the staged value becomes the run's result when that same execution's downstream post-execute decision accepts it. Execution-object identity prevents an orphaned stage from matching a later call even when an adapter reuses the call id;
 - a scoped `tools/pre-execute` deny for any call arriving after the capture — terminal means terminal WITHIN the step;
 - a scoped `agent/turn-continuation` veto (`prepend: true`) stopping the child's turn once its output is captured, so a successful capture doesn't buy a wasted extra model step.
 

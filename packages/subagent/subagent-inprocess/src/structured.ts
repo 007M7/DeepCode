@@ -11,22 +11,21 @@
  * enforcement listeners fire only for this child (scope-filtered dispatch).
  * Registration lifetime rides the child's fiber, so a backend hot-reload
  * mid-run cannot unregister the capture tool out from under a live child, and
- * a disposed child leaves no residue — no placeholder schema, no
- * strip-for-everyone-else, no refcounted global runtime, no `WeakMap` state.
+ * a disposed child leaves no residue — no placeholder schema,
+ * strip-for-everyone-else pass, or refcounted global runtime.
  *
  * Four listeners enforce the contract:
  *
- * - `system-prompt/assemble` (prepend, scoped): FINAL-ASSEMBLY re-assert —
- *   whatever downstream listeners mutated or replaced, the child's assembly
- *   always carries its capture tool and the trailing instruction section. The
- *   registry already contributes both; this outermost wrapper preserves the
- *   guarantee against a (global) listener that strips or replaces the
- *   assembly — placement-preserving: tools are replaced in place, the section
- *   re-inserted at its ascending-order position, so the untampered path keeps
- *   the registry's ordering (identical output, up to intra-band section order
- *   — which carries no contract). The loop logs the rendered assembly as the
- *   request header, so the demand is reconstructable log state, never a
- *   wire-only mutation.
+ * - `system-prompt/assemble` (prepend, scoped): assembly re-assert — the
+ *   listener post-processes its downstream chain so a listener inside that
+ *   chain cannot leave the child's capture tool or instruction stripped or
+ *   replaced. Tools are replaced in place and the section is re-inserted at
+ *   its ascending-order position, so the untampered path keeps the registry's
+ *   ordering (up to intra-band section order, which carries no contract). A
+ *   listener prepended later can still wrap and transform this result; this is
+ *   an ordinary waterfall listener, not a service-level finalizer. The loop
+ *   logs the rendered assembly as the request header, so the demand is
+ *   reconstructable log state, never a wire-only mutation.
  * - `agent/turn-continuation` (prepend, scoped): stop the child's turn once
  *   its output is captured — the loop's default "had tool calls ⇒ continue"
  *   would buy a wasted extra model step per structured child.
@@ -36,8 +35,9 @@
  *   effects after the final answer was accepted.
  * - `tools/post-execute` (prepend, scoped): the capture COMMIT. The tool body
  *   only STAGES the validated value, KEYED BY THE EXECUTION OBJECT in a
- *   WeakMap; it becomes the run's captured result only when the final
- *   post-execute decision accepts THAT SAME pipeline trip. Execution-keyed
+ *   WeakMap; it becomes the run's captured result when this listener's
+ *   downstream post-execute decision accepts THAT SAME pipeline trip. A
+ *   later-prepended wrapper remains outside that decision. Execution-keyed
  *   staging makes the stale-stage class structurally impossible: a value
  *   orphaned by an outer short-circuiting listener (a post-execute block, or
  *   a pre-execute deny whose call never dispatched) can never match another
@@ -125,7 +125,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
       if (violations.length > 0) throw new ToolArgsError(violations)
       // Two-phase commit, KEYED BY THIS EXECUTION: the body only stages; the
       // post-execute listener promotes exactly this pipeline trip's entry
-      // when the final decision accepts it.
+      // when its downstream decision accepts it.
       staged.set(exec, { value: args })
       return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
     },
@@ -137,10 +137,12 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     text: STRUCTURED_OUTPUT_INSTRUCTION,
   })
 
-  // FINAL-ASSEMBLY re-assert (prepend = outermost): scoped dispatch means this
-  // fires only for the child's assemblies; `await next()` returns whatever the
-  // downstream chain (and any replacement assembly) produced, and the capture
-  // tool + instruction are re-asserted onto it if anything stripped them.
+  // PREPENDED assembly re-assert: scoped dispatch means this fires only for the
+  // child's assemblies; `await next()` returns whatever this listener's
+  // downstream chain produced, and the capture tool + instruction are
+  // re-asserted onto it if anything stripped them. A listener prepended later
+  // can still wrap and transform the returned assembly; this is not a
+  // service-level finalizer.
   childCtx.on('system-prompt/assemble', async function (
     this: unknown, _assembly: PromptAssembly, _context: AssembleContext, next: () => Promise<PromptAssembly>,
   ): Promise<PromptAssembly> {

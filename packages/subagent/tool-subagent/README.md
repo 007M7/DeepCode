@@ -14,7 +14,10 @@ The tool description and the `prompt` parameter description are DERIVED from the
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
 | `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
-| `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
+| `agentOptions` | Default per-child `{ model? }` applied to every spawned child. |
+| `persona` | Per-child persona that shadows the deployment persona; requires the provider's `persona` capability. |
+| `toolFilter` | Per-child `{ allow?, deny? }` restriction over global tools; requires the provider's `toolFilter` capability. |
+| `maxDepth` | Maximum delegation depth; requires the provider's `depthLimit` capability. |
 
 ## Lifecycle (synchronous collect)
 

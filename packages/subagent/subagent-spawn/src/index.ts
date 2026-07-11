@@ -9,10 +9,10 @@
  * ({@link startInProcessRun}); this backend just passes NO seed (a fresh
  * child). The fork backend is an independent peer over the same driver.
  *
- * Structured output (`outputSchema`) is supported via the driver's shared
- * structured runtime: the backend acquires it for its plugin lifetime (so the
- * capture tool and request-shaping listeners exist before any run), and each
- * structured run holds its own acquisition until it settles.
+ * Structured output (`outputSchema`) is supported through the driver's
+ * per-child scoped runtime: the child registers its real-schema capture tool,
+ * prompt instruction, and enforcement listeners inside the creation setup
+ * window, and its scope owns their lifetime.
  *
  * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default.
  *
@@ -25,11 +25,10 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
-// `tools` is deliberately NOT injected: the shared driver's structured runtime
-// (acquired per structured RUN, not at apply) gates its own capture-tool
-// registration on `tools` availability, so this backend's apply timing — and
-// with it the provider-mirroring delegation tool's position in the
-// model-visible tool list — stays what it was before structured output existed.
+// `tools` is deliberately NOT injected: the shared driver registers structured
+// output through the child's creation context, whose factory already requires
+// the tool service. Keeping it out of this backend's inject list preserves the
+// provider's independent apply timing.
 export const inject = ['subagents', 'agents']
 
 /** Config: the registry name to register the provider under. */
