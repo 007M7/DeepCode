@@ -40,7 +40,7 @@ import { SessionProviderCoordinator } from './provider.ts'
 import { eventRecords, traceEventLog, traceLineage } from './tracing.ts'
 
 export type * from './types.ts'
-export type { Config } from './config.ts'
+export type { Config, SessionQueryErrorCode } from './config.ts'
 export {
   SESSION_QUERY_DEFAULT_LIMIT,
   SESSION_QUERY_MAX_LIMIT,

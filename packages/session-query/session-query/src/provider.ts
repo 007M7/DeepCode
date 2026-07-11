@@ -8,12 +8,14 @@ import type {
   SessionEventRecord,
   SessionEventSearchHit,
   SessionEventSearchRequest,
+  SessionEventSearchSpec,
   SessionQueryExecContext,
   SessionRecord,
   SessionSearchHit,
   SessionSearchPage,
   SessionSearchProvider,
   SessionSearchRequest,
+  SessionSearchSpec,
 } from './types.ts'
 import type { Config } from './config.ts'
 import { SessionQueryError } from './config.ts'
@@ -27,9 +29,6 @@ interface ProviderState {
   fullSync: Promise<void> | undefined
   liveSync: Map<SessionId, Promise<void>>
 }
-
-type NormalizedSessionSearchRequest = SessionSearchRequest & { limit: number }
-type NormalizedEventSearchRequest = SessionEventSearchRequest & { limit: number }
 
 /** Coordinates one selected provider against live and persisted corpus layers. */
 export class SessionProviderCoordinator {
@@ -257,7 +256,7 @@ export class SessionProviderCoordinator {
     return single
   }
 
-  private _normalizeSessionSearch(request: SessionSearchRequest): NormalizedSessionSearchRequest {
+  private _normalizeSessionSearch(request: SessionSearchRequest): SessionSearchSpec {
     const query = this._queryText(request.query)
     const limit = this._limitValue(request.limit)
     filterSessionResults<SessionRecord>([], request.sessionFilters ?? [])
@@ -265,7 +264,7 @@ export class SessionProviderCoordinator {
     return { ...request, query, limit }
   }
 
-  private _normalizeEventSearch(request: SessionEventSearchRequest): NormalizedEventSearchRequest {
+  private _normalizeEventSearch(request: SessionEventSearchRequest): SessionEventSearchSpec {
     const query = this._queryText(request.query)
     const limit = this._limitValue(request.limit)
     filterEventResults<SessionEventRecord>([], request.filters ?? [])

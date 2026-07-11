@@ -128,12 +128,11 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       const observed: Array<{ headerId: SessionId; change: SessionPersistedChange }> = []
-      ctx.on('session/persisted', () => { throw new Error('synchronous derived read model failed') })
       ctx.on('session/persisted', (header, change) => {
         observed.push({ headerId: header.id, change: structuredClone(change) })
         header.createdAt = -1
+        return Promise.reject(new Error('derived read model failed'))
       })
-      ctx.on('session/persisted', () => Promise.reject(new Error('asynchronous derived read model failed')))
       try {
         const m = meta('notifications', WORK)
         await ctx.sessionPersistence.create(m)

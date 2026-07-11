@@ -102,6 +102,18 @@ export interface SessionEventSearchRequest extends SessionSearchPageRequest {
   filters?: readonly SessionEventResultFilter[]
 }
 
+/** Provider-facing cross-session search spec after service normalization. */
+export interface SessionSearchSpec extends SessionSearchRequest {
+  /** Required page size validated and defaulted by the query service. */
+  limit: number
+}
+
+/** Provider-facing event search spec after service normalization. */
+export interface SessionEventSearchSpec extends SessionEventSearchRequest {
+  /** Required page size validated and defaulted by the query service. */
+  limit: number
+}
+
 /** One lightweight event search hit with provider-produced evidence text. */
 export interface SessionEventSearchHit extends SessionEventRecord {
   /** Plain-text excerpt explaining the match. */
@@ -281,12 +293,12 @@ export interface SessionSearchProvider {
    * @param exec - optional cancellation context.
    * @returns one ranked session page.
    */
-  searchSessions(request: SessionSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>
+  searchSessions(request: SessionSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>
   /**
    * Search events within one logical session.
    * @param request - target session, query, filters, and pagination.
    * @param exec - optional cancellation context.
    * @returns one ranked event page.
    */
-  searchEvents(request: SessionEventSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>
+  searchEvents(request: SessionEventSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>
 }

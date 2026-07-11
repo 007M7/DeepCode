@@ -95,6 +95,20 @@ export interface SessionEventSearchRequest extends SessionSearchPageRequest {
 }
 ```
 
+The service resolves caller requests before crossing the provider seam, so provider implementations always receive a validated page limit.
+
+```ts type-equiv
+export interface SessionSearchSpec extends SessionSearchRequest {
+  limit: number
+}
+```
+
+```ts type-equiv
+export interface SessionEventSearchSpec extends SessionEventSearchRequest {
+  limit: number
+}
+```
+
 ```ts type-equiv
 export interface SessionEventSearchHit extends SessionEventRecord {
   snippet: string
@@ -113,6 +127,35 @@ export interface SessionSearchPage<T> {
   items: readonly T[]
   nextCursor?: string
 }
+```
+
+## Errors
+
+The service exposes a closed machine-routable error taxonomy; messages and causes provide detail but do not add codes.
+
+```ts type-equiv
+export type SessionQueryErrorCode =
+  | 'SESSION_QUERY_ABORTED'
+  | 'SESSION_QUERY_DUPLICATE_EXTRACTOR'
+  | 'SESSION_QUERY_DUPLICATE_PROVIDER'
+  | 'SESSION_QUERY_EVENT_NOT_FOUND'
+  | 'SESSION_QUERY_INDEX_FAILED'
+  | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_EXTRACTOR'
+  | 'SESSION_QUERY_INVALID_FILTER'
+  | 'SESSION_QUERY_INVALID_LIMIT'
+  | 'SESSION_QUERY_INVALID_LINEAGE'
+  | 'SESSION_QUERY_INVALID_QUERY'
+  | 'SESSION_QUERY_INVALID_SURFACE'
+  | 'SESSION_QUERY_INVALID_WINDOW'
+  | 'SESSION_QUERY_PERSISTENCE_FAILED'
+  | 'SESSION_QUERY_PROVIDER_AMBIGUOUS'
+  | 'SESSION_QUERY_PROVIDER_CONFIGURED_MISSING'
+  | 'SESSION_QUERY_PROVIDER_CONFIGURED_UNAVAILABLE'
+  | 'SESSION_QUERY_PROVIDER_ERROR'
+  | 'SESSION_QUERY_PROVIDER_UNAVAILABLE'
+  | 'SESSION_QUERY_SESSION_NOT_FOUND'
+  | 'SESSION_QUERY_SOURCE_CONFLICT'
 ```
 
 ## Event reads and traces
@@ -215,7 +258,7 @@ export interface SessionSearchProvider {
   removePersisted(sessionId: SessionId): Promise<void>
   replaceLive(snapshot: SessionIndexSnapshot): Promise<void>
   removeLive(sessionId: SessionId): Promise<void>
-  searchSessions(request: SessionSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>
-  searchEvents(request: SessionEventSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>
+  searchSessions(request: SessionSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>
+  searchEvents(request: SessionEventSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>
 }
 ```

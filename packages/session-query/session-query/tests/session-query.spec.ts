@@ -12,14 +12,15 @@ import SessionQueryService, {
 } from '@deepseek-ai/dsh-session-query'
 import type {
   SessionEventSearchHit,
-  SessionEventSearchRequest,
+  SessionEventSearchSpec,
   SessionIndexSnapshot,
+  SessionQueryErrorCode,
   SessionRecord,
   SessionSearchHit,
   SessionSearchPage,
   SessionSearchProvider,
   SessionSearchProviderStatus,
-  SessionSearchRequest,
+  SessionSearchSpec,
 } from '@deepseek-ai/dsh-session-query'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -98,8 +99,8 @@ class FakeProvider implements SessionSearchProvider {
   activeHistory: boolean[] = []
   removedPersisted: SessionIdType[] = []
   removedLive: SessionIdType[] = []
-  sessionRequests: SessionSearchRequest[] = []
-  eventRequests: SessionEventSearchRequest[] = []
+  sessionRequests: SessionSearchSpec[] = []
+  eventRequests: SessionEventSearchSpec[] = []
   failNextLive = false
   failNextPersisted = false
   failNextActive = false
@@ -162,12 +163,12 @@ class FakeProvider implements SessionSearchProvider {
     return Promise.resolve()
   }
 
-  searchSessions(request: SessionSearchRequest): Promise<SessionSearchPage<SessionSearchHit>> {
+  searchSessions(request: SessionSearchSpec): Promise<SessionSearchPage<SessionSearchHit>> {
     this.sessionRequests.push(structuredClone(request))
     return Promise.resolve(structuredClone(this.sessionPage))
   }
 
-  searchEvents(request: SessionEventSearchRequest): Promise<SessionSearchPage<SessionEventSearchHit>> {
+  searchEvents(request: SessionEventSearchSpec): Promise<SessionSearchPage<SessionEventSearchHit>> {
     this.eventRequests.push(structuredClone(request))
     return Promise.resolve(structuredClone(this.eventPage))
   }
@@ -180,7 +181,7 @@ async function liveContext(config: ConstructorParameters<typeof SessionQueryServ
   return ctx
 }
 
-function expectCode(code: string): Error {
+function expectCode(code: SessionQueryErrorCode): Error {
   return expect.objectContaining({ code }) as Error
 }
 
@@ -361,8 +362,8 @@ describe('logical corpus reads and traces', () => {
     TestPersistence.listFailure = undefined
     TestPersistence.loadFailure = new Error('load unavailable')
     await expect(ctx.sessionQuery.listEvents(persistedOnly.id)).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
-    TestPersistence.loadFailure = new SessionQueryError('typed load failure', 'SESSION_QUERY_TEST_FAILURE')
-    await expect(ctx.sessionQuery.listEvents(persistedOnly.id)).rejects.toThrow(expectCode('SESSION_QUERY_TEST_FAILURE'))
+    TestPersistence.loadFailure = new SessionQueryError('typed load failure', 'SESSION_QUERY_EVENT_NOT_FOUND')
+    await expect(ctx.sessionQuery.listEvents(persistedOnly.id)).rejects.toThrow(expectCode('SESSION_QUERY_EVENT_NOT_FOUND'))
 
     await persistenceFiber.dispose()
     TestPersistence.loadFailure = undefined
@@ -682,9 +683,11 @@ describe('semantic text extractors', () => {
     session.append('user/message', { content: [{ type: 'test/text', value: 'block note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const provider = new FakeProvider()
     ctx.sessionQuery.registerSearchProvider(provider)
+    let disposeEvent!: () => void
+    let disposeContent!: () => void
     const extractorFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v1', extract: event => [event.data.note] })
-      inner.sessionQuery.registerContentTextExtractor('test/text', { version: 'block-v1', extract: block => [block.value] })
+      disposeEvent = inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v1', extract: event => [event.data.note] })
+      disposeContent = inner.sessionQuery.registerContentTextExtractor('test/text', { version: 'block-v1', extract: block => [block.value] })
     }, { inject: ['sessionQuery'] }))
 
     await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
@@ -697,11 +700,13 @@ describe('semantic text extractors', () => {
     expect(() => ctx.sessionQuery.registerContentTextExtractor('test/text', { version: ' ', extract: () => [] }))
       .toThrow(expectCode('SESSION_QUERY_INVALID_EXTRACTOR'))
 
-    await extractorFiber.dispose()
+    disposeEvent()
+    disposeContent()
     await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
     const second = provider.live.get(session.id)
     expect(second?.documents).toEqual([])
     expect(second?.fingerprint).not.toBe(first?.fingerprint)
+    await extractorFiber.dispose()
 
     const replacementFiber = await ctx.plugin(Object.assign((inner: Context) => {
       inner.sessionQuery.registerEventTextExtractor('test/note', { version: 'event-v2', extract: event => [`replacement ${event.data.note}`] })
@@ -712,6 +717,8 @@ describe('semantic text extractors', () => {
     expect(third?.documents.map(document => document.text)).toEqual(['replacement event note', 'replacement block note'])
     expect(third?.fingerprint).not.toBe(second?.fingerprint)
     await replacementFiber.dispose()
+    await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
+    expect(provider.live.get(session.id)?.documents).toEqual([])
   })
 })
 
@@ -721,8 +728,8 @@ describe('configuration', () => {
     await ctx.plugin(SessionStore)
     await expect(ctx.plugin(SessionQueryService, { defaultLimit: 3, maxLimit: 2 }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
-    const error = new SessionQueryError('test', 'SESSION_QUERY_TEST')
-    expect(error).toMatchObject({ name: 'SessionQueryError', code: 'SESSION_QUERY_TEST' })
+    const error = new SessionQueryError('test', 'SESSION_QUERY_INVALID_CONFIG')
+    expect(error).toMatchObject({ name: 'SessionQueryError', code: 'SESSION_QUERY_INVALID_CONFIG' })
   })
 
   it('uses constructor defaults and removes the service on plugin disposal', async () => {

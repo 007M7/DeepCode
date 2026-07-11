@@ -738,6 +738,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventSearchRequest extends SessionSearchPageRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventResultFilter[];\n}',
   },
   {
+    name: 'SessionEventSearchSpec',
+    declaration: 'export interface SessionEventSearchSpec extends SessionEventSearchRequest {\n    limit: number;\n}',
+  },
+  {
     name: 'SessionEventSurface',
     declaration: 'export type SessionEventSurface = \'current\' | \'shadowed\' | \'log-only\';',
   },
@@ -819,7 +823,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSearchProvider',
-    declaration: 'export interface SessionSearchProvider {\n    readonly id: string;\n    status(): SessionSearchProviderStatus;\n    persistedInventory(): Promise<readonly SessionPersistedIndexEntry[]>;\n    setPersistedActive(active: boolean): Promise<void>;\n    replacePersisted(snapshot: SessionIndexSnapshot): Promise<void>;\n    removePersisted(sessionId: SessionId): Promise<void>;\n    replaceLive(snapshot: SessionIndexSnapshot): Promise<void>;\n    removeLive(sessionId: SessionId): Promise<void>;\n    searchSessions(request: SessionSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>;\n    searchEvents(request: SessionEventSearchRequest, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>;\n}',
+    declaration: 'export interface SessionSearchProvider {\n    readonly id: string;\n    status(): SessionSearchProviderStatus;\n    persistedInventory(): Promise<readonly SessionPersistedIndexEntry[]>;\n    setPersistedActive(active: boolean): Promise<void>;\n    replacePersisted(snapshot: SessionIndexSnapshot): Promise<void>;\n    removePersisted(sessionId: SessionId): Promise<void>;\n    replaceLive(snapshot: SessionIndexSnapshot): Promise<void>;\n    removeLive(sessionId: SessionId): Promise<void>;\n    searchSessions(request: SessionSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionSearchHit>>;\n    searchEvents(request: SessionEventSearchSpec, exec?: SessionQueryExecContext): Promise<SessionSearchPage<SessionEventSearchHit>>;\n}',
   },
   {
     name: 'SessionSearchProviderStatus',
@@ -828,6 +832,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSearchRequest',
     declaration: 'export interface SessionSearchRequest extends SessionSearchPageRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventResultFilter[];\n}',
+  },
+  {
+    name: 'SessionSearchSpec',
+    declaration: 'export interface SessionSearchSpec extends SessionSearchRequest {\n    limit: number;\n}',
   },
   {
     name: 'StreamChunk',

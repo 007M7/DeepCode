@@ -35,7 +35,7 @@ Keep this log exhaustive — every divergence from upstream must be listed.
 3. **All `tsconfig.json` files**: regenerated to extend the repo-root `tsconfig.base.json`, emit TypeScript intermediates to `lib/types`, and declare project references.
 4. **Vendored TypeScript source internal specifiers**: changed local relative imports/exports from upstream's specifier shape to explicit `.ts` specifiers so TypeScript rewrites emitted JS to `.js` while declarations keep explicit, NodeNext-safe `.ts` specifiers. This includes `loader/src/config/isolate.ts` using `declare module './entry.ts'`.
 5. **`schemastery/tsdown.config.ts` and `logger-console/tsdown.config.ts`**: ours, not upstream files — per-package build-shape overrides (dual ESM+CJS output; separate node/browser entries) for the repo-root tsdown build. They read the JS emitted under `lib/types` and then write the publish runtime entries under `lib/`. Like the regenerated tsconfigs, they are not part of the upstream sync surface.
-6. **`cordis/src/events.ts`**: `parallel()` captures each listener invocation in its own promise before awaiting the group. A synchronous throw therefore rejects the dispatch without preventing later parallel listeners from starting.
+6. **`cordis/src/events.ts`**: a `FIXME` documents the upstream `parallel()` bug where a synchronous listener throw aborts callback enumeration and starves later listeners; runtime behavior remains upstream-identical pending an upstream fix.
 
 ## Sync procedure
 

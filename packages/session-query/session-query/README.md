@@ -28,6 +28,12 @@ The service feeds providers two independent layers: a durable persisted base (`p
 
 Persisted snapshots carry a SHA-256 fingerprint over canonical header/events plus the versions of relevant extractors. Reconciliation still loads and hashes canonical logs, but a provider replacement occurs only for a new or changed fingerprint; stale durable inventory entries are removed only while persistence is active and authoritative.
 
+Providers receive resolved `SessionSearchSpec` and `SessionEventSearchSpec` values whose `limit` is required after service defaulting and validation. Public service callers use `SessionSearchRequest` and `SessionEventSearchRequest`, where `limit` remains optional.
+
+## Errors
+
+`SessionQueryError.code` is the closed `SessionQueryErrorCode` union: `SESSION_QUERY_ABORTED`, `SESSION_QUERY_DUPLICATE_EXTRACTOR`, `SESSION_QUERY_DUPLICATE_PROVIDER`, `SESSION_QUERY_EVENT_NOT_FOUND`, `SESSION_QUERY_INDEX_FAILED`, `SESSION_QUERY_INVALID_CONFIG`, `SESSION_QUERY_INVALID_EXTRACTOR`, `SESSION_QUERY_INVALID_FILTER`, `SESSION_QUERY_INVALID_LIMIT`, `SESSION_QUERY_INVALID_LINEAGE`, `SESSION_QUERY_INVALID_QUERY`, `SESSION_QUERY_INVALID_SURFACE`, `SESSION_QUERY_INVALID_WINDOW`, `SESSION_QUERY_PERSISTENCE_FAILED`, `SESSION_QUERY_PROVIDER_AMBIGUOUS`, `SESSION_QUERY_PROVIDER_CONFIGURED_MISSING`, `SESSION_QUERY_PROVIDER_CONFIGURED_UNAVAILABLE`, `SESSION_QUERY_PROVIDER_ERROR`, `SESSION_QUERY_PROVIDER_UNAVAILABLE`, `SESSION_QUERY_SESSION_NOT_FOUND`, and `SESSION_QUERY_SOURCE_CONFLICT`.
+
 ## Text extractors
 
 Core extraction indexes semantic message text and reasoning, tool names/arguments/results, blocked prompts, context and steering, todos, and error/status detail. Stream chunks, request headers, and structural-only events contribute no document. Unknown event and content-block types contribute no text until their owner registers a versioned extractor with `registerEventTextExtractor()` or `registerContentTextExtractor()`.
