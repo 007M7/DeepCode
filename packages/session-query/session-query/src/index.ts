@@ -78,13 +78,13 @@ export class SessionQueryService extends Service {
     if (defaultLimit > maxLimit) {
       throw new SessionQueryError('session-query: defaultLimit must be <= maxLimit', 'SESSION_QUERY_INVALID_CONFIG')
     }
-    this._extractors = new SessionTextExtractors(() => { this._providers.invalidateAll() })
-    this._providers = new SessionProviderCoordinator(ctx, {
+    this._extractors = new SessionTextExtractors()
+    this._providers = new SessionProviderCoordinator({
       ...config.searchProvider !== undefined ? { searchProvider: config.searchProvider } : {},
       defaultLimit,
       maxLimit,
     }, () => this._corpus, this._extractors)
-    this._corpus = new SessionCorpus(ctx, (active) => { this._providers.persistenceChanged(active) })
+    this._corpus = new SessionCorpus(ctx)
   }
 
   /**

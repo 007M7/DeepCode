@@ -26,13 +26,6 @@ interface ProviderState {
   active: boolean
   chain: Promise<void>
   liveIds: Set<SessionId>
-  fullSync: FullSync | undefined
-  liveSync: Map<SessionId, Promise<void>>
-}
-
-interface FullSync {
-  liveKey: string
-  promise: Promise<void>
 }
 
 /** Coordinates one selected provider against live and persisted corpus layers. */
@@ -43,7 +36,6 @@ export class SessionProviderCoordinator {
   private readonly _providers = new Map<string, ProviderState>()
 
   constructor(
-    private readonly _ctx: Context,
     config: Required<Pick<Config, 'defaultLimit' | 'maxLimit'>> & Pick<Config, 'searchProvider'>,
     private readonly _corpus: () => SessionCorpus,
     private readonly _extractors: SessionTextExtractors,
@@ -51,9 +43,6 @@ export class SessionProviderCoordinator {
     this._configuredProviderId = config.searchProvider
     this._defaultLimit = config.defaultLimit
     this._maxLimit = config.maxLimit
-    _ctx.on('session/created', (session) => { this.invalidateLive(session.id) })
-    _ctx.on('session/event', (session) => { this.invalidateLive(session.id) })
-    _ctx.on('session/removed', (header) => { this.invalidateLive(header.id) })
   }
 
   /**
@@ -71,14 +60,9 @@ export class SessionProviderCoordinator {
       active: true,
       chain: Promise.resolve(),
       liveIds: new Set(),
-      fullSync: undefined,
-      liveSync: new Map(),
     }
     const dispose = ctx.effect(function* (this: SessionProviderCoordinator) {
       this._providers.set(provider.id, state)
-      void this._enqueue(state, () => provider.setPersistedActive(false)).catch((error: unknown) => {
-        this._ctx.logger.warn(`session-query provider "${provider.id}" failed initial deactivation: ${String(error)}`)
-      })
       yield () => {
         state.active = false
         this._providers.delete(provider.id)
@@ -99,9 +83,12 @@ export class SessionProviderCoordinator {
   ): Promise<SessionSearchPage<SessionSearchHit>> {
     const state = this._resolveProvider()
     const normalized = this._normalizeSessionSearch(request)
-    await waitFor(this._syncAll(state), exec?.signal)
-    const result = await waitFor(state.provider.searchSessions(normalized, exec), exec?.signal)
-    return this._validateSearchPage(state, result, normalized.limit)
+    const work = this._runFullSearch(state, async () => {
+      if (exec?.signal?.aborted) throw aborted()
+      const result = await state.provider.searchSessions(normalized, exec)
+      return this._validateSearchPage(state, result, normalized.limit)
+    })
+    return waitFor(work, exec?.signal)
   }
 
   /**
@@ -116,87 +103,41 @@ export class SessionProviderCoordinator {
   ): Promise<SessionSearchPage<SessionEventSearchHit>> {
     const state = this._resolveProvider()
     const normalized = this._normalizeEventSearch(request)
+    const query = async (): Promise<SessionSearchPage<SessionEventSearchHit>> => {
+      if (exec?.signal?.aborted) throw aborted()
+      const result = await state.provider.searchEvents(normalized, exec)
+      return this._validateSearchPage(state, result, normalized.limit)
+    }
     const live = this._corpus().getLive(request.sessionId)
+    let work: Promise<SessionSearchPage<SessionEventSearchHit>>
     if (live !== undefined) {
-      await waitFor(this._syncLive(state, live), exec?.signal)
+      work = this._runLiveSearch(state, live, query)
     } else {
       const persistence = await this._corpus().persistenceView()
       if (persistence === undefined || !persistence.headers.some(header => header.id === request.sessionId)) {
         throw new SessionQueryError(`session "${request.sessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
       }
-      await waitFor(this._syncAll(state), exec?.signal)
+      work = this._runFullSearch(state, query)
     }
-    const result = await waitFor(state.provider.searchEvents(normalized, exec), exec?.signal)
-    return this._validateSearchPage(state, result, normalized.limit)
+    return waitFor(work, exec?.signal)
   }
 
-  /**
-   * Invalidate provider synchronization after one live source change.
-   * @param sessionId - changed live session.
-   */
-  invalidateLive(sessionId: SessionId): void {
-    for (const state of this._providers.values()) {
-      state.fullSync = undefined
-      state.liveSync.delete(sessionId)
-    }
-  }
-
-  /** Invalidate all source/extractor-derived provider snapshots. */
-  invalidateAll(): void {
-    for (const state of this._providers.values()) {
-      state.fullSync = undefined
-      state.liveSync.clear()
-    }
-  }
-
-  /**
-   * React to persistence mount, inventory change, or unmount.
-   * @param active - whether canonical persistence remains mounted.
-   */
-  persistenceChanged(active: boolean): void {
-    for (const state of this._providers.values()) state.fullSync = undefined
-    if (active) return
-    for (const state of this._providers.values()) {
-      void this._enqueue(state, () => state.provider.setPersistedActive(false)).catch((error: unknown) => {
-        this._ctx.logger.warn(`session-query provider "${state.provider.id}" failed persistence deactivation: ${String(error)}`)
+  private _runFullSearch<T>(state: ProviderState, query: () => Promise<T>): Promise<T> {
+    const liveSessions = this._corpus().listLive()
+    return this._serialize(state, async () => {
+      await this._synchronize(state, async () => {
+        /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
+        if (!state.active) return
+        const persistence = await this._corpus().persistenceView()
+        if (persistence === undefined) {
+          await state.provider.setPersistedActive(false)
+        } else {
+          await this._syncPersisted(state, persistence)
+        }
+        await this._replaceLiveCorpus(state, liveSessions)
       })
-    }
-  }
-
-  private _syncAll(state: ProviderState): Promise<void> {
-    // Capture the direct source before awaiting: only searches that observed
-    // the same live corpus may share an in-flight full synchronization.
-    let liveSessions: Session[]
-    let liveKey: string
-    try {
-      liveSessions = this._corpus().listLive()
-      liveKey = JSON.stringify(liveSessions.map(session => this._snapshotLive(session)).map(snapshot => [
-        snapshot.session.header.id,
-        snapshot.fingerprint,
-        snapshot.session.persisted,
-      ]))
-    } catch (error: unknown) {
-      return Promise.reject(this._synchronizationError(state, error))
-    }
-    if (state.fullSync?.liveKey === liveKey) return state.fullSync.promise
-    const promise = this._enqueue(state, async () => {
-      /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
-      if (!state.active) return
-      const persistence = await this._corpus().persistenceView()
-      if (persistence === undefined) {
-        await state.provider.setPersistedActive(false)
-      } else {
-        await this._syncPersisted(state, persistence)
-      }
-      await this._replaceLiveCorpus(state, liveSessions)
+      return query()
     })
-    const fullSync = { liveKey, promise }
-    state.fullSync = fullSync
-    void promise.finally(() => {
-      /* v8 ignore next -- a newer invalidation may already own the sync slot */
-      if (state.fullSync === fullSync) state.fullSync = undefined
-    }).catch(() => undefined)
-    return promise
   }
 
   private async _syncPersisted(state: ProviderState, persistence: PersistenceView): Promise<void> {
@@ -222,39 +163,42 @@ export class SessionProviderCoordinator {
     state.liveIds = liveIds
   }
 
-  private _syncLive(state: ProviderState, session: Session): Promise<void> {
-    const existing = state.liveSync.get(session.id)
-    if (existing !== undefined) return existing
+  private _runLiveSearch<T>(state: ProviderState, session: Session, query: () => Promise<T>): Promise<T> {
     let snapshot: ReturnType<SessionTextExtractors['buildSnapshot']>
     try {
       snapshot = this._snapshotLive(session)
     } catch (error: unknown) {
       return Promise.reject(this._synchronizationError(state, error))
     }
-    const promise = this._enqueue(state, async () => {
-      /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
-      if (!state.active) return
-      await state.provider.replaceLive(snapshot)
-      state.liveIds.add(session.id)
+    return this._serialize(state, async () => {
+      await this._synchronize(state, async () => {
+        /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
+        if (!state.active) return
+        await state.provider.replaceLive(snapshot)
+        state.liveIds.add(session.id)
+      })
+      return query()
     })
-    state.liveSync.set(session.id, promise)
-    void promise.finally(() => {
-      /* v8 ignore next -- a newer invalidation may already own the target slot */
-      if (state.liveSync.get(session.id) === promise) state.liveSync.delete(session.id)
-    }).catch(() => undefined)
-    return promise
   }
 
   private _snapshotLive(session: Session): ReturnType<SessionTextExtractors['buildSnapshot']> {
     return this._extractors.buildSnapshot(this._corpus().snapshotLive(session))
   }
 
-  private _enqueue(state: ProviderState, operation: () => Promise<void>): Promise<void> {
+  /** Serialize reconciliation and its provider query as one stable transaction. */
+  private _serialize<T>(state: ProviderState, operation: () => Promise<T>): Promise<T> {
     const next = state.chain.then(operation, operation)
     state.chain = next.then(() => undefined, () => undefined)
-    return next.catch((error: unknown) => {
+    return next
+  }
+
+  /** Translate only derived-index update failures, never provider query failures. */
+  private async _synchronize(state: ProviderState, operation: () => Promise<void>): Promise<void> {
+    try {
+      await operation()
+    } catch (error: unknown) {
       throw this._synchronizationError(state, error)
-    })
+    }
   }
 
   private _synchronizationError(state: ProviderState, error: unknown): SessionQueryError {

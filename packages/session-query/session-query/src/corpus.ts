@@ -36,10 +36,7 @@ export interface PersistenceView {
 export class SessionCorpus {
   private _persistence: PersistenceBinding | undefined
 
-  constructor(
-    private readonly _ctx: Context,
-    private readonly _onPersistenceChange: (active: boolean) => void,
-  ) {
+  constructor(private readonly _ctx: Context) {
     _ctx.effect(() => {
       const fiber = _ctx.inject(['sessionPersistence'], (childCtx: Context) => {
         this._attachPersistence(childCtx, childCtx.sessionPersistence)
@@ -145,7 +142,6 @@ export class SessionCorpus {
       refreshing: undefined,
     }
     this._persistence = binding
-    this._onPersistenceChange(true)
     void this._refreshPersistence(binding)
     ctx.on('session/persisted', (header) => {
       /* v8 ignore next -- a stale notification can race optional-service disposal */
@@ -154,7 +150,6 @@ export class SessionCorpus {
       const observation = { generation: ++binding.observationGeneration, header: snapshot }
       binding.headers.set(header.id, snapshot)
       binding.observations.set(header.id, observation)
-      this._onPersistenceChange(true)
     })
     ctx.effect(() => () => { this._detachPersistence(binding) }, 'sessionQuery.persistenceBinding')
   }
@@ -163,7 +158,6 @@ export class SessionCorpus {
     /* v8 ignore next -- duplicate optional-service disposal is a Cordis teardown edge */
     if (this._persistence?.token !== binding.token) return
     this._persistence = undefined
-    this._onPersistenceChange(false)
   }
 
   private _refreshPersistence(binding: PersistenceBinding): Promise<void> {
@@ -184,7 +178,6 @@ export class SessionCorpus {
       }
       binding.headers = nextHeaders
       binding.error = undefined
-      this._onPersistenceChange(true)
     }).catch((error: unknown) => {
       /* v8 ignore next -- a failed list can race optional-service disposal */
       if (this._persistence?.token !== binding.token) return

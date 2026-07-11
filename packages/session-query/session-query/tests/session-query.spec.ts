@@ -103,7 +103,6 @@ class FakeProvider implements SessionSearchProvider {
   eventRequests: SessionEventSearchSpec[] = []
   failNextLive = false
   failNextPersisted = false
-  failNextActive = false
   sessionPage: SessionSearchPage<SessionSearchHit>
   eventPage: SessionSearchPage<SessionEventSearchHit>
 
@@ -125,10 +124,6 @@ class FakeProvider implements SessionSearchProvider {
   }
 
   setPersistedActive(active: boolean): Promise<void> {
-    if (this.failNextActive) {
-      this.failNextActive = false
-      return Promise.reject(new Error('activation failed'))
-    }
     this.activeHistory.push(active)
     return Promise.resolve()
   }
@@ -409,7 +404,7 @@ describe('provider selection and synchronization', () => {
     await expect(ctx.sessionQuery.searchSessions({ query: 'x' })).rejects.toThrow(expectCode('SESSION_QUERY_PROVIDER_UNAVAILABLE'))
   })
 
-  it('coalesces concurrent synchronization and supports cancellation while provider search is pending', async () => {
+  it('serializes concurrent synchronization and supports cancellation while provider search is pending', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('coalesce'))
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -418,34 +413,40 @@ describe('provider selection and synchronization', () => {
 
     let releaseLive!: () => void
     const liveBarrier = new Promise<void>((resolve) => { releaseLive = resolve })
+    const liveStarted = deferred()
     let replacements = 0
     provider.replaceLive = async (snapshot) => {
       replacements += 1
+      liveStarted.resolve()
       await liveBarrier
       provider.live.set(snapshot.session.header.id, structuredClone(snapshot))
     }
     const first = ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
     const second = ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
-    await Promise.resolve()
+    await liveStarted.promise
+    expect(replacements).toBe(1)
     releaseLive()
     await Promise.all([first, second])
-    expect(replacements).toBe(1)
+    expect(replacements).toBe(2)
 
     session.append('user/message', { content: [{ type: 'text', text: 'y' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     let releaseCorpus!: () => void
     const corpusBarrier = new Promise<void>((resolve) => { releaseCorpus = resolve })
+    const corpusStarted = deferred()
     let corpusReplacements = 0
     provider.replaceLive = async (snapshot) => {
       corpusReplacements += 1
+      corpusStarted.resolve()
       await corpusBarrier
       provider.live.set(snapshot.session.header.id, structuredClone(snapshot))
     }
     const crossFirst = ctx.sessionQuery.searchSessions({ query: 'x' })
     const crossSecond = ctx.sessionQuery.searchSessions({ query: 'x' })
-    await Promise.resolve()
+    await corpusStarted.promise
+    expect(corpusReplacements).toBe(1)
     releaseCorpus()
     await Promise.all([crossFirst, crossSecond])
-    expect(corpusReplacements).toBe(1)
+    expect(corpusReplacements).toBe(2)
 
     let releaseSearch!: () => void
     const searchBarrier = new Promise<void>((resolve) => { releaseSearch = resolve })
@@ -465,6 +466,42 @@ describe('provider selection and synchronization', () => {
     provider.searchSessions = () => Promise.reject(new Error('search failed'))
     await expect(ctx.sessionQuery.searchSessions({ query: 'x' }, { signal: new AbortController().signal }))
       .rejects.toThrow('search failed')
+  })
+
+  it('holds a provider query stable until later reconciliation can begin', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('stable-query'))
+    session.append('user/message', { content: [{ type: 'text', text: 'stable' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const provider = new FakeProvider()
+    const queryStarted = deferred()
+    const releaseQuery = deferred()
+    provider.searchEvents = async () => {
+      queryStarted.resolve()
+      await releaseQuery.promise
+      return { providerId: provider.id, items: [] }
+    }
+    const reconciliationStarted = deferred()
+    let reconciling = false
+    provider.setPersistedActive = (active) => {
+      if (!active) {
+        reconciling = true
+        reconciliationStarted.resolve()
+      }
+      return Promise.resolve()
+    }
+    ctx.sessionQuery.registerSearchProvider(provider)
+
+    const eventSearch = ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'stable' })
+    await queryStarted.promise
+    const fullSearch = ctx.sessionQuery.searchSessions({ query: 'stable' })
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(reconciling).toBe(false)
+
+    releaseQuery.resolve()
+    await eventSearch
+    await reconciliationStarted.promise
+    expect(reconciling).toBe(true)
+    await fullSearch
   })
 
   it('reconciles a live removal observed while an older full sync is in flight', async () => {
@@ -563,7 +600,6 @@ describe('provider selection and synchronization', () => {
     live.append('user/message', { content: [{ type: 'text', text: 'override' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const persistenceFiber = await ctx.plugin(TestPersistence)
     const provider = new FakeProvider()
-    provider.failNextActive = true
     provider.persisted.set(SessionId('stale'), { session: { header: header('stale'), live: false, persisted: true }, fingerprint: 'stale', documents: [] })
     ctx.sessionQuery.registerSearchProvider(provider)
 
@@ -583,7 +619,6 @@ describe('provider selection and synchronization', () => {
     await ctx.sessionQuery.searchSessions({ query: 'x' })
     expect(provider.persisted.get(announced.id)?.documents[0]?.text).toBe('announced')
 
-    provider.failNextActive = true
     await persistenceFiber.dispose()
     await ctx.sessionQuery.searchSessions({ query: 'x' })
     expect(provider.activeHistory.at(-1)).toBe(false)
@@ -674,7 +709,7 @@ describe('provider selection and synchronization', () => {
     expect(provider.persisted.get(persisted.id)?.documents[0]?.text).toBe('retry')
   })
 
-  it('types synchronous extractor failures during full-search key construction', async () => {
+  it('types extractor failures during queued full synchronization', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('throwing-extractor'))
     session.append('test/note', { note: 'unreachable' })
@@ -714,7 +749,7 @@ describe('provider selection and synchronization', () => {
     const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
     process.on('unhandledRejection', onUnhandled)
     try {
-      await expect(ctx.sessionQuery.searchSessions({ query: 'x' }, { signal: controller.signal }))
+      await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' }, { signal: controller.signal }))
         .rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
       await new Promise<void>((resolve) => { setImmediate(resolve) })
       expect(unhandled).toEqual([])

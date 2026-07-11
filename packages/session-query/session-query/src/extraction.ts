@@ -37,7 +37,7 @@ export class SessionTextExtractors {
   private readonly _eventExtractors = new Map<SessionEventType, StoredEventExtractor>()
   private readonly _contentExtractors = new Map<ContentBlockType, StoredContentExtractor>()
 
-  constructor(private readonly _onChange: () => void) {
+  constructor() {
     this._installCoreExtractors()
   }
 
@@ -63,10 +63,8 @@ export class SessionTextExtractors {
     }
     const dispose = ctx.effect(function* (this: SessionTextExtractors) {
       this._eventExtractors.set(type, stored)
-      this._onChange()
       yield () => {
         this._eventExtractors.delete(type)
-        this._onChange()
       }
     }.bind(this), `sessionQuery.eventExtractor(${type})`)
     return () => void dispose()
@@ -94,10 +92,8 @@ export class SessionTextExtractors {
     }
     const dispose = ctx.effect(function* (this: SessionTextExtractors) {
       this._contentExtractors.set(type, stored)
-      this._onChange()
       yield () => {
         this._contentExtractors.delete(type)
-        this._onChange()
       }
     }.bind(this), `sessionQuery.contentExtractor(${type})`)
     return () => void dispose()
