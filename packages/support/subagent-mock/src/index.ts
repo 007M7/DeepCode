@@ -66,6 +66,9 @@ class MockSubagentProvider implements SubagentProvider {
 
     return {
       id,
+      // A scripted run has no asynchronous publication phase; it is ready as
+      // soon as the provider returns the handle.
+      started: Promise.resolve(),
       result: Promise.resolve().then(resultFor),
       cancel() {
         cancelled = true

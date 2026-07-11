@@ -34,6 +34,7 @@ class StubProvider implements SubagentProvider {
     this.startCount++
     return {
       id: AgentId(`child:${this.name}:${request.parent.id}`),
+      started: Promise.resolve(),
       result: Promise.resolve(this.result),
       cancel() {},
       async dispose() {},
@@ -106,7 +107,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider(provider)
 
     expect(ctx.subagents.list()).toEqual(['alpha'])
-    expect(ctx.subagents.getProvider('alpha')).toBe(provider)
+    expect(ctx.subagents.getProvider('alpha')).toMatchObject({ name: 'alpha' })
 
     const run = ctx.subagents.start('alpha', baseRequest())
     expect(provider.startCount).toBe(1)
@@ -160,6 +161,75 @@ describe('SubagentService', () => {
 
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])
+  })
+
+  it('snapshots a provider registration so caller mutation cannot corrupt dispatch or HMR cleanup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const capabilities: SubagentCapabilities = {
+      outputSchema: true,
+      depthLimit: true,
+      toolFilter: true,
+      persona: true,
+    }
+    const provider = new StubProvider('stable', capabilities)
+    const added: SubagentProvider[] = []
+    const removed: string[] = []
+    ctx.on('subagent/provider-added', registered => void added.push(registered))
+    ctx.on('subagent/provider-removed', name => void removed.push(name))
+    const owner = await ctx.plugin({
+      name: 'mutable-provider-owner',
+      inject: ['subagents'],
+      apply(pluginCtx: Context) {
+        pluginCtx.subagents.registerProvider(provider)
+      },
+    })
+    const accepted = ctx.subagents.getProvider('stable')
+
+    const mutable = provider as unknown as {
+      name: string
+      capabilities: SubagentCapabilities
+      inheritsParentContext: boolean
+      start: SubagentProvider['start']
+    }
+    mutable.name = 'mutated'
+    capabilities.outputSchema = false
+    capabilities.depthLimit = false
+    capabilities.toolFilter = false
+    capabilities.persona = false
+    mutable.capabilities = NO_CAPS
+    mutable.inheritsParentContext = true
+    const replacementStart = vi.fn((_request: SubagentStartRequest): SubagentRun => {
+      throw new Error('replacement start must not run')
+    })
+    mutable.start = replacementStart
+
+    expect(added).toEqual([accepted])
+    expect(accepted).not.toBe(provider)
+    expect(Object.isFrozen(accepted)).toBe(true)
+    expect(Object.isFrozen(accepted?.capabilities)).toBe(true)
+    expect(accepted).toMatchObject({
+      name: 'stable',
+      capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+      inheritsParentContext: false,
+    })
+    expect(ctx.subagents.list()).toEqual(['stable'])
+    expect(ctx.subagents.getProvider('mutated')).toBeUndefined()
+
+    const run = ctx.subagents.start('stable', baseRequest({
+      outputSchema: { type: 'object', properties: { answer: { type: 'string' } } },
+      maxDepth: 2,
+      toolFilter: { deny: ['bash'] },
+      persona: 'reviewer',
+    }))
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(provider.startCount).toBe(1)
+    expect(replacementStart).not.toHaveBeenCalled()
+
+    await owner.dispose()
+    expect(removed).toEqual(['stable'])
+    expect(ctx.subagents.list()).toEqual([])
+    expect(() => ctx.subagents.registerProvider(new StubProvider('stable'))).not.toThrow()
   })
 
   it('re-registers a name after its prior registration is disposed (not wedged)', async () => {
@@ -220,12 +290,74 @@ describe('SubagentService', () => {
     ctx.on('subagent/end', ended)
 
     const run = ctx.subagents.start('events', baseRequest())
+    await run.started
     expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id }))
 
     await run.result
     // `subagent/end` fires from a `.then` on the result — let the microtask run.
     await Promise.resolve()
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
+  })
+
+  it('waits for provider readiness and observes an early result rejection without reordering lifecycle', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const readiness = Promise.withResolvers<undefined>()
+    ctx.subagents.registerProvider({
+      name: 'delayed-start',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('delayed-child'),
+        started: readiness.promise,
+        // Already rejected: SubagentService must attach its result handler in
+        // the same synchronous start() call, before awaiting readiness.
+        result: Promise.reject(new Error('early infrastructure fault')),
+        cancel() {},
+        async dispose() {},
+      }),
+    })
+    const lifecycle: string[] = []
+    ctx.on('subagent/start', () => void lifecycle.push('start'))
+    ctx.on('subagent/end', info => void lifecycle.push(`end:${info.stopReason}`))
+
+    const run = ctx.subagents.start('delayed-start', baseRequest())
+    await expect(run.result).rejects.toThrow('early infrastructure fault')
+    expect(lifecycle).toEqual([])
+
+    readiness.resolve(undefined)
+    await run.started
+    expect(lifecycle).toEqual(['start', 'end:error'])
+  })
+
+  it('emits no lifecycle pair when readiness rejects before a child exists', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const readiness = Promise.withResolvers<undefined>()
+    const result = Promise.withResolvers<SubagentResult>()
+    ctx.subagents.registerProvider({
+      name: 'never-started',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('never-started-child'),
+        started: readiness.promise,
+        result: result.promise,
+        cancel() {},
+        async dispose() {},
+      }),
+    })
+    const lifecycle = vi.fn()
+    ctx.on('subagent/start', lifecycle)
+    ctx.on('subagent/end', lifecycle)
+
+    const run = ctx.subagents.start('never-started', baseRequest())
+    readiness.reject(new Error('publication rolled back'))
+    await expect(run.started).rejects.toThrow('publication rolled back')
+    result.resolve({ output: [], stopReason: 'aborted' })
+    await run.result
+    await Promise.resolve()
+    expect(lifecycle).not.toHaveBeenCalled()
   })
 
   it('pins start and end to the parent accepted at start despite caller mutation', async () => {
@@ -241,6 +373,7 @@ describe('SubagentService', () => {
         acceptedRequest = accepted
         return {
           id: AgentId('deferred-child'),
+          started: Promise.resolve(),
           result: gate.promise,
           cancel() {},
           async dispose() {},
@@ -282,6 +415,7 @@ describe('SubagentService', () => {
     ctx.on('subagent/end', ended)
 
     const run = ctx.subagents.start('enriched', baseRequest())
+    await run.started
     expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'enriched', id: run.id }))
 
     await run.result
@@ -331,6 +465,7 @@ describe('SubagentService', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
+        started: Promise.resolve(),
         result: Promise.reject(new Error('infra fault')),
         cancel() {},
         dispose: async () => {},
@@ -365,6 +500,7 @@ describe('SubagentService', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('unclone-child'),
+        started: Promise.resolve(),
         result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
         cancel() {},
         dispose: async () => {},
@@ -395,6 +531,7 @@ describe('SubagentService', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
+        started: Promise.resolve(),
         result: Promise.reject(new Error('infra fault')),
         cancel() {},
         dispose: async () => {},
@@ -424,6 +561,7 @@ describe('SubagentService', () => {
 
     const run = ctx.subagents.start('contain', baseRequest())
     expect(run.id).toBeDefined()
+    await run.started
     expect(second).toHaveBeenCalledWith(expect.objectContaining({ provider: 'contain', id: run.id }))
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
   })

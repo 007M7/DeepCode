@@ -55,6 +55,25 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
+  it('emits subagent/start only after the fresh child is published', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    let childAtStart: ReturnType<typeof ctx.agents.get>
+    ctx.on('subagent/start', (info) => {
+      if (info.provider === 'spawn') childAtStart = ctx.agents.get(info.id)
+    })
+
+    const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'do X' }], parent })
+    // Creation is asynchronous; no lifecycle claim is made while the child is
+    // still inside its unpublished setup transaction.
+    expect(childAtStart).toBeUndefined()
+    await run.started
+    expect(childAtStart).toBe(ctx.agents.get(run.id))
+    expect(childAtStart?.id).toBe(run.id)
+
+    await run.result
+    await run.dispose()
+  })
+
   it('gives the child its OWN session (not the parent\'s), with parentSession lineage', async () => {
     const { ctx, parent } = await setup([textResponse('hi')])
     const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })

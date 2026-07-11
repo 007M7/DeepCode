@@ -31,8 +31,12 @@ export interface PreparedReactLoopAgent {
   agent: ReactLoopAgent
   /** Open its driving verbs at the rollback-covered publication boundary. */
   enableDrive(): void
-  /** Start its driver after publication and session-start notification. */
-  startDriver(): () => void
+  /**
+   * Start its driver after publication and session-start notification.
+   * The returned disposer reaches quiescence for both the loop and every
+   * fire-and-forget idle-injection flush the agent started.
+   */
+  startDriver(): () => Promise<void>
 }
 
 /**
@@ -126,6 +130,12 @@ export class ReactLoopAgent implements Agent {
    * the `disposed` transition fires and leave the promise hanging.
    */
   private idleWaiters: (() => void)[] = []
+  /**
+   * Durability checkpoints started by idle {@link inject} calls. `inject()` is
+   * synchronous, so it cannot await them itself; the driver disposer drains
+   * this set before the lifecycle unregisters the agent or detaches its session.
+   */
+  private pendingIdleFlushes = new Set<Promise<void>>()
 
   constructor(
     private loopCtx: Context,
@@ -249,14 +259,16 @@ export class ReactLoopAgent implements Agent {
       // will flush this turn. Fire-and-forget with error containment: inject()
       // is synchronous, and a persistence backend failing must not throw into
       // the caller (e.g. a tool-bash task-done callback). Disposal still drains
-      // independently, so a slow flush is safe. A flush failure is reported via
-      // agent/error (step 0 — the idle-injection convention, there is no real
-      // step) AND the logger, mirroring the loop's post-turn/end flush path so
-      // plugins monitoring agent/error see idle-injection persistence failures
-      // too. A throwing agent/error listener is contained.
+      // independently, so a slow flush is safe. The task is tracked until it
+      // settles: driver disposal awaits every pending idle-injection checkpoint
+      // before unregistering the agent or detaching the session. A flush failure
+      // is reported via agent/error (step 0 — the idle-injection convention,
+      // there is no real step) AND the logger, mirroring the loop's post-turn/end
+      // flush path so plugins monitoring agent/error see idle-injection
+      // persistence failures too. A throwing agent/error listener is contained.
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
-        void this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
+        const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
           const err = error instanceof Error ? error : new Error(String(error))
           this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
           try {
@@ -266,6 +278,13 @@ export class ReactLoopAgent implements Agent {
             // listener must not escape this fire-and-forget catch.
           }
         })
+        this.pendingIdleFlushes.add(flush)
+        // Attach the same retirement callback to both settlement arms so even a
+        // logger failure in the catch above cannot become an unhandled rejection.
+        // Teardown uses allSettled for the same reason: a reporting failure must
+        // not strand ownership.
+        const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
+        void flush.then(retire, retire)
       }
     }
   }
@@ -310,8 +329,8 @@ export class ReactLoopAgent implements Agent {
    * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
    * actually exit). Implements the {@link Agent.whenIdle} contract: a non-owner
    * quiescence-observation hook, distinct from teardown (a lifecycle owner stops
-   * and unregisters via `AgentHandle.dispose()`, which awaits {@link done}
-   * directly, not through this).
+   * and unregisters via `AgentHandle.dispose()`, whose driver boundary awaits
+   * both {@link done} and outstanding idle-injection flushes, not through this).
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
@@ -334,12 +353,14 @@ export class ReactLoopAgent implements Agent {
    * Start the driver loop. Returns a disposer: calling it sets status to
    * `disposed`, emits `agent/status('disposed')`, resolves the disposed
    * promise (unblocking the idle wait), releases any `whenIdle` waiters, and
-   * aborts the current request if any. The returned `agent.done` promise
-   * resolves once the loop exits.
-   * @returns the disposer — idempotent and infallible (it runs inside the
-   *   fiber's LIFO disposal chain, where a throw would skip later disposers).
+   * aborts the current request if any. Its returned promise resolves only after
+   * the loop exits and every idle-injection flush started by this agent settles.
+   * @returns the disposer — idempotent, synchronously marks the agent disposed,
+   *   and asynchronously reaches loop + flush quiescence without rejecting (it
+   *   runs inside the fiber's LIFO disposal chain, where a rejection would skip
+   *   later disposers).
    */
-  [startDriver](): () => void {
+  [startDriver](): () => Promise<void> {
     this.done = runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
@@ -360,22 +381,35 @@ export class ReactLoopAgent implements Agent {
     // The disposer must be infallible: it runs inside the fiber's LIFO
     // disposal chain, where a throw would skip later disposers (e.g. the
     // registry unregistration) and leave `done` pending forever.
-    return () => {
-      if (this._status === 'disposed') return
-      this._status = 'disposed'
-      this.resolveDisposed()
-      // Release whenIdle waiters BEFORE the (guarded) event emit — they are
-      // internal state that must settle even if a listener throws below. Each
-      // waiter chains `done`, so it resolves only once the loop actually exits.
-      this.settleIdleWaiters()
-      this.currentAbort?.abort('disposed')
-      // setStatus refuses transitions out of 'disposed', so emit directly —
-      // 'disposed' is part of the agent/status contract. Guarded: a throwing
-      // listener must not break the disposal chain.
-      try {
-        this.loopCtx.emit(this.carrier, 'agent/status', this, 'disposed')
-      } catch {
-        // listener error during disposal — nothing safe left to do with it
+    return async () => {
+      if (this._status !== 'disposed') {
+        this._status = 'disposed'
+        this.resolveDisposed()
+        // Release whenIdle waiters BEFORE the (guarded) event emit — they are
+        // internal state that must settle even if a listener throws below. Each
+        // waiter chains `done`, so it resolves only once the loop actually exits.
+        this.settleIdleWaiters()
+        this.currentAbort?.abort('disposed')
+        // setStatus refuses transitions out of 'disposed', so emit directly —
+        // 'disposed' is part of the agent/status contract. Guarded: a throwing
+        // listener must not break the disposal chain.
+        try {
+          this.loopCtx.emit(this.carrier, 'agent/status', this, 'disposed')
+        } catch {
+          // listener error during disposal — nothing safe left to do with it
+        }
+      }
+      // An unexpected driver rejection must not skip registry/session/scope
+      // cleanup. The normal loop contains turn failures itself; allSettled is the
+      // final lifecycle backstop for anything outside those boundaries.
+      await Promise.allSettled([this.done])
+      // No new inject() can start after the synchronous disposed transition.
+      // Loop because settled tasks retire themselves in promise reactions that
+      // may run beside this continuation; either the set is empty or this waits
+      // the exact remaining quiescence boundary. allSettled keeps a failure in
+      // error reporting from skipping the registry/session/scope disposers.
+      while (this.pendingIdleFlushes.size > 0) {
+        await Promise.allSettled([...this.pendingIdleFlushes])
       }
     }
   }

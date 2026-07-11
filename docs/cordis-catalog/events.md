@@ -23,7 +23,7 @@ An agent's fully composed scoped world was published in the AgentRegistry. Its s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:300`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was removed from the registry after its driver and any in-flight turn r
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:312`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:314`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:585`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:587`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:417`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:419`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:435`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:437`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:342`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:464`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:466`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:516`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:518`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -125,7 +125,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:362`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:326`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:328`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:531`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:533`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:549`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:551`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -173,13 +173,13 @@ Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` wat
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:568`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:570`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
 ### `approval/request` — waterfall
 
-Waterfall asking the composed answerers to decide one approval request. Dispatched only from ApprovalService.request — callers go through the service (which owns cancellation and the audit events), never through `ctx.waterfall` directly. A listener that can answer for this request's agent returns an outcome WITHOUT calling `next()` (the decision slot is single-occupancy, first listener to answer wins); a listener that does not recognize the agent MUST call `next()` so another answerer — or the fail-closed default `'unavailable'` — gets the question. Throwing is contained by the service and yields `'unavailable'`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a listener registered through `agent.ctx` receives only that agent's questions, while a plain-context listener receives every agent's.
+Waterfall asking the composed answerers to decide one approval request. Dispatched only from ApprovalService.request — callers go through the service (which owns cancellation and the audit events), never through `ctx.waterfall` directly. A listener that can answer for this request's agent returns an outcome WITHOUT calling `next()` (the decision slot is single-occupancy, first listener to answer wins); a listener that does not recognize the agent MUST call `next()` so another answerer — or the fail-closed default `'unavailable'` — gets the question. Throwing is contained by the service and yields `'unavailable'`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a listener registered through `agent.ctx` receives only that agent's questions, while a plain-context listener receives every agent's. `req` is the service's shallow-frozen acceptance snapshot: later caller mutation cannot redirect the question, while the `agent` and `signal` identity capabilities remain exact.
 
 ```ts cordis-catalog
 'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
@@ -187,7 +187,7 @@ Waterfall asking the composed answerers to decide one approval request. Dispatch
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:69`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:72`](../../packages/ui/user-approval/src/index.ts)
 
 ## `fs/*`
 
@@ -301,13 +301,13 @@ Source: [`packages/skill/skill/src/index.ts:136`](../../packages/skill/skill/src
 
 ### `subagent/end` — emit
 
-A subagent run settled — emitted when SubagentRun.result resolves (any stop reason). Paired with Events['subagent/start']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
+A started subagent run settled — emitted when SubagentRun.result resolves (any stop reason) or rejects (reported as `error`). Paired with Events['subagent/start']; a run whose readiness rejected emits neither event. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
 
 ```ts cordis-catalog
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:109`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -331,13 +331,13 @@ Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/s
 
 ### `subagent/start` — emit
 
-A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins. Paired with Events['subagent/end']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
+A subagent run started — emitted only after SubagentRun.started fulfills, when the provider has established a live child. For an in-process provider, `ctx.agents.get(info.id)` is therefore guaranteed to resolve during this notification. A readiness rejection emits neither lifecycle event; every emitted start is paired with Events['subagent/end']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
 
 ```ts cordis-catalog
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:98`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:101`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

@@ -196,9 +196,15 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   // return an inert run that settled `aborted`, rather than launching the
   // configured binary just to tear it down. `dispose`/`cancel` are no-ops.
   if (request.signal?.aborted) {
+    const started = Promise.reject(new Error('subagent request was aborted before the ACP child started'))
+    // The result is derived from the same boundary so the readiness rejection
+    // is observed even when this provider is driven directly rather than
+    // through SubagentService.
+    const result: Promise<SubagentResult> = started.catch(() => ({ output: [], stopReason: 'aborted' }))
     return {
       id,
-      result: Promise.resolve({ output: [], stopReason: 'aborted' }),
+      started,
+      result,
       cancel(_reason?: string): void { /* nothing was started */ },
       dispose(): Promise<void> { return Promise.resolve() },
     }
@@ -289,54 +295,70 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   const onAbort = (): void => { requestCancel() }
   request.signal?.addEventListener('abort', onAbort, { once: true })
 
+  // The accumulated child text as harness ContentBlocks (empty array when the
+  // child streamed nothing). Read at every return so a partial answer survives
+  // a later cancel/error.
+  const collectOutput = (): ContentBlock[] => {
+    const text = output.join('')
+    return text.length > 0 ? [{ type: 'text', text }] : []
+  }
+
+  // A provider is "started" only once the remote child has completed ACP
+  // initialization and published a session. SubagentService gates its
+  // `subagent/start` notification on this boundary, just as the in-process
+  // provider gates it on local Agent publication. Failure or cancellation
+  // before this point rejects readiness and therefore produces no paired
+  // lifecycle events for a child that never became live.
+  const started: Promise<void> = Promise.race([
+    (async (): Promise<void> => {
+      await conn.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        // Advertise NO optional client capabilities (no fs, no terminal): the
+        // child self-serves in its own process.
+        clientCapabilities: {},
+      })
+      const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
+      sessionId = session.sessionId
+      if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
+    })(),
+    spawnFailed.then((err): never => { throw err }),
+    cancelSettled.then((): never => { throw new Error('subagent cancelled before the ACP session started') }),
+  ])
+
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
-    // The accumulated child text as harness ContentBlocks (empty array when the
-    // child streamed nothing). Read at every return so a partial answer survives
-    // a later cancel/error.
-    const collectOutput = (): ContentBlock[] => {
-      const text = output.join('')
-      return text.length > 0 ? [{ type: 'text', text }] : []
-    }
     try {
-      // Race three outcomes, first to settle wins:
-      //  - driveAcp: the normal initialize → newSession → prompt path;
-      //  - spawnFailed: a bad command never speaks ACP, so `initialize` would
-      //    hang forever — the spawn `error` event is the only signal, and a
-      //    rejected race settles the run `error` via the catch;
+      // Readiness is the initialize → newSession phase above. Awaiting the SAME
+      // promise immediately observes its rejection even without the service,
+      // and guarantees the prompt phase never starts before the provider can
+      // truthfully announce a live child.
+      await started
+
+      // Race two post-start outcomes, first to settle wins:
+      //  - prompt: the normal remote turn;
       //  - cancelSettled: a cancel was requested — settle `aborted` immediately
       //    rather than waiting on a child that may ignore `session/cancel` or
       //    wedge the prompt (the `cancel()` contract: `result` settles `aborted`).
-      const driveAcp = async (): Promise<SubagentResult> => {
-        await conn.initialize({
-          protocolVersion: PROTOCOL_VERSION,
-          // Advertise NO optional client capabilities (no fs, no terminal): the
-          // child self-serves in its own process.
-          clientCapabilities: {},
-        })
-        const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-        sessionId = session.sessionId
-        // A cancel that raced ahead of `newSession` set `cancelled` but could not
-        // send `session/cancel` (no session id yet). Honor it here: settle
-        // `aborted` without ever issuing the prompt, rather than running the child
-        // to completion and ignoring the cancel.
-        if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
-        const promptResult = await conn.prompt({ sessionId, prompt: toAcpPrompt(request.prompt) })
+      // A spawn error can only precede readiness and is already one arm of
+      // `started`; after `newSession` succeeds, transport/process failure rejects
+      // the in-flight prompt RPC through the connection.
+      const prompt = async (): Promise<SubagentResult> => {
+        // `started` cannot fulfill without assigning the session id; the cast
+        // records that local invariant without an unreachable defensive arm.
+        const promptResult = await conn.prompt({ sessionId: sessionId as string, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
       return await Promise.race([
-        driveAcp(),
-        spawnFailed.then((err): SubagentResult => { throw err }),
+        prompt(),
         cancelSettled.then((): SubagentResult => ({ output: collectOutput(), stopReason: 'aborted' })),
       ])
     } catch (error: unknown) {
+      if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
       // The seam contract: result resolves (never rejects) on a child-level
-      // failure. Cancellation is handled by the `cancelSettled` race arm above
-      // (it settles `aborted` the instant cancel is requested, beating any
-      // rejection), so a rejection that reaches HERE is always a genuine
-      // child-level error — the awaited ACP RPCs or the spawn-failure race
-      // (initialize/newSession/prompt transport/RPC errors, or ENOENT), not a
-      // local bug. Flatten to `error` and surface the original via onError so a
-      // real fault is preserved rather than silently lost.
+      // failure. A cancellation is recognized by the flag above even when it
+      // wins during readiness; every other rejection is a genuine child-level
+      // error — initialize/newSession/prompt transport/RPC failure or ENOENT.
+      // Flatten to `error` and surface the original via onError so a real fault
+      // is preserved rather than silently lost.
       try {
         spec.onError?.(toError(error), 'error')
       } catch {
@@ -350,6 +372,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
 
   return {
     id,
+    started,
     result,
     cancel(_reason?: string): void {
       requestCancel()

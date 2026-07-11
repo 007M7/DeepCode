@@ -142,8 +142,16 @@ export interface SubagentResult {
  * presence of the method IS the capability — narrow before calling.
  */
 export interface SubagentRun {
-  /** The child agent's id (use `ctx.agents.get(id)` to reach the live child). */
+  /** The child agent's id (local in-process runs publish it in `ctx.agents`; remote transports need not). */
   readonly id: AgentId
+  /**
+   * The provider's publication/readiness boundary. Resolves only after a real
+   * child is established: an in-process agent is live in `ctx.agents`, or a
+   * remote transport has created its child session. Rejects when the attempt
+   * fails or is cancelled before that boundary. The service emits the paired
+   * `subagent/start`/`subagent/end` lifecycle only after this fulfills.
+   */
+  readonly started: Promise<void>
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport
@@ -176,7 +184,9 @@ export interface SubagentRun {
  * A subagent backend: one transport for running a child agent (in-process
  * spawn/fork, ACP to another process, …). Implementations register under a
  * unique name via {@link SubagentService.registerProvider}; multiple providers
- * coexist in one context (unlike the single-implementation bash seam).
+ * coexist in one context (unlike the single-implementation bash seam). The
+ * service freezes the public descriptor and callback identity at registration;
+ * the captured `start` remains bound to the original provider receiver.
  */
 export interface SubagentProvider {
   /** Unique registry name (e.g. `spawn`, `fork`, `acp`). */
@@ -194,9 +204,12 @@ export interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Start a child run. The service has already validated that every requested
-   * start-time capability is supported, so an implementation may assume e.g.
-   * `request.maxDepth` is honorable when present.
+   * Start preparing a child run and return its handle synchronously. The
+   * service has already validated that every requested start-time capability
+   * is supported, so an implementation may assume e.g. `request.maxDepth` is
+   * honorable when present. The returned {@link SubagentRun.started} must mark
+   * the real publication/readiness boundary; the result path must observe that
+   * promise immediately so a pre-start rejection cannot become unhandled.
    */
   start(request: SubagentStartRequest): SubagentRun
 }

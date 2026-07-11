@@ -63,7 +63,10 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a
      * listener registered through `agent.ctx` receives only that agent's
      * questions, while a plain-context listener receives every agent's.
-     * @param req - the pending decision (agent, tool identity, reason, signal).
+     * `req` is the service's shallow-frozen acceptance snapshot: later caller
+     * mutation cannot redirect the question, while the `agent` and `signal`
+     * identity capabilities remain exact.
+     * @param req - the accepted decision (agent, tool identity, reason, signal).
      * @mode waterfall
      */
     'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
@@ -234,7 +237,9 @@ export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): voi
  * for an answerer to present it and for the audit events to reconstruct what
  * was asked — it deliberately does NOT carry tool arguments: a UI answerer
  * attaches the prompt to the already-streamed tool call via `callId` instead
- * of re-rendering the call.
+ * of re-rendering the call. `request()` synchronously copies and shallow-freezes
+ * this record before crossing an asynchronous boundary. Scalar fields are
+ * detached; the `agent` and `signal` identity capabilities are preserved.
  */
 export interface ApprovalRequest {
   /**
@@ -364,14 +369,36 @@ export class ApprovalService extends Service {
    * Within that precondition it always resolves to an outcome, never rejects:
    * an aborted signal yields `'cancelled'`, a missing or throwing answerer
    * yields `'unavailable'` (fail closed), and a rogue non-vocabulary return
-   * value is normalized to `'unavailable'`. Appends the
+   * value is normalized to `'unavailable'`. The caller-owned request is
+   * synchronously snapshotted, so later mutation cannot split routing,
+   * dispatch payload, cancellation, or the audit pair across agents/sessions.
+   * Appends the
    * `approval/asked`/`approval/decided` audit pair (log-only) around the
-   * decision regardless of outcome.
+   * decision regardless of outcome. A synchronous session observer failure
+   * after an audit event entered the append-only log is contained; the event
+   * is already authoritative, so the pair still completes and the request
+   * still resolves.
    * @param req - the pending decision (agent, tool identity, reason, signal).
    * @returns the closed outcome; `'allowed-once'` is the only grant.
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
-    if (!hasOpenTurn(req.agent.session.events)) {
+    // Accept one immutable request shape before the first async boundary. The
+    // caller retains its record and may mutate it as soon as this async method
+    // returns; identity capabilities stay live, but the record is never reread.
+    const agent = req.agent
+    const toolName = req.toolName
+    const callId = req.callId
+    const reason = req.reason
+    const signal = req.signal
+    const accepted: Readonly<ApprovalRequest> = Object.freeze({
+      agent,
+      toolName,
+      ...callId !== undefined ? { callId } : {},
+      ...reason !== undefined ? { reason } : {},
+      ...signal !== undefined ? { signal } : {},
+    })
+    const session = accepted.agent.session
+    if (!hasOpenTurn(session.events)) {
       throw new Error(
         'approval.request() outside an open turn: the approval/asked + approval/decided audit pair '
         + 'must be turn-enclosed (a bare event between turns is crash-tail garbage on reload). '
@@ -379,15 +406,45 @@ export class ApprovalService extends Service {
       )
     }
     const id = ApprovalRequestId(randomUUID())
-    req.agent.session.append('approval/asked', {
-      id,
-      toolName: req.toolName,
-      ...req.callId !== undefined ? { callId: req.callId } : {},
-      ...req.reason !== undefined ? { reason: req.reason } : {},
+    this.appendAudit(session, 'approval/asked', id, () => {
+      session.append('approval/asked', {
+        id,
+        toolName: accepted.toolName,
+        ...accepted.callId !== undefined ? { callId: accepted.callId } : {},
+        ...accepted.reason !== undefined ? { reason: accepted.reason } : {},
+      })
     })
-    const outcome = await this.decide(req)
-    req.agent.session.append('approval/decided', { id, outcome })
+    const outcome = await this.decide(accepted)
+    this.appendAudit(session, 'approval/decided', id, () => {
+      session.append('approval/decided', { id, outcome })
+    })
     return outcome
+  }
+
+  /**
+   * Append one audit event while distinguishing a post-append observer throw
+   * from a failure that prevented the event entering the log. `Session.append`
+   * pushes first and then notifies synchronously, so log growth proves the
+   * event is already authoritative; that observer failure is reported and
+   * contained so it cannot reject the approval or suppress its matching event.
+   * @param session - the captured session receiving both audit events.
+   * @param type - the audit event currently being appended.
+   * @param id - the request id, used to identify the contained failure.
+   * @param append - the single concrete `Session.append` call.
+   */
+  private appendAudit(
+    session: Session,
+    type: 'approval/asked' | 'approval/decided',
+    id: ApprovalRequestId,
+    append: () => void,
+  ): void {
+    const length = session.events.length
+    try {
+      append()
+    } catch (error) {
+      if (session.events.length === length) throw error
+      this.ctx.logger.warn(`approval request "${id}": ${type} observer threw after the event was appended`)
+    }
   }
 
   /**
@@ -401,8 +458,8 @@ export class ApprovalService extends Service {
     return effectiveApprovalPolicy(agent.session.events) ?? this.config.policy ?? 'ask'
   }
 
-  /** Dispatch the waterfall, contained and raced against `req.signal`. */
-  private async decide(req: ApprovalRequest): Promise<ApprovalOutcome> {
+  /** Dispatch the waterfall, contained and raced against the accepted signal. */
+  private async decide(req: Readonly<ApprovalRequest>): Promise<ApprovalOutcome> {
     if (req.signal?.aborted) return 'cancelled'
     // The 'never' policy is decided HERE, before any dispatch: a listener
     // registered with `prepend: true` after this service mounts would sit

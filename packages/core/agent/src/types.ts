@@ -222,8 +222,10 @@ export interface Agent {
    * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
    * durability, so every event stays inside a turn and a persistence backend
    * never loses a between-turn notice. The idle checkpoint is fire-and-forget
-   * (inject is synchronous): a failing flush is reported via `agent/error`
-   * (step `0`) and the logger, never thrown into the caller.
+   * from this synchronous method, but lifecycle disposal awaits it before
+   * unregistering the agent or detaching its session. A failing flush is
+   * reported via `agent/error` (step `0`) and the logger, never thrown into the
+   * caller.
    *
    * Live-adapter review has validated the tagged-envelope rendering against
    * current DeepSeek behavior; provider-specific mismatches belong in that

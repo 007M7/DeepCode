@@ -71,6 +71,23 @@ describe('completedTurnPrefix', () => {
 })
 
 describe('dsh-subagent-fork', () => {
+  it('emits subagent/start only after the seeded child is published', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    let childAtStart: ReturnType<typeof ctx.agents.get>
+    ctx.on('subagent/start', (info) => {
+      if (info.provider === 'fork') childAtStart = ctx.agents.get(info.id)
+    })
+
+    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
+    expect(childAtStart).toBeUndefined()
+    await run.started
+    expect(childAtStart).toBe(ctx.agents.get(run.id))
+    expect(childAtStart?.id).toBe(run.id)
+
+    await run.result
+    await run.dispose()
+  })
+
   it('forks an UNSEEDED (fresh) child when the parent has no completed turn', async () => {
     // The parent has never completed a turn → empty prefix → the provider omits
     // the seed → the child runs fresh. Exercises the `seed.length > 0` false arm.

@@ -83,6 +83,7 @@ class StubProvider implements SubagentProvider {
     }
     return {
       id: AgentId(`stub-child-${index}`),
+      started: Promise.resolve(),
       result,
       cancel: (reason?: string) => {
         controlled.cancelled = reason ?? 'cancelled'
@@ -222,6 +223,7 @@ describe('dsh-workflow-workerthread', () => {
         inheritsParentContext: false,
         start: () => ({
           id: AgentId('reject-child'),
+          started: Promise.resolve(),
           result: Promise.reject(new Error('backend exploded')),
           cancel: () => { /* nothing in flight */ },
           dispose: () => Promise.resolve(),
@@ -245,6 +247,7 @@ describe('dsh-workflow-workerthread', () => {
         inheritsParentContext: false,
         start: () => ({
           id: AgentId('bad-dispose-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           dispose: () => Promise.reject(new Error('dispose exploded')),
@@ -266,6 +269,7 @@ describe('dsh-workflow-workerthread', () => {
         inheritsParentContext: false,
         start: () => ({
           id: AgentId('trap-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           // The rejection VALUE's own coercion throws: a warn built with bare
@@ -530,6 +534,7 @@ describe('dsh-workflow-workerthread', () => {
           }, { once: true })
           return {
             id: AgentId('signal-only-child'),
+            started: Promise.resolve(),
             result,
             // The seam leaves a provider free to honor EITHER cancel channel;
             // this one deliberately ignores run.cancel() — only the request
@@ -572,6 +577,7 @@ describe('dsh-workflow-workerthread', () => {
           starts += 1
           return {
             id: AgentId('cancel-only-child'),
+            started: Promise.resolve(),
             result: new Promise(() => { /* only cancel() ends this child */ }),
             // Deliberately ignores the request signal — the seam leaves a
             // provider free to honor ONLY the explicit cancel() channel.
@@ -749,6 +755,7 @@ describe('dsh-workflow-workerthread', () => {
         inheritsParentContext: false,
         start: () => ({
           id: AgentId('doomed-child'),
+          started: Promise.resolve(),
           result: new Promise(() => { /* never settles; the reap is the teardown */ }),
           cancel: (reason?: string) => { cancelled.push(reason ?? 'cancelled') },
           dispose: () => Promise.reject(new Error('dispose exploded during reap')),

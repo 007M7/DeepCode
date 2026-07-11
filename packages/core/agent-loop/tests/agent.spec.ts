@@ -242,11 +242,12 @@ describe('ReactLoopAgent', () => {
     const dispose = prepared.startDriver()
 
     // First dispose
-    dispose()
+    const firstDisposal = dispose()
     expect(agent.status).toBe('disposed')
+    await firstDisposal
 
     // Second dispose — idempotent, no throw
-    expect(() => { dispose() }).not.toThrow()
+    await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
   })
 
@@ -347,10 +348,10 @@ describe('ReactLoopAgent', () => {
     expect(agent.status).toBe('running')
 
     const idle = agent.whenIdle() // queues an internal waiter (running)
-    dispose() // settles the waiter synchronously; whenIdle chains done
+    const disposal = dispose() // settles the waiter synchronously; whenIdle chains done
     await idle
     expect(agent.status).toBe('disposed')
-    await agent.done
+    await disposal
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {

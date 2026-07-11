@@ -6,7 +6,7 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## What it does
 
-`start(request)` delegates to `startInProcessRun(ctx, request, {})` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. The driver creates one run-owner fiber under `parent.ctx`; parent teardown, this provider's teardown, and manual disposal all converge there before child publication. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
+`start(request)` delegates to `startInProcessRun(ctx, request, {})` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. The driver creates one run-owner fiber under `parent.ctx`; parent teardown, this provider's teardown, and manual disposal all converge there before child publication. Its `run.started` boundary resolves only after the fresh child is published, so `subagent/start` observers see a live registry entry. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
 
 ## Capabilities
 

@@ -381,7 +381,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
-    summary: 'A subagent run settled — emitted when SubagentRun.result resolves (any stop reason).',
+    summary: 'A started subagent run settled — emitted when SubagentRun.result resolves (any stop reason) or rejects (reported as `error`).',
   },
   {
     name: 'subagent/provider-added',
@@ -399,7 +399,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/start',
     mode: 'emit',
     signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
-    summary: 'A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins.',
+    summary: 'A subagent run started — emitted only after SubagentRun.started fulfills, when the provider has established a live child.',
   },
   {
     name: 'system-prompt/assemble',
@@ -869,7 +869,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: AgentId;\n    readonly result: Promise<SubagentResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): SubagentRun;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: AgentId;\n    readonly started: Promise<void>;\n    readonly result: Promise<SubagentResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): SubagentRun;\n}',
   },
   {
     name: 'SubagentStartRequest',

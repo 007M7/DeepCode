@@ -489,7 +489,7 @@ async function runTurn(
       // against the system prompt (it counts toward the budget). runStep reuses
       // this same assembly for the request, so the prompt is assembled once per
       // step. renderPrompt IS the full prompt — the persona is the order-0
-      // section (registered by the AgentLoop plugin) and `{{variable}}`
+      // section (owned by dsh-system-prompt) and `{{variable}}`
       // interpolation happens in the render, so there is no separate join.
       const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
       const fullSystemPrompt = renderPrompt(assembly)

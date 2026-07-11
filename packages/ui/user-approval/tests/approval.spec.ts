@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, scopeHost } from '@deepseek-ai/dsh-scope'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ApprovalService, { ApprovalOutcome, ApprovalRequest, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
@@ -76,6 +76,138 @@ describe('ApprovalService.request', () => {
     await ctx.approval.request(requestOf(agent))
 
     expect(Object.keys(appended[0]?.data ?? {}).sort()).toEqual(['id', 'toolName'])
+  })
+
+  it('snapshots request identity, scope, payload, and audit before deferred dispatch', async () => {
+    const ctx = await mounted()
+    const { agent: acceptedAgent, appended: acceptedAudit } = fakeAgent()
+    const { agent: replacementAgent, appended: replacementAudit } = fakeAgent()
+    const host = await scopeHost(ctx, ['approval'])
+    const acceptedScope = host.mint(acceptedAgent)
+    const replacementScope = host.mint(replacementAgent)
+    const dispatchStarted = Promise.withResolvers<'started'>()
+    const answer = Promise.withResolvers<ApprovalOutcome>()
+    const originalSignal = new AbortController().signal
+    const replacementSignal = new AbortController().signal
+    let heardBy: 'accepted' | 'replacement' | undefined
+    let received: ApprovalRequest | undefined
+    let carrier: unknown
+    acceptedScope.ctx.on('approval/request', function (req) {
+      heardBy = 'accepted'
+      received = req
+      carrier = carrierKeyOf(this)
+      dispatchStarted.resolve('started')
+      return answer.promise
+    })
+    replacementScope.ctx.on('approval/request', function (req) {
+      heardBy = 'replacement'
+      received = req
+      carrier = carrierKeyOf(this)
+      dispatchStarted.resolve('started')
+      return answer.promise
+    })
+    const request = requestOf(acceptedAgent, {
+      toolName: 'original-tool',
+      callId: CallId('original-call'),
+      reason: 'original reason',
+      signal: originalSignal,
+    })
+
+    const pending = ctx.approval.request(request)
+    // request() has returned, but the answerer dispatch is deliberately queued
+    // in a microtask. Mutating the caller-owned record must not redirect it.
+    request.agent = replacementAgent
+    request.toolName = 'mutated-before-dispatch'
+    request.callId = CallId('mutated-call')
+    request.reason = 'mutated reason'
+    request.signal = replacementSignal
+    await dispatchStarted.promise
+    // Mutation while the answer is pending must not redirect the final audit.
+    request.toolName = 'mutated-after-dispatch'
+    request.reason = 'mutated again'
+    answer.resolve('allowed-once')
+
+    await expect(pending).resolves.toBe('allowed-once')
+    expect(heardBy).toBe('accepted')
+    expect(carrier).toBe(acceptedAgent)
+    expect(received).not.toBe(request)
+    expect(Object.isFrozen(received)).toBe(true)
+    expect(received).toMatchObject({
+      agent: acceptedAgent,
+      toolName: 'original-tool',
+      callId: 'original-call',
+      reason: 'original reason',
+      signal: originalSignal,
+    })
+    expect(acceptedAudit).toHaveLength(2)
+    expect(acceptedAudit[0]?.data).toMatchObject({
+      toolName: 'original-tool',
+      callId: 'original-call',
+      reason: 'original reason',
+    })
+    expect(acceptedAudit[1]?.data).toMatchObject({ outcome: 'allowed-once' })
+    expect(acceptedAudit[1]?.data['id']).toBe(acceptedAudit[0]?.data['id'])
+    expect(replacementAudit).toEqual([])
+    await host.dispose()
+  })
+
+  it('contains an approval/asked observer throw after append and still completes the pair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ApprovalService)
+    const session = ctx.sessions.create(SessionId('asked-observer-throw'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const agent = { session } as unknown as Agent
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'approval/asked') throw new Error('observer failed after asked append')
+    })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('allowed-once')
+
+    const audit = session.events.filter(event => event.type.startsWith('approval/'))
+    const asked = session.events.find((event): event is SessionEvent<'approval/asked'> => event.type === 'approval/asked')
+    const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
+    expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(decided?.data.id).toBe(asked?.data.id)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/asked observer threw'))
+  })
+
+  it('contains an approval/decided observer throw after append and still resolves', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ApprovalService)
+    const session = ctx.sessions.create(SessionId('decided-observer-throw'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const agent = { session } as unknown as Agent
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'approval/decided') throw new Error('observer failed after decided append')
+    })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('rejected')
+
+    const audit = session.events.filter(event => event.type.startsWith('approval/'))
+    const asked = session.events.find((event): event is SessionEvent<'approval/asked'> => event.type === 'approval/asked')
+    const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
+    expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(decided?.data).toMatchObject({ id: asked?.data.id, outcome: 'rejected' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/decided observer threw'))
+  })
+
+  it('does not misclassify a pre-append failure as an observer failure', async () => {
+    const ctx = await mounted()
+    const failure = new Error('append failed before log growth')
+    const agent = {
+      session: {
+        events: [{ type: 'turn/start' }],
+        append: () => { throw failure },
+      },
+    } as unknown as Agent
+
+    await expect(ctx.approval.request(requestOf(agent))).rejects.toBe(failure)
   })
 
   it('returns the first answering listener outcome (single decision slot)', async () => {

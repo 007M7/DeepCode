@@ -115,6 +115,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('weird-child'),
+        started: Promise.resolve(),
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
         cancel() {},
         dispose: async () => {},
@@ -143,6 +144,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: AgentId('capture-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           cancel() {},
           dispose: async () => {},
@@ -173,6 +175,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: AgentId('bare-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           cancel() {},
           dispose: async () => {},
@@ -301,6 +304,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
+        started: Promise.resolve(),
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
         cancel() {},
         dispose: async () => void disposed(),
@@ -324,6 +328,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
+        started: Promise.resolve(),
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
         cancel() {},
         dispose: async () => void disposed(),
@@ -351,6 +356,7 @@ describe('dsh-tool-subagent', () => {
         const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
         return {
           id: AgentId('spy-child'),
+          started: Promise.resolve(),
           result,
           cancel: () => {
             cancelled()
@@ -398,6 +404,7 @@ describe('dsh-tool-subagent', () => {
         const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
         return {
           id: AgentId('spy-child'),
+          started: Promise.resolve(),
           result,
           cancel: () => {
             cancelled()
@@ -466,6 +473,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: AgentId('capture2-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           cancel() {},
           dispose: async () => {},
@@ -499,6 +507,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: AgentId('capture3-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           cancel() {},
           dispose: async () => {},
@@ -529,6 +538,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: AgentId('capture4-child'),
+          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           cancel() {},
           dispose: async () => {},

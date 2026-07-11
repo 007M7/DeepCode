@@ -206,6 +206,8 @@ The operation being described determines the key; callers cannot attach an unrel
 | `session/created`, `session/event`, `session/flush` | The owner scope captured when the session enters the store |
 | `subagent/start`, `subagent/end` | The delegating parent agent |
 
+Approval requests cross an asynchronous answer boundary, so the service snapshots the accepted record synchronously. It preserves the exact agent and abort-signal identities but copies the scalar fields, captures the agent's session once, and uses that one snapshot for `approval/asked`, scoped dispatch, cancellation, policy, and `approval/decided`. Mutating the caller-owned record after `request()` returns therefore cannot split the audit pair or redirect the question to another agent's listeners.
+
 The dispatch rule can be read independently of Cordis internals:
 
 ```text
@@ -334,12 +336,11 @@ The sequence is not described as atomic because observers run between its steps.
 
 ### Teardown stops work before revoking its world
 
-Every owner path uses the same reverse order: stop the loop and await its actual exit, remove the agent from the registry, detach the session, then unwind the scope. The final session events and durability flush therefore happen while the session and scoped listeners are still live.
+Every owner path uses the same reverse order: stop the loop and await its actual exit plus every agent-started durability checkpoint, remove the agent from the registry, detach the session, then unwind the scope. Final turn events, the turn-ending flush, and any outstanding idle-injection flush therefore settle while the session and scoped listeners are still live.
 
 ```text
 disposeOwnedAgent(world):
-  world.stopDriver()
-  await world.agent.done       # waits for any in-flight turn close and flush
+  await world.stopDriver()     # waits for loop exit and all agent-started flushes
   world.detachAgent()          # emits agent/disposed when announced
   world.detachSession()
   await world.scope.dispose()
@@ -519,9 +520,13 @@ In-process subagents demonstrate how the scope, lifecycle, and final-policy piec
 
 ### Inputs and ownership are fixed before asynchronous creation
 
+Provider registration first freezes an acceptance snapshot of the provider name, capability flags, parent-context descriptor, and `start` callback; the callback is bound to the original provider receiver so its intentional internal state stays live. Lookup, validation, model-facing wording, dispatch, lifecycle notifications, and HMR cleanup all use that snapshot. Mutating or reusing the caller's provider object later therefore cannot rename a live entry, change its advertised powers, replace its callback, or make its disposer delete the wrong key.
+
 Starting a run snapshots every accepted field before asynchronous owner setup. The parent and abort signal are retained as identity capabilities but never reread from the mutable request record; tool filters, seed events, agent options, output schema, and prompt are detached. The schema is validated before cloning, while the prompt must pass the same lossless-JSON check before and after cloning that the session log requires. Later caller mutation therefore cannot change lifecycle scope, configuration, the schema enforced by the capture tool, or the prompt eventually logged and sent.
 
 The driver first installs provider ownership. Only after that succeeds does it attach the request's abort listener and create one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves neither a child nor an orphaned listener. The child factory runs through the owner fiber. Parent teardown, provider teardown, and manual run disposal all dispose this same node; moving it out of the active state synchronously prevents an unpublished setup from publishing afterward, while all three paths follow one quiescence promise. This structured ownership does not change the child's flat capability view.
+
+The returned run separates acceptance from publication with `started: Promise<void>`. For spawn and fork, it fulfills only after the child factory returns a published handle, so the service can emit `subagent/start` with `ctx.agents.get(run.id)` already live; it rejects when rollback prevents publication. The service observes `result` immediately but buffers its cloned end payload until readiness, preserving start-before-end order without leaving an early rejection unhandled. A readiness rejection emits neither lifecycle event. The result driver awaits the same boundary before sending the child prompt.
 
 ```text
 startInProcessRun(providerContext, acceptedRequest):
@@ -535,11 +540,21 @@ startInProcessRun(providerContext, acceptedRequest):
     dispose providerLink
     await disposeRunOwner()
 
-  childHandle = await runOwner.ctx.agents.create({
+  creation = runOwner.ctx.agents.create({
     fresh ids and lineage,
     cloned options and optional seed,
     setup(childCtx) => install persona, tool restriction, structured runtime
   })
+
+  returnedRun.started = creation.then(childHandle => publication complete)
+  returnedRun.result = async:
+    await returnedRun.started
+    send the child prompt, await idle, derive the terminal result
+
+SubagentService.start(...):
+  attach result settlement handlers immediately
+  await returnedRun.started
+  emit subagent/start; later emit the buffered or eventual subagent/end
 ```
 
 Parent teardown reaches `runOwner` by nesting; the provider and returned run handle reach the same node through their explicit disposers.
@@ -687,7 +702,7 @@ The main benefit is one composition model across data, behavior, and lifetime: r
 - Plugin authors use the same registration APIs globally and per agent; only the context changes.
 - Registry-owned prompt schemas, executable lookup, Code Mode bindings, policy listeners, and UI presentation resolve from the same agent view.
 - Create and resume expose no partially configured registry entry during awaited setup.
-- Agent disposal revokes scoped contributions after the driver and final session flush have settled.
+- Agent disposal revokes scoped contributions after the driver and all final or idle-injection session flushes have settled.
 - Structured output composes per child without global mutation or listener-order assumptions.
 - Existing unscoped plugins remain deployment-wide contributors and observers.
 

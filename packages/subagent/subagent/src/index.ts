@@ -69,7 +69,7 @@ declare module 'cordis' {
      * tool wording in `dsh-tool-subagent`) react HERE instead of assuming load
      * order — the cordis Loader starts sibling plugins concurrently, so
      * "listed earlier in cordis.yml" does not mean "registered earlier".
-     * @param provider - the provider that just registered, live in the registry.
+     * @param provider - the registry's frozen acceptance snapshot of the provider.
      * @mode emit
      */
     'subagent/provider-added'(provider: SubagentProvider): void
@@ -85,8 +85,11 @@ declare module 'cordis' {
      */
     'subagent/provider-removed'(name: string): void
     /**
-     * A subagent run started — emitted after the provider is resolved and its
-     * capabilities validated, as the child run begins. Paired with
+     * A subagent run started — emitted only after {@link SubagentRun.started}
+     * fulfills, when the provider has established a live child. For an
+     * in-process provider, `ctx.agents.get(info.id)` is therefore guaranteed to
+     * resolve during this notification. A readiness rejection emits neither
+     * lifecycle event; every emitted start is paired with
      * {@link Events['subagent/end']}.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
      * by the DELEGATING PARENT — a listener registered through the parent's
@@ -97,8 +100,10 @@ declare module 'cordis' {
      */
     'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
     /**
-     * A subagent run settled — emitted when {@link SubagentRun.result}
-     * resolves (any stop reason). Paired with {@link Events['subagent/start']}.
+     * A started subagent run settled — emitted when {@link SubagentRun.result}
+     * resolves (any stop reason) or rejects (reported as `error`). Paired with
+     * {@link Events['subagent/start']}; a run whose readiness rejected emits
+     * neither event.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
      * by the DELEGATING PARENT — a listener registered through the parent's
      * `agent.ctx` observes only its own delegations; a plain plugin listener
@@ -161,21 +166,43 @@ export class SubagentService extends Service {
 
   /**
    * Register a provider under its `provider.name`. Throws {@link SubagentError}
-   * (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed
-   * with the calling fiber (HMR-safe). Emits `subagent/provider-added` after
-   * the registration and `subagent/provider-removed` on unregistration, so
-   * consumers can mirror provider lifecycle instead of assuming load order.
+   * (`DUPLICATE_PROVIDER`) if the name is already taken. The registry snapshots
+   * the name, static descriptors, and `start` callback identity at acceptance;
+   * later caller mutation cannot change lookup, capability validation, consumer
+   * wording, dispatch, or HMR cleanup. The callback remains bound to the
+   * original provider object, so provider-owned mutable state stays live.
+   * Effect-scoped: disposed with the calling fiber (HMR-safe). Emits
+   * `subagent/provider-added` after the registration and
+   * `subagent/provider-removed` on unregistration, so consumers can mirror
+   * provider lifecycle instead of assuming load order.
    * @param provider - the provider; its `name` is the registry key.
    * @returns the disposer that unregisters the provider. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
   registerProvider(provider: SubagentProvider): () => Promise<void> | void {
+    // Snapshot the accepted registration contract before entering the effect.
+    // Cleanup must never re-read caller-owned `provider.name`: an HMR host may
+    // mutate or reuse the provider object before its old fiber unloads. Binding
+    // preserves the provider method's receiver while making replacement of the
+    // public callback field after registration inert.
+    const capabilities: SubagentCapabilities = Object.freeze({
+      outputSchema: provider.capabilities.outputSchema,
+      depthLimit: provider.capabilities.depthLimit,
+      toolFilter: provider.capabilities.toolFilter,
+      persona: provider.capabilities.persona,
+    })
+    const snapshot: SubagentProvider = Object.freeze({
+      name: provider.name,
+      capabilities,
+      inheritsParentContext: provider.inheritsParentContext,
+      start: provider.start.bind(provider),
+    })
     const dispose = this.ctx.effect(function* (this: SubagentService) {
-      if (this.providers.has(provider.name)) {
-        throw new SubagentError(`a subagent provider named "${provider.name}" is already registered`, 'DUPLICATE_PROVIDER')
+      if (this.providers.has(snapshot.name)) {
+        throw new SubagentError(`a subagent provider named "${snapshot.name}" is already registered`, 'DUPLICATE_PROVIDER')
       }
-      this.providers.set(provider.name, provider)
+      this.providers.set(snapshot.name, snapshot)
       // Yield the rollback BEFORE emitting `subagent/provider-added`: a
       // throwing added-listener then unregisters the provider (and announces
       // the removal) instead of leaking it into the registry. The removal
@@ -183,10 +210,10 @@ export class SubagentService extends Service {
       // it runs inside this disposer, where a propagating subscriber would
       // disrupt the backend fiber's teardown and starve later mirrors.
       yield () => {
-        this.providers.delete(provider.name)
-        this.emitLifecycle('subagent/provider-removed', provider.name)
+        this.providers.delete(snapshot.name)
+        this.emitLifecycle('subagent/provider-removed', snapshot.name)
       }
-      this.ctx.emit('subagent/provider-added', provider)
+      this.ctx.emit('subagent/provider-added', snapshot)
     }.bind(this), 'subagents.registerProvider()')
     // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
     // effect that owns a teardown ORDER must be able to yield THIS function —
@@ -198,9 +225,10 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Look up a registered provider by name (`undefined` if absent).
-   * @param name - the provider name as registered.
-   * @returns the provider, or undefined when the name is unknown.
+   * Look up the registry's frozen provider snapshot by its accepted name
+   * (`undefined` if absent).
+   * @param name - the provider name accepted at registration.
+   * @returns the frozen acceptance snapshot, or undefined when the name is unknown.
    */
   getProvider(name: string): SubagentProvider | undefined {
     return this.providers.get(name)
@@ -219,8 +247,9 @@ export class SubagentService extends Service {
    * `NO_PROVIDER` if absent), validates every requested START-TIME capability
    * against {@link SubagentProvider.capabilities} (throws `UNSUPPORTED_CAPABILITY`
    * for the first unmet one — fail loud, before any child is created), then
-   * delegates to {@link SubagentProvider.start} and emits `subagent/start` /
-   * `subagent/end` around the run.
+   * delegates to {@link SubagentProvider.start}, then emits `subagent/start` /
+   * `subagent/end` only after the run's readiness boundary fulfills. A provider
+   * that fails before establishing a child emits neither event.
    * @param name - the provider to run on.
    * @param request - the child's prompt, capabilities, and options.
    * @returns the live run (its `result` resolves when the child settles).
@@ -252,46 +281,63 @@ export class SubagentService extends Service {
       ...request.persona !== undefined ? { persona: request.persona } : {},
     }
     const run = provider.start(accepted)
-    // Emit `subagent/start` with PER-LISTENER containment (see {@link emitLifecycle}):
-    // the run is already live, so neither a throwing subscriber escaping
-    // `start()` (the caller would never receive the run to dispose it — a leaked
-    // child) NOR one bad subscriber starving the listeners after it is
-    // acceptable. `ctx.emit` halts the dispatch on the first throw, so a single
-    // surrounding try/catch is not enough — each listener is invoked and
-    // contained individually.
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
-    // Emit `subagent/end` when the run settles. The result promise does not
-    // reject on a child-level failure (it resolves with stopReason 'error'),
-    // so a rejection here is an infrastructure fault — surface its stop reason
-    // as 'error' for the telemetry event without swallowing the rejection
-    // (the consumer still observes it via `run.result`). On the resolve path the
-    // child's final output rides on the event (lastAssistantMessage); on the
-    // reject path there is no SubagentResult, so only the stop reason is known.
-    // Per-listener containment also keeps a thrown `subagent/end` listener from
-    // becoming an unhandled rejection on this detached `.then`.
+
+    // Observe result settlement IMMEDIATELY, before waiting on readiness. A
+    // provider may fail both promises in the same turn; deferring the rejection
+    // handler until `started` fulfilled would leave `result` transiently
+    // unhandled. The settled event is buffered until start has been announced,
+    // preserving start → end order even for an already-settled scripted run.
+    let readiness: 'pending' | 'started' | 'failed' = 'pending'
+    let pendingEnd: SubagentRunEndInfo | undefined
+    const deliverEnd = (info: SubagentRunEndInfo): void => {
+      if (readiness === 'started') this.emitLifecycle('subagent/end', info, parent)
+      else if (readiness === 'pending') pendingEnd = info
+      // A pre-publication readiness failure has no lifecycle pair; result
+      // remains observable by the run's consumer, but telemetry must not claim
+      // that a child started.
+    }
     void run.result.then(
       (result) => {
-        // Deep-clone the output onto the event: this detached `.then` runs BEFORE
-        // the caller's own `await run.result` continuation, so handing listeners
-        // the SAME array reference the caller consumes would let a mutating
-        // `subagent/end` listener corrupt the caller's SubagentResult.output —
-        // breaking the observe-only contract. A snapshot makes the event a
-        // read-only view, not a shared handle. The clone is wrapped: it runs
-        // inside `onFulfilled`, OUTSIDE emitLifecycle's per-listener containment,
-        // so an uncloneable value (a future non-serializable content-block type,
-        // or a contract-violating result with no `output`) would otherwise become
-        // an unhandled rejection on this detached `.then`. On clone failure, log
-        // and emit the event WITHOUT lastAssistantMessage rather than dropping the
-        // whole `subagent/end`.
+        // Snapshot before the caller's own `await run.result` continuation. Even
+        // when readiness is still pending, buffering the clone rather than the
+        // caller-owned result keeps the eventual observe-only event immutable
+        // with respect to consumer mutation.
         let lastAssistantMessage: SubagentResult['output'] | undefined
         try {
           lastAssistantMessage = structuredClone(result.output)
         } catch (error: unknown) {
           this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
         }
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} }, parent)
+        deliverEnd({
+          provider: name,
+          id: run.id,
+          stopReason: result.stopReason,
+          ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {},
+        })
       },
-      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, parent) },
+      () => { deliverEnd({ provider: name, id: run.id, stopReason: 'error' }) },
+    )
+
+    // Readiness is the publication boundary owned by the provider. For
+    // in-process runs, fulfillment means the agent registry already contains
+    // `run.id`; for ACP it means the remote session exists. Emit start with
+    // per-listener containment, then flush an outcome that settled unusually
+    // early. A readiness rejection is handled here and deliberately emits no
+    // false start/end pair; the result path above remains independently handled.
+    void run.started.then(
+      () => {
+        readiness = 'started'
+        this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
+        if (pendingEnd !== undefined) {
+          const info = pendingEnd
+          pendingEnd = undefined
+          this.emitLifecycle('subagent/end', info, parent)
+        }
+      },
+      () => {
+        readiness = 'failed'
+        pendingEnd = undefined
+      },
     )
     return run
   }

@@ -6,7 +6,7 @@ It is the direction-inverted twin of the server-side bridge in [`@deepseek-ai/ds
 
 ## What it does
 
-`start(request)` spawns the configured command, wraps its stdio in an ACP `ClientSideConnection`, and drives one session: `initialize` → `newSession` → `prompt`. The child's streamed `agent_message_chunk` text becomes the `SubagentResult.output`; the prompt's terminal `StopReason` maps to the stop reason. `dispose()` kills the subprocess and awaits its exit.
+`start(request)` spawns the configured command, wraps its stdio in an ACP `ClientSideConnection`, and drives one session: `initialize` → `newSession` → `prompt`. `run.started` resolves after `newSession` publishes the remote session and rejects when initialization fails or cancellation wins first; the service emits no start/end pair for a child that never became live. The child's streamed `agent_message_chunk` text becomes the `SubagentResult.output`; the prompt's terminal `StopReason` maps to the stop reason. `dispose()` kills the subprocess and awaits its exit.
 
 **Fresh process per run.** Each `start` spawns a new child, runs exactly one ACP session, and disposes it. Persistent-process pooling is a future optimization (see the RFC).
 
@@ -22,7 +22,7 @@ Unlike the in-process backends, the child does NOT share this cordis context —
 | `providerName` | string | `acp` | Registry name on `ctx.subagents`. |
 | `command` | string | — (required) | The executable to spawn for each run (the child ACP agent). |
 | `args` | string[] | `[]` | Arguments passed to `command`. |
-| `cwd` | string | parent cwd | Working directory for the child process and its ACP session. |
+| `cwd` | string | process cwd | Working directory for the child process and its ACP session. |
 | `permission` | `'allow' \| 'reject'` | `reject` | How to auto-answer the child's `session/request_permission` prompts. `reject` declines every prompt (answer `cancelled`); `allow` approves via the first allow-shaped option. The first cut surfaces no prompt to a human. |
 | `env` | Record<string,string> | `{}` | Extra env vars for the child (e.g. its own `DEEPSEEK_API_KEY`). Forwarded on top of a credential-scrubbed copy of the parent env, so an explicit key reaches the child while ambient secrets do not leak implicitly. |
 | `disposeEofGraceMs` | number | `6000` | Dispose ladder tier 1: how long the child gets to quiesce on its own after stdin EOF (flush persistence, tear down its nested subprocesses) before SIGTERM. |

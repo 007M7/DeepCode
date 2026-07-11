@@ -107,11 +107,12 @@ export interface ResumeAgentOptions {
 /**
  * An owned agent plus its disposer, returned by {@link AgentRegistry.create} /
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: only the holder
- * can tear this agent down. `dispose()` stops the loop, awaits its exit
- * (quiescence — NOT just the `disposed` status flip), unregisters the agent,
- * removes its session from the store, and finally unwinds its scoped world.
- * This order captures the loop's final `session/flush` before the session is
- * detached and keeps scoped listeners alive through that flush.
+ * can tear this agent down. `dispose()` stops the loop, awaits its exit and
+ * every outstanding idle-injection flush (quiescence — NOT just the `disposed`
+ * status flip), unregisters the agent, removes its session from the store, and
+ * finally unwinds its scoped world. This order captures every agent-started
+ * `session/flush` before the session is detached and keeps scoped listeners
+ * alive through those checkpoints.
  *
  * `ctx.agents.get(id)` still returns a bare {@link Agent} — the handle is only
  * for the OWNER that created it. Config-created agents (the loop's own startup)

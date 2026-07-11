@@ -289,11 +289,23 @@ export function startInProcessRun(
     return created.agent
   })()
 
+  // Provider readiness is a distinct lifecycle boundary from accepting the
+  // request. It resolves only after the factory has published the child and
+  // returned its handle, so SubagentService can emit `subagent/start` while
+  // `ctx.agents.get(childId)` is guaranteed to resolve. The result path awaits
+  // THIS SAME promise immediately, which also observes a readiness rejection
+  // when the driver is invoked directly rather than through SubagentService.
+  const started: Promise<void> = creation.then(() => undefined)
+
   const result: Promise<SubagentResult> = (async () => {
     try {
       let liveChild: Agent
       try {
-        liveChild = await creation
+        await started
+        // `creation` assigns `child` before it fulfills, and `started` is its
+        // direct fulfillment projection. The cast records that local invariant
+        // without manufacturing an unreachable runtime branch.
+        liveChild = child as Agent
       } catch (error: unknown) {
         if (isManualDisposeRequested()) return { output: [], stopReason: 'aborted' }
         throw error instanceof Error ? error : new Error('subagent child creation failed with a non-Error value', { cause: error })
@@ -313,6 +325,7 @@ export function startInProcessRun(
   let disposing: Promise<void> | undefined
   return {
     id: childId,
+    started,
     result,
     cancel(reason?: string): void {
       requestCancel(reason ?? 'subagent cancelled')

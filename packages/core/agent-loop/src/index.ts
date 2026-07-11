@@ -375,7 +375,7 @@ export class AgentLoop extends Service implements AgentFactory {
     let active = true
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
-    let stop: (() => void) | undefined
+    let stop: (() => Promise<void>) | undefined
     const { promise: deactivated, resolve: markDeactivated } = Promise.withResolvers<void>()
     const { promise: torndown, resolve: markTorndown } = Promise.withResolvers<void>()
 
@@ -401,8 +401,7 @@ export class AgentLoop extends Service implements AgentFactory {
         active = false
         markDeactivated()
         if (stop === undefined) return
-        stop()
-        return agent.done
+        return stop()
       }
     }, 'agentLoop.lifecycle()')
 
@@ -461,8 +460,9 @@ export class AgentLoop extends Service implements AgentFactory {
   /**
    * Build an {@link AgentHandle} for a PREPARED session + a fresh agent. The
    * handle's `dispose()` runs the composite effect's disposer (see
-   * {@link start}) — which stops the loop, awaits its exit (final flush
-   * captured), unregisters the agent, and detaches the session, in that order.
+   * {@link start}) — which stops the loop, awaits its exit and outstanding
+   * idle-injection flushes, unregisters the agent, and detaches the session, in
+   * that order.
    * The same composite effect is what a fiber unload disposes, so both teardown
    * triggers honor the ordering identically.
    *
@@ -470,8 +470,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * single-shot (a second call returns immediately because the effect's epoch is
    * already cleared, NOT awaiting the in-flight teardown), so concurrent/repeated
    * `dispose()` calls would otherwise resolve before the first call's
-   * `await agent.done` + final flush completed. Memoizing the promise makes every
-   * caller observe the SAME quiescence boundary, honoring the
+   * loop + flush quiescence boundary completed. Memoizing the promise makes
+   * every caller observe that SAME boundary, honoring the
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */

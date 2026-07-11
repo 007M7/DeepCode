@@ -23,7 +23,7 @@ An approval question was put to the answerer chain — log-only audit (like `hoo
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:83`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:86`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -33,7 +33,7 @@ The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly 
 'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:94`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:97`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -43,7 +43,7 @@ The session's approval policy was switched — log-only, durable, replayable, ne
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:106`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:109`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 

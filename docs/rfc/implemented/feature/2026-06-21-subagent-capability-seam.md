@@ -37,7 +37,7 @@ A new package group `packages/subagent/`:
 
 ### The primitive: `start → SubagentRun`
 
-A provider exposes `start(request) → SubagentRun`. The run carries a `result` promise (the terminal `SubagentResult`), `cancel()`, and `dispose()`. The transport-neutral verb is **`start`**; "spawn" is reserved for the in-process `dsh-subagent-spawn` backend's identity, not the service verb. The service's `start(name, request)` resolves the named provider, validates capabilities, delegates, and emits `subagent/start` / `subagent/end` around the run.
+A provider exposes `start(request) → SubagentRun`. The run carries `started` (the provider's publication/readiness promise), `result` (the terminal `SubagentResult`), `cancel()`, and `dispose()`. The transport-neutral verb is **`start`**; "spawn" is reserved for the in-process `dsh-subagent-spawn` backend's identity, not the service verb. The service's `start(name, request)` resolves the named provider, validates capabilities, delegates, and waits for `started` before emitting the paired `subagent/start` / `subagent/end`; an attempt that never establishes a child emits neither lifecycle event. For an in-process backend, readiness means the child is published in `ctx.agents`; for ACP it means the remote session exists.
 
 ### Two kinds of optional capability, discovered two ways
 
