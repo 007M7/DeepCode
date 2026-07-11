@@ -26,6 +26,7 @@ const AGENT = {
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -67,6 +68,19 @@ const SCENARIOS: Scenario[] = [
   // the fixture scripts five identical todo_write calls and pins BOTH reminder
   // tiers (gentle at 3, detailed at 5) as context/message in transcript and log.
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
+  // Authored replay: a root AGENTS.md pins the session prefix, then a read in
+  // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
+  // context/message. The scenario-specific config keeps home/root discovery
+  // hermetic, and the resulting prefix needs its own pinned header class.
+  {
+    name: 'workspace-context',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    pinsHeader: true,
+    headerClass: 'workspace-context',
+    configPath: WORKSPACE_CONTEXT_CONFIG,
+  },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
