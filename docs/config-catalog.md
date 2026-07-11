@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:236`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -149,6 +149,33 @@ export interface Config {
 ```
 
 Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local/src/index.ts)
+
+## `@deepseek-ai/dsh-bash-sandbox`
+
+Requires: `sandbox`
+
+```ts config-catalog
+/**
+ * Plugin config: the local executor's knobs plus the sandbox policy. All
+ * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
+ * fail-safe default; an example that wants a workspace-writable agent opts in
+ * explicitly). The runner choice is NOT configured here: which platform
+ * backend confines the command is the `ctx.sandbox` provider's config.
+ */
+export interface Config extends LocalConfig {
+  /** File-sandbox mode commands run under (default: `read-only`). */
+  mode?: SandboxMode
+  /**
+   * Root directory `workspace-write` mode may write under (default: the
+   * executor's default working directory — `cwd`, else `process.cwd()`).
+   */
+  workspaceRoot?: string
+}
+```
+
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/bash/bash-sandbox/src/index.ts:60`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -429,6 +456,53 @@ export interface Config {
 ```
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:55`](../packages/guard/repeat-tool-guard/src/index.ts)
+
+## `@deepseek-ai/dsh-sandbox-local`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
+   * appended). A NON-EMPTY argv is the operator's assertion that this runner
+   * exists and FULLY enforces the profile (confinement reports
+   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
+   * — carries both Linux file-denial dialects as its denial signatures) —
+   * the runner chain and its probes are skipped,
+   * and a broken runner fails loudly at execution time. The operator also
+   * supplies {@link runnerFailureSignatures}, which distinguish the runner
+   * refusing its profile from the wrapped command failing normally.
+   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
+   * built-in platform chains — Linux `bwrap` then the Landlock launcher
+   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
+   * selected without a probe). Used for custom/alternative runners and
+   * for deterministic fake runners in keyless test tiers.
+   */
+  runnerCommand?: string[]
+  /**
+   * Case-insensitive stderr substrings emitted when a configured
+   * {@link runnerCommand} refuses its profile before executing the wrapped
+   * command. Required and non-empty with `runnerCommand`; rejected without
+   * it. Missing/unexecutable runner errors are added automatically from
+   * `runnerCommand[0]`, while these signatures cover an executable runner's
+   * own failure dialect.
+   */
+  runnerFailureSignatures?: string[]
+  /**
+   * Per-probe timeout in milliseconds for the chain's functional probes
+   * (default: 5000; must be a positive finite number — Node treats a 0
+   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
+   * probe that exceeds it reads as an unusable rung, so a
+   * host slow enough to trip the default — cold NFS mounts, heavily loaded
+   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
+   * config escape. Bounds ONE probe, and the chain walk runs each at most once
+   * per provider lifetime.
+   */
+  probeTimeoutMs?: number
+}
+```
+
+Source: [`packages/sandbox/sandbox-local/src/index.ts:36`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
@@ -818,7 +892,38 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:319`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:323`](../packages/core/tools/src/index.ts)
+
+## `@deepseek-ai/dsh-user-approval`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * The deployment's default {@link ApprovalPolicy} for sessions without an
+   * `approval/policy` override — `'ask'` delegates to the composed answerers
+   * (fail-closed with none); `'never'` auto-rejects every ask without
+   * prompting (the deterministic CI/unattended stance).
+   */
+  policy?: ApprovalPolicy
+}
+
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
+export type ApprovalPolicy = 'ask' | 'never'
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:258`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -984,6 +1089,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
+- `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 

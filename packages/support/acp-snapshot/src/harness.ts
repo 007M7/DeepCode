@@ -85,6 +85,8 @@ export type InputStep =
   | { op: 'promptExpectError'; text: string }
   | { op: 'promptAndCancel'; text: string }
   | { op: 'cancel' }
+  | { op: 'setConfigOption'; configId: string; value: string }
+  | { op: 'setConfigOptionExpectError'; configId: string; value: string }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
@@ -404,6 +406,24 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
       await client.cancel({ sessionId })
+      return
+    }
+    case 'setConfigOption': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOption before newSession')
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value })
+      return
+    }
+    case 'setConfigOptionExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOptionExpectError before newSession')
+      // The bridge rejects an unknown id / out-of-vocabulary value; the SDK
+      // surfaces that as a rejected RPC — swallow it so the run completes and
+      // the error frame is captured in the transcript.
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value }).then(
+        () => { throw new Error('snapshot-harness: expected set_config_option to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the id or value */ },
+      )
       return
     }
     default:

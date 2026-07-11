@@ -80,8 +80,9 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // Permission gate is deferred (TODO(rfc010-permission-gate)); the bridge
-      // never requests permission yet, so just allow if it ever does.
+      // This example composes no ask-producing policy (no hooks), so the
+      // bridge never prompts here; answer cancelled (fail closed) if it ever
+      // does — an unexpected prompt must not grant anything.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })

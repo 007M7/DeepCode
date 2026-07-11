@@ -74,6 +74,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'approval',
+    summary: 'The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent\'s session log.',
+    methods: [
+      'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
+    ],
+  },
+  {
     key: 'bash',
     summary: 'Abstract bash execution service.',
     methods: [
@@ -123,6 +130,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'registerAdapter(models: string[], adapter: LlmAdapter): () => void',
       'models(): string[]',
       'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
+    ],
+  },
+  {
+    key: 'sandbox',
+    summary: 'Abstract process-sandbox service.',
+    methods: [
+      'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
     ],
   },
   {
@@ -278,6 +292,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'agent/turn-continuation\'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
     summary: 'Waterfall: override the turn-continuation decision via a typed ContinuationDecision.',
+  },
+  {
+    name: 'approval/request',
+    mode: 'waterfall',
+    signature: '\'approval/request\'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
+    summary: 'Waterfall asking the composed answerers to decide one approval request.',
   },
   {
     name: 'fs/edit-intent',
@@ -446,6 +466,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentStatus = \'idle\' | \'running\' | \'disposed\';',
   },
   {
+    name: 'ApprovalOutcome',
+    declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
+  },
+  {
+    name: 'ApprovalRequest',
+    declaration: 'export interface ApprovalRequest {\n    agent: Agent;\n    toolName: string;\n    callId?: CallId;\n    reason?: string;\n    signal?: AbortSignal;\n}',
+  },
+  {
     name: 'AskUserQuestionAnswer',
     declaration: 'export interface AskUserQuestionAnswer {\n    answers: AskUserQuestionAnswerItem[];\n}',
   },
@@ -475,19 +503,23 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashRunResult',
-    declaration: 'export interface BashRunResult {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    timedOut: boolean;\n    aborted: boolean;\n    timeoutMs: number;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n}',
+    declaration: 'export interface BashRunResult {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    timedOut: boolean;\n    aborted: boolean;\n    timeoutMs: number;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n    sandbox?: BashSandboxInfo;\n}',
+  },
+  {
+    name: 'BashSandboxInfo',
+    declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
     name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n}',
+    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
   },
   {
     name: 'BashTaskId',
@@ -548,6 +580,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionResult',
     declaration: 'export interface CompactionResult {\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
+  },
+  {
+    name: 'ConfinedArgv',
+    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureSignatures: readonly string[];\n}',
+  },
+  {
+    name: 'ConfinedSandboxMode',
+    declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
     name: 'ContentBlockMap',
@@ -672,6 +712,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    agentId: AgentId;\n    resumeSessionId: SessionId;\n    agentOptions?: AgentOptions;\n}',
+  },
+  {
+    name: 'SandboxEnforcement',
+    declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
+  },
+  {
+    name: 'SandboxMode',
+    declaration: 'export type SandboxMode = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
+  },
+  {
+    name: 'SandboxPolicy',
+    declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
   },
   {
     name: 'SendOptions',
