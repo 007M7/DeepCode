@@ -67,6 +67,7 @@ class HarnessClient:
         env = os.environ.copy()
         if self.config.env:
             env.update(self.config.env)
+        self._inject_bundled_default_config(env)
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -410,6 +411,32 @@ class HarnessClient:
                 "Install deepseek-harness-runtime-bin or set HarnessConfig.runtime_bin."
             ) from exc
         return resolve_bundled_launch_args()
+
+    def _inject_bundled_default_config(self, env: dict[str, str]) -> None:
+        """Restore the zero-config experience over the config-mandatory bundled runtime.
+
+        The bundled runtime (single-file exe or the dev-only node closure)
+        always demands an explicit config. When the launch resolves to the
+        bundled runtime (no ``runtime_bin`` / ``bridge_bin`` /
+        ``launch_args_override``) and the merged subprocess environment has no
+        non-empty ``DSH_CORDIS_CONFIG`` — the runtime bin treats an empty
+        value as absent, so this does too — inject the runtime package's
+        checked-in default cordis.yml. With an explicit runtime or config
+        channel the client stays out of the way.
+        """
+        uses_bundled_runtime = (
+            self.config.launch_args_override is None
+            and self.config.runtime_bin is None
+            and self.config.bridge_bin is None
+        )
+        if not uses_bundled_runtime or env.get("DSH_CORDIS_CONFIG"):
+            return
+        # Cannot fail: _default_launch_args() already imported the runtime
+        # package on this (bundled) path, raising the actionable install
+        # error when it is absent.
+        from deepseek_harness_runtime import bundled_default_config_path
+
+        env["DSH_CORDIS_CONFIG"] = str(bundled_default_config_path())
 
     def _unsubscribe_notifications(self, subscription_id: str) -> None:
         with self._lock:

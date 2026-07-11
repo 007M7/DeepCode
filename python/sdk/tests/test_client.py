@@ -548,13 +548,23 @@ with open(os.environ["SEEN"], "w") as seen:
         json.loads(line)
 
 
-def test_client_uses_bundled_runtime_package_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_fake_bundled_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Fake the deepseek-harness-runtime-bin package on sys.path.
+
+    A stub exe that dumps DSH_CORDIS_CONFIG to $ENV_DUMP before serving
+    initialize/shutdown, plus a module exposing the resolution surface the
+    client consumes. Returns the fake bundled default config path.
+    """
     runtime = tmp_path / "dsh-jsonrpc-agent"
     runtime.write_text(
         """#!/usr/bin/env python3
 import json
+import os
 import sys
 
+json.dump({"DSH_CORDIS_CONFIG": os.environ.get("DSH_CORDIS_CONFIG")}, open(os.environ["ENV_DUMP"], "w"))
 for line in sys.stdin:
     msg = json.loads(line)
     if msg.get("method") == "initialize":
@@ -566,22 +576,56 @@ for line in sys.stdin:
     )
     runtime.chmod(0o755)
 
+    default_config = tmp_path / "default-cordis.yml"
     module_dir = tmp_path / "deepseek_harness_runtime"
     module_dir.mkdir()
     (module_dir / "__init__.py").write_text(
         f"""
 def resolve_bundled_launch_args(mode=None):
     return ({str(runtime)!r},)
+
+
+def bundled_default_config_path():
+    return {str(default_config)!r}
 """.strip()
     )
 
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.delitem(sys.modules, "deepseek_harness_runtime", raising=False)
+    return default_config
 
-    with HarnessClient() as client:
+
+@pytest.mark.parametrize("ambient_config", [None, ""], ids=["unset", "empty-counts-as-absent"])
+def test_client_default_launch_uses_bundled_runtime_and_injects_default_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ambient_config: str | None
+) -> None:
+    env_dump = tmp_path / "env.json"
+    default_config = _install_fake_bundled_runtime(tmp_path, monkeypatch)
+    if ambient_config is None:
+        monkeypatch.delenv("DSH_CORDIS_CONFIG", raising=False)
+    else:
+        monkeypatch.setenv("DSH_CORDIS_CONFIG", ambient_config)
+
+    with HarnessClient(HarnessConfig(env={"ENV_DUMP": str(env_dump)})) as client:
         init = client.initialize(cwd="/workspace", model="deepseek-v4-pro")
 
     assert init.serverInfo.name == "bundled-runtime"
+    assert json.loads(env_dump.read_text())["DSH_CORDIS_CONFIG"] == str(default_config)
+
+
+def test_client_respects_explicit_config_over_bundled_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_dump = tmp_path / "env.json"
+    _install_fake_bundled_runtime(tmp_path, monkeypatch)
+    monkeypatch.delenv("DSH_CORDIS_CONFIG", raising=False)
+
+    with HarnessClient(
+        HarnessConfig(env={"ENV_DUMP": str(env_dump), "DSH_CORDIS_CONFIG": "./explicit.yml"})
+    ) as client:
+        client.initialize(cwd="/workspace", model="deepseek-v4-pro")
+
+    assert json.loads(env_dump.read_text())["DSH_CORDIS_CONFIG"] == "./explicit.yml"
 
 
 def test_client_reports_missing_bundled_runtime_dependency(monkeypatch: pytest.MonkeyPatch) -> None:

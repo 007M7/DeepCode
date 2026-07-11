@@ -8,14 +8,16 @@ name: Build single-exe
 # the dsh-jsonrpc-agent-pkg closure manifest with @yao-pkg/pkg into
 # dist-exe/.
 #
-# Each build leg uploads two artifacts:
+# Each build leg uploads two artifacts (both tar.gz — tar keeps file modes,
+# so the exe's executable bit survives; upload-artifact's zip transport
+# does not preserve them):
 #   - dsh-jsonrpc-agent-pkg-<target> — the bare single-file exe, for
 #     consumers that want just the binary.
-#   - deepseek-harness-python-<target> — the whole python/ directory as a
-#     tar.gz with that exe already embedded (the build script syncs it into
-#     the Python runtime package): unpack and both packages pip install
-#     as-is, the checked-in default runtime/cordis.yml is editable in
-#     place, and the embedded exe also runs directly.
+#   - deepseek-harness-python-<target> — the whole python/ directory with
+#     that exe already embedded (the build script syncs it into the Python
+#     runtime package): unpack and both packages pip install as-is, the
+#     checked-in default runtime/cordis.yml is editable in place, and the
+#     embedded exe also runs directly.
 #
 # Two explicit triggers, deliberately no per-commit CI: the exe is a
 # release-style deliverable, and the build (full pnpm build + pnpm deploy +
@@ -154,10 +156,24 @@ jobs:
       - name: Build single-exe
         run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
 
+      # The bare exe ships inside a tar.gz (the mode-preservation note in
+      # the header): uploading dist-exe/ bare would hand consumers a 0644
+      # file that subprocess.Popen refuses to run.
+      - name: Pack bare exe
+        id: pack-exe
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          exe_tar="dsh-jsonrpc-agent-pkg-${TARGET}.tar.gz"
+          tar -czf "$exe_tar" -C dist-exe .
+          ls -lh "$exe_tar"
+          echo "tar=$exe_tar" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v6
         with:
           name: dsh-jsonrpc-agent-pkg-${{ matrix.target }}
-          path: dist-exe/
+          path: ${{ steps.pack-exe.outputs.tar }}
           if-no-files-found: error
 
       # After the build step, python/ is already in its complete
@@ -165,9 +181,7 @@ jobs:
       # python/sdk-runtime/src/deepseek_harness_runtime/runtime/ next to the
       # checked-in default cordis.yml — so packing is all that is left.
       # Everything goes under one top-level deepseek-harness-python/
-      # directory so unpacking never scatters files. Shipping a tar (rather
-      # than uploading the tree bare) preserves the exe's executable bit —
-      # tar keeps file modes; upload-artifact's zip does not.
+      # directory so unpacking never scatters files.
       #
       # Excluded: runtime/node/ (dev-only node-mode carrier, ~140MB) plus
       # __pycache__ / .pytest_cache / .venv / node_modules anywhere (install

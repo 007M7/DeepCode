@@ -17,7 +17,7 @@ import pytest
 
 from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig
 from deepseek_harness.errors import TransportClosedError
-from deepseek_harness_runtime import bundled_default_config_path, resolve_bundled_launch_args
+from deepseek_harness_runtime import resolve_bundled_launch_args
 
 _MODES = ("exe", "node")
 
@@ -99,12 +99,16 @@ def test_bundled_runtime_surfaces_unbundled_plugin_failure(tmp_path: Path, mode:
 
 
 @pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize("ambient_config", [None, ""], ids=["unset", "empty-counts-as-absent"])
 def test_zero_config_run_injects_bundled_default_cordis_config(
-    tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, mode: str, ambient_config: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _launch_args(mode)  # skip early when this carrier is unavailable
     monkeypatch.setenv("DSH_RUNTIME_MODE", mode)
-    monkeypatch.delenv("DSH_CORDIS_CONFIG", raising=False)
+    if ambient_config is None:
+        monkeypatch.delenv("DSH_CORDIS_CONFIG", raising=False)
+    else:
+        monkeypatch.setenv("DSH_CORDIS_CONFIG", ambient_config)
 
     harness = DeepSeekHarness(
         model="deepseek-v4-pro",
@@ -114,7 +118,8 @@ def test_zero_config_run_injects_bundled_default_cordis_config(
         base_url="http://127.0.0.1:9",
         request_timeout_seconds=120,
     )
-    assert harness.client.config.env is not None
-    assert harness.client.config.env["DSH_CORDIS_CONFIG"] == str(bundled_default_config_path())
     with harness:
-        pass  # __enter__ boots the runtime on the injected default config; __exit__ shuts it down
+        # __enter__ boots the runtime, which exits with a usage error unless
+        # HarnessClient.start() injected the bundled default config over the
+        # unset/empty DSH_CORDIS_CONFIG; __exit__ shuts it down.
+        pass

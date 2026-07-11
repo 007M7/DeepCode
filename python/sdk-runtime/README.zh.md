@@ -13,7 +13,7 @@ Python SDK 的运行时载体包（dist 名 `deepseek-harness-runtime-bin`，模
 
 两种载体承载相同的内容，且只定义一次：本包根目录的 [package.json](package.json) 是 single-exe 流水线的 deploy root——一份零代码的纯依赖 manifest，其依赖闭包既是编译进 exe 的插件集，也是物化到 `runtime/node/` 的文件树。往分发物里加插件，就是在那里加一行依赖再重新构建。
 
-载体缺失时抛出 `FileNotFoundError` 并写明获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或下载 `build-exe-for-python-sdk` CI 工作流的对应平台产物并放入 runtime 目录。获取策略与查找接口刻意分离，之后可以换成按需下载而不动任何调用方。
+载体缺失时抛出 `FileNotFoundError` 并写明获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或下载 `build-exe-for-python-sdk` CI 工作流的对应平台产物（tar.gz——tar 保留可执行位）并解包到 runtime 目录。获取策略与查找接口刻意分离，之后可以换成按需下载而不动任何调用方。
 
 ## 解析 API
 

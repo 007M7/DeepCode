@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,8 +59,6 @@ class DeepSeekHarness:
             env["DSH_SESSION_ROOT"] = self.config.session_root
         if self.config.cordis is not None:
             env["DSH_CORDIS_CONFIG"] = self.config.cordis
-        else:
-            self._inject_bundled_default_config(env)
         env["DSH_CWD"] = cwd
         if self.config.base_url is not None:
             env["DEEPSEEK_BASE_URL"] = self.config.base_url
@@ -108,27 +105,6 @@ class DeepSeekHarness:
     def close(self) -> None:
         self._client.close()
         self._initialized = False
-
-    def _inject_bundled_default_config(self, env: dict[str, str]) -> None:
-        """Restore the zero-config experience over the config-mandatory bundled runtime.
-
-        The bundled runtime (single-file exe or the dev-only node closure)
-        always demands an explicit config. When the caller neither provided
-        ``cordis`` nor selected a runtime explicitly (``runtime_bin`` /
-        ``launch_args_override``), and no ambient ``DSH_CORDIS_CONFIG`` exists,
-        inject the runtime package's checked-in default cordis.yml. With an
-        explicit runtime or config channel the SDK stays out of the way.
-        """
-        uses_bundled_runtime = self.config.runtime_bin is None and self.config.launch_args_override is None
-        if not uses_bundled_runtime or "DSH_CORDIS_CONFIG" in env or "DSH_CORDIS_CONFIG" in os.environ:
-            return
-        try:
-            from deepseek_harness_runtime import bundled_default_config_path
-        except ImportError:
-            # Only the runtime package's absence reaches here; swallow it so
-            # HarnessClient.start() reports the actionable install error.
-            return
-        env["DSH_CORDIS_CONFIG"] = str(bundled_default_config_path())
 
     def start_session(self, session_id: str | None = None) -> "Session":
         self.start()

@@ -18,4 +18,4 @@ with DeepSeekHarness(
 
 `TurnResult.final_response` 是本轮次最后一个 `assistant/message` 事件的文本内容。完整的事件流（包括中间的助手消息与工具活动）用 `TurnResult.events` 获取。
 
-同样的行为也可以用 `DSH_CORDIS_CONFIG` 为运行时子进程选定。若 `cordis` 与 `DSH_CORDIS_CONFIG` 均未设置，且启动解析到内置运行时，则使用内置的默认配置；显式给出 `runtime_bin` 或 `launch_args_override` 则完全禁用注入。运行时载体（生产用 exe 与仅限开发的 node 闭包）及其获取方式见 [sdk-runtime README](../sdk-runtime/README.md)。
+同样的行为也可以用 `DSH_CORDIS_CONFIG` 为运行时子进程选定。注入逻辑位于 `HarnessClient.start()`，因此低层客户端的默认启动同样享有它：当启动解析到内置运行时，且 `cordis` 与非空的 `DSH_CORDIS_CONFIG` 均未设置时（运行时把空值当作缺省，注入检查与之一致），使用内置的默认配置；显式给出 `runtime_bin` 或 `launch_args_override` 则完全禁用注入。运行时载体（生产用 exe 与仅限开发的 node 闭包）及其获取方式见 [sdk-runtime README](../sdk-runtime/README.md)。

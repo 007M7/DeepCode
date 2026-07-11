@@ -13,7 +13,7 @@ Two carriers coexist under `src/deepseek_harness_runtime/runtime/`, both injecte
 
 Both carriers hold the same content, defined once: the [package.json](package.json) at this package's root is the deploy root of the single-exe pipeline — a pure dependency manifest (no code of its own) whose dependency closure IS both the plugin set compiled into the exe and the tree materialized into `runtime/node/`. Adding a plugin to the distribution means adding one dependency line there and rebuilding.
 
-Missing carriers raise `FileNotFoundError` naming the acquisition routes: build via `scripts/build-exe-for-python-sdk.ts` in a deepseek-harness checkout, or download the platform artifact of the `build-exe-for-python-sdk` CI workflow and place it in the runtime directory. Acquisition strategy is deliberately separate from the lookup interface, so an on-demand download can replace it later without touching callers.
+Missing carriers raise `FileNotFoundError` naming the acquisition routes: build via `scripts/build-exe-for-python-sdk.ts` in a deepseek-harness checkout, or download the platform artifact of the `build-exe-for-python-sdk` CI workflow (a tar.gz — tar preserves the executable bit) and unpack it into the runtime directory. Acquisition strategy is deliberately separate from the lookup interface, so an on-demand download can replace it later without touching callers.
 
 ## Resolution API
 
