@@ -36,29 +36,6 @@ declare module 'cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
   }
-
-  interface Events {
-    /**
-     * A persistence backend committed a canonical session-log change. This is
-     * an observe-only notification for derived read models: the durable write
-     * has already succeeded, and listener failures are contained rather than
-     * propagated into append, load, flush, or teardown.
-     * @param header - snapshotted persisted session metadata.
-     * @param change - committed seq range and whether it was an append or repair.
-     * @mode parallel
-     */
-    'session/persisted'(header: SessionHeader, change: SessionPersistedChange): Promise<void> | void
-  }
-}
-
-/** A committed persisted-log change observed by derived read models. */
-export interface SessionPersistedChange {
-  /** Whether ordinary append or load-time repair committed the change. */
-  kind: 'append' | 'repair'
-  /** First seq affected by the commit. */
-  fromSeq: number
-  /** Last seq appended; less than `fromSeq` when repair only removed a torn fragment. */
-  toSeq: number
 }
 
 /**

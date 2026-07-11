@@ -350,43 +350,6 @@ describe('SessionStore', () => {
     expect(observed).toBe(0)
   })
 
-  it('announces a cloned header only after the session leaves the store', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const observations: Array<{ id: string; live: boolean }> = []
-    ctx.on('session/removed', (header) => {
-      observations.push({ id: header.id, live: ctx.sessions.get(header.id) !== undefined })
-      header.createdAt = -1
-    })
-    const session = ctx.sessions.prepare(SessionId('removed'), { meta: { createdAt: 7 } })
-    const detach = ctx.sessions.enter(session)
-
-    detach()
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(observations).toEqual([{ id: 'removed', live: false }])
-    expect(session.header.createdAt).toBe(7)
-    // A repeated disposer cannot remove or announce a later same-id owner.
-    const replacement = ctx.sessions.create(SessionId('removed'))
-    detach()
-    expect(ctx.sessions.get(replacement.id)).toBe(replacement)
-    expect(observations).toHaveLength(1)
-  })
-
-  it('contains rejected session/removed listeners during teardown', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    ctx.on('session/removed', () => Promise.reject(new Error('observer failed')))
-    const session = ctx.sessions.prepare(SessionId('contained'))
-    const detach = ctx.sessions.enter(session)
-
-    expect(detach).not.toThrow()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(ctx.sessions.get(session.id)).toBeUndefined()
-  })
-
   it('rolls back the session (and onAppend) when a session/created listener throws (P1-1)', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

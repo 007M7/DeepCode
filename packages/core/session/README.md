@@ -25,7 +25,11 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Events
 
-The generated [Cordis event catalog](../../../docs/cordis-catalog/events.md) is the signature reference. `session/removed` is an observe-only notification emitted with a cloned header after the entry leaves the store; listener failures cannot fail owner teardown.
+| Event | Mode | Purpose |
+|---|---|---|
+| `session/created` | emit | A session was created |
+| `session/event` | emit | An event was appended (sync, fire-and-forget) |
+| `session/flush` | parallel | Awaited durability checkpoint (persistence plugins drain buffers here) |
 
 ### Class: `Session`
 

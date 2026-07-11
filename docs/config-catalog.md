@@ -488,20 +488,14 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
 Requires: `sessions`
 
 ```ts config-catalog
-/** Configuration for the provider-neutral session-query service. */
+/** Configuration for exact session-query reads. */
 export interface Config {
-  /** Explicit provider id; omitted auto-selects exactly one usable provider. */
-  searchProvider?: string
-  /** Default search result page size. Defaults to 20. */
-  defaultLimit?: number
-  /** Maximum accepted search page size. Defaults to 100. */
-  maxLimit?: number
   /** Maximum accepted raw read context on either side. Defaults to 50. */
   readWindowMax?: number
 }
 ```
 
-Source: [`packages/session-query/session-query/src/config.ts:17`](../packages/session-query/session-query/src/config.ts)
+Source: [`packages/session-query/session-query/src/config.ts:9`](../packages/session-query/session-query/src/config.ts)
 
 ## `@deepseek-ai/dsh-stdio-agent`
 

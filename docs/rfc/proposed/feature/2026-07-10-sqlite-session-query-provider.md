@@ -1,50 +1,51 @@
-# RFC: SQLite FTS5 session-query provider
+# RFC: SQLite FTS5 session search
 
 Status: proposed
 
 ## Problem
 
-The provider-neutral session-query service defines full-text scopes and synchronization but deliberately ships no index. A first backend must search semantic event documents across large persisted histories without rebuilding unchanged sessions at every process start, while keeping unflushed live overrides current and disposable. It also needs deterministic ranking and pagination semantics strong enough for model tools and UI clients to continue a result set safely.
+The exact-read `ctx.sessionQuery` service deliberately has no derived index. Large persisted histories need full-text search without scanning every event on every query, while current live sessions need an overlay newer than the last durability checkpoint. Search also needs concrete ranking, snippets, filters, pagination, cancellation, and rebuild behavior.
 
-Using the canonical session-persistence database directly would couple two failure domains and schemas: query rows are derived and rebuildable, while session logs are authoritative. A query schema reset, corrupt index, or experimental tokenizer must never endanger durable conversation history.
+Splitting those concerns across a speculative provider coordinator and a database implementation would create two coupled reconciliation state machines. The first real implementation should own the source observation, extraction, SQLite transaction, generation, and query as one lifecycle.
 
 ## Proposal
 
-Add an `@deepseek-ai/dsh-session-query-sqlite` implementation in a separate phase-two pull request after the provider-neutral phase is complete. It will register one `SessionSearchProvider` on `ctx.sessionQuery` and own a separate derived SQLite database. Persisted event documents survive provider restarts; live overrides remain connection-local and disappear when the provider closes.
+Add `@deepseek-ai/dsh-session-query-sqlite` beside the exact-read package. The package will expose a search service or extend the family with the smallest API required by its actual consumers; phase one does not pre-commit a provider-registration protocol. It will depend on `ctx.sessions` and optional `ctx.sessionPersistence`, own a separate derived SQLite database, and reuse the canonical `foldSurface()` classification.
 
-The provider will use SQLite FTS5 with the trigram tokenizer. A query splits on whitespace and requires every term. Terms shorter than three characters fail with a typed provider error rather than silently changing matching semantics. Each searchable event is one document, including current, shadowed, and log-only states by default. Event search ranks documents within one session; session search groups by session and ranks it by exactly one strongest matching event. Ties are deterministic, public hits contain plain-text snippets, and numeric FTS scores remain internal.
+The implementation owns one serialized reconciliation/DB transaction state machine. A transaction observes authoritative persisted metadata and live snapshots, extracts semantic documents, updates derived tables, advances relevant cursor generations, and executes or enables the corresponding query. No second service maintains parallel fingerprints, dirty flags, live-id sets, or invalidation generations.
 
-## Storage and reconciliation
+Persisted documents survive restarts. Live overrides are connection-local and shadow the persisted rows for the same session, then disappear when the live owner or database closes. The derived database remains separate from canonical persistence so index reset, corruption, tokenizer changes, and schema churn cannot endanger durable conversation logs.
 
-The database path, journal mode, page/result limits, and snippet length are validated configuration. Durable tables store provider schema version, persisted-session fingerprints, lightweight session metadata, event metadata, text, and the FTS virtual table. A provider-schema mismatch is the exceptional full reset; ordinary startup calls `persistedInventory()` and lets the service replace only new or changed sessions and remove canonical deletions.
+## Search semantics to decide with implementation
 
-The live layer uses temporary or connection-local tables with the same searchable shape. A live snapshot shadows every persisted document for that session. Removing the override reveals the active persisted base. `setPersistedActive(false)` excludes durable rows from results without deleting their fingerprint cache. Reopening the database proves that persisted rows remain and live rows do not.
+The implementation must define both cross-session and within-session scopes from executable use cases. Each searchable event is one document with session metadata, event metadata, surface classification, normalized semantic text, and a bounded plain-text snippet. Session results group by their strongest matching event; numeric backend scores remain private.
 
-## Query and cursor semantics
+Filters compile to parameterized SQL before ranking. Query syntax is treated as data. Ordering includes stable tie fields. Opaque cursors bind to normalized request shape and the smallest relevant generation; unrelated session changes should not invalidate a within-session cursor. Cancellation must stop caller waiting and interrupt SQLite work where the runtime permits.
 
-Search request filters compile to parameterized metadata predicates before FTS ranking. Query terms are escaped as data, never interpolated into FTS syntax. Snippets are plain text with bounded length and no provider-specific markup contract.
+Tokenizer choice remains an implementation experiment. FTS5 trigram supports substring recall but rejects useful terms shorter than three characters and increases index size; the proposal must benchmark that tradeoff against the default Unicode tokenizer before making it contract.
 
-Opaque cursors bind to the normalized request shape and a generation. Session-search cursors bind to the global logical-corpus generation. Event-search cursors bind only to the target session generation. A relevant change makes the cursor stale and produces a typed error; unrelated session changes do not invalidate an inner-session cursor. Stable tie fields are encoded after rank so resumed pages neither duplicate nor skip hits.
+## Extraction and reconciliation
 
-Provider update operations are transactional. An index write failure leaves the prior committed generation queryable only after the owning service has successfully retried the dirty update; affected searches fail rather than returning a knowingly stale page. Abort signals interrupt waits and SQLite query work where the runtime permits.
+The package starts with first-party semantic extraction for messages, reasoning, tool calls/results, blocked prompts, context, steering, todos, and error/status detail. Structural events and stream chunks contribute no document. Unknown declaration-merged event/content types remain non-searchable unless a real extension consumer demonstrates the need for a public extractor registry.
+
+Reconciliation may use stable fingerprints to avoid rewriting unchanged persisted sessions, but the database package owns their calculation and storage. It must never report a row current when source observation or extraction failed. Provider-schema mismatch may reset only the derived database; ordinary source changes use transactional upsert/delete. Mounted but unreadable persistence fails affected searches without affecting canonical writes or known live exact reads.
 
 ## Alternatives considered
 
-- **Use the session-persistence SQLite database and add FTS tables there** — rejected because derived-index schema churn, resets, and corruption recovery must not share the authoritative log's transaction or failure boundary.
-- **Persist live overrides immediately** — rejected because live events are not canonical until the existing persistence checkpoint commits. Ephemeral overlay rows preserve read-your-writes without inventing a second durability path.
-- **Use the default FTS5 unicode tokenizer** — rejected for the first backend because substring-oriented history recall is a core use case. Trigram search gives predictable mid-token matching at the accepted cost of rejecting sub-three-character terms.
-- **Return raw BM25 scores** — rejected because scores are provider-specific and unstable across corpus changes. Ranking is observable; numeric scale is not part of the service API.
-- **Keep cursors valid across index changes** — rejected because rank and grouping can move after a relevant write, making continued pages duplicate or omit hits.
+- **Add FTS tables to the canonical persistence database** — rejected because a rebuildable index must not share the authoritative log's schema/reset/failure boundary.
+- **Reintroduce phase-one provider coordination** — rejected because there is one planned implementation and no evidence for a stable multi-provider seam.
+- **Persist live overrides immediately** — rejected because live events are not canonical until the existing checkpoint commits.
+- **Return BM25 scores** — rejected because provider-specific numeric scales are unstable across corpus changes.
 
 ## Acceptance criteria
 
-- Restart tests prove an unchanged persisted fingerprint performs no FTS replacement, while new, changed, and deleted sessions reconcile correctly.
-- Reopening proves persisted rows survive, live rows disappear, removing a live override reveals its persisted base, and the provider works with no persistence service.
-- Tests cover both search scopes, all metadata filters, surface defaults, snippets, AND-term escaping, short-term rejection, deterministic ties, pagination, request-bound cursors, scoped stale generations, cancellation, and recovery after a failed index update.
-- A provider-schema mismatch resets only the derived database. Normal source changes never trigger a full reset.
-- A keyless end-to-end restart test combines a real persistence backend with the real SQLite query provider.
-- The implementation, package wiring, and tests land only in the separate phase-two pull request; phase one contains this proposal but no SQLite query code.
+- Restart tests cover unchanged, new, changed, and deleted persisted sessions without rebuilding the whole index.
+- Reopening preserves persisted rows and removes live rows; live rows shadow and then reveal their persisted base.
+- Tests cover both search scopes, metadata filters, surface defaults, snippets, escaping, deterministic ties, pagination, scoped stale cursors, cancellation, dynamic persistence mount/unmount, and recovery after a failed transaction.
+- A schema mismatch resets only the derived database.
+- A keyless end-to-end test combines a real persistence backend with the real SQLite search package.
+- The RFC is amended to the measured tokenizer and public API actually implemented before moving to `implemented/`.
 
 ## Risks
 
-Trigram indexes use more space than word-token indexes, and loading canonical logs to recompute fingerprints still has startup I/O cost even when FTS replacement is skipped. FTS5 ranking and snippet behavior can differ across SQLite runtime versions, so deterministic tie fields and provider-owned snippet tests must pin only the contract the package controls. A global generation makes cross-session cursors conservative: any corpus change invalidates them. The separate derived database adds configuration and lifecycle work, but it preserves the authoritative store's safety boundary.
+A single owner is simpler but initially less reusable than a provider-neutral seam. That is intentional: a second real backend can reveal what to extract. SQLite runtime differences can affect FTS ranking and snippets, so tests must pin only contract-controlled ordering and presentation. The separate database adds configuration and lifecycle work, but preserves the canonical store's safety boundary.

@@ -167,26 +167,19 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:125`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
-Session-history retrieval and provider coordination service.
+Live-preferred logical-corpus and exact-event read service.
 
 ```ts cordis-catalog
 listSessions(): Promise<SessionRecord[]>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
-async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
-async traceEvent(sessionId: SessionId, seq: number): Promise<SessionEventTrace>
-registerSearchProvider(provider: SessionSearchProvider): () => Promise<void>
-registerEventTextExtractor<K extends SessionEventType>( type: K, extractor: SessionEventTextExtractor<K>, ): () => void
-registerContentTextExtractor<K extends ContentBlockType>( type: K, extractor: SessionContentTextExtractor<K>, ): () => void
-searchSessions( request: SessionSearchRequest, exec?: SessionQueryExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
-searchEvents( request: SessionEventSearchRequest, exec?: SessionQueryExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:59`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -204,7 +197,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:413`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

@@ -113,9 +113,9 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'sessionQuery',
     pkg: 'session-query',
-    title: 'Session retrieval read model',
+    title: 'Exact session-history reads',
     mode: 'seam',
-    note: 'Resolves live and optional persisted logs into one corpus and coordinates registered full-text providers.',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
   },
   {
     key: 'systemPrompt',
@@ -531,7 +531,7 @@ function collectEventRelations(): Map<string, EventRelation> {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
         const method = node.expression.name.text
-        if (!isCordisContextReceiver(node.expression)) {
+        if (!isCordisContextReceiver(node.expression, sf)) {
           ts.forEachChild(node, visit)
           return
         }
@@ -561,12 +561,9 @@ function collectEventRelations(): Map<string, EventRelation> {
   return out
 }
 
-function isCordisContextReceiver(expr: ts.PropertyAccessExpression): boolean {
-  const receiver = expr.expression
-  if (ts.isIdentifier(receiver)) return receiver.text === 'ctx' || receiver.text === '_ctx'
-  return ts.isPropertyAccessExpression(receiver)
-    && receiver.expression.kind === ts.SyntaxKind.ThisKeyword
-    && (receiver.name.text === 'ctx' || receiver.name.text === '_ctx')
+function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
+  const target = expr.expression.getText(sf)
+  return target === 'ctx' || target === 'this.ctx'
 }
 
 function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {

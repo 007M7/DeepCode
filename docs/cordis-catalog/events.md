@@ -237,7 +237,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:55`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -247,27 +247,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:65`](../../packages/core/session/src/index.ts)
-
-### `session/persisted` — parallel
-
-A persistence backend committed a canonical session-log change. This is an observe-only notification for derived read models: the durable write has already succeeded, and listener failures are contained rather than propagated into append, load, flush, or teardown.
-
-```ts cordis-catalog
-'session/persisted'(header: SessionHeader, change: SessionPersistedChange): Promise<void> | void
-```
-
-Source: [`packages/session-persistence/session-persistence/src/index.ts:50`](../../packages/session-persistence/session-persistence/src/index.ts)
-
-### `session/removed` — parallel
-
-A session left the live store. The header is snapshotted after the store entry is removed; listener failures are contained and cannot break the owning fiber's teardown.
-
-```ts cordis-catalog
-'session/removed'(header: SessionHeader): Promise<void> | void
-```
-
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 

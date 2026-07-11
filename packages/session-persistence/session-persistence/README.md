@@ -26,8 +26,6 @@ The two first-party backends were byte-identical (or same-algorithm) for ALL of 
 
 `PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its four public service methods to the coordinator. This keeps the duplicated, correctness-heavy orchestration in a single place (it used to receive the same fixes twice).
 
-After an append or load-time repair commits, the coordinator emits the observe-only `session/persisted` notification described in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md). Its snapshotted header and seq range let derived read models invalidate safely; synchronous dispatch failures and rejected listeners are contained and never fail durability. Truncate-only HMR adoption emits no repair notification while the live session still owns the open turn.
-
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 
 | Hook | Role |

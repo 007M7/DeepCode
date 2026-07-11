@@ -27,7 +27,7 @@
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { assertSerializable, seedCoversPrefix, type SessionPersistedChange } from './index.ts'
+import { assertSerializable, seedCoversPrefix } from './index.ts'
 
 /**
  * A stored session's durable prefix as read back from a backend: its
@@ -229,13 +229,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // event inside it — before the op runs would otherwise have those changes
     // persisted. The clone is taken synchronously (at call time).
     const batch = events.map(e => structuredClone(e))
-    return this.serialize(id, () => this._appendCore(id, batch))
+    return this.serialize(id, () => this.appendCore(id, batch))
   }
 
-  private async _appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+  private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     if (events.length === 0) return
     let state = this.states.get(id)
-    if (state === undefined) state = await this.adopt(id) // calls _loadCore, not load
+    if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
 
     // Contiguity contract: each event's seq must continue the stored log.
     for (const [i, event] of events.entries()) {
@@ -247,14 +247,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     await this.backend.appendBatch(state.meta, events, state.materialized)
     // The durable write is the transaction: mark materialized + advance the
     // cursor as soon as it commits (uniform across backends).
-    const fromSeq = state.cursor
     state.materialized = true
     state.cursor += events.length
-    this._notifyPersisted(state.meta, {
-      kind: 'append',
-      fromSeq,
-      toSeq: state.cursor - 1,
-    })
   }
 
   /**
@@ -265,10 +259,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.serialize(id, () => this._loadCore(id))
+    return this.serialize(id, () => this.loadCore(id))
   }
 
-  private async _loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
@@ -287,21 +281,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // there is no state-path ordering dependency (uniform across backends).
     if (tornMarker !== undefined || closers.length > 0) {
       await this.backend.commitRepair(meta, tornMarker, closers)
-      this._notifyPersisted(meta, {
-        kind: 'repair',
-        fromSeq: events.length,
-        toSeq: balanced.length - 1,
-      })
     }
-    const owner = this.states.get(id)?.owner
-    // The state keeps its OWN copy of the meta; preserve a live owner already
-    // bound to the id so a read-side load cannot downgrade adoption state.
-    this.states.set(id, {
-      meta: { ...meta },
-      cursor: balanced.length,
-      materialized: true,
-      ...owner !== undefined ? { owner } : {},
-    })
+    // The state keeps its OWN copy of the meta; the returned value is separate so
+    // a consumer mutating loaded.meta cannot corrupt the backend's metadata.
+    this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
     return { meta, events: balanced }
   }
 
@@ -331,11 +314,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Build a state for a session discovered in storage but not yet in memory. */
   private async adopt(id: SessionId): Promise<SessionState> {
-    // _loadCore (NOT load) — adopt runs inside an already-serialized op, so
+    // loadCore (NOT load) — adopt runs inside an already-serialized op, so
     // re-entering the chain via the public load() would deadlock.
-    await this._loadCore(id)
+    await this.loadCore(id)
     const state = this.states.get(id)
-    /* v8 ignore next -- _loadCore always sets the state for the id */
+    /* v8 ignore next -- loadCore always sets the state for the id */
     if (!state) throw new Error(`failed to adopt session "${id}"`)
     return state
   }
@@ -492,7 +475,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // resume.
     const live = await this.backend.loadLive(id, session.header.cwd)
     if (live !== undefined) {
-      // Do NOT route through _loadCore(): that crash-repairs open turns as
+      // Do NOT route through loadCore(): that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
       // authority and may append the real step/turn end later.
       await this.serialize(id, () => this.adoptLivePrefix(session, seed, live))
@@ -532,7 +515,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       owner: session,
     })
     const suffix = seed.slice(events.length)
-    if (suffix.length > 0) await this._appendCore(session.header.id, suffix)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
   private async flush(session: Session): Promise<void> {
@@ -563,20 +546,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     /* v8 ignore next -- state is always set by the awaited init before flush */
     const cursor = state?.cursor ?? 0
     const fresh = batch.filter(e => e.seq >= cursor)
-    // _appendCore (NOT the serialized append) — drain already runs inside the
+    // appendCore (NOT the serialized append) — drain already runs inside the
     // per-session chain, so re-entering via append() would deadlock.
-    if (fresh.length > 0) await this._appendCore(session.header.id, fresh)
+    if (fresh.length > 0) await this.appendCore(session.header.id, fresh)
     buffer.splice(0, batch.length)
-  }
-
-  /** Notify derived read models after source data commits. */
-  private _notifyPersisted(meta: SessionHeader, change: SessionPersistedChange): void {
-    const header = structuredClone(meta)
-    const snapshot = structuredClone(change)
-    void Promise.resolve()
-      .then(() => this.ctx.parallel('session/persisted', header, snapshot))
-      .catch((error: unknown) => {
-        this.ctx.logger.warn(`${this.backend.name}: session/persisted listener failed after ${change.kind} for "${meta.id}": ${String(error)}`)
-      })
   }
 }

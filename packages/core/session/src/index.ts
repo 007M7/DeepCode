@@ -38,14 +38,6 @@ declare module 'cordis' {
      */
     'session/created'(session: Session): void
     /**
-     * A session left the live store. The header is snapshotted after the store
-     * entry is removed; listener failures are contained and cannot break the
-     * owning fiber's teardown.
-     * @param header - immutable identity and lineage of the removed session.
-     * @mode parallel
-     */
-    'session/removed'(header: SessionHeader): Promise<void> | void
-    /**
      * An event was appended to a session log (sync, fire-and-forget). This is
      * the per-append feed a UI or invariant plugin tails.
      * @param session - the session whose log grew.
@@ -509,15 +501,8 @@ export class SessionStore extends Service {
     session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
     this.store.set(session.id, session)
     return () => {
-      if (this.store.get(session.id) !== session) return
       session.onAppend = undefined
       this.store.delete(session.id)
-      const header = structuredClone(session.header)
-      void Promise.resolve()
-        .then(() => this.ctx.parallel('session/removed', header))
-        .catch((error: unknown) => {
-          this.ctx.logger.warn(`session store: session/removed listener failed for "${session.id}": ${String(error)}`)
-        })
     }
   }
 

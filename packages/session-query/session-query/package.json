@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-query",
-  "description": "Provider-neutral live and persisted session retrieval service (ctx.sessionQuery)",
+  "description": "Live-preferred exact session-history retrieval service (ctx.sessionQuery)",
   "version": "0.0.1",
   "private": true,
   "type": "module",

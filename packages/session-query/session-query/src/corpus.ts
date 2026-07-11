@@ -1,45 +1,32 @@
 /** Live/persisted logical-corpus resolution for session-query. */
 
 import type { Context } from 'cordis'
-import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type { SessionRecord } from './types.ts'
-import type { LoadedSession } from './extraction.ts'
-import { canonicalJson } from './extraction.ts'
 import { SessionQueryError } from './config.ts'
 
-interface PersistenceBinding {
-  token: symbol
-  service: SessionPersistence
-  headers: Map<SessionId, SessionHeader>
-  /** Notifications retained until a list that began after them completes. */
-  observations: Map<SessionId, PersistedObservation>
-  observationGeneration: number
-  error?: unknown
-  refreshing: Promise<void> | undefined
-}
-
-interface PersistedObservation {
-  generation: number
+/** Detached source selected for one exact read. */
+export interface LogicalSession {
+  /** Cloned source header. */
   header: SessionHeader
+  /** Cloned raw event log. */
+  events: SessionEvent[]
 }
 
-/** Active persistence view used by provider reconciliation. */
-export interface PersistenceView {
-  /** Canonical headers in deterministic creation order. */
-  headers: SessionHeader[]
-  /** Load one canonical persisted source. */
-  load(id: SessionId): Promise<LoadedSession>
-}
-
-/** Resolves one live-preferred corpus while containing optional persistence lifecycle. */
+/** Resolves a live-preferred corpus against the persistence service mounted now. */
 export class SessionCorpus {
-  private _persistence: PersistenceBinding | undefined
+  private _persistence: SessionPersistence | undefined
 
   constructor(private readonly _ctx: Context) {
     _ctx.effect(() => {
       const fiber = _ctx.inject(['sessionPersistence'], (childCtx: Context) => {
-        this._attachPersistence(childCtx, childCtx.sessionPersistence)
+        const service = childCtx.sessionPersistence
+        this._persistence = service
+        childCtx.effect(() => () => {
+          /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
+          if (this._persistence === service) this._persistence = undefined
+        }, 'sessionQuery.persistenceBinding')
       })
       return () => void fiber.dispose()
     }, 'sessionQuery.optionalPersistence')
@@ -47,23 +34,22 @@ export class SessionCorpus {
 
   /**
    * List the complete logical corpus with live precedence and cloned headers.
-   * @returns logical records in deterministic newest-first order.
+   * @returns records in deterministic newest-first order.
    */
   async listSessions(): Promise<SessionRecord[]> {
-    const binding = await this._ensurePersistence()
+    const persistence = this._persistence
+    const persisted = persistence === undefined ? [] : await listPersisted(persistence)
     const records = new Map<SessionId, SessionRecord>()
-    if (binding !== undefined) {
-      for (const header of binding.headers.values()) {
-        records.set(header.id, { header: structuredClone(header), live: false, persisted: true })
-      }
+    for (const header of persisted) {
+      records.set(header.id, { header: structuredClone(header), live: false, persisted: true })
     }
     for (const session of this._ctx.sessions.list()) {
-      const persisted = binding?.headers.get(session.id)
-      if (persisted !== undefined) this._assertCompatibleHeaders(session.header, persisted)
+      const durable = records.get(session.id)
+      if (durable !== undefined) assertCompatibleHeaders(session.header, durable.header)
       records.set(session.id, {
         header: structuredClone(session.header),
         live: true,
-        persisted: persisted !== undefined,
+        persisted: durable !== undefined,
       })
     }
     return [...records.values()].sort(compareSessions)
@@ -71,156 +57,69 @@ export class SessionCorpus {
 
   /**
    * Load one logical source, preferring a detached live snapshot.
+   *
+   * A known live target never consults persistence, so an optional backend's
+   * failure cannot make current in-memory history unreadable.
    * @param sessionId - session to resolve.
-   * @returns detached live-preferred metadata and events.
+   * @returns detached live-preferred header and events.
    */
-  async loadLogical(sessionId: SessionId): Promise<LoadedSession> {
+  async load(sessionId: SessionId): Promise<LogicalSession> {
     const live = this._ctx.sessions.get(sessionId)
-    if (live !== undefined) return this.snapshotLive(live)
-    const binding = await this._ensurePersistence()
-    if (binding === undefined || !binding.headers.has(sessionId)) {
-      throw new SessionQueryError(`session "${sessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
-    }
-    return this._loadPersisted(binding, sessionId)
-  }
-
-  /**
-   * Return a detached live source with current availability flags.
-   * @param session - live session to snapshot.
-   * @returns detached metadata and events.
-   */
-  snapshotLive(session: Session): LoadedSession {
-    const persistedHeader = this._persistence?.headers.get(session.id)
-    if (persistedHeader !== undefined) this._assertCompatibleHeaders(session.header, persistedHeader)
-    return {
-      record: {
-        header: structuredClone(session.header),
-        live: true,
-        persisted: persistedHeader !== undefined,
-      },
-      events: session.events.map(event => structuredClone(event)),
-    }
-  }
-
-  /**
-   * Get one live session without consulting persistence.
-   * @param sessionId - live id to resolve.
-   * @returns current store object, or undefined.
-   */
-  getLive(sessionId: SessionId): Session | undefined {
-    return this._ctx.sessions.get(sessionId)
-  }
-
-  /**
-   * List live sessions in store order.
-   * @returns fresh array of current store objects.
-   */
-  listLive(): Session[] {
-    return this._ctx.sessions.list()
-  }
-
-  /**
-   * Resolve an authoritative persisted view.
-   * @returns cloned headers and loader, or undefined while unmounted.
-   */
-  async persistenceView(): Promise<PersistenceView | undefined> {
-    const binding = await this._ensurePersistence()
-    if (binding === undefined) return undefined
-    return {
-      headers: [...binding.headers.values()].map(header => structuredClone(header)).sort(compareHeadersAscending),
-      load: id => this._loadPersisted(binding, id),
-    }
-  }
-
-  private _attachPersistence(ctx: Context, service: SessionPersistence): void {
-    const binding: PersistenceBinding = {
-      token: Symbol('session-query-persistence'),
-      service,
-      headers: new Map(),
-      observations: new Map(),
-      observationGeneration: 0,
-      refreshing: undefined,
-    }
-    this._persistence = binding
-    void this._refreshPersistence(binding)
-    ctx.on('session/persisted', (header) => {
-      /* v8 ignore next -- a stale notification can race optional-service disposal */
-      if (this._persistence?.token !== binding.token) return
-      const snapshot = structuredClone(header)
-      const observation = { generation: ++binding.observationGeneration, header: snapshot }
-      binding.headers.set(header.id, snapshot)
-      binding.observations.set(header.id, observation)
-    })
-    ctx.effect(() => () => { this._detachPersistence(binding) }, 'sessionQuery.persistenceBinding')
-  }
-
-  private _detachPersistence(binding: PersistenceBinding): void {
-    /* v8 ignore next -- duplicate optional-service disposal is a Cordis teardown edge */
-    if (this._persistence?.token !== binding.token) return
-    this._persistence = undefined
-  }
-
-  private _refreshPersistence(binding: PersistenceBinding): Promise<void> {
-    if (binding.refreshing !== undefined) return binding.refreshing
-    const startGeneration = binding.observationGeneration
-    const refresh = binding.service.list().then((headers) => {
-      /* v8 ignore next -- a list completion can race optional-service disposal */
-      if (this._persistence?.token !== binding.token) return
-      const nextHeaders = new Map(headers.map(header => [header.id, structuredClone(header)]))
-      for (const [id, observation] of binding.observations) {
-        // A notification newer than this list's snapshot is the authoritative
-        // read-your-writes layer; older ones must already be present in list().
-        if (observation.generation > startGeneration) {
-          nextHeaders.set(id, structuredClone(observation.header))
-        } else {
-          binding.observations.delete(id)
-        }
-      }
-      binding.headers = nextHeaders
-      binding.error = undefined
-    }).catch((error: unknown) => {
-      /* v8 ignore next -- a failed list can race optional-service disposal */
-      if (this._persistence?.token !== binding.token) return
-      binding.error = error
-    }).finally(() => {
-      /* v8 ignore next -- a newer refresh may already own the slot */
-      if (binding.refreshing === refresh) binding.refreshing = undefined
-    })
-    binding.refreshing = refresh
-    return refresh
-  }
-
-  private async _ensurePersistence(): Promise<PersistenceBinding | undefined> {
-    const binding = this._persistence
-    if (binding === undefined) return undefined
-    await this._refreshPersistence(binding)
-    if (binding.error !== undefined) {
-      const cause = binding.error
-      throw new SessionQueryError(`session persistence listing failed: ${errorMessage(cause)}`, 'SESSION_QUERY_PERSISTENCE_FAILED', { cause })
-    }
-    return binding
-  }
-
-  private async _loadPersisted(binding: PersistenceBinding, sessionId: SessionId): Promise<LoadedSession> {
+    if (live !== undefined) return snapshotLive(live)
+    const persistence = this._persistence
+    if (persistence === undefined) throw notFound(sessionId)
+    const listed = (await listPersisted(persistence)).find(header => header.id === sessionId)
+    if (listed === undefined) throw notFound(sessionId)
+    let loaded: Awaited<ReturnType<SessionPersistence['load']>>
     try {
-      const loaded = await binding.service.load(sessionId)
-      const listed = binding.headers.get(sessionId)
-      /* v8 ignore else -- every internal persisted load starts from a listed header */
-      if (listed !== undefined) this._assertCompatibleHeaders(loaded.meta, listed)
-      return {
-        record: { header: structuredClone(loaded.meta), live: false, persisted: true },
-        events: loaded.events.map(event => structuredClone(event)),
-      }
+      loaded = await persistence.load(sessionId)
     } catch (error: unknown) {
-      if (error instanceof SessionQueryError) throw error
-      throw new SessionQueryError(`failed to load session "${sessionId}": ${errorMessage(error)}`, 'SESSION_QUERY_PERSISTENCE_FAILED', { cause: error })
+      throw new SessionQueryError(
+        `failed to load session "${sessionId}": ${errorMessage(error)}`,
+        'SESSION_QUERY_PERSISTENCE_FAILED',
+        { cause: error },
+      )
+    }
+    assertCompatibleHeaders(loaded.meta, listed)
+    return {
+      header: structuredClone(loaded.meta),
+      events: loaded.events.map(event => structuredClone(event)),
     }
   }
+}
 
-  private _assertCompatibleHeaders(a: SessionHeader, b: SessionHeader): void {
-    if (canonicalJson(a) !== canonicalJson(b)) {
-      throw new SessionQueryError(`live and persisted headers conflict for session "${a.id}"`, 'SESSION_QUERY_SOURCE_CONFLICT')
-    }
+async function listPersisted(persistence: SessionPersistence): Promise<SessionHeader[]> {
+  try {
+    return await persistence.list()
+  } catch (error: unknown) {
+    throw new SessionQueryError(
+      `session persistence listing failed: ${errorMessage(error)}`,
+      'SESSION_QUERY_PERSISTENCE_FAILED',
+      { cause: error },
+    )
+  }
+}
+
+function snapshotLive(session: Session): LogicalSession {
+  return {
+    header: structuredClone(session.header),
+    events: session.events.map(event => structuredClone(event)),
+  }
+}
+
+function assertCompatibleHeaders(a: SessionHeader, b: SessionHeader): void {
+  if (
+    a.version !== b.version
+    || a.id !== b.id
+    || a.createdAt !== b.createdAt
+    || a.cwd !== b.cwd
+    || a.parentSession !== b.parentSession
+    || a.seedLength !== b.seedLength
+  ) {
+    throw new SessionQueryError(
+      `live and persisted headers conflict for session "${a.id}"`,
+      'SESSION_QUERY_SOURCE_CONFLICT',
+    )
   }
 }
 
@@ -228,11 +127,10 @@ function compareSessions(a: SessionRecord, b: SessionRecord): number {
   return b.header.createdAt - a.header.createdAt || a.header.id.localeCompare(b.header.id)
 }
 
-function compareHeadersAscending(a: SessionHeader, b: SessionHeader): number {
-  return a.createdAt - b.createdAt || a.id.localeCompare(b.id)
+function notFound(sessionId: SessionId): SessionQueryError {
+  return new SessionQueryError(`session "${sessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
 }
 
 function errorMessage(error: unknown): string {
-  /* v8 ignore next -- persistence service contracts reject Error instances */
   return error instanceof Error ? error.message : 'unknown error'
 }
