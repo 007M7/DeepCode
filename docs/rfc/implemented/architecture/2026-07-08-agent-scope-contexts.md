@@ -191,7 +191,7 @@ Scoped registration is incomplete unless behavior follows the same boundary. An 
 
 The dispatch receiver carries the operation's scope key. Its filter admits an unscoped listener or a listener registered through the matching scoped context, while a subject-less dispatch admits unscoped listeners only. Cordis's explicit `{ global: true }` listener option remains the intentional bypass for infrastructure that must observe every dispatch.
 
-Registry-membership notifications remain unfiltered. Events such as `tools/change`, `system-prompt/change`, and `subagent/provider-*` describe shared registry state rather than one agent's activity, so a scoped subscriber still observes those global changes.
+Registry-membership notifications remain unfiltered. Events such as `tools/change`, `system-prompt/change`, `skill/provider-*`, and `subagent/provider-*` describe shared registry state rather than one agent's activity, so a scoped subscriber still observes those global changes.
 
 ### Each event family derives its key from its real subject
 
@@ -200,6 +200,7 @@ The operation being described determines the key; callers cannot attach an unrel
 | Event family | Scope source |
 |---|---|
 | `agent/*`, including `agent/turn-stop` | The event's agent |
+| `approval/request` | `ApprovalRequest.agent` |
 | `tools/pre-execute`, `tools/execute`, `tools/post-execute`, `tools/result` | `ToolExecution.agent`, or no key for an agent-less call |
 | `system-prompt/assemble` | `AssembleContext.scope` |
 | `session/created`, `session/event`, `session/flush` | The owner scope captured when the session enters the store |
@@ -427,7 +428,7 @@ prepareExecution(input):
 
 `ctx.tools.guard()` installs a synchronous global or scope-specific guard after the extensible `tools/pre-execute` waterfall and before dispatch. A guard returns a denial reason or `undefined`; it has no allow result.
 
-This one-way result makes the boundary monotonic. Pre-execution hooks can still compose ordinary allow, deny, and ask decisions, but no listener ordering can convert a guard denial back into dispatched work. A denied call still continues through result transformation and final observation as an error outcome.
+This one-way result makes the boundary monotonic. Pre-execution hooks can still compose ordinary allow, deny, and ask decisions; an ask resolves through the optional `ctx.approval` seam, where only `allowed-once` becomes allow and an absent channel or any non-grant becomes deny before guards run. No listener ordering can convert a guard denial back into dispatched work. A denied call still continues through result transformation and final observation as an error outcome.
 
 ### `tools/result` observes the authoritative live outcome
 
@@ -450,11 +451,16 @@ execute(input):
     return result
 
   try:
-    ordinaryDecision = await tools/pre-execute(execution)
-    if ordinaryDecision allows:
+    gate = await tools/pre-execute(execution)
+    decision = gate
+    if gate asks:
+      decision = await resolveWithApproval(gate, execution.agent)
+    # approval absence and every non-grant resolve to deny
+
+    if decision allows:
       denial = firstRegisteredGuardDenial(execution)
     else:
-      denial = ordinaryDecision.denial
+      denial = decision.denial
 
     if denial exists:
       result = errorResult(denial)
@@ -612,7 +618,7 @@ Scope mistakes are fail-open if they merely omit a carrier, so the implementatio
 
 ### Type markers cover every scoped event declaration
 
-Scoped agent, tool, prompt, session, and subagent lifecycle events declare a `Scoped<T>` receiver. TypeScript therefore rejects a bare subject at typed dispatch sites, including the `subagent/start` and `subagent/end` paths whose scope is the delegating parent.
+Scoped agent, approval, tool, prompt, session, and subagent lifecycle events declare a `Scoped<T>` receiver. TypeScript therefore rejects a bare subject at typed dispatch sites, including the `subagent/start` and `subagent/end` paths whose scope is the delegating parent.
 
 The marker is compile-time only. JavaScript callers, casts, and direct use of Cordis's dispatch APIs can bypass it, which is why the runtime checks remain necessary.
 

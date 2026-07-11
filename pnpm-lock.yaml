@@ -1243,6 +1243,9 @@ importers:
       '@deepseek-ai/dsh-acp':
         specifier: workspace:^
         version: link:../acp
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
       '@deepseek-ai/dsh-agent-core':
         specifier: workspace:^
         version: link:../../core/agent-core

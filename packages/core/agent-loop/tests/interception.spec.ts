@@ -311,6 +311,36 @@ describe('agent/session-start', () => {
 })
 
 describe('agent/session-prefix', () => {
+  it('dispatches to global and matching agent-scope listeners only', async () => {
+    const adapter = new MockAdapter([textResponse('a done'), textResponse('b done')])
+    const ctx = await harness(adapter)
+    const agentA = ctx.agentLoop.create(AgentId('prefix-a'), { model: 'mock' })
+    const agentB = ctx.agentLoop.create(AgentId('prefix-b'), { model: 'mock' })
+    const seen: string[] = []
+    ctx.on('agent/session-prefix', async (agent, _prefix, _signal, next) => {
+      seen.push(`global:${agent.id}`)
+      return next()
+    })
+    agentA.ctx.on('agent/session-prefix', async (agent, _prefix, _signal, next) => {
+      seen.push(`a:${agent.id}`)
+      return next()
+    })
+    agentB.ctx.on('agent/session-prefix', async (agent, _prefix, _signal, next) => {
+      seen.push(`b:${agent.id}`)
+      return next()
+    })
+
+    send(agentA, 'run a')
+    await waitForIdle(ctx, agentA)
+    send(agentB, 'run b')
+    await waitForIdle(ctx, agentB)
+
+    expect(seen).toEqual([
+      'global:prefix-a', 'a:prefix-a',
+      'global:prefix-b', 'b:prefix-b',
+    ])
+  })
+
   it('composes once per loop instance and fronts every request; the header records it; history stays untouched', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'ping' }),
