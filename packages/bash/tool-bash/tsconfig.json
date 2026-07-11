@@ -28,6 +28,15 @@
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../sandbox/sandbox"
     }
   ]
 }

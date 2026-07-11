@@ -8,7 +8,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` with optional session metadata. Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -28,11 +28,12 @@ interface Config {
   agents: Array<{
     id: string                 // required
     model?: string
+    cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup. (There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context.) The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Classes
 
