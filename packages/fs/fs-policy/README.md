@@ -16,6 +16,12 @@ declare const ctx: Context
 await ctx.plugin(FsPolicy)
 ```
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Filesystem tool outcome | This plugin adds no prompt or schema. It can turn an unobserved or stale write or edit into a structured `FS_NOT_OBSERVED` or `FS_STALE_VERSION` error result instead of a success; observation state itself is never shown. | Zero tokens on allowed operations beyond the ordinary tool result. A denial adds a small retained error result and avoids any success payload. |
+
 ## The four-layer split
 
 | Layer | Package | Role |

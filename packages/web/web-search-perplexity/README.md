@@ -4,6 +4,13 @@ A [Perplexity](https://perplexity.ai)-backed `WebSearchProvider` for the harness
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the key and it does not register a model-facing tool. Like `@deepseek-ai/dsh-llm-deepseek`, it is a function/namespace plugin (`inject: ['web']`). The OpenAI-compatible wire shape is a provider-private detail — it does **not** make this provider depend on `ctx.llm`.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Auxiliary Perplexity request | A separate Perplexity model receives the search query through its chat-completions endpoint. This request is not part of the conversation model's context. | Separate provider tokens are incurred per search; `maxTokens` caps the generated answer. |
+| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. | Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result is resent until compaction. |
+
 ## Config
 
 | Key | Default | Meaning |

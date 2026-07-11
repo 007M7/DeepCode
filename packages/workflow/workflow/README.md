@@ -2,6 +2,12 @@
 
 The **workflow seam** (`ctx.workflows`): an abstract service defining WHAT a workflow engine does — execute a model-written orchestration script that fans out subagents — without saying HOW. The bash-shaped third of the [workflow family](../README.md): implementations subclass `WorkflowService` and register as the `workflows` service (one per context); [`dsh-workflow-workerthread`](../workflow-workerthread/README.md) (one worker thread per run) is the implementation, and [`dsh-tool-workflow`](../tool-workflow/README.md) is the model-facing consumer.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The service seam and `workflow/*` observer events register no prompt, schema, or message. `dsh-tool-workflow` renders the parent-facing contract and final value; an engine decides which child prompts run. | Zero direct tokens. Parent result and child contexts affect tokens only through the consumer and implementation. |
+
 ## Service: `WorkflowService` (abstract)
 
 `start(request: WorkflowStartRequest): WorkflowRun` — parse and execute a script. Throws synchronously (`SCRIPT_PARSE`/`META_INVALID`) for a script that cannot begin; once a run is returned, its `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` settles within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation). `dispose()` must reach quiescence within a bounded grace (cancel → wait for the script to settle and its children to finish disposing → abandon), never hanging its caller. Runs are HOLDER-owned: the engine does not track its live runs, so disposing the engine's fiber mid-run leaves each run to its holder's teardown.

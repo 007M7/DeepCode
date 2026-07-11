@@ -11,3 +11,10 @@ The seam also owns the per-session POLICY tier ([the sandbox RFC § Per-session 
 One seam serves both ask paths of [the sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md): the `tools/pre-execute` `ask` decision (routed by [`@deepseek-ai/dsh-tools`](../../core/tools/) when this service is mounted; degrading to deny when it is not), and the sandbox post-denial escalated retry (the bash tool's `sandbox_permissions` gate in [`@deepseek-ai/dsh-tool-bash`](../../bash/tool-bash/) — [the sandbox RFC § Escalation](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)). The full design: [the approval-seam RFC](../../../docs/rfc/implemented/feature/2026-07-06-approval-seam.md).
 
 Answerers today: the ACP bridge ([`@deepseek-ai/dsh-acp`](../../ui/acp/)) forwards to the editor's `session/request_permission` prompt for agents it owns. The audit events are log-only session records — the model only ever sees the tool result the asker derives from the outcome.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt and policy notice | Each agent request carries a source-owned approval-policy marker. Under `never`, it also states that approval-requiring actions are rejected and sandbox escalation must not be requested. A policy change injects at most one attributed notice before the next step. | Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history. |
+| Tool outcome | `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context. | Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result. |

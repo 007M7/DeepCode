@@ -4,6 +4,13 @@ A [DeepSeek](https://deepseek.com)-backed `WebSearchProvider` for the harness [w
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the key and it does not register a model-facing tool. Like `@deepseek-ai/dsh-llm-deepseek`, it is a function/namespace plugin (`inject: ['web']`). The Anthropic wire shape is a provider-private detail — it does **not** make this provider depend on `ctx.llm`.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Auxiliary DeepSeek search request | A separate DeepSeek model receives the search query and native `web_search` server-tool definition. This request is not part of the conversation model's context. | Separate provider input and output tokens are incurred for each search; `maxTokens` caps generated output and `maxUses` caps native search uses. |
+| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees deduplicated URLs, titles, dates, and citation snippets from structured search blocks; provider prose is not trusted as an answer. | Zero direct conversation tokens from registration. Result tokens scale with returned sources and snippets, then the seam enforces the requested source bound. |
+
 ## How it differs from a dedicated search endpoint
 
 Exa and Perplexity expose dedicated search endpoints; DeepSeek does not. Instead this provider issues a **full Messages model call** carrying the `web_search` server tool, so one search costs a complete model turn in latency and tokens — heavier than a pure retrieval endpoint. DeepSeek runs the search server-side and returns **structured** `web_search_tool_result` blocks; the provider parses those blocks and **never scrapes URLs out of model prose**.

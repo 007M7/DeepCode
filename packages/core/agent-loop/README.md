@@ -4,6 +4,13 @@ THE concrete agent plugin: `ReactLoopAgent` and the loop driver. Implements the 
 
 This is the only package in the harness that contains concrete loop logic. Everything else is an abstract service or a plugin against extension seams — new behavior goes into plugins, not here.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Complete conversation request | For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose. | System text, schemas, and prefix are paid again on every step. Per-agent scoping can substitute or remove individual contributions. |
+| Retained message history | Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded. | Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step. |
+
 ## Service: `AgentLoop` (ctx key: `agentLoop`)
 
 ### Public API

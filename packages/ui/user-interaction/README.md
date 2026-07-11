@@ -2,6 +2,12 @@
 
 Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This UI-neutral seam registers no prompt or tool. A consumer such as `dsh-tool-ask-user` turns a model call into an `ask()` request and converts the provider's human answer into a model-visible tool result. | Zero direct tokens. Question and answer size affect context only through the consumer. |
+
 ## Service: `UserInteractionService` (ctx key: `userInteraction`)
 
 ### Public API

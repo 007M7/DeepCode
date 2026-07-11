@@ -4,6 +4,12 @@ An anonymous public HTTP(S) `WebFetchProvider` for the harness [web capability s
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the key and it does not register a model-facing tool. It is a function/namespace plugin (`inject: ['web']`).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Web fetch result, indirectly | Through `dsh-tool-web`, the conversation model sees the final URL, HTTP status, and decoded text or markdown-shaped HTML, or a structured retrieval error. Redirects, headers, and transport mechanics are not added to context unless reflected in an error. | Zero direct tokens. `maxBodyChars` bounds decoded result length before the tool records it; the retained result is resent until compaction. |
+
 ## Responsibility split
 
 The provider owns **safe resource retrieval**: URL validation, HTTP transport, redirect policy, a resource-backstop timeout, abort propagation, byte caps, charset decoding, content-type classification, and binary rejection. `@deepseek-ai/dsh-tool-web` owns **presentation** (HTML→markdown, truncation formatting). A non-2xx HTTP response is a *result* (status code + decoded body), not an error; `WebError` is reserved for failures to safely retrieve or represent the resource.

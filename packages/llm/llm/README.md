@@ -2,6 +2,13 @@
 
 Provider-neutral LLM vocabulary and abstract service. This package defines the canonical language spoken by the agent loop, session logs, and every plugin.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Provider request transport | This service adds no system text, schema, or message. It routes the already-assembled frozen `GenerateOptions` to one adapter, while `llm/stream` listeners may cache, retry, or replace the stream without mutating that request. | Zero direct context tokens. The selected adapter and provider tokenizer determine billing, cache accounting, and serialization overhead for the existing content. |
+| Streamed model output | Text, reasoning, and tool-call chunks are exposed to the loop, which decides what becomes retained assistant history. | Output usage is provider-reported; later input cost arises only after the loop records assembled content. |
+
 ## Service: `LlmService` (ctx key: `llm`)
 
 An adapter registry plus a single streaming call surface, interceptable via a waterfall event.

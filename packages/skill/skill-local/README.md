@@ -4,6 +4,12 @@ Local filesystem provider for the `ctx.skills` registry.
 
 This package implements one skill source. It scans local project, custom, and user skill roots, parses `SKILL.md` or flat Markdown skill files, and registers the provider on `ctx.skills`. The registry remains in `@deepseek-ai/dsh-skill`; the session-prefix catalog and model-facing loader tool remain in `@deepseek-ai/dsh-tool-skill`.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Skill catalog and loaded body, indirectly | When `dsh-tool-skill` is visible, discovered model-invocable skill names and descriptions enter its session-prefix catalog; a `skill` call returns the selected instructions and resource-base guidance. Paths, provider ranks, and disabled skills stay out of the catalog. | Zero direct tokens from this provider. Catalog cost scales with discovered entries under the consumer's per-description cap; a full body is added only after selection and remains in tool history. |
+
 ## Plugin
 
 Requires `ctx.skills` (`inject: ['skills']`).

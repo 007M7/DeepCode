@@ -12,5 +12,6 @@ Naming notes:
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; prose accuracy stays on the author ([the documentation standard](../docs/AGENTS.md)).
+- Every package README carries the [Model Experience table](../docs/AGENTS.md#package-model-experience); update it when code changes a prompt section, session prefix, tool schema/result, history rewrite, auxiliary model call, or indirect visibility policy.
 
 Read the per-package README.md for package-specific details: service API, events, extension points, TODOs.

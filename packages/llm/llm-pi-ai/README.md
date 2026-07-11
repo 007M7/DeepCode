@@ -2,6 +2,13 @@
 
 DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai) (the LLM library behind the pi agent).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| DeepSeek request through pi-ai | The selected model receives the same logical system prompt, history, tools, stop sequences, and raw replayed tool arguments as the hand-written adapter. This package adds no prompt prose and removes pi-ai's own per-tool `strict` default to preserve that contract. | Provider tokenization governs exact input. Reasoning level changes generated and passback content; pi-ai reports reasoning inside output usage rather than as a separate count. |
+| DeepSeek response | pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks; parsed tool arguments are restored to raw JSON strings at the harness boundary. | Generated content affects later inputs only after the loop records it; adapter conversion adds no model-visible text. |
+
 ## Why a second adapter exists
 
 `@deepseek-ai/dsh-llm-deepseek` already talks to the same endpoint. This package is its **design-verification twin**: same models, same wire protocol, completely different internals — a unified LLM library with its own event vocabulary versus hand-rolled fetch/SSE. Anything the harness `StreamChunk` protocol cannot express for BOTH implementations is a core-vocabulary bug. The differences it exercised on purpose:

@@ -2,6 +2,12 @@
 
 The JSONL durable session-persistence backend — a concrete `SessionPersistence` (the `dsh-session-persistence` seam). One append-only `.jsonl` event log per session.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Resumed conversation history | JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. An interrupted tail is balanced with error tool results. Raw `assistant/chunk` records do not duplicate messages. | Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus small repair results only after an interrupted tool turn. |
+
 ## On-disk layout
 
 ```

@@ -6,6 +6,12 @@ It owns **no termination**. The signal it hands out only *notifies*; actually st
 
 It is a **library, not a service or plugin**: no `ctx`, registers nothing, holds no state, emits no events. A "timeout service" would have to understand how to stop every capability's work — exactly the knowledge a microkernel keeps out of shared layers.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This library only creates and classifies abort signals. It registers no prompt, schema, or message; consumers decide whether a timeout becomes a marker, a structured error, or no model-visible change. | Zero direct tokens. It can indirectly cap or replace a consumer's result when that consumer renders a timeout. |
+
 ## Surface
 
 ```ts

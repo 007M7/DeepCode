@@ -13,8 +13,10 @@ packages/<group>/<pkg>/
                    # you use Config, + ../../<group>/<dep> for each dsh dep)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
-  README.md        # service API, events, extension points, design notes
+  README.md        # contract plus the required Model Experience table
 ```
+
+Fill the canonical [Model Experience table](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and the exact indirect path. Every package participates, including type-only libraries and backend seams.
 
 Choose an existing group when one matches the package's role (`core`, `llm`, `bash`, `compact`, `subagent`, `todo`, `session-persistence`, `ui`, `util`, or `support`). A new group is allowed, but it is a pure container: no `package.json`, no source files, and packages still sit exactly one level below it.
 
@@ -41,6 +43,7 @@ For a swappable capability, split interface / implementation / consumer into sep
 
 ```sh
 pnpm install        # registers the workspace
+pnpm run verify-package-readme-model-experience
 pnpm run constraints && pnpm run typecheck && pnpm run lint
 pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
 pnpm run build && pnpm run hygiene

@@ -2,6 +2,13 @@
 
 Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (a linked list of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Derived message history | The model receives projections of `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` surface nodes. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message. | Appended surface nodes are resent on later steps. A `replace` surface operation removes the shadowed nodes from future inputs without deleting their raw log records. |
+| Logged request header | The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`. | Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost. |
+
 ## Service: `SessionStore` (ctx key: `sessions`)
 
 Creates and holds event-sourced `Session` instances. Persistence is intentionally not implemented here — plugins subscribe to `session/event` and flush on `session/flush`.

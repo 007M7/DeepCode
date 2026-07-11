@@ -37,4 +37,4 @@ The inter-package dependency graph is generated: [docs/module-graph.md](../docs/
 
 The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
 
-Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
+Each package has its own `README.md` with purpose, service API, events, extension points, deliberate non-goals, and the standard [Model Experience table](../docs/AGENTS.md#package-model-experience).

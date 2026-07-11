@@ -4,6 +4,13 @@ The **basic compaction backend**: a `BasicCompactService` implementing the `@dee
 
 This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Conversation history | Before a step whose estimated system prompt, session prefix, and history exceed the threshold, the conversation model receives one framed summary checkpoint in place of the older balanced surface range, followed by the retained recent units. | The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget. |
+| Auxiliary summarizer request | The summarization model sees a fixed checkpoint-writing system instruction and a flattened transcript of the selected range. The conversation model never sees this private request or its reasoning; only returned text is stored. | This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once. |
+
 ## What it owns
 
 The abstract contract states only WHAT compaction does; this backend owns every HOW decision:

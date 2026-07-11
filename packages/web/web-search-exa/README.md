@@ -4,6 +4,12 @@ An [Exa](https://exa.ai)-backed `WebSearchProvider` for the harness [web capabil
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the `ctx.web` key and it does not register a model-facing tool (that is `@deepseek-ai/dsh-tool-web`). Like `@deepseek-ai/dsh-llm-deepseek`, it is a function/namespace plugin (`inject: ['web']`) that registers its backend, not a default-export service.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Web search result, indirectly | Through `dsh-tool-web`, the conversation model sees Exa result URLs, titles, first highlight snippets, and publication dates. No generated answer or provider-private response fields enter the tool result. | Zero direct harness-model tokens. Result size scales with the bounded source list and snippets; the seam enforces `maxResults`, and retained results remain until compaction. |
+
 ## Config
 
 | Key | Default | Meaning |

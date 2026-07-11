@@ -16,3 +16,9 @@ Every rung has its keyless world-proof (`tests/bwrap.e2e.ts`, `tests/landlock.e2
 ```
 
 Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [`examples/sandbox-acp-agent`](../../../examples/sandbox-acp-agent/) for the runnable composition.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Sandbox result facts, indirectly | This provider adds no prompt or tool. It supplies the selected enforcement and denial dialect to `dsh-bash-sandbox`, which can become a denial marker or sandbox-unavailable error in the bash result. Runner selection and profiles are not shown. | Zero direct tokens; only a conditional small fact or error reaches context through the bash consumer. |

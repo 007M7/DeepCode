@@ -4,6 +4,12 @@ The **shared core** of the Claude Code / Codex hook wire protocol. NOT a cordis 
 
 Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claude Code hook protocol — the same `hooks.json` matcher-group shape, the same exit-code/stdout output contract, the same command-hook execution model. The genuinely-shared parts live here; each bridge owns only what differs.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This library registers nothing. Its `hook/invoked` and `hook/result` events are log-only and do not enter derived messages; bridge packages decide whether parsed `additionalContext`, blocks, or continuation feedback reach the model. | Zero direct tokens. Persisted hook audit records add no context tokens. |
+
 ## What's shared (here) vs. per-dialect (the bridges)
 
 | Concern | Here (`dsh-hook-protocol`) | The bridge (`dsh-hooks-claude` / `-codex`) |

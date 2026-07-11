@@ -4,6 +4,13 @@ The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. 
 
 This is the package to read to see **the whole plugin tree at once** — the teaching role the inlined `echo-agent` `cordis.yml` used to play before the spine moved behind this bundle.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Composed system prompt and session prefix | Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist. | The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles. |
+| Composed tool surface | The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both. | Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history. |
+
 ## The tree it loads
 
 `apply(ctx, config)` mounts each of these as a child of the bundle fiber:

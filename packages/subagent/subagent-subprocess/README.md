@@ -4,6 +4,12 @@ Shared machinery for **out-of-process subagent backends** — providers that spa
 
 Every tunable is a **parameter**: the dispose ladder takes its grace periods per call, the config-dir helper takes an optional pinned path. Defaults live in each consuming plugin's Config (defaulted, validated fields changeable from `cordis.yml`), never in this library.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This process utility registers no provider, prompt, tool, or message. A consuming backend's child application decides the child's model context; environment scrubbing and isolated config directories prevent ambient credentials and user state from silently changing that composition. | Zero direct tokens. It can indirectly stabilize child context, but it adds no text to parent or child requests. |
+
 ## What it exports
 
 ### `SENSITIVE_ENV_PATTERN` / `buildChildEnv(extra)`

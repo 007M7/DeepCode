@@ -2,6 +2,13 @@
 
 Tool registry and execution pipeline. Tool plugins register their schemas and executors; the agent loop executes each call through `tools/pre-execute` (the extensible allow/deny gate) → monotonic registered guards → `tools/execute` (an around-dispatch wrapper for timeout/retry/metrics plugins) → `tools/post-execute` (inspect/replace the result, attach context) → the observe-only `tools/result` notification. The registry also owns HOW its tools are presented to the model — its `mode` config selects native function calling, [Code Mode](#code-mode), or both.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Tool schemas and Code Mode SDK | In normal mode the model sees each visible definition's name, description, and JSON schema. Code Mode instead protects one `run_code` wire schema and adds a generated TypeScript `tools` SDK section; `both` exposes both forms. Agent-scoped restrictions and shadows change that agent's set. | Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction. |
+| Tool-call history and results | The loop retains model-emitted arguments and the registry's final normalized content or structured error. Post-execute listeners may append source-attributed context after the result. Code Mode exposes only the outer program's printed or returned value; inner dispatch events stay log-only. | Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them. |
+
 ## Service: `ToolRegistry` (ctx key: `tools`)
 
 ### Config

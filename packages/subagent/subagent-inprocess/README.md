@@ -2,6 +2,13 @@
 
 The shared **in-process subagent run driver**. A library with no provider or import-time registration that the in-process backends — [spawn](../subagent-spawn/README.md) (a fresh child) and [fork](../subagent-fork/README.md) (a child seeded with a prefix of the parent's log) — both build on. Each accepted run installs one provider-owned cleanup effect. The backends are thin shells that differ ONLY in the session seed they pass; everything downstream lives here, so neither backend depends on the other.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Child-agent request | The shared driver sends the task as the child's user message and composes per-child scoped persona and tool restrictions. Structured runs add a scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. Structured output adds fixed instruction and capability tokens only to that child for that run. |
+| Parent result, indirectly | The driver extracts only the child's own last assistant output or captured structured value; seeded parent messages and intermediate child work do not become the result. | The parent receives one data-dependent result through the consumer; all other child tokens stay in the child session. |
+
 ## What it exports
 
 ### `startInProcessRun(ctx, request, options): SubagentRun`

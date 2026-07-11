@@ -4,6 +4,12 @@ Pure agent skill provider registry.
 
 This package owns the `ctx.skills` interface. It does not know whether skills come from local files, embedded plugin data, HTTP, or another backend; providers register those sources with `ctx.skills.registerProvider(...)`. The shipped local implementation is [`@deepseek-ai/dsh-skill-local`](../skill-local).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The registry renders nothing and registers no tool. `dsh-tool-skill` turns `list()` summaries into a session prefix and a selected `get()` body into a tool result; provider failures can remove entries from that request's catalog. | Zero direct tokens. Catalog size, descriptions, and loaded body length affect context only through the consumer. |
+
 ## Service: `SkillService` (ctx key: `skills`)
 
 ### Public API

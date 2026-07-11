@@ -267,6 +267,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('rfc-classification', 'verify-rfc-classification', { label: 'rfc classification' }),
     pnpmScript('rfc-format', 'verify-rfc-format', { label: 'rfc format' }),

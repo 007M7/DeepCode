@@ -10,6 +10,12 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 // freshness policy gate and @deepseek-ai/dsh-tool-fs to expose read/write/edit.
 ```
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Filesystem tool results, indirectly | Through `dsh-tool-fs`, the model sees line-windowed UTF-8 file content, mutation acknowledgements, or structured filesystem errors. Real paths, versions, atomic-write mechanics, and directory metadata remain internal unless a consumer renders them. | Zero direct tokens. Read tokens are bounded by the tool's line, line-length, and byte caps; mutation results are small and remain in history until compaction. |
+
 ## Behavior
 
 - **`resolve(path, opts?)`** — a relative `path` resolves against `opts.cwd` when the caller supplies one (the model-facing tools pass the calling agent's session cwd — see [the per-session cwd RFC](../../../docs/rfc/implemented/architecture/2026-07-02-fs-per-session-cwd.md)), else `config.cwd` (default `process.cwd()`); an absolute `path` ignores both. The `targetKey` is the file's `realpath`, so two input paths reaching the same file through symlinks share one identity, and writes/edits land on the link target (preserving the link). A not-yet-existing path uses the realpathed parent directory plus basename when the parent exists; only an unresolvable parent falls back to the absolute path. `displayPath` is the absolute (un-resolved) path.

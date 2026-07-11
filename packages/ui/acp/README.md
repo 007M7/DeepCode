@@ -4,6 +4,14 @@ The **Agent Client Protocol (ACP)** bridge: exposes DeepSeek Harness SDK agents 
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| User messages | Each ACP `session/prompt` becomes an agent user message: text passes through and a `resource_link` is rendered as text. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted. | Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts. |
+| Human answers and permissions | When optional consumers are loaded, ACP form answers become `ask_user_question` tool results and permission decisions control whether a tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only. | Answer and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. |
+| Loaded sessions | `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message. | Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none. |
+
 ## Service / plugin
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.

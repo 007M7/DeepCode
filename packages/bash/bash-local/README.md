@@ -2,6 +2,12 @@
 
 Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `LocalBashExecutor` spawns `bash -c <command>` per call in its own process group, collects bounded output with full-stream spill files, and escalates kills SIGTERM→SIGKILL across the whole group.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Bash tool results, indirectly | Through `dsh-tool-bash`, the conversation model sees the retained stdout and stderr tail, exit and timeout markers, background-task state, and a spill-file path when full output is available. This backend adds no prompt or schema itself. | Zero tokens until a bash tool runs. Foreground output is bounded per stream by `maxOutputBytes`; background reads return only new output, so polling does not repeat already-delivered text. Results remain in history until compaction. |
+
 ## Config
 
 ```yaml

@@ -2,6 +2,13 @@
 
 The model-facing `subagent` tool: delegate a self-contained task to a child agent and return its final output. Pure schema + lifecycle shaping over the [`ctx.subagents`](../subagent/README.md) provider registry — an in-process, ACP, or future A2A backend swaps in without changing what the model sees.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Tool schema | While the configured provider exists, the parent model sees one `{ description, prompt }` tool under `toolName`. Its description explicitly says whether the child inherits completed turns or needs a standalone prompt; persona, model, filter, depth, and provider choice remain deployment config. | Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema; exposing multiple providers adds one independently named schema per load. |
+| Tool-call history and result | The task description and full prompt remain in the parent assistant tool call. The result contains only the child's final text or a stop-reason error, never intermediate child steps. | Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent. |
+
 ## Provider selection is config, not model-facing
 
 This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.

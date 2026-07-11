@@ -14,6 +14,12 @@ This package is the interface third of the web capability. Unlike bash/fs it spa
 
 Search and fetch share no request schema and no business logic, but they are deliberately one seam: `ctx.web` is a single web-access middle layer with one provider-selection policy owner, one abort/error vocabulary, and one product-facing "how this harness reaches the web" config surface. The cost is the parallel `Search`/`Fetch` method pairs; that parallelism is intentional, not a missed extraction.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The seam registers providers, not tools or prompt text. `dsh-tool-web` renders normalized search answers, sources, fetched bodies, and structured `WebError` values. Provider selection details stay internal except for an execution error. | Zero direct tokens. The seam indirectly bounds search result tokens by truncating sources to `maxResults`; all rendered size comes through a consumer. |
+
 ## Service API (`ctx.web`)
 
 | Member | Semantics |

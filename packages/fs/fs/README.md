@@ -13,6 +13,12 @@ This package is the provider-seam layer of the four-layer filesystem stack, spli
 
 A future sandboxed, virtual, or remote backend implements this interface and the policy/tool layers don't change.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The provider seam registers no prompt or tool. `dsh-tool-fs` converts provider text and structured `FsError` values into model-visible read, write, and edit results; policy listeners can change which outcome it receives. | Zero direct tokens. File content and errors enter context only through a consumer, whose window and byte caps determine result size. |
+
 ## Service API (`ctx.fs`)
 
 A backend subclasses `FileSystem` and implements seven primitives.

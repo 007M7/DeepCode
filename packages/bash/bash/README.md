@@ -13,6 +13,12 @@ This package is the interface quarter of the bash capability, split so each conc
 
 The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface, tool schemas untouched; a containerized or remote executor slots in the same way.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This interface registers no prompt, tool schema, or message. `dsh-tool-bash` turns an implementation's stdout, stderr, task state, and sandbox facts into model-visible tool results and guidance. | Zero direct tokens. Result size and sandbox state affect input tokens only when a consumer renders them. |
+
 ## Service API (`ctx.bash`)
 
 | Member | Semantics |

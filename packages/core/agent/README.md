@@ -2,6 +2,13 @@
 
 Agent interface, registry, and `agent/*` event vocabulary. Every plugin (UI, hooks, orchestrators) programs against the `Agent` handle defined here — it has zero loop dependency, so the loop is swappable.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| User, steering, and injected messages | `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself. | Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent. |
+| Agent-scoped request composition | Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup. | The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal. |
+
 ## Service: `AgentRegistry` (ctx key: `agents`)
 
 Tracks live agents so UI, hook, and orchestrator plugins can find them without importing the concrete loop package.

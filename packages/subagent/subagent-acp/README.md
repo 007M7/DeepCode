@@ -4,6 +4,13 @@ The out-of-process **ACP subagent backend**: runs each child agent in a spawned 
 
 It is the direction-inverted twin of the server-side bridge in [`@deepseek-ai/dsh-acp`](../../ui/acp): that package is the ACP *agent* (it answers `initialize`/`newSession`/`prompt`); this one is the ACP *client* (it *calls* them and implements the `sessionUpdate`/`requestPermission` callbacks). Point the configured command at the `acp-agent` example to "talk to our own process".
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Child-agent request | The remote child receives the standalone task through ACP plus its own process's configured system prompt, tools, and fresh session. It receives no parent conversation and cannot enforce the parent's scoped persona or tool filter. | The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context. |
+| Parent tool result, indirectly | Through `dsh-tool-subagent`, the parent receives only the child's final streamed assistant text or a stop-reason error, not intermediate messages or tool traffic. | Parent input grows only by the final result, which is data-dependent and retained until compaction. This provider adds no parent schema itself. |
+
 ## What it does
 
 `start(request)` spawns the configured command, wraps its stdio in an ACP `ClientSideConnection`, and drives one session: `initialize` → `newSession` → `prompt`. `run.started` resolves after `newSession` publishes the remote session and rejects when initialization fails or cancellation wins first; the service emits no start/end pair for a child that never became live. The child's streamed `agent_message_chunk` text becomes the `SubagentResult.output`; the prompt's terminal `StopReason` maps to the stop reason. `dispose()` kills the subprocess and awaits its exit.

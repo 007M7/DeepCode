@@ -15,7 +15,7 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | [rfc/](rfc/README.md) | Decision records: the why and the what-was-given-up; `implemented/` RFCs describe shipped reality in present tense | Migration plans, test checklists, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
-| Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
+| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](#package-model-experience) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
 | [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
@@ -32,6 +32,15 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
+
+## Package Model Experience
+
+Every package README carries `## Model Experience` and this table:
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+
+Rows name the request surface and condition, including agent scope, then classify tokens as fixed per request, conditional per call, retained, replaced, capped, or zero-direct. Distinguish the conversation model from auxiliary calls. A zero-direct package names its indirect path. `verify-package-readme-model-experience` enforces shape; review owns accuracy.
 
 ## Wordcount Budgets
 

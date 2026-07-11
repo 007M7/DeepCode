@@ -31,3 +31,10 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
 ```
 
 The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [`examples/sandbox-acp-agent`](../../../examples/sandbox-acp-agent/) for the runnable demo.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt, indirectly | By advertising a confining `sandboxMode`, this backend makes `dsh-tool-bash` state the calling session's effective mode and expose escalation fields. The backend itself adds no prose. | Small fixed per-request cost through the consumer, plus a retained notice when the session mode changes. |
+| Bash tool result, indirectly | The model sees ordinary bounded command output plus denial markers, the mode used, and sandbox-unavailable failures shaped by `dsh-tool-bash`; runner details stay internal. | Zero additional tokens on an unremarkable allowed run beyond ordinary output. Denial or failure adds a small conditional marker or error retained until compaction. |

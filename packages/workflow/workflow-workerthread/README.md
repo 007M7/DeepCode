@@ -2,6 +2,13 @@
 
 The [`WorkflowService`](../workflow/README.md) implementation, on **`node:worker_threads`**: each run gets its OWN worker thread (one run = one worker, no pooling — a run is heavyweight, so the ~tens-of-ms thread spin-up is noise), the script executes in a vm context INSIDE that worker with the workflow hooks injected, and every `agent()` call bridges back over the message port to [`ctx.subagents`](../../subagent/README.md) on the host. Child agents are I/O-bound LLM loops and stay on the host event loop; the thread isolates the SCRIPT, the only part that can spin synchronously.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Child-agent requests | Every script `agent()` call sends its prompt and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events. | Potentially many independent child contexts are paid, bounded by `maxConcurrentAgents`, `maxTotalAgents`, and `maxItemsPerCall`; they never join the parent history directly. |
+| Parent tool result, indirectly | The parent sees only the script's materialized final JSON value, child count, or error through `dsh-tool-workflow`. Intermediate child outputs are available to the script but not the parent model. | Zero direct parent tokens from this engine. Final result size is capped by the tool consumer and retained until compaction. |
+
 ## Trust premise: what the thread buys (and what it does not)
 
 Workflow scripts are **model-written** — the same trust level as the model's existing bash access — so this engine defends against **buggy** scripts, never hostile ones. A worker thread is NOT a security boundary: the vm context inside it is escapable by construction (`node:vm` shares object machinery with its surrounding realm, so a script can reach the `Function` constructor via `globalThis.constructor.constructor` and from it `process` and every Node builtin), and an escapee holds the same process privileges as the host — Node's permission model is process-wide. The absent globals are API surface that keeps honest scripts portable, not walls. What the thread concretely buys:

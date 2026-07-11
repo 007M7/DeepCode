@@ -14,6 +14,12 @@ This package is the interface third of the capability seam, split so each concer
 
 Unlike the bash seam (one executor per context, second load throws), **multiple providers coexist** here. Each registers under a unique name and a caller picks one by name — the shape mirrors the LLM adapter registry (`LlmService.registerAdapter`), not the single-service bash executor. This is the requirement that rules out the bash shape: an agent may want an in-process child for a cheap subtask and an out-of-process ACP child for an isolated one, in the same runtime.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The provider registry registers no prompt or tool. Provider lifecycle makes a bound `dsh-tool-subagent` schema appear or disappear, and `inheritsParentContext` selects truthful fresh-versus-fork wording. Run events are observe-only. | Zero direct tokens. Child prompts and final results enter model contexts only through a provider and consumer. |
+
 ## Service API (`ctx.subagents`)
 
 | Member | Semantics |

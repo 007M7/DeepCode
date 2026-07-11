@@ -12,6 +12,12 @@ This package is the interface tier of the compaction capability, split so each c
 
 Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Conversation history, when a backend is invoked | A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite. | Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged. |
+
 ## Service API (`ctx.compact`)
 
 Both methods are **abstract** — the backend owns the entire strategy (token estimation, retention policy, event sequencing, summarization).

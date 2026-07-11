@@ -2,6 +2,13 @@
 
 The in-process **fork** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a child [`Agent`](../../core/agent) **seeded with a prefix of the parent's session log** — so the child inherits the parent's conversation context instead of starting fresh. Shares the run driver (`startInProcessRun`) with [`dsh-subagent-spawn`](../subagent-spawn/README.md); the only difference is the seed. The shared `run.started` boundary resolves only after the seeded child is published, so `subagent/start` observers see a live registry entry.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Child-agent history | The child receives the parent's balanced completed-turn surface prefix, then the new task, along with its own scoped persona, tool filter, and optional structured-output contract. The parent's current in-flight turn is excluded. | Forking duplicates the retained completed history into a separate child's requests; the child then accumulates its own tokens independently. A first-turn fork has no inherited history. |
+| Parent tool result, indirectly | The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work. | Parent input grows by one data-dependent final result retained until compaction. |
+
 ## The seed boundary (the crux)
 
 At the moment a subagent tool's `execute` runs, the parent's CURRENT turn is open and unbalanced: the log holds the `assistant/message` carrying this spawn's tool-call and the dangling `tool/call` with no `tool/result` yet. Seeding that raw prefix would give the child an open turn that the session constructor and the dev-mode [invariants](../../support/invariants) replay **reject**.

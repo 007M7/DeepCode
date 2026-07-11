@@ -2,9 +2,16 @@
 
 The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. Pure schema + lifecycle shaping over [`ctx.workflows`](../workflow/README.md) — script parsing, execution, caps, and cancellation live behind the seam, so a hardened engine swaps in without touching what the model sees.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt and tool schema | The parent model receives a short use-only-for-large-orchestration section plus the `workflow` schema. The schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial but fixed per-request guidance and schema cost while visible. |
+| Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. The result contains the workflow name, child count, and final JSON value or a shaped error; intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
+
 ## What the model sees
 
-Two parameters: `script` (required — the full `export const meta = {...}` + body text; the tool DESCRIPTION carries the complete authoring contract: hooks, semantics, the supported schema subset) and `args` (optional JSON object exposed to the script as the `args` global; a bare list is wrapped as a field, a deliberate deviation from Claude Code's any-JSON `args` so the wire schema stays honest). The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow / large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
+Three parameters: `script` (required JavaScript body with top-level await and return, but no `export const meta` statement; the tool description carries the complete hooks and semantics contract), `meta` (required plain-JSON identity with name, description, and optional usage and phase guidance), and `args` (optional JSON object exposed as the `args` global; wrap a bare list in a field). The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow or large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
 
 ## Lifecycle
 

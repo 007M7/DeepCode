@@ -2,6 +2,12 @@
 
 Tool-call timeout enforcer: a single `tools/execute` around-dispatch listener that arms a per-call cooperative deadline on `exec.signal` for a tool declaring `timeoutMs` on its `ToolDefinition` and returns a structured `TOOL_TIMEOUT` result when that deadline wins. The budget is read from the tool's own declaration (`ToolDefinition.timeoutMs`, set by the owning tool plugin), so this plugin is **zero-config**. It is the reference `tools/execute` wrapper and the enforcement home for model-facing tool-call budgets (the timeout-library RFC's foreseen middleware).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Conditional tool result | This plugin adds no prompt or schema. If a declared deadline wins, it replaces the provider's outcome with `Error: tool call timed out after <ms>ms` plus structured `TOOL_TIMEOUT`; otherwise the original result passes through unchanged. | Zero tokens on non-timeout calls. A timeout adds one small retained error result and can prevent a larger late provider result from entering context. |
+
 ## Plugin (namespace: `timeout-policy`)
 
 A function/namespace plugin (`name` / `inject` / `apply`), not a service. It registers no tool and takes no config — it consumes `ctx.tools`'s `tools/execute` waterfall (which the `dsh-tools` registry always provides) and reads each dispatched tool's declared `timeoutMs` from the registry (`ctx.tools.get(exec.name)`).

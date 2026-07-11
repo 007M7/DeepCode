@@ -4,6 +4,12 @@ A scripted `SubagentProvider` for testing the [subagent seam](../../subagent/sub
 
 It lets a test drive `ctx.subagents` and the model-facing `dsh-tool-subagent` through the **real cordis Loader / export path**, exercising provider registration, start-time capability validation, the run lifecycle (`result` / `cancel` / `dispose`), and the structured-output branch — all deterministically and keylessly.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Deterministic test result | No child model runs. When exercised through `dsh-tool-subagent`, the parent sees the mock provider's configured reply or stop-reason error, and structured tests receive the configured object. | Zero child-model tokens. Only the scripted final result is added to the parent test history. |
+
 ## Usage
 
 Load it as a plugin (functional shape: `name`/`inject`/`Config`/`apply`, no default). Config (all optional):

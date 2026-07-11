@@ -4,6 +4,12 @@ The abstract durable session-persistence seam (`ctx.sessionPersistence`). Define
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage, seed boundary) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Resumed conversation history | This seam adds no prompt or schema. Resume restores stored surface events as message history; stored request headers reconstruct earlier calls, while the new loop composes the current system prompt, tools, and session prefix for its next request. Crash repair inserts an error result for each unanswered tool call. | Zero tokens during ordinary persistence. Resume restores retained history cost and pays the current request envelope normally; crash repair can add small error-result tokens that keep the provider transcript valid. |
+
 ## Service API (`ctx.sessionPersistence`)
 
 | Method | Contract |

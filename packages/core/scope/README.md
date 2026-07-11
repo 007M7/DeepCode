@@ -2,6 +2,12 @@
 
 Scoped-context registration primitive. `createScope(ctx, key)` mints a Cordis context that TAGS everything registered through it with an opaque `ScopeKey` and OWNS those registrations' lifetime (one backing fiber drives both facts); `scopeOf(ctx)` reads the tag; `scopeTarget(base, key)` builds the dispatch carrier that makes an event scope-filtered — listeners registered through a scoped context fire only for their key's subject, while plain plugin listeners keep firing for every subject. The agent loop is the one scope minter today (one scope per live agent, key = the `Agent` object — the `Agent.ctx` contract in `dsh-agent`), but the mechanism is key-agnostic so packages below the agent layer (`dsh-session`, `dsh-system-prompt`) depend on it without a dependency cycle.
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Per-agent visibility control | This package emits no text or schema. It decides whether agent-scoped prompt sections, variables, tools, restrictions, and listeners apply to one agent, can shadow same-named global contributions, and removes them with that agent. | Zero direct tokens. It can add, replace, or remove whole contributions for one agent without changing another agent's request. |
+
 ## Public API
 
 - `createScope(ctx: Context, key: ScopeKey): Scope` Mint a scope under `ctx`'s fiber. Usable synchronously (effect collection is uid-gated; service resolution falls through to the minting plugin's dependency surface). Throws on a primitive key, or when `ctx`'s fiber is disposing (`INACTIVE_EFFECT`).

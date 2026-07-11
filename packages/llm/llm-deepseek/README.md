@@ -4,6 +4,13 @@ DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` 
 
 A second, independent implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai` (library-backed). Same Config shape — pick one per context (registering both for the same model names throws by design).
 
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| DeepSeek request | The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted. | Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available. |
+| DeepSeek response | Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble. | Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input. |
+
 ## Config
 
 ```yaml
