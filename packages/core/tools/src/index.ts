@@ -359,8 +359,10 @@ export interface Config {
  * `deny` removes the listed ones; both present = allow first, then deny.
  * Restrictions never touch scoped registrations — a tool registered through
  * the same scope is an explicit grant that bypasses them (which is what keeps
- * e.g. a structured-output capture tool alive under an allow-list). Multiple
- * restrictions on one scope compose by intersection: every one must admit.
+ * e.g. a structured-output capture tool alive under an allow-list). The
+ * reserved `run_code` presentation transport is likewise outside capability
+ * filtering, and naming it explicitly is rejected. Multiple restrictions on
+ * one scope compose by intersection: every one must admit.
  */
 export interface ToolRestriction {
   /** Global tool names that stay visible; everything else is removed. */
@@ -374,8 +376,8 @@ export interface ToolRestriction {
  * loop executes calls through the `tools/pre-execute` → `tools/execute` →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
  * system-prompt assembly — WHICH schemas is governed by its `mode` config
- * (see {@link Config.mode}); under a non-native mode it also registers the
- * `run_code` tool and the `tools:sdk` prompt section itself.
+ * (see {@link Config.mode}); under a non-native mode it also owns the reserved
+ * `run_code` presentation transport and the `tools:sdk` prompt section.
  *
  * Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a
  * plain plugin context is GLOBAL (visible to every agent); one through a
@@ -401,15 +403,24 @@ export class ToolRegistry extends Service {
   /** Snapshot-at-registration restriction filters, per scope (see {@link restrict}). */
   private restrictions = new Map<ScopeKey, ToolRestriction[]>()
   private readonly mode: ToolPresentationMode
+  /** Reserved presentation transport, kept outside the filterable registration layers. */
+  private readonly codeTransport: ToolDefinition | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
     // The schema already defaulted an omitted mode; the ?? narrows the
     // optional-input type for direct (non-Loader) construction in tests.
     this.mode = config.mode ?? 'native'
+    // `run_code` is presentation infrastructure, not an end capability. It
+    // therefore does not enter the global layer: per-agent restrictions must
+    // not remove it, and a scoped registration must not shadow it. The
+    // visibility resolver appends this reserved definition after resolving
+    // the filterable global/scoped capability layers.
+    this.codeTransport = this.mode === 'native'
+      ? undefined
+      : createRunCodeTool(this, () => this.requireCodeRuntime())
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
-      this.register(createRunCodeTool(this, () => this.requireCodeRuntime()))
       ctx.systemPrompt.section({
         name: 'tools:sdk',
         order: SDK_SECTION_ORDER,
@@ -442,7 +453,9 @@ export class ToolRegistry extends Service {
    * pre-restriction and a restricted-away tool in `toolOrder` is a normal
    * absence — while the MODE collapse is deployment config, so under
    * `mode: 'code'` the universe is `[run_code]` and a `toolOrder` naming a
-   * native tool is dead configuration that fails every assembly loud.
+   * native tool is dead configuration that fails every assembly loud. Under
+   * `mode: 'both'`, the provider adds the reserved transport to the
+   * capability-only {@link knownNames} universe for `toolOrder` validation.
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     if (this.mode === 'native') return { schemas: this.schemas(scope), knownNames: this.knownNames(scope) }
@@ -451,7 +464,7 @@ export class ToolRegistry extends Service {
     if (this.mode === 'code') {
       return { schemas: all.filter(schema => schema.name === RUN_CODE_NAME), knownNames: [RUN_CODE_NAME] }
     }
-    return { schemas: all, knownNames: this.knownNames(scope) }
+    return { schemas: all, knownNames: [...this.knownNames(scope), RUN_CODE_NAME] }
   }
 
   /**
@@ -480,9 +493,10 @@ export class ToolRegistry extends Service {
    * with the scope, and shadowing a same-named global tool for that agent.
    * Throws if the SAME layer already has the name (cross-layer name twins are
    * the shadowing feature, not an error; the global-duplicate message names
-   * `agent.ctx` as the per-agent alternative). The visible schema set flows
-   * into prompt assembly automatically. Disposed with the calling fiber.
-   * Emits `tools/change` on register/unregister.
+   * `agent.ctx` as the per-agent alternative), or if a non-native mode reserves
+   * the `run_code` name for its presentation transport. The visible schema set
+   * flows into prompt assembly automatically. Disposed with the calling
+   * fiber. Emits `tools/change` on register/unregister.
    * @param definition - the tool's schema plus its execute (and optional
    *   presentation) functions.
    * @returns the disposer that unregisters the tool. The exact
@@ -491,6 +505,9 @@ export class ToolRegistry extends Service {
    */
   register(definition: ToolDefinition): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
+    if (this.codeTransport !== undefined && definition.name === RUN_CODE_NAME) {
+      throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
+    }
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       const layer = scope === undefined ? this.global : this.layerFor(scope)
       if (layer.has(definition.name)) {
@@ -531,10 +548,13 @@ export class ToolRegistry extends Service {
    * name universe ({@link knownNames}) and throws on an unknown one (fail loud
    * beats a typo silently filtering nothing) — register restrictions after the
    * global tools they mask exist (the agent-creation `setup` window satisfies
-   * this). The filter is SNAPSHOT at registration: later caller mutation of
-   * the arrays changes nothing. Multiple restrictions compose by intersection.
-   * Scoped registrations bypass restrictions (explicit grants win). Disposed
-   * with the calling fiber (revocable independently); emits `tools/change`.
+   * this). A non-native mode's reserved `run_code` presentation transport is
+   * not a filterable capability; naming it explicitly throws, while omitting
+   * it from an allow-list cannot remove it. The filter is SNAPSHOT at
+   * registration: later caller mutation of the arrays changes nothing.
+   * Multiple restrictions compose by intersection. Scoped registrations
+   * bypass restrictions (explicit grants win). Disposed with the calling
+   * fiber (revocable independently); emits `tools/change`.
    * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
    * @returns the disposer that lifts this restriction. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -552,6 +572,10 @@ export class ToolRegistry extends Service {
     const snapshot: ToolRestriction = {
       ...filter.allow !== undefined ? { allow: [...filter.allow] } : {},
       ...filter.deny !== undefined ? { deny: [...filter.deny] } : {},
+    }
+    if (this.codeTransport !== undefined
+      && [...snapshot.allow ?? [], ...snapshot.deny ?? []].includes(RUN_CODE_NAME)) {
+      throw new Error(`tools.restrict() cannot name reserved Code Mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
     const known = new Set(this.knownNames(scope))
     const unknown = [...snapshot.allow ?? [], ...snapshot.deny ?? []].filter(name => !known.has(name))
@@ -604,7 +628,8 @@ export class ToolRegistry extends Service {
    * THE visibility function — one resolution feeding prompt assembly,
    * {@link get}, and {@link execute}: the global layer masked by the scope's
    * restrictions, unioned with the scope's own layer, scoped shadowing global
-   * on a name conflict. No scope = the unrestricted global view.
+   * on a name conflict, then the non-native mode's reserved `run_code`
+   * presentation transport. No scope = the unrestricted global view.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the visible definitions (scoped shadows applied), in per-layer
    *   registration order, global layer first.
@@ -618,6 +643,10 @@ export class ToolRegistry extends Service {
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
     // and grants bypass restrictions by construction (never filtered above).
     for (const [name, definition] of layer ?? []) result.set(name, definition)
+    // Presentation infrastructure is resolved last and outside capability
+    // filtering. Registration rejects this reserved name, so this set is an
+    // invariant assertion as well as protection against future layer changes.
+    if (this.codeTransport !== undefined) result.set(RUN_CODE_NAME, this.codeTransport)
     return [...result.values()]
   }
 
@@ -631,6 +660,7 @@ export class ToolRegistry extends Service {
    * @returns the definition the scope resolves, or undefined when none is visible.
    */
   get(name: string, scope?: ScopeKey): ToolDefinition | undefined {
+    if (name === RUN_CODE_NAME && this.codeTransport !== undefined) return this.codeTransport
     const shadowed = scope === undefined ? undefined : this.scoped.get(scope)?.get(name)
     if (shadowed) return shadowed
     if (!this.admits(scope, name)) return undefined
@@ -658,10 +688,13 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * The PRE-restriction name universe for `scope`: every global name plus the
-   * scope's own layer, ignoring restrictions. This is the set configuration
-   * (`toolOrder`, `restrict()` filters) validates against, so a typo fails
-   * loud while a restricted-away tool remains a normal, non-erroneous absence.
+   * The PRE-restriction END-CAPABILITY name universe for `scope`: every global
+   * name plus the scope's own layer, ignoring restrictions. This is the set
+   * `restrict()` validates against, so a typo fails loud while a
+   * restricted-away tool remains a normal, non-erroneous absence. Reserved
+   * presentation transports are deliberately absent: `restrict()` rejects
+   * naming one, while {@link wireSchemas} adds it to the separate `toolOrder`
+   * validation universe when its presentation mode contributes it.
    * @param scope - the viewing scope (the agent); omitted = global names only.
    * @returns the known names, deduplicated.
    */

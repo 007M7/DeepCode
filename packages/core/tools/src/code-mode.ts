@@ -138,7 +138,8 @@ function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
  * executed through the dispatch bridge described in the module doc. The
- * registry registers it under non-native modes.
+ * registry reserves it as presentation infrastructure under non-native modes,
+ * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
  *   bindings cover its registered tools).
  * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud

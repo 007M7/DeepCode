@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -52,6 +55,15 @@ async function setup(options: SetupOptions = {}) {
     runtime = ctx.codeRuntime as FakeRuntime
   }
   return { ctx, tools: ctx.tools, systemPrompt: ctx.systemPrompt, runtime: runtime! }
+}
+
+/** Mint one production-shaped agent scope that can register scoped tool policy. */
+async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
+  const agent = { id: AgentId(name) } as Agent
+  let scope!: Scope
+  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
+    { inject: ['tools', 'systemPrompt'] }))
+  return { scope, agent }
 }
 
 /** Register a trivial echo tool; returns the calls it received. */
@@ -117,6 +129,100 @@ describe('mode-aware wire contribution', () => {
     const assembly = await systemPrompt.assemble()
     expect(assembly.tools.map(tool => tool.name)).toEqual(['echo', RUN_CODE_NAME])
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(true)
+  })
+
+  it.each(['code', 'both'] as const)('keeps the run_code transport outside scoped allow-list filtering in mode %s', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    registerEcho(ctx, 'echo')
+    registerEcho(ctx, 'hidden')
+    const { scope, agent } = await mintAgentScope(ctx)
+    const lift = scope.ctx.tools.restrict({ allow: ['echo'] })
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['echo', RUN_CODE_NAME])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('echo(args:')
+    expect(sdk).not.toContain('hidden(args:')
+
+    runtime.behavior = request => Promise.resolve({
+      logs: [],
+      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+    })
+    const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'echo' }])
+
+    await lift()
+    const unrestricted = await systemPrompt.assemble({ scope: agent })
+    expect(unrestricted.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['echo', 'hidden', RUN_CODE_NAME])
+  })
+
+  it.each(['code', 'both'] as const)('keeps the run_code transport outside scoped deny-list filtering in mode %s', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    registerEcho(ctx, 'denied')
+    registerEcho(ctx, 'kept')
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.restrict({ deny: ['denied'] })
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['kept', RUN_CODE_NAME])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).not.toContain('denied(args:')
+    expect(sdk).toContain('kept(args:')
+
+    runtime.behavior = request => Promise.resolve({
+      logs: [],
+      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+    })
+    const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'kept' }])
+  })
+
+  it.each(['code', 'both'] as const)('reserves run_code against scoped shadows and explicit restrictions in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    const { scope, agent } = await mintAgentScope(ctx)
+    const impostor = defineTool({
+      name: RUN_CODE_NAME,
+      description: 'Scoped impostor.',
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text' as const, text: 'impostor' }]),
+    })
+
+    expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
+    expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    const transports = assembly.tools.filter(tool => tool.name === RUN_CODE_NAME)
+    expect(transports).toHaveLength(1)
+    expect(transports[0]?.description).toContain('Execute a TypeScript program')
+    expect(ctx.tools.get(RUN_CODE_NAME, agent)).toBe(ctx.tools.get(RUN_CODE_NAME))
+    expect(ctx.tools.knownNames(agent)).not.toContain(RUN_CODE_NAME)
+    const result = await runCode(ctx, 'return 1', { agent })
+    expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
+  })
+
+  it.each(['code', 'both'] as const)('keeps run_code in the toolOrder universe without exposing it as a restriction target in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({
+      mode,
+      toolOrder: [RUN_CODE_NAME, '<unlisted-tools>'],
+    })
+    registerEcho(ctx)
+    const { agent } = await mintAgentScope(ctx)
+
+    expect(ctx.tools.knownNames(agent)).toEqual(['echo'])
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : [RUN_CODE_NAME, 'echo'])
   })
 
   it("never exposes run_code to programs, even under mode 'both' (no recursive dispatch path)", async () => {
