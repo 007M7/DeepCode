@@ -1,0 +1,83 @@
+# RFC: Single-file executable SDK runtime distribution (single-exe)
+
+Status: implemented
+
+English | [中文](2026-07-10-single-file-executable-sdk-runtime-distribution.zh.md)
+
+## Problem
+
+DeepSeek Harness needs a dedicated SDK distribution form for the Python library — no Node installation, runs directly on the target platform: a single-file executable (hereafter "the exe") that exposes a stdio JSON-RPC serving surface (`HarnessSdkServer`, the Python SDK's peer), where the plugins and configuration actually booted are decided entirely by a `cordis.yml` supplied from outside the exe.
+
+- The JSONRPC protocol for talking to the Python SDK is already validated
+- A standardized way for cordis.yml to load every plugin (ESModule) is needed
+- The distribution must carry the Node runtime, and support a locally linked source debugging mode
+
+## Decision
+
+### Packaging route: @yao-pkg/pkg's `--sea` mode
+
+The exe is packaged with the **`--sea` (enhanced SEA) mode** of [@yao-pkg/pkg](https://github.com/yao-pkg/pkg) (the actively maintained fork after vercel/pkg was archived). Relative to Node's native SEA, pkg adds a `/snapshot` VFS and runtime module hooks on top, hands the ESM entry to Node's default ESM loader unchanged, and depends on no ESM→CJS transpilation.
+> Measured (macos-arm64, node24 target, pkg 6.21.0): bare-specifier ESM dynamic import inside the VFS (including top-level await), CJS interop, `node:sqlite`, fail-loud on package names outside the set, and on-disk ESM import outside the VFS all pass; `import.meta.url` comes through unchanged as `file:///snapshot/...`.
+
+`--sea` requires target ≥ node22; the exe uniformly targets node24. One pkg invocation packages exactly one target; multi-platform builds invoke it once per platform.
+
+Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's testing-system "snapshot" (ACP replay goldens, `$DSH_SNAPSHOT`); this document says "VFS" for the former.
+
+### The serving surface is a plugin: the two packages ui/jsonrpc + ui/jsonrpc-agent
+
+The deterministic protocol implementation (`server.ts` / `transport.ts`) lands as two packages on the existing `ui/acp` + `ui/acp-agent` pattern — the serving surface is itself a plugin:
+
+- [`packages/ui/jsonrpc`](../../../../packages/ui/jsonrpc/README.md) (`@deepseek-ai/dsh-jsonrpc`): the pure protocol plugin; on apply it mounts `HarnessSdkServer` plus a line-delimited JSON-RPC transport on the process stdio, with disposal through `ctx.effect()`. Whether to serve is decided by `cordis.yml`; a yml that does not mount it is a legitimate process that does not serve. Protocol-level exit belongs to the plugin (after answering the `shutdown` request it disposes its own fiber, then `exit(0)`; an HMR-style unload only stops the service without exiting the process).
+- [`packages/ui/jsonrpc-agent`](../../../../packages/ui/jsonrpc-agent/README.md) (`@deepseek-ai/dsh-jsonrpc-agent`): a thin app bin — `installFailLoud` + `loadEnv` + config discovery + `boot()` from [`dsh-app-boot`](../../../../packages/ui/app-boot/src/index.ts), done once boot completes; the server is brought up by the `dsh-jsonrpc` entry in the yml. Its only dependency is app-boot. Process-level exit belongs to the bin (stdin EOF/SIGTERM → dispose then 0, SIGINT → 130).
+
+Config discovery has two channels and fails loudly when both are missing: the `DSH_CORDIS_CONFIG` environment variable first (the SDK client convention), then an argv positional argument; no default path and no built-in fallback whatsoever — "the plugins actually booted are decided by an external cordis.yml" is a hard semantic.
+
+### Plugin resolution: the VFS holds a real package tree, the closure manifest IS the deploy root
+
+Inside the exe's VFS sits a **real package tree in build-artifact form** (each package's `lib/` plus a real `node_modules`); the Loader resolves plugin names through standard dynamic `import()`: bare specifiers resolve upward along `node_modules` from the Loader's position inside the VFS, and land inside the VFS naturally. The closed set needs no allowlist code — the set is whatever the VFS has installed, and importing a name outside the set fails.
+
+The deploy root is [`python/sdk-runtime/package.json`](../../../../python/sdk-runtime/package.json) (`dsh-jsonrpc-agent-pkg`, a pnpm workspace member and a zero-code pure dependency manifest) — the unified source of truth for "which plugins the exe ships" and "what the Python runtime distributes". Adding a plugin to the exe = adding one dependency line to the manifest and repackaging. Two closure-completeness rules learned from measurement: in-repo pure libraries that closure members reference as peerDependency (`dsh-brand`, `dsh-timeout`, `dsh-invariants`, `@cordisjs/plugin-timer`) must be listed explicitly in the manifest's `dependencies`; deploy packs by each package's `files`, so the shared chunks tsdown splits out must be covered by `files`.
+
+### Build pipeline and artifacts
+
+[`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts): `pnpm run build` → (after clearing) `pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **directly into** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/` → inject the pkg configuration (`bin` points at `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js` inside the closure, `assets` is a full glob — dynamic import is invisible to pkg's static analysis, so everything must be packed in explicitly) → one `pkg --sea` per target → the artifacts `dsh-jsonrpc-agent-pkg-<platform>-<arch>` land in `dist-exe/` (the CI artifact) and are copied back into the runtime directory. All four deploy flags are grounded in measurement: `--legacy` is the mandatory path with inject-workspace-packages off; hoisted yields a zero-symlink file tree (most stable for the pkg VFS, physically guaranteeing a single cordis instance); disabling automatic peer installation keeps unpublished package names from triggering registry resolution; link-workspace-packages points the closure at workspace/vendor sources.
+
+CI: [`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml), manually triggered via `workflow_dispatch` only; native builds on the three platforms linux-x64 / linux-arm64 (`ubuntu-24.04-arm`) / macos-arm64, with `~/.pkg-cache` cached and artifacts uploaded per platform; macOS ad-hoc signing is handled by pkg. Windows is a non-goal.
+
+### Python SDK distribution: two carriers, exe for production, node for development
+
+The Python SDK lives at [`python/`](../../../../python/README.md): `python/sdk` (the client) + `python/sdk-runtime` (the runtime carrier package). The runtime package's data directory holds three kinds of content: the checked-in default `runtime/cordis.yml`, the build-injected platform exe, and the build-injected `runtime/node/` closure tree. `resolve_bundled_launch_args()` automatic resolution **finds the exe only**; the node carrier is enabled only by an explicit `DSH_RUNTIME_MODE=node` (running `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`, requiring a system node ≥22.19), positioned as the development-verification channel for members of this repo, and does not enter wheel/sdist distributions.
+
+The exe's "must be explicitly configured" hard semantic is unchanged; the zero-config experience is restored by the wrapper: when the caller gave no `cordis`, named no explicit runtime, and the environment has no `DSH_CORDIS_CONFIG`, the client explicitly injects the checked-in default `cordis.yml` (agent-core + preloaded llm-deepseek + JSONL persistence + bash-local + the `dsh-jsonrpc` serving entry, with `!!js` environment-variable fallbacks) via `DSH_CORDIS_CONFIG`.
+
+### Naming lineage
+
+`@deepseek-ai/dsh-jsonrpc-agent` (the package) → `dsh-jsonrpc-agent` (the bin) → `dsh-jsonrpc-agent-pkg` (the closure manifest; no scope prefix, deliberately sidestepping the constraints' package-shape rules for `@deepseek-ai/dsh-*`) → `dsh-jsonrpc-agent-pkg-<platform>-<arch>` (the exe artifacts). The wire `serverInfo.name` stays `deepseek-harness-sdk-runtime` (a protocol-stable value); the Python dist names are `deepseek-harness` / `deepseek-harness-runtime-bin`.
+
+## Disposition of worker-style plugins
+
+`dsh-workflow-workerthread` and `dsh-code-runtime-worker` depend on on-disk sibling files via `new Worker(new URL('./worker.js', import.meta.url))`. PoC measurement: pkg's Worker patch intercepts **string paths only**; the URL-object form finds no file inside the VFS. The fix is already known (`fileURLToPath()` to a string), but this round's review decision is **do not verify, do not promise, do not handle**: they compile into the exe with the full set, and behavior when an external `cordis.yml` references them is undefined.
+
+## Testing
+
+The verification surface has three tiers. Mechanism tier: the measured conclusions for the `--sea` chain are embedded in the Decision sections (ESM dynamic import inside the VFS, single cordis instance, fail-loud config chain, `node:sqlite`, macOS ad-hoc signing runs). SDK tier: the 28 pytest cases in `python/sdk/tests` cover the client protocol (18 cases, keyless, against a fake runtime peer), dual-carrier launch (6 cases, each skipping independently when the artifact is missing), and the carrier resolution rules (4 cases). End-to-end tier: the acceptance material (five keyless items: env-channel launch, fail-loud on missing config, fail-loud on a bad plugin name, config channel, full turn against a mock endpoint + JSONL on disk; two with-key items: a real turn, and a world check where the bash tool writes a marker file + clean exit) drives the exe from a real Python SDK client. Current debts: running the above suites against the current artifacts, and a built-exe e2e. The JSON-RPC protocol is not part of the ACP snapshot system, so there is no snapshot tier (an explicitly named gap, not an oversight).
+
+Manual-driving caveat: the bin treats stdin EOF as "the client is gone" and disposes immediately, so a short-lived pipe aborts an in-flight turn — pipe-driven runs must keep stdin open until the turn ends.
+
+## Alternatives considered
+
+**Bare Node native SEA.** The injected main script must be a single CJS file, and the blob carries no filesystem and no module resolution, so a dynamic import of a bare specifier has nothing to resolve against; the only option is compiling plugins statically into the main script and registering them by hand — bypassing standard module resolution and hardcoding the plugin set, contrary to "configuration decides everything". The final route is in fact "the official SEA foundation + pkg's VFS/module-hook layer"; what was rejected is the bare use, not SEA itself.
+
+**pkg standard mode.** Killed by the PoC, not a trade-off: it turns ESM into CJS + V8 bytecode via esbuild, the runtime vm compilation wires up no dynamic-import callback, every `import()` throws `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`, and `--options experimental-require-module` has no effect; it also depends on community-patched Node binaries (no macos-arm64 prebuilt; compiling from source on the spot takes about 10 minutes). Zero viability for this repo's architecture.
+
+**Pre-bundling each package ESM→CJS into the VFS.** The compromise that keeps real resolution semantics and only downgrades the module format; `--sea` passed measurement outright, so this layer of build complexity never needed introducing.
+
+**jsonrpc-agent carrying the full closure dependencies.** The app bin would declare 53+ dependencies it never imports — a "packaging manifest" masquerading as real dependency relationships — and would force constraints to open two exceptions for it, cordis-in-dependencies and a files wildcard. With the closure manifest landing on the python-side manifest package, constraints needs no exception at all and the bin keeps the normal package shape isomorphic to acp-agent.
+
+**An open plugin set (loading user plugins from disk).** This round ships a closed set; the PoC incidentally confirmed that on-disk ESM import outside the VFS works (through the `ctx.baseUrl` relative-path channel). It is listed as a future evolution, which must separately solve sharing the cordis instance inside the exe with external plugins.
+
+## Consequences
+
+**Bought**: zero-dependency single-file distribution on target platforms; plugin semantics strictly identical to running from source (the same real package tree, no transpilation, no registry); the serving surface, the plugin set, and the configuration all converge on two sources of truth — `cordis.yml` plus one dependency manifest; the exe and node carriers share one tree and one semantics, so development verification never waits for packaging; official Node binaries remove the patched-binary supply-chain concern.
+
+**Paid**: artifacts on the order of 174MB with source entering the blob as-is (no bytecode obfuscation; a closed-source distribution requirement needs a separate evaluation); pkg's VFS/module-hook layer remains community-maintained (the build script pins `@yao-pkg/pkg@6.21.0`; upgrading is an explicit change); `--sea` is one invocation per target (matching CI's one leg per platform; local multi-platform builds are serial); worker-style plugins have undefined behavior inside the exe; acceptance and coverage carry catch-up debts (see Testing).
