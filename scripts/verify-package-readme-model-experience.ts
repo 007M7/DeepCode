@@ -11,6 +11,7 @@ import { relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
 const HEADING_PATTERN = /^## Model Experience$/gm
+const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
 const TABLE_HEADER = '| Context surface | What the model sees | Token effect |'
 const TABLE_DIVIDER = '|---|---|---|'
 
@@ -46,6 +47,22 @@ for (const packageJson of packageJsons) {
     continue
   }
   const headingIndex = match.index
+  const h2Headings = [...source.matchAll(/^## .+$/gm)]
+  const modelH2Index = h2Headings.findIndex(heading => heading.index === headingIndex)
+  const limitationsH2Index = h2Headings.findIndex(heading => heading[0] === LIMITATIONS_HEADING)
+  if (limitationsH2Index >= 0) {
+    if (modelH2Index !== h2Headings.length - 2 || limitationsH2Index !== h2Headings.length - 1) {
+      failures.push({
+        path: readme,
+        message: `${HEADING} and ${LIMITATIONS_HEADING} must be the final two H2 sections, in that order`,
+      })
+      continue
+    }
+  } else if (modelH2Index !== h2Headings.length - 1) {
+    failures.push({ path: readme, message: `${HEADING} must be the final H2 when ${LIMITATIONS_HEADING} is absent` })
+    continue
+  }
+
   const bodyStart = headingIndex + HEADING.length
   const nextHeadingOffset = source.slice(bodyStart).search(/^## /m)
   const section = source.slice(bodyStart, nextHeadingOffset < 0 ? undefined : bodyStart + nextHeadingOffset)

@@ -10,12 +10,6 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 // freshness policy gate and @deepseek-ai/dsh-tool-fs to expose read/write/edit.
 ```
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Filesystem tool results, indirectly | Through `dsh-tool-fs`, the model sees line-windowed UTF-8 file content, mutation acknowledgements, or structured filesystem errors. Real paths, versions, atomic-write mechanics, and directory metadata remain internal unless a consumer renders them. | Zero direct tokens. Read tokens are bounded by the tool's line, line-length, and byte caps; mutation results are small and remain in history until compaction. |
-
 ## Behavior
 
 - **`resolve(path, opts?)`** — a relative `path` resolves against `opts.cwd` when the caller supplies one (the model-facing tools pass the calling agent's session cwd — see [the per-session cwd RFC](../../../docs/rfc/implemented/architecture/2026-07-02-fs-per-session-cwd.md)), else `config.cwd` (default `process.cwd()`); an absolute `path` ignores both. The `targetKey` is the file's `realpath`, so two input paths reaching the same file through symlinks share one identity, and writes/edits land on the link target (preserving the link). A not-yet-existing path uses the realpathed parent directory plus basename when the parent exists; only an unresolvable parent falls back to the absolute path. `displayPath` is the absolute (un-resolved) path.
@@ -26,6 +20,12 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 - **`editText`** — atomic literal read-modify-write over the same primitive, serialized per target by a mutation lock. The `expected` guard is OPTIONAL: when supplied it verifies the version BEFORE literal matching (a stale edit reports `FS_STALE_VERSION`, never `FS_EDIT_NOT_FOUND`/`FS_AMBIGUOUS_EDIT` against newer content); omitting it edits the current content unconditionally. A missing target reports `FS_STALE_VERSION` either way. LF-normalizes for matching, restores the file's dominant CRLF/LF style, and rejects empty `oldString` / zero matches (`FS_EDIT_NOT_FOUND`) or ambiguous multi-matches without `replace_all` (`FS_AMBIGUOUS_EDIT`).
 
 The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the thin service wiring.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Filesystem tool results, indirectly | Through `dsh-tool-fs`, the model sees line-windowed UTF-8 file content, mutation acknowledgements, or structured filesystem errors. Real paths, versions, atomic-write mechanics, and directory metadata remain internal unless a consumer renders them. | Zero direct tokens. Read tokens are bounded by the tool's line, line-length, and byte caps; mutation results are small and remain in history until compaction. |
 
 ## Known Limitations and Deferred Work
 

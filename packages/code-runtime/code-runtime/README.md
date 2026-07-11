@@ -4,12 +4,6 @@ The **code-execution seam**: an abstract `CodeRuntime` service (`ctx.codeRuntime
 
 This package is the interface third of the capability (the bash trio is the template — see [capability seams](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): implementations subclass `CodeRuntime` and register the service; the consumer is the tool registry's Code Mode, which generates the model-facing SDK and bridges tool dispatch — both specified in the [Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md), whose first implementation is a Node worker-thread backend. The runtime knows nothing about tools or sessions: it is handed named async functions and a program string, and everything tool-shaped stays with the consumer.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The seam receives a program and host bindings but registers no prompt, schema, or message. Code Mode in `dsh-tools` exposes the SDK and `run_code`, then converts `CodeRunResult` into the outer tool result. | Zero direct tokens. Program logs, values, and failures affect the conversation only through the Code Mode consumer. |
-
 ## Service API (`ctx.codeRuntime`)
 
 | Member | Semantics |
@@ -23,6 +17,12 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 ## Vocabulary
 
 `CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables. `CodeRunResult` reports the completion `value?`, the ordered `logs` (`CodeLogEntry`: `console`/`stdout`/`stderr` source, console `level`, capped text), and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The seam receives a program and host bindings but registers no prompt, schema, or message. Code Mode in `dsh-tools` exposes the SDK and `run_code`, then converts `CodeRunResult` into the outer tool result. | Zero direct tokens. Program logs, values, and failures affect the conversation only through the Code Mode consumer. |
 
 ## Known Limitations and Deferred Work
 

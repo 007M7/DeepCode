@@ -4,12 +4,6 @@ A replay LLM plugin for keyless snapshot tests. It installs a single `llm/stream
 
 Its consumer is the ACP snapshot harness in `examples/acp-agent`, which loads this plugin (via `cordis.snapshot.yml`) in place of a real LLM adapter. The package exists so its derive/parse/replay logic falls under the per-file 100% coverage gate on `packages/*/src` (the same logic, while it lived under `examples/`, was outside the gate).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Keyless test stream | The real loop still assembles its normal system prompt, tools, prefix, and history, but no provider model receives them. Recorded assistant chunks are replayed as the response and then enter later history exactly like live output. | Zero billed or tokenizer-evaluated model tokens. Fixture output creates deterministic retained test context for later replay steps. |
-
 ## How the fixture works
 
 The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record. A fixture may carry its `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness pins that content in one scenario and scrubs the rest); replay is indifferent — derivation reads only `assistant/chunk` events and the line-0 session header.
@@ -49,6 +43,12 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 ## Plugin export shape
 
 Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Keyless test stream | The real loop still assembles its normal system prompt, tools, prefix, and history, but no provider model receives them. Recorded assistant chunks are replayed as the response and then enter later history exactly like live output. | Zero billed or tokenizer-evaluated model tokens. Fixture output creates deterministic retained test context for later replay steps. |
 
 ## Known Limitations and Deferred Work
 

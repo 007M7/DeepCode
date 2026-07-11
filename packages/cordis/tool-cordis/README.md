@@ -2,14 +2,6 @@
 
 The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset RFC](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Tool schemas | The conversation model sees `cordis_inspect`, `cordis_mount`, and `cordis_unmount` whenever this plugin is visible. | Fixed schema cost on every request in that tool view. |
-| Tool-call history and results | Inspect returns selected live services, plugins, tools, or generated API and event references; mount and unmount return lifecycle facts or structured errors. The submitted mount program remains in the assistant tool-call history. | Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small. |
-| Later requests after a mount | A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence. | Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime. |
-
 ## What it does
 
 - `cordis_inspect` — read-only report over the runtime: services, the loaded-plugin list, registered tools, the dynamic-mount table, and the catalog-backed `api` / `events` references.
@@ -39,6 +31,14 @@ All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_
 ## Export shape
 
 Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no default export ([docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Tool schemas | The conversation model sees `cordis_inspect`, `cordis_mount`, and `cordis_unmount` whenever this plugin is visible. | Fixed schema cost on every request in that tool view. |
+| Tool-call history and results | Inspect returns selected live services, plugins, tools, or generated API and event references; mount and unmount return lifecycle facts or structured errors. The submitted mount program remains in the assistant tool-call history. | Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small. |
+| Later requests after a mount | A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence. | Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime. |
 
 ## Known Limitations and Deferred Work
 

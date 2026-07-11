@@ -2,12 +2,6 @@
 
 The JSONL durable session-persistence backend — a concrete `SessionPersistence` (the `dsh-session-persistence` seam). One append-only `.jsonl` event log per session.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Resumed conversation history | JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. An interrupted tail is balanced with error tool results. Raw `assistant/chunk` records do not duplicate messages. | Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus small repair results only after an interrupted tool turn. |
-
 ## On-disk layout
 
 ```
@@ -35,6 +29,12 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 ## Write path
 
 The plugin generalizes the example `session-jsonl.ts`: it subscribes to `session/created` (capture the header; persist a fork's seed once), `session/event` (snapshot each event when buffering — the live `session.events` object is mutable), and `session/flush`/dispose (drain the write-behind buffer through `append`). A per-session write cursor means a resumed session never re-appends already-stored events. Existing live sessions are seeded on plugin apply (HMR does not replay `session/created`). All backend operations for one session are serialized, and disposal awaits quiescence (every init + final drain) before returning, so no write lands after teardown.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Resumed conversation history | JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. An interrupted tail is balanced with error tool results. Raw `assistant/chunk` records do not duplicate messages. | Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus small repair results only after an interrupted tool turn. |
 
 ## Known Limitations and Deferred Work
 

@@ -4,13 +4,6 @@ The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. 
 
 This is the package to read to see **the whole shared plugin tree at once**: the teaching overview of the spine behind every app package.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Composed system prompt and session prefix | Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist. | The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles. |
-| Composed tool surface | The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both. | Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history. |
-
 ## The tree it loads
 
 `apply(ctx, config)` mounts each of these as a child of the bundle fiber:
@@ -55,6 +48,13 @@ The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loo
 ## Why a code bundle, not a shared YAML include
 
 A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only *describe* the front-door coupling in a comment and trust each leaf to obey. Moving the spine into a package, and the front-door cluster into the app packages, means the default leaf for an ACP server has no logger entry to copy wrong — "the ACP app never logs to stdout" stops being a prose warning a leaf must remember and becomes the app package's default shape (a leaf can still add a sibling logger, so the rule stays documented — but it has nothing to get wrong by default). Services register in the root store keyed by their isolate symbol, so a child loaded here is visible to the bundle's siblings (the leaf's adapter and executor) exactly as a nested `plugin-include` subtree's services were — cordis gates every read on `inject`, never on load order.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Composed system prompt and session prefix | Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist. | The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles. |
+| Composed tool surface | The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both. | Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history. |
 
 ## Known Limitations and Deferred Work
 

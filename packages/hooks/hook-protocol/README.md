@@ -4,12 +4,6 @@ The **shared core** of the Claude Code / Codex hook wire protocol. NOT a cordis 
 
 Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claude Code hook protocol — the same `hooks.json` matcher-group shape, the same exit-code/stdout output contract, the same command-hook execution model. The genuinely-shared parts live here; each bridge owns only what differs.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This library registers nothing. Its `hook/invoked` and `hook/result` events are log-only and do not enter derived messages; bridge packages decide whether parsed `additionalContext`, blocks, or continuation feedback reach the model. | Zero direct tokens. Persisted hook audit records add no context tokens. |
-
 ## What's shared (here) vs. per-dialect (the bridges)
 
 | Concern | Here (`dsh-hook-protocol`) | The bridge (`dsh-hooks-claude` / `-codex`) |
@@ -34,6 +28,12 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 Declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT a `SurfaceEventType`, no `surfaceOp`): `hook/invoked` (a hook command ran) and `hook/result` (its outcome, paired by `handlerId`, with `appendHookResult` owning the decision rule). Payloads and per-event JSDoc are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md); `stderrSummary` is truncated to the record's `stderrSummaryMaxChars` (the bridge's config, reference default `DEFAULT_STDERR_SUMMARY_MAX_CHARS` = 500; omitted when empty).
 
 Like every event they must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn by construction; `SessionStart` gets no `hook/*` record (its injected `context/message` is the durable evidence) — see the hooks RFC.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This library registers nothing. Its `hook/invoked` and `hook/result` events are log-only and do not enter derived messages; bridge packages decide whether parsed `additionalContext`, blocks, or continuation feedback reach the model. | Zero direct tokens. Persisted hook audit records add no context tokens. |
 
 ## Known Limitations and Deferred Work
 

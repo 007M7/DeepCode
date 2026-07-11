@@ -4,12 +4,6 @@ The **ACP server app**: a Cordis app plugin that composes the default agent spin
 
 It is the structured counterpart to [`@deepseek-ai/dsh-stdio-agent`](../stdio-agent/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Composed ACP agent request | Through `dsh-agent-core`, an ACP-created agent receives the harness identity, configured persona, skill catalog, visible tools, and its own ACP prompt history. This app adds no extra prompt prose and omits `ask_user_question` unless a leaf opts in. | Per-request cost is the sum of the composed child packages. ACP framing, JSON-RPC, persistence, and UI rendering add zero model tokens. |
-
 ## What it bakes in — and what it deliberately omits
 
 stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it LEAVES OUT as what it includes:
@@ -51,6 +45,12 @@ The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the
 Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers through its internal module loader, active only under that flag. (`demo:acp` runs under tsx, whose tsconfig `paths` map resolves them instead.)
 
 All diagnostics go to **stderr** — stdout is the protocol.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Composed ACP agent request | Through `dsh-agent-core`, an ACP-created agent receives the harness identity, configured persona, skill catalog, visible tools, and its own ACP prompt history. This app adds no extra prompt prose and omits `ask_user_question` unless a leaf opts in. | Per-request cost is the sum of the composed child packages. ACP framing, JSON-RPC, persistence, and UI rendering add zero model tokens. |
 
 ## Known Limitations and Deferred Work
 

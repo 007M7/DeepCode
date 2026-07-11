@@ -11,14 +11,6 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 `@deepseek-ai/dsh-fs-policy` is **optional**: omit it and the tools run against the bare provider (unconditional write/overwrite/edit, no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt | Visible agents receive three short sections explaining line-windowed reads, whole-file writes, literal edits, and the default read-before-mutate habit. | Fixed guidance cost per request while the tools are visible. |
-| Tool schemas | The model sees `read`, `write`, and `edit` with their snake_case arguments. Scoped tool restrictions can remove any definition for one agent. | Fixed schema cost on every request in that tool view. |
-| Tool-call history and results | Read returns numbered UTF-8 lines and a pagination or cap footer; write and edit return concise success text or structured errors. The model-emitted write or edit content also remains in the assistant tool-call arguments. | Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`. Call arguments and results are resent until compaction, so large write payloads can dominate history even though the success result is small. |
-
 ## Config
 
 All keys are optional; the defaults are the shipped read caps.
@@ -55,6 +47,14 @@ The tool passes `exec` (the tool-execution context) as the opaque `actor` on eve
 `fs/observed` fires AFTER the read/write/edit already succeeded, via a plain `ctx.emit`. A listener is contractually a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s is a `WeakMap.set`); the tool does not guard the emit, so a listener that throws would surface as the tool's `isError` result — async or fallible observation does not belong on this event.
 
 The read rendering (line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt | Visible agents receive three short sections explaining line-windowed reads, whole-file writes, literal edits, and the default read-before-mutate habit. | Fixed guidance cost per request while the tools are visible. |
+| Tool schemas | The model sees `read`, `write`, and `edit` with their snake_case arguments. Scoped tool restrictions can remove any definition for one agent. | Fixed schema cost on every request in that tool view. |
+| Tool-call history and results | Read returns numbered UTF-8 lines and a pagination or cap footer; write and edit return concise success text or structured errors. The model-emitted write or edit content also remains in the assistant tool-call arguments. | Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`. Call arguments and results are resent until compaction, so large write payloads can dominate history even though the success result is small. |
 
 ## Known Limitations and Deferred Work
 

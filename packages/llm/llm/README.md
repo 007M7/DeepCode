@@ -2,13 +2,6 @@
 
 Provider-neutral LLM vocabulary and abstract service. This package defines the canonical language spoken by the agent loop, session logs, and every plugin.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Provider request transport | This service adds no system text, schema, or message. It routes the already-assembled frozen `GenerateOptions` to one adapter, while `llm/stream` listeners may cache, retry, or replace the stream without mutating that request. | Zero direct context tokens. The selected adapter and provider tokenizer determine billing, cache accounting, and serialization overhead for the existing content. |
-| Streamed model output | Text, reasoning, and tool-call chunks are exposed to the loop, which decides what becomes retained assistant history. | Output usage is provider-reported; later input cost arises only after the loop records assembled content. |
-
 ## Service: `LlmService` (ctx key: `llm`)
 
 An adapter registry plus a single streaming call surface, interceptable via a waterfall event.
@@ -54,6 +47,13 @@ Every product adapter must identify the application on every provider HTTP reque
 ### Real adapters
 
 Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Provider request transport | This service adds no system text, schema, or message. It routes the already-assembled frozen `GenerateOptions` to one adapter, while `llm/stream` listeners may cache, retry, or replace the stream without mutating that request. | Zero direct context tokens. The selected adapter and provider tokenizer determine billing, cache accounting, and serialization overhead for the existing content. |
+| Streamed model output | Text, reasoning, and tool-call chunks are exposed to the loop, which decides what becomes retained assistant history. | Output usage is provider-reported; later input cost arises only after the loop records assembled content. |
 
 ## Known Limitations and Deferred Work
 

@@ -2,12 +2,6 @@
 
 The `Branded<B>` nominal-typing primitive — a tiny, **type-only** package (no runtime code, no harness-package dependency) shared by every package that owns a cross-boundary id.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None | `Branded<B>` is erased at compile time and registers no runtime plugin, prompt, schema, event, or message. Branded ids serialize exactly as their underlying strings when another package logs or renders them. | Zero direct or indirect token overhead beyond the string another package already chose to expose. |
-
 ## What `Branded` is
 
 A brand makes structurally-identical strings non-interchangeable at the type level: an `AgentId` cannot be passed where a `CallId` is expected, even though both are plain `string`s at runtime.
@@ -30,3 +24,9 @@ Construction goes through the per-id factory in the OWNING package (a plain cast
 A package brands the ids it OWNS — `CallId` in `dsh-llm` (tool-call correlation), `SessionId` in `dsh-session`, `AgentId` in `dsh-agent`, `BashTaskId`/`OwnerToken` in `dsh-bash`. Branding is for ids that cross package boundaries and could plausibly be confused; **not every string needs a brand.**
 
 This package owns ONLY the primitive — no concrete id, no runtime code beyond the (erased) type. Keeping the primitive dependency-free is the point: a capability package can brand its ids without depending on an unrelated package. `dsh-bash`, for example, brands `BashTaskId`/`OwnerToken` by depending on `dsh-brand` alone — it never pulls in `dsh-llm` (or `dsh-session`) just to reach `Branded`.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None | `Branded<B>` is erased at compile time and registers no runtime plugin, prompt, schema, event, or message. Branded ids serialize exactly as their underlying strings when another package logs or renders them. | Zero direct or indirect token overhead beyond the string another package already chose to expose. |

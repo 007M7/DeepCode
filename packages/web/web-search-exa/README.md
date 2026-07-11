@@ -4,12 +4,6 @@ An [Exa](https://exa.ai)-backed `WebSearchProvider` for the harness [web capabil
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the `ctx.web` key and it does not register a model-facing tool (that is `@deepseek-ai/dsh-tool-web`). Like `@deepseek-ai/dsh-llm-deepseek`, it is a function/namespace plugin (`inject: ['web']`) that registers its backend, not a default-export service.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Web search result, indirectly | Through `dsh-tool-web`, the conversation model sees Exa result URLs, titles, first highlight snippets, and publication dates. No generated answer or provider-private response fields enter the tool result. | Zero direct harness-model tokens. Result size scales with the bounded source list and snippets; the seam enforces `maxResults`, and retained results remain until compaction. |
-
 ## Config
 
 | Key | Default | Meaning |
@@ -30,6 +24,12 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 ## Mapping
 
 Exa returns a flat `results[]` and no generated answer, so `content` is omitted. Each result maps to a `WebSearchSource`: `url` ← `url`, `title` ← `title`, `snippet` ← the first non-empty `highlights[]` entry (a result with no highlight has no portable snippet and is dropped), `publishedAt` ← `publishedDate`. A request's `maxResults` wins over the configured `numResults` default and is sent as Exa's `numResults` for a cost/latency optimization; the final bound is enforced by the seam. Provider failures (HTTP errors, network failure, unparseable or wrong-shape bodies) surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Web search result, indirectly | Through `dsh-tool-web`, the conversation model sees Exa result URLs, titles, first highlight snippets, and publication dates. No generated answer or provider-private response fields enter the tool result. | Zero direct harness-model tokens. Result size scales with the bounded source list and snippets; the seam enforces `maxResults`, and retained results remain until compaction. |
 
 ## Known Limitations and Deferred Work
 

@@ -2,12 +2,6 @@
 
 An advisory loop-breaker, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The decision (retry differently, gather more evidence, or finish) stays entirely with the model: a legitimately repeated call is delayed by nothing and blocked by nothing. Decision record: [the repeat-tool-guard RFC](../../../docs/rfc/implemented/feature/2026-07-08-repeat-tool-guard.md).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Conditional context message | At configured consecutive-repeat thresholds, that agent receives a source-attributed synthetic user reminder after the tool results, asking it to inspect the prior result and change approach or finish. No tool schema or normal-call text is added. | Zero tokens before a threshold. Each reminder is retained history; the detailed form caps the quoted canonical arguments at `argumentsPreviewChars`, while agents keep independent counters. |
-
 ## Config
 
 ```yaml
@@ -41,6 +35,12 @@ Reminders ride the post-execute decision's `additionalContext` (source `{kind: '
 ## Testing
 
 Unit suites drive a real agent loop against a mock adapter (no network) and cover the chain semantics above to per-file 100%. The snapshot tier owns the transcript surface: a scripted-replay scenario repeats a call five times and pins both reminder tiers (gentle at 3, detailed at 5) as `context/message`s in the ACP transcript.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Conditional context message | At configured consecutive-repeat thresholds, that agent receives a source-attributed synthetic user reminder after the tool results, asking it to inspect the prior result and change approach or finish. No tool schema or normal-call text is added. | Zero tokens before a threshold. Each reminder is retained history; the detailed form caps the quoted canonical arguments at `argumentsPreviewChars`, while agents keep independent counters. |
 
 ## Known Limitations and Deferred Work
 

@@ -2,13 +2,6 @@
 
 The model-facing `todo_write` tool: the agent's whole task list, replaced wholesale on each call.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Tool schema | The model sees `todo_write` with the complete-list array and the three status values. | Fixed schema cost on every request where the tool is visible. |
-| Tool-call history and result | Each assistant tool call retains the entire replacement list in its arguments. The tool result reports only pending, in-progress, and completed counts; the full `todo/write` session event is UI and replay state, not a second model message. | Token growth scales with every full list the model submits, and those call arguments remain until compaction. The result itself is small and fixed-shape. |
-
 ## What it does
 
 Registers one tool, `todo_write(todos: [{ content, status }])`, on `ctx.tools`. The model sends the ENTIRE list every call — there are no partial updates or per-item edits. Each call appends a `todo/write` event (the full list snapshot) to the calling agent's session log via `agent.session.append('todo/write', { todos })`; the current list is the most recent such event (last-write-wins on replay).
@@ -30,6 +23,13 @@ The tool writes only the session event; it does not render. UIs subscribe to `se
 ## Export shape
 
 A function/namespace plugin: it exports `name` / `inject` / `apply` and NO default. A stray `export default` would collapse the module via the Loader's `unwrapExports` and drop `inject` (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Tool schema | The model sees `todo_write` with the complete-list array and the three status values. | Fixed schema cost on every request where the tool is visible. |
+| Tool-call history and result | Each assistant tool call retains the entire replacement list in its arguments. The tool result reports only pending, in-progress, and completed counts; the full `todo/write` session event is UI and replay state, not a second model message. | Token growth scales with every full list the model submits, and those call arguments remain until compaction. The result itself is small and fixed-shape. |
 
 ## Known Limitations and Deferred Work
 

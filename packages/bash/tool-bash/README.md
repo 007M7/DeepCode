@@ -6,14 +6,6 @@ Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); 
 
 The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on. Under a sandboxing executor it additionally contributes the per-agent `env:bash-sandbox` section (order 110) stating each session's EFFECTIVE mode, and the pre-step narrator — see [Per-session mode](#per-session-mode-switching-and-visibility).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt | Every request for an agent that can see these tools carries the short `tool:bash` exit-code instruction. With a sandboxing executor it also carries that session's effective sandbox mode, plus a logged context notice after a mode change. | Small fixed input cost per request; a mode-change notice is conditional and then remains in conversation history. |
-| Tool schemas | The model sees `bash`, `bash_output`, and `bash_kill`. `sandbox_permissions` and `justification` appear on `bash` only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definitions for that agent. | Fixed schema cost on every request where the tools are visible; sandbox support adds the escalation fields. |
-| Tool-call history and results | Calls retain their arguments. Results contain bounded stdout and stderr, status markers, task ids, incremental background output, kill outcomes, and sandbox denial or failure markers. | Data-dependent tokens are added after each call and resent on later steps until compaction. Executor output caps and incremental reads bound each result; spill paths let the model fetch omitted output deliberately. |
-
 ## Tools
 
 ### `bash`
@@ -65,6 +57,14 @@ On top of a denial sits the escalation gate ([the sandbox RFC § Escalation](../
 ## Per-session mode switching
 
 Under a sandboxing executor this plugin makes the session's standing mode override ([the sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md); the `bash/sandbox-mode` fold owned by [`dsh-bash`](../bash/README.md)) real at EXECUTION: every call is stamped `escalation grant > session override > undefined` onto `BashExecRequest.sandboxMode`; without either, the executor's `resolve()` applies its configured default. Nothing is stamped under a non-sandboxing executor (nothing would honor it) or for an agent-less caller (no session to fold). The prompt deliberately does NOT state the mode and a switch is not narrated: a standing declaration teaches the model to refuse preemptively, while the denial marker already names the mode the command ran under exactly when the boundary is hit — behavior, not belief, carries the state.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt | Every request for an agent that can see these tools carries the short `tool:bash` exit-code instruction. With a sandboxing executor it also carries that session's effective sandbox mode, plus a logged context notice after a mode change. | Small fixed input cost per request; a mode-change notice is conditional and then remains in conversation history. |
+| Tool schemas | The model sees `bash`, `bash_output`, and `bash_kill`. `sandbox_permissions` and `justification` appear on `bash` only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definitions for that agent. | Fixed schema cost on every request where the tools are visible; sandbox support adds the escalation fields. |
+| Tool-call history and results | Calls retain their arguments. Results contain bounded stdout and stderr, status markers, task ids, incremental background output, kill outcomes, and sandbox denial or failure markers. | Data-dependent tokens are added after each call and resent on later steps until compaction. Executor output caps and incremental reads bound each result; spill paths let the model fetch omitted output deliberately. |
 
 ## Known Limitations and Deferred Work
 

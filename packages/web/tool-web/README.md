@@ -4,14 +4,6 @@ The model-facing web tool suite — `web_search` and `web_fetch` — over the [w
 
 Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt | Each enabled tool adds one short section: search guidance says to discover current sources and follow with fetch; fetch guidance says to retrieve a specific HTTP(S) URL and cite it. | Fixed guidance cost per request for each enabled tool. |
-| Tool schemas | According to config, the model sees `web_search(query)`, `web_fetch(url)`, or both. Result-count and timeout budgets are deployment settings, not model arguments. | Fixed schema cost per request; disabling a tool removes its schema and guidance. |
-| Tool-call history and results | Search returns an optional answer and bounded source entries; fetch returns status plus decoded text or markdown-shaped HTML, or a structured error. Queries and URLs remain in call history. | Data-dependent results are resent until compaction. Search sources are capped by `searchMaxResults`; fetch providers cap body size, and timeout policy can replace a late result with a short error. |
-
 ## Tools
 
 | Tool | Args | Behavior |
@@ -41,6 +33,14 @@ Each tool is registered independently; a product that wants only one disables th
 Tool registration follows product **enablement**, not backend availability. A tool stays visible even when its selected provider is missing, misconfigured, ambiguous, or temporarily unavailable; the seam resolves the provider at execution time and execution fails with a structured `WebError` (e.g. `WEB_PROVIDER_UNAVAILABLE`, `WEB_PROVIDER_AMBIGUOUS`), which `ToolRegistry.execute()` turns into an error tool result the model can read and hooks/UI can route on. This keeps the model schema stable without making plugin load order, credential state, or HMR timing part of the model-facing contract. To remove a web tool entirely, disable it here in config.
 
 The tool never calls a provider's `status()` and never enumerates providers — its only execution path is `ctx.web.search()` / `ctx.web.fetch()`, and provider unavailability reaches it as the structured `WebError` codes selection throws at execution time. Provider selection stays entirely inside the seam, with one owner.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt | Each enabled tool adds one short section: search guidance says to discover current sources and follow with fetch; fetch guidance says to retrieve a specific HTTP(S) URL and cite it. | Fixed guidance cost per request for each enabled tool. |
+| Tool schemas | According to config, the model sees `web_search(query)`, `web_fetch(url)`, or both. Result-count and timeout budgets are deployment settings, not model arguments. | Fixed schema cost per request; disabling a tool removes its schema and guidance. |
+| Tool-call history and results | Search returns an optional answer and bounded source entries; fetch returns status plus decoded text or markdown-shaped HTML, or a structured error. Queries and URLs remain in call history. | Data-dependent results are resent until compaction. Search sources are capped by `searchMaxResults`; fetch providers cap body size, and timeout policy can replace a late result with a short error. |
 
 ## Known Limitations and Deferred Work
 

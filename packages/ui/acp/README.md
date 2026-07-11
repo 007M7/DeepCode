@@ -4,14 +4,6 @@ The **Agent Client Protocol (ACP)** bridge: exposes DeepSeek Harness SDK agents 
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| User messages | Each ACP `session/prompt` becomes an agent user message: text passes through and a `resource_link` is rendered as text. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted. | Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts. |
-| Human answers and permissions | When optional consumers are loaded, ACP form answers become `ask_user_question` tool results and permission decisions control whether a tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only. | Answer and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. |
-| Loaded sessions | `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message. | Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none. |
-
 ## Service / plugin
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
@@ -89,14 +81,6 @@ The bridge registers an `approval/request` waterfall listener — the ACP answer
 
 Teardown reaches quiescence: for EVERY live session settle any pending prompt as `cancelled`, then run that session's [`AgentHandle`](../../core/agent/README.md) `dispose()` — which stops the loop (sets `disposed` + aborts the in-flight step), `await`s the loop's exit (the final `turn/end` + `session/flush` are captured while the session is still attached), unregisters the agent, and removes its session from the store. A turn cut off mid-flight by teardown ends with reason `disposed` (not `aborted` — `dispose()` uses the disposed path, not `session/cancel`'s queue-aware `cancel()`). The per-session disposes run in parallel. The same teardown runs on a **client disconnect** (`conn.closed` resolves when the editor quits / the transport EOFs), so a vanished client never leaves an orphaned running — or idled-but-still-registered — agent whose `session/update` writes are silently swallowed. The two paths are idempotent and memoized (the first clears the `sessions` map; a second caller awaits the same teardown promise).
 
-## Known Limitations and Deferred Work
-
-- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
-- **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
-- **One configured `model` for every created session** — per-session model selection has no config or protocol surface here yet.
-- **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
-- **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.
-
 ## stdout is the protocol
 
 The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loads **no stdout logger** (the console logger writes to stdout and would corrupt the frames). The guarantee is config-only — see `examples/acp-agent` (no console logger) and [ACP support risks](../../../docs/rfc/implemented/feature/2026-06-14-acp-agent-client-protocol.md#risks). A stderr exporter is fine for logging.
@@ -115,3 +99,19 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
   }
 }
 ```
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| User messages | Each ACP `session/prompt` becomes an agent user message: text passes through and a `resource_link` is rendered as text. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted. | Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts. |
+| Human answers and permissions | When optional consumers are loaded, ACP form answers become `ask_user_question` tool results and permission decisions control whether a tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only. | Answer and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. |
+| Loaded sessions | `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message. | Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none. |
+
+## Known Limitations and Deferred Work
+
+- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
+- **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
+- **One configured `model` for every created session** — per-session model selection has no config or protocol surface here yet.
+- **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
+- **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.

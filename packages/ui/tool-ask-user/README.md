@@ -2,13 +2,6 @@
 
 Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the model ask the human a concise question when it needs confirmation, a choice, or missing information before continuing.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Tool schema | The model sees `ask_user_question` with question ids, prompts, headings, options, and multi-select flags. | Fixed schema cost on every request where the tool is visible. |
-| Tool-call history and result | The model's full questions remain in the assistant tool-call arguments. After the human answers, the next step sees JSON containing selected labels and optional custom text. UI interaction while the call is pending is not model context. | Arguments and answer JSON are data-dependent retained tokens; there is no token cost while waiting for the human. |
-
 ## Tool
 
 `ask_user_question` accepts:
@@ -25,6 +18,13 @@ The tool calls `ctx.userInteraction.ask()` and returns JSON text shaped as `{ "a
 ## Role
 
 This is the consumer package for the user-interaction seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Tool schema | The model sees `ask_user_question` with question ids, prompts, headings, options, and multi-select flags. | Fixed schema cost on every request where the tool is visible. |
+| Tool-call history and result | The model's full questions remain in the assistant tool-call arguments. After the human answers, the next step sees JSON containing selected labels and optional custom text. UI interaction while the call is pending is not model context. | Arguments and answer JSON are data-dependent retained tokens; there is no token cost while waiting for the human. |
 
 ## Known Limitations and Deferred Work
 

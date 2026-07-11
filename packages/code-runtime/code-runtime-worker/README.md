@@ -2,12 +2,6 @@
 
 Worker-thread implementation of the [`@deepseek-ai/dsh-code-runtime`](../code-runtime/README.md) seam: `WorkerCodeRuntime` runs each program in ONE fresh Node `worker_threads.Worker` — TypeScript in, type-stripped host-side, bindings bridged over the message port, `{ value, logs, error? }` out. **Containment, not a security boundary**: trust posture is bash-equivalent by design (the [Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md) § Trust posture), with containment bash does not have — separate isolate, empty environment, heap cap, hard termination.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| `run_code` result, indirectly | The conversation model sees only what the model-written program prints or returns, or a shaped failure; binding-call traffic and worker internals stay outside its context. This backend contributes no schema or prompt itself. | Zero tokens until Code Mode executes a program. `maxLogBytes` and `maxValueBytes` cap the model-visible result, which then remains in tool history until compaction. |
-
 ## Config
 
 ```yaml
@@ -36,6 +30,12 @@ Every field is validated (positive numbers) and defaulted; there are no other tu
 ## The worker entry, unbuilt and built
 
 `worker.ts` is deliberately erasable-only TypeScript with type-only cross-package imports: unbuilt (vitest/tsx), the host spawns `src/worker.ts` directly and Node's native type stripping loads it; built, the entry ships as the sibling bundle `lib/worker.js` (its own tsdown entry). The built path is pinned by `tests/built-lib.e2e.ts`, the real-load-path guard from [docs/testing.md](../../../docs/testing.md).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| `run_code` result, indirectly | The conversation model sees only what the model-written program prints or returns, or a shaped failure; binding-call traffic and worker internals stay outside its context. This backend contributes no schema or prompt itself. | Zero tokens until Code Mode executes a program. `maxLogBytes` and `maxValueBytes` cap the model-visible result, which then remains in tool history until compaction. |
 
 ## Known Limitations and Deferred Work
 

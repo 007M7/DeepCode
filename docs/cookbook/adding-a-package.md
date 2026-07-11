@@ -19,8 +19,6 @@ packages/<group>/<pkg>/
                    # (or a whitelist entry in scripts/verify-readme-limitations.ts)
 ```
 
-Fill the canonical [Model Experience table](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and the exact indirect path. Every package participates, including type-only libraries and backend seams.
-
 Choose an existing group when one matches the package's role (`core`, `llm`, `bash`, `compact`, `subagent`, `todo`, `session-persistence`, `ui`, `util`, or `support`). A new group is allowed, but it is a pure container: no `package.json`, no source files, and packages still sit exactly one level below it.
 
 package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `main: "lib/index.js"`, `types: "lib/types/index.d.ts"`, `exports["."].types: "./lib/types/index.d.ts"`, `exports["."].default: "./lib/index.js"`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop. The `files` list is precise: `lib/index.js`, `lib/types/**/*.d.ts`, `lib/types/**/*.d.ts.map`, and `src`; do not publish `lib/types` JS or JS-map intermediates or stale root declaration files. CLI app packages with a package `bin` include `lib/bin.js` immediately after `lib/index.js` in `files`.
@@ -42,11 +40,29 @@ Covered automatically by globs or package-manifest discovery — no edits needed
 
 For a swappable capability, split interface / implementation / consumer into separate packages (see docs/architecture.md § "Capability seams" — the bash trio is the template). A single-purpose plugin stays one package.
 
-## 4. Verify
+## 4. Write the package README
+
+Keep package-specific service API, config, events, extension points, and design notes first. End a package README with this canonical sequence:
+
+```markdown
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Request surface and condition | Exact context visible to the model | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
+
+## Known Limitations and Deferred Work
+
+- **Consumer-visible gap** — exact boundary or deliberately deferred work.
+```
+
+Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and its indirect path. Every package participates, including type-only libraries and backend seams. A package with genuinely no limitations joins the justified allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
+
+## 5. Verify
 
 ```sh
 pnpm install        # registers the workspace
-pnpm run verify-package-readme-model-experience
+pnpm run doc-sync
 pnpm run constraints && pnpm run typecheck && pnpm run lint
 pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
 pnpm run build && pnpm run hygiene

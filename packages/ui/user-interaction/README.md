@@ -2,12 +2,6 @@
 
 Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This UI-neutral seam registers no prompt or tool. A consumer such as `dsh-tool-ask-user` turns a model call into an `ask()` request and converts the provider's human answer into a model-visible tool result. | Zero direct tokens. Question and answer size affect context only through the consumer. |
-
 ## Service: `UserInteractionService` (ctx key: `userInteraction`)
 
 ### Public API
@@ -28,6 +22,12 @@ When an answer includes `custom`, `selected` is empty; custom text is an overrid
 ## Role
 
 This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; UI front doors such as the `stdio-agent` readline module and the `acp` bridge provide the provider. The loop stays unchanged: a tool call simply awaits a promise, and the tool result resumes the normal agent loop.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This UI-neutral seam registers no prompt or tool. A consumer such as `dsh-tool-ask-user` turns a model call into an `ask()` request and converts the provider's human answer into a model-visible tool result. | Zero direct tokens. Question and answer size affect context only through the consumer. |
 
 ## Known Limitations and Deferred Work
 

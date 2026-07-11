@@ -14,12 +14,6 @@ This package is the interface third of the web capability. Unlike bash/fs it spa
 
 Search and fetch share no request schema and no business logic, but they are deliberately one seam: `ctx.web` is a single web-access middle layer with one provider-selection policy owner, one abort/error vocabulary, and one product-facing "how this harness reaches the web" config surface. The cost is the parallel `Search`/`Fetch` method pairs; that parallelism is intentional, not a missed extraction.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The seam registers providers, not tools or prompt text. `dsh-tool-web` renders normalized search answers, sources, fetched bodies, and structured `WebError` values. Provider selection details stay internal except for an execution error. | Zero direct tokens. The seam indirectly bounds search result tokens by truncating sources to `maxResults`; all rendered size comes through a consumer. |
-
 ## Service API (`ctx.web`)
 
 | Member | Semantics |
@@ -48,6 +42,12 @@ The failure branches throw `WebError`, whose structured code (plus message detai
 ## Vocabulary
 
 `WebSearchRequest` (`query`, `maxResults?`) → `WebSearchResult` (`providerId`, `query`, `content?`, `sources[]`, `truncated`); each `WebSearchSource` has a required `url` and optional `title`/`snippet`/`publishedAt` (Perplexity citations may be URL-only). `WebFetchRequest` (`url`, `timeoutMs?`) → `WebFetchResult` (`providerId`, final `url`, `statusCode`, `body`, `truncated`); `WebFetchBody` is a CLOSED discriminated union (`html` | `text`) owned here — consumers `switch` to exhaustiveness so a new kind breaks their compilation until handled. See `src/types.ts` for the full contracts and the `WebError` code taxonomy.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The seam registers providers, not tools or prompt text. `dsh-tool-web` renders normalized search answers, sources, fetched bodies, and structured `WebError` values. Provider selection details stay internal except for an execution error. | Zero direct tokens. The seam indirectly bounds search result tokens by truncating sources to `maxResults`; all rendered size comes through a consumer. |
 
 ## Known Limitations and Deferred Work
 

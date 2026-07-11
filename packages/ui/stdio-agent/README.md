@@ -4,12 +4,6 @@ The **terminal stdio chat app**: a Cordis app plugin that composes the default a
 
 It is the readline counterpart to [`@deepseek-ai/dsh-acp-agent`](../acp-agent/README.md): both consume the same spine, but each bakes in the OPPOSITE front-door cluster.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Composed terminal agent request | Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the `ask_user_question` schema. Each readline submission becomes a user message. | Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens. |
-
 ## What it bakes in
 
 A terminal chat always wants the same cluster, so the package owns it rather than trusting each leaf to re-wire it:
@@ -71,6 +65,12 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Composed terminal agent request | Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the `ask_user_question` schema. Each readline submission becomes a user message. | Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens. |
 
 ## Known Limitations and Deferred Work
 

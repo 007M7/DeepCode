@@ -12,13 +12,6 @@ Codex's hook protocol is a deliberate **subset** of Claude Code's (same `hooks.j
 
 A native cordis plugin could do everything this bridge does, more powerfully; the bridge exists only to run UNMODIFIED external Codex hooks faithfully (see [the interception-seams RFC](../../../docs/rfc/implemented/feature/2026-06-30-interception-seams.md)).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Hook-provided context | `SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering. | No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction. |
-| Blocked prompt or tool outcome | A hook can prevent a user prompt from reaching the model, deny a tool, block a post-tool result with feedback, or force another model step. Codex `systemMessage` is not surfaced. | Blocking a prompt removes its request tokens; denial or feedback adds retained result text; forced continuation pays another full request. |
-
 ## Config
 
 ```ts
@@ -60,6 +53,13 @@ A tool call's payload carries the real `tool_name` (the same value the matcher t
 ## Context source
 
 Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }` source (`agent.inject()` would otherwise default it to `{ kind: 'user' }`).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Hook-provided context | `SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering. | No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction. |
+| Blocked prompt or tool outcome | A hook can prevent a user prompt from reaching the model, deny a tool, block a post-tool result with feedback, or force another model step. Codex `systemMessage` is not surfaced. | Blocking a prompt removes its request tokens; denial or feedback adds retained result text; forced continuation pays another full request. |
 
 ## Known Limitations and Deferred Work
 

@@ -2,13 +2,6 @@
 
 DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai) (the LLM library behind the pi agent).
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| DeepSeek request through pi-ai | The selected model receives the same logical system prompt, history, tools, stop sequences, and raw replayed tool arguments as the hand-written adapter. This package adds no prompt prose and removes pi-ai's own per-tool `strict` default to preserve that contract. | Provider tokenization governs exact input. Reasoning level changes generated and passback content; pi-ai reports reasoning inside output usage rather than as a separate count. |
-| DeepSeek response | pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks; parsed tool arguments are restored to raw JSON strings at the harness boundary. | Generated content affects later inputs only after the loop records it; adapter conversion adds no model-visible text. |
-
 ## Why a second adapter exists
 
 `@deepseek-ai/dsh-llm-deepseek` already talks to the same endpoint. This package is its **design-verification twin**: same models, same wire protocol, completely different internals — a unified LLM library with its own event vocabulary versus hand-rolled fetch/SSE. Anything the harness `StreamChunk` protocol cannot express for BOTH implementations is a core-vocabulary bug. The differences it exercised on purpose:
@@ -43,6 +36,13 @@ pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time depe
 ## Testing
 
 Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK happily talks to any base URL). Real-API coverage in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across all exposed reasoning levels (off/high/xhigh), the thinking+tools round trip, and a cross-adapter structural-equivalence check against llm-deepseek.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| DeepSeek request through pi-ai | The selected model receives the same logical system prompt, history, tools, stop sequences, and raw replayed tool arguments as the hand-written adapter. This package adds no prompt prose and removes pi-ai's own per-tool `strict` default to preserve that contract. | Provider tokenization governs exact input. Reasoning level changes generated and passback content; pi-ai reports reasoning inside output usage rather than as a separate count. |
+| DeepSeek response | pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks; parsed tool arguments are restored to raw JSON strings at the harness boundary. | Generated content affects later inputs only after the loop records it; adapter conversion adds no model-visible text. |
 
 ## Known Limitations and Deferred Work
 

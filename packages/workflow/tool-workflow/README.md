@@ -2,13 +2,6 @@
 
 The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. Pure schema + lifecycle shaping over [`ctx.workflows`](../workflow/README.md) — script parsing, execution, caps, and cancellation live behind the seam, so a hardened engine swaps in without touching what the model sees.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt and tool schema | The parent model receives a short use-only-for-large-orchestration section plus the `workflow` schema. The schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial but fixed per-request guidance and schema cost while visible. |
-| Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. The result contains the workflow name, child count, and final JSON value or a shaped error; intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
-
 ## What the model sees
 
 Three parameters: `script` (required plain-JavaScript body with no `export const meta` statement), `meta` (required JSON identity with `name`/`description` and optional `whenToUse`/`phases`), and `args` (optional JSON object exposed to the script as the `args` global; wrap a bare list as a field so the wire schema stays honest). The tool description carries the complete authoring contract: hooks, semantics, and the supported schema subset. The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow / large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
@@ -27,6 +20,13 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 |---|---|---|
 | `toolName` | `workflow` | The model-facing tool name to register. |
 | `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice. |
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt and tool schema | The parent model receives a short use-only-for-large-orchestration section plus the `workflow` schema. The schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial but fixed per-request guidance and schema cost while visible. |
+| Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. The result contains the workflow name, child count, and final JSON value or a shaped error; intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
 
 ## Known Limitations and Deferred Work
 

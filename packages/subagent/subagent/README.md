@@ -14,12 +14,6 @@ This package is the interface third of the capability seam, split so each concer
 
 Unlike the bash seam (one executor per context, second load throws), **multiple providers coexist** here. Each registers under a unique name and a caller picks one by name — the shape mirrors the LLM adapter registry (`LlmService.registerAdapter`), not the single-service bash executor. This is the requirement that rules out the bash shape: an agent may want an in-process child for a cheap subtask and an out-of-process ACP child for an isolated one, in the same runtime.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The provider registry registers no prompt or tool. Provider lifecycle makes a bound `dsh-tool-subagent` schema appear or disappear, and `inheritsParentContext` selects truthful fresh-versus-fork wording. Run events are observe-only. | Zero direct tokens. Child prompts and final results enter model contexts only through a provider and consumer. |
-
 ## Service API (`ctx.subagents`)
 
 | Member | Semantics |
@@ -41,6 +35,12 @@ Beside `capabilities` sits one DESCRIPTIVE fact, not validated by the service: `
 `provider.start(request)` returns a `SubagentRun`: a handle with `started` (the publication/readiness promise), `result` (the terminal outcome), `cancel()`, `dispose()`, and the optional runtime methods. `started` resolves only after the provider has established a real child and rejects if the attempt fails or is cancelled first. `result` resolves with a `SubagentResult` (`output`, optional `structured`, `stopReason`) — it does **not** reject on a child-level failure (a model/transport failure resolves with `stopReason: 'error'`), so the consumer maps a non-`completed` reason to an `isError` tool result. The consumer MUST `dispose()` on every path (success, error, abort) to reach child quiescence and avoid leaking an idle child / session.
 
 The service also announces provider lifecycle: `subagent/provider-added` (the frozen registry snapshot) fires after a registration and `subagent/provider-removed` (the accepted name) after an unregistration, so a consumer deriving state from a named provider (the model-facing tool wording) mirrors registry membership instead of assuming load order — the cordis Loader starts sibling plugins concurrently, so "listed earlier" does not mean "registered earlier". Run lifecycle is gated by provider readiness: `subagent/start` (payload `SubagentRunInfo`) fires only after `run.started` fulfills, and `subagent/end` (payload `SubagentRunEndInfo`) fires only for that announced run; readiness rejection emits neither. For spawn/fork, the start listener can resolve the published child via `ctx.agents.get(info.id)`; a remote provider need not have a local registry entry. Both events are **observe-only** plain emits. The service observes `result` immediately even while readiness is pending, clones its output before the caller can mutate it, and buffers that end payload until start has fired; a rejecting result cannot become an unhandled detached promise, start always precedes end, and a listener cannot corrupt the caller's result. `subagent/end` carries the cloned output as `lastAssistantMessage` on the settle path and omits it on infrastructure rejection. Any run-affecting decision is out of scope for this observe-only surface.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The provider registry registers no prompt or tool. Provider lifecycle makes a bound `dsh-tool-subagent` schema appear or disappear, and `inheritsParentContext` selects truthful fresh-versus-fork wording. Run events are observe-only. | Zero direct tokens. Child prompts and final results enter model contexts only through a provider and consumer. |
 
 ## Known Limitations and Deferred Work
 

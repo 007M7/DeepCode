@@ -4,12 +4,6 @@ Shared machinery for **out-of-process subagent backends** — providers that spa
 
 Every tunable is a **parameter**: the dispose ladder takes its grace periods per call, the config-dir helper takes an optional pinned path. Defaults live in each consuming plugin's Config (defaulted, validated fields changeable from `cordis.yml`), never in this library.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This process utility registers no provider, prompt, tool, or message. A consuming backend's child application decides the child's model context; environment scrubbing and isolated config directories prevent ambient credentials and user state from silently changing that composition. | Zero direct tokens. It can indirectly stabilize child context, but it adds no text to parent or child requests. |
-
 ## What it exports
 
 ### `SENSITIVE_ENV_PATTERN` / `buildChildEnv(extra)`
@@ -44,6 +38,12 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 ## Testing
 
 `tests/subagent-subprocess.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | This process utility registers no provider, prompt, tool, or message. A consuming backend's child application decides the child's model context; environment scrubbing and isolated config directories prevent ambient credentials and user state from silently changing that composition. | Zero direct tokens. It can indirectly stabilize child context, but it adds no text to parent or child requests. |
 
 ## Known Limitations and Deferred Work
 

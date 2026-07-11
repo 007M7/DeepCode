@@ -13,12 +13,6 @@ This package is the provider-seam layer of the four-layer filesystem stack, spli
 
 A future sandboxed, virtual, or remote backend implements this interface and the policy/tool layers don't change.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The provider seam registers no prompt or tool. `dsh-tool-fs` converts provider text and structured `FsError` values into model-visible read, write, and edit results; policy listeners can change which outcome it receives. | Zero direct tokens. File content and errors enter context only through a consumer, whose window and byte caps determine result size. |
-
 ## Service API (`ctx.fs`)
 
 A backend subclasses `FileSystem` and implements seven primitives.
@@ -48,6 +42,12 @@ This package declares three events (see the generated [events catalog](../../../
 ## Vocabulary
 
 `FsTargetKey` / `FsVersion` are branded opaque ids ([the branded-ids RFC](../../../docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)) — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. `FsWriteIntent` is the explicit GUARDED write intent (`createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only at the observed version, else `FS_STALE_VERSION`); omitting it from `writeText` is the third, unconditional state. Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy RFC](../../../docs/rfc/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_DIRECTORY`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_PERMISSION_DENIED`, `FS_IO_ERROR`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None directly | The provider seam registers no prompt or tool. `dsh-tool-fs` converts provider text and structured `FsError` values into model-visible read, write, and edit results; policy listeners can change which outcome it receives. | Zero direct tokens. File content and errors enter context only through a consumer, whose window and byte caps determine result size. |
 
 ## Known Limitations and Deferred Work
 

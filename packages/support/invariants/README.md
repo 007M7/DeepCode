@@ -4,12 +4,6 @@ Dev-mode event-contract invariants and session-log freeze. A pure-listener plugi
 
 **Off in production.** Enable it in tests and the demos, where a contract violation should fail loudly. It costs nothing when not registered, and doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None | The plugin observes and validates session events, agent states, and frozen model requests; it does not rewrite a prompt, schema, message, or stream. An invariant failure aborts the faulty turn instead of adding guidance. | Zero model tokens when checks pass; a failure prevents or ends a request rather than contributing context. |
-
 ## Plugin
 
 A functional plugin — register the module namespace (this is what loading by name in `cordis.yml` does):
@@ -59,6 +53,12 @@ A `DeepReadonly<SessionEvent>` is high type-noise across every log consumer, and
 ## Seeded sessions
 
 A seeded/forked session arrives with events already in its log (the `Session` constructor copies the seed without emitting `session/event`). On `session/created` the plugin replays the existing log through the checker and freezes those entries, so seeded history is held to the same contract.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| None | The plugin observes and validates session events, agent states, and frozen model requests; it does not rewrite a prompt, schema, message, or stream. An invariant failure aborts the faulty turn instead of adding guidance. | Zero model tokens when checks pass; a failure prevents or ends a request rather than contributing context. |
 
 ## Known Limitations and Deferred Work
 

@@ -4,13 +4,6 @@ A [Perplexity](https://perplexity.ai)-backed `WebSearchProvider` for the harness
 
 This is an **implementation** package: it registers a provider into `ctx.web`, it does not own the key and it does not register a model-facing tool. Like `@deepseek-ai/dsh-llm-deepseek`, it is a function/namespace plugin (`inject: ['web']`). The OpenAI-compatible wire shape is a provider-private detail — it does **not** make this provider depend on `ctx.llm`.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Auxiliary Perplexity request | A separate Perplexity model receives the search query through its chat-completions endpoint. This request is not part of the conversation model's context. | Separate provider tokens are incurred per search; `maxTokens` caps the generated answer. |
-| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. | Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result is resent until compaction. |
-
 ## Config
 
 | Key | Default | Meaning |
@@ -31,6 +24,13 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 ## Mapping
 
 `content` ← `choices[0].message.content` (the generated answer). `sources[]` prefers the structured `search_results[]` (`url`, `title`, `snippet`, `publishedAt` ← `date`), falling back to the URL-only `citations[]` array only when `search_results` is absent — those sources carry just a `url`, which is why `title`/`snippet`/`publishedAt` are optional on the seam. Provider failures surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`. Perplexity has no result-count control, so `maxResults` is enforced by the seam (truncating `sources[]` and setting `truncated`).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Auxiliary Perplexity request | A separate Perplexity model receives the search query through its chat-completions endpoint. This request is not part of the conversation model's context. | Separate provider tokens are incurred per search; `maxTokens` caps the generated answer. |
+| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. | Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result is resent until compaction. |
 
 ## Known Limitations and Deferred Work
 

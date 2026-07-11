@@ -35,12 +35,12 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 
 ## Package Model Experience
 
-Every package README carries `## Model Experience` and this table:
+Every package README ends with this table followed by `## Known Limitations and Deferred Work`; [allowlisted packages](../scripts/verify-readme-limitations.ts) end after the table:
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 
-Rows name the request surface and condition, including agent scope, then classify tokens as fixed per request, conditional per call, retained, replaced, capped, or zero-direct. Distinguish the conversation model from auxiliary calls. A zero-direct package names its indirect path. `verify-package-readme-model-experience` enforces shape; review owns accuracy.
+Rows name request surface, condition, and agent scope, then classify tokens as fixed per request, conditional per call, retained, replaced, capped, or zero-direct. Separate conversation and auxiliary calls; zero-direct rows name the indirect path. `verify-package-readme-model-experience` enforces shape and order; review owns accuracy.
 
 ## Wordcount Budgets
 

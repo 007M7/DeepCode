@@ -16,12 +16,6 @@ declare const ctx: Context
 await ctx.plugin(FsPolicy)
 ```
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Filesystem tool outcome | This plugin adds no prompt or schema. It can turn an unobserved or stale write or edit into a structured `FS_NOT_OBSERVED` or `FS_STALE_VERSION` error result instead of a success; observation state itself is never shown. | Zero tokens on allowed operations beyond the ordinary tool result. A denial adds a small retained error result and avoids any success payload. |
-
 ## The four-layer split
 
 | Layer | Package | Role |
@@ -52,6 +46,12 @@ The `fs/write-intent`/`fs/edit-intent` slots hold exactly one decider — this p
 ## No method coupling
 
 Because the plugin influences the world only through events, removing it does not break `@deepseek-ai/dsh-tool-fs` at a service-injection boundary: the tool falls through to the bare `ctx.fs` provider (unconditional write/edit, no observed-state). Loading it back layers the policy on. That graceful add/remove is the whole point of the event gate over a mandatory method service.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Filesystem tool outcome | This plugin adds no prompt or schema. It can turn an unobserved or stale write or edit into a structured `FS_NOT_OBSERVED` or `FS_STALE_VERSION` error result instead of a success; observation state itself is never shown. | Zero tokens on allowed operations beyond the ordinary tool result. A denial adds a small retained error result and avoids any success payload. |
 
 ## Known Limitations and Deferred Work
 

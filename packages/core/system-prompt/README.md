@@ -2,13 +2,6 @@
 
 System prompt assembly registry. Plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative named protections; the agent loop calls `assemble(context)` once per step, and `renderPrompt(assembly)` is the full system prompt the model sees. The plugin registers the harness-owned openers itself — the static `harness:identity` section and the deployment's `deployment:persona` section — so they exist for every agent regardless of which loop plugin drives it.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt | Every assembly starts with `You are an AI agent powered by the DeepSeek Harness SDK.`, then the configured persona and ordered plugin sections after strict variable interpolation. Empty sections disappear; scoped sections and variables can shadow globals for one agent. | Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content. |
-| Tool schemas | The model receives the collected, per-agent-visible tool names, descriptions, and JSON schemas in configured or lexicographic order after restrictions and assembly interception. | Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent; reordering changes cache shape but not semantic content. |
-
 ## Config
 
 | Key | Default | Meaning |
@@ -49,6 +42,13 @@ Merge-extensible: plugins can declare extra fields on `PromptAssembly` and `Asse
 - `systemPrompt.protect()`: reserve canonical section/tool contributions for invariants that ordinary waterfall listeners must not be able to remove or replace.
 
 Design rationale: [the prompt-variables RFC](../../../docs/rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| System prompt | Every assembly starts with `You are an AI agent powered by the DeepSeek Harness SDK.`, then the configured persona and ordered plugin sections after strict variable interpolation. Empty sections disappear; scoped sections and variables can shadow globals for one agent. | Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content. |
+| Tool schemas | The model receives the collected, per-agent-visible tool names, descriptions, and JSON schemas in configured or lexicographic order after restrictions and assembly interception. | Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent; reordering changes cache shape but not semantic content. |
 
 ## Known Limitations and Deferred Work
 

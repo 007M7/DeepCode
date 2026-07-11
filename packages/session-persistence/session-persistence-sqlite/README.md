@@ -4,12 +4,6 @@ A SQLite durable session-persistence backend — a second `SessionPersistence` i
 
 > **TODO:** this backend talks to `node:sqlite` directly. If a cordis database service (`cordis/db` / a `@cordisjs` SQL driver plugin) is adopted, route through that instead of holding a raw `DatabaseSync` here — the contract surface (`SessionPersistence`) would not change, only the storage driver.
 
-## Model Experience
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Resumed conversation history | SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Interrupted rows are balanced with error tool results. Row metadata and raw chunks are not messages. | Zero live-request tokens. Resume restores retained history and pays the current envelope, with small repair-result tokens only for an interrupted tool turn. |
-
 ## Storage model
 
 Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../docs/rfc/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`) lives in a `sessions` row. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row), so no separate column is needed.
@@ -34,6 +28,12 @@ interface Config {
 ## Write path
 
 Like the JSONL backend, the plugin also installs the `session/event` → buffer → `session/flush` drain: it snapshots each event when buffered (the live `session.events` object is mutable), persists a fork's seed once on `session/created`, keeps a per-session write cursor so a resumed session never re-appends stored events, and seeds existing live sessions on apply (HMR does not replay `session/created`). Dispose awaits every in-flight init + final drain and then closes the database, so no write lands after teardown.
+
+## Model Experience
+
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Resumed conversation history | SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Interrupted rows are balanced with error tool results. Row metadata and raw chunks are not messages. | Zero live-request tokens. Resume restores retained history and pays the current envelope, with small repair-result tokens only for an interrupted tool turn. |
 
 ## Known Limitations and Deferred Work
 
