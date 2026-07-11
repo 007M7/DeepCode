@@ -697,6 +697,60 @@ describe('provider selection and synchronization', () => {
     expect(asError(thrown).message).toContain(`provider "${provider.id}"`)
     expect(provider.sessionRequests).toEqual([])
   })
+
+  it('observes synchronous synchronization failure when the caller is already aborted', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('aborted-throwing-extractor'))
+    session.append('test/note', { note: 'unreachable' })
+    const provider = new FakeProvider()
+    ctx.sessionQuery.registerSearchProvider(provider)
+    ctx.sessionQuery.registerEventTextExtractor('test/note', {
+      version: 'aborted-throwing-v1',
+      extract: () => { throw new Error('superseded extraction failure') },
+    })
+    const controller = new AbortController()
+    controller.abort()
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      await expect(ctx.sessionQuery.searchSessions({ query: 'x' }, { signal: controller.signal }))
+        .rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  it('types synchronous live-target extraction failures and leaves retries clean', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('throwing-live-extractor'))
+    session.append('test/note', { note: 'unreachable' })
+    const provider = new FakeProvider()
+    ctx.sessionQuery.registerSearchProvider(provider)
+    const cause = new Error('live extractor failed')
+    const disposeExtractor = ctx.sessionQuery.registerEventTextExtractor('test/note', {
+      version: 'live-throwing-v1',
+      extract: () => { throw cause },
+    })
+
+    let thrown: unknown
+    try {
+      await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' })
+    } catch (error: unknown) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(SessionQueryError)
+    expect(thrown).toMatchObject({ code: 'SESSION_QUERY_INDEX_FAILED', cause })
+    expect(asError(thrown).message).toContain(`provider "${provider.id}"`)
+    expect(provider.eventRequests).toEqual([])
+
+    disposeExtractor()
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x' }))
+      .resolves.toMatchObject({ providerId: provider.id })
+    expect(provider.eventRequests).toHaveLength(1)
+  })
 })
 
 describe('semantic text extractors', () => {

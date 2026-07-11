@@ -225,7 +225,12 @@ export class SessionProviderCoordinator {
   private _syncLive(state: ProviderState, session: Session): Promise<void> {
     const existing = state.liveSync.get(session.id)
     if (existing !== undefined) return existing
-    const snapshot = this._snapshotLive(session)
+    let snapshot: ReturnType<SessionTextExtractors['buildSnapshot']>
+    try {
+      snapshot = this._snapshotLive(session)
+    } catch (error: unknown) {
+      return Promise.reject(this._synchronizationError(state, error))
+    }
     const promise = this._enqueue(state, async () => {
       /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
       if (!state.active) return
@@ -324,7 +329,12 @@ export class SessionProviderCoordinator {
 
 function waitFor<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return work
-  if (signal.aborted) return Promise.reject(aborted())
+  if (signal.aborted) {
+    // Cancellation supersedes the caller's result, but shared work must still
+    // have a rejection observer when it has already failed synchronously.
+    void work.catch((_supersededError: unknown) => undefined)
+    return Promise.reject(aborted())
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => { reject(aborted()) }
     signal.addEventListener('abort', onAbort, { once: true })
