@@ -71,7 +71,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const located = await capture(dir())
     expect(located.payload.transcript_path).toBe(located.expected)
     expect((await capture()).payload.transcript_path).toBeNull()
-  })
+  }, 15_000) // Two real agent/hook subprocess loops need loaded pre-push runner headroom.
 
   it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
     const d = dir()

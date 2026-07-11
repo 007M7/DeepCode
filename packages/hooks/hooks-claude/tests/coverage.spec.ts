@@ -78,7 +78,7 @@ describe('hooks-claude coverage — config option arms + substitution + skip war
     const located = await capture(dir())
     expect(located.payload.transcript_path).toBe(located.expected)
     expect((await capture()).payload.transcript_path).toBe('')
-  })
+  }, 15_000) // Two real agent/hook subprocess loops need loaded pre-push runner headroom.
 
   it('honors pluginRoot + projectDir substitution and warns on a skipped non-command hook', async () => {
     const d = dir()
