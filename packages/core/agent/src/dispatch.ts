@@ -58,6 +58,16 @@ export interface AgentEventDispatch {
    */
   serial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
   /**
+   * Await listeners in order and return the first value other than `undefined`.
+   * Unlike Cordis `serial`, this does not silently treat `null` or `false` as
+   * abstentions. Use it for a runtime-validated public boundary whose declared
+   * abstention is exactly `undefined` (currently `agent/turn-stop`).
+   * @param name - the agent-subject event to dispatch.
+   * @param rest - the event's arguments after the injected agent.
+   * @returns the first non-undefined listener result, or undefined.
+   */
+  strictSerial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
+  /**
    * Around-middleware dispatch (Cordis `waterfall`) in the agent's scope. The
    * declared event parameters already end with the `next` callback, so `rest`
    * is exactly the event's arguments after the injected agent — the final
@@ -79,7 +89,7 @@ export interface AgentEventDispatch {
  */
 export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   const carrier: Scoped<Agent> = scopeTarget(agent, agent)
-  // The three dispatch methods forward through cordis' variadic mixins. The
+  // The ordinary dispatch methods forward through Cordis' variadic mixins. The
   // fused (carrier, name, agent, ...rest) tuple is provably a valid argument
   // list for the matching thisArg overload, but TypeScript cannot relate the
   // generic Tail<K> spread back to that overload's conditional parameter
@@ -94,6 +104,22 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
       const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
       return await serial(carrier, name, agent, ...rest)
+    },
+    strictSerial(name, ...rest) {
+      return (async (): Promise<unknown> => {
+        // EventsService.dispatch applies the carrier filter and emits the same
+        // internal/dispatch instrumentation as ctx.serial, then mutates `args`
+        // down to the actual listener parameters. Invoke those callbacks in order
+        // ourselves so every non-undefined value reaches the caller's validator;
+        // Cordis serial would discard null/false before validation could see them.
+        const args: unknown[] = [carrier, name, agent, ...rest]
+        const callbacks = ctx.events.dispatch('serial', args)
+        for (const callback of callbacks) {
+          const result: unknown = await callback(...args)
+          if (result !== undefined) return result
+        }
+        return undefined
+      })() as Promise<Awaited<Return<Events[typeof name]>>>
     },
     waterfall(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function

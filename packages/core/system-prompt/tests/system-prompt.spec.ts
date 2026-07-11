@@ -205,6 +205,103 @@ describe('SystemPrompt', () => {
     expect(assembly.sections).toHaveLength(0)
   })
 
+  describe('canonical contribution protection', () => {
+    it('restores exact protected definitions after every listener, in canonical relative order', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'before', order: 10, text: 'before' })
+      ctx.systemPrompt.section({ name: 'protected', order: 20, text: 'canonical section' })
+      ctx.systemPrompt.section({ name: 'after', order: 30, text: 'after' })
+      ctx.systemPrompt.tools(() => ({ schemas: [
+        { name: 'alpha', description: 'alpha', parameters: {} },
+        { name: 'protected', description: 'canonical tool', parameters: { type: 'object', properties: { answer: { type: 'number' } } } },
+        { name: 'zulu', description: 'zulu', parameters: {} },
+      ] }))
+      const protection = { sections: ['protected'], tools: ['protected'] }
+      ctx.systemPrompt.protect(protection)
+      // Registration snapshots its arrays; caller mutation cannot change what
+      // the service makes authoritative.
+      protection.sections[0] = 'after'
+      protection.tools[0] = 'zulu'
+
+      // Registered AFTER the protection and prepended: it is outside every
+      // ordinary listener that existed when protect() ran, but service-level
+      // finalization still restores the canonical entries after it returns.
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        return Object.freeze({
+          sections: [
+            ...result.sections.filter(section => section.name !== 'protected'),
+            { name: 'protected', order: -999, text: 'wrong section' },
+            { name: 'protected', order: 999, text: 'duplicate section' },
+          ],
+          tools: [
+            ...result.tools.filter(tool => tool.name !== 'protected'),
+            { name: 'protected', description: 'wrong tool', parameters: {} },
+            { name: 'protected', description: 'duplicate tool', parameters: {} },
+          ],
+          variables: result.variables,
+        })
+      }, { prepend: true })
+
+      const assembly = await ctx.systemPrompt.assemble()
+      const protectedSections = assembly.sections.filter(section => section.name === 'protected')
+      const protectedTools = assembly.tools.filter(tool => tool.name === 'protected')
+      expect(protectedSections).toEqual([{ name: 'protected', order: 20, text: 'canonical section' }])
+      expect(protectedTools).toEqual([{
+        name: 'protected',
+        description: 'canonical tool',
+        parameters: { type: 'object', properties: { answer: { type: 'number' } } },
+      }])
+      expect(assembly.sections.map(section => section.name).indexOf('protected'))
+        .toBeLessThan(assembly.sections.map(section => section.name).indexOf('after'))
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['alpha', 'protected', 'zulu'])
+    })
+
+    it('protects canonical absence and rejects an empty protection', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      // Separate registrations exercise the set-union contract: protections
+      // may name only sections or only tools and still compose.
+      ctx.systemPrompt.protect({ sections: ['mode-hidden'] })
+      ctx.systemPrompt.protect({ tools: ['mode-hidden'] })
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        result.sections.push({ name: 'mode-hidden', order: 100, text: 'fabricated' })
+        result.tools.push({ name: 'mode-hidden', description: 'fabricated', parameters: {} })
+        return result
+      })
+
+      const assembly = await ctx.systemPrompt.assemble()
+      expect(assembly.sections.some(section => section.name === 'mode-hidden')).toBe(false)
+      expect(assembly.tools.some(tool => tool.name === 'mode-hidden')).toBe(false)
+      expect(() => ctx.systemPrompt.protect({})).toThrow(/at least one section or tool name/)
+      expect(() => ctx.systemPrompt.protect({ sections: [], tools: [] })).toThrow(/at least one section or tool name/)
+    })
+
+    it('removes a protection with its contributing fiber (HMR safety)', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'protected', order: 10, text: 'canonical' })
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        result.sections = result.sections.filter(section => section.name !== 'protected')
+        return result
+      })
+      let changes = 0
+      ctx.on('system-prompt/change', () => { changes++ })
+      const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+        inner.systemPrompt.protect({ sections: ['protected'] })
+      }, { inject: ['systemPrompt'] }))
+
+      expect((await ctx.systemPrompt.assemble()).sections.some(section => section.name === 'protected')).toBe(true)
+      expect(changes).toBe(1)
+      await fiber.dispose()
+      expect((await ctx.systemPrompt.assemble()).sections.some(section => section.name === 'protected')).toBe(false)
+      expect(changes).toBe(2)
+    })
+  })
+
   it('assembles snapshots so one-step mutations do not leak into future assemblies', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

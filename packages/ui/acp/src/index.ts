@@ -591,17 +591,27 @@ export function apply(ctx: Context, config: AcpConfig): void {
         return Promise.resolve()
       },
 
-      newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
         validateWorkspaceParams(params)
         validateMcpServers(params)
         const sessionId = SessionId(randomUUID())
-        const handle = agents.create({
+        const handle = await agents.create({
           agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
         })
+        // Creation is now asynchronous because it awaits the unpublished setup
+        // transaction. A client disconnect can therefore close this bridge
+        // after the entry check but before the handle resolves; never install a
+        // post-close record that quiesce() could not have seen.
+        /* v8 ignore next 4 -- the in-memory transport rejects the in-flight RPC
+           immediately on close; real stdio may let the handler resume */
+        if (closed) {
+          await handle.dispose()
+          throw internalError('connection closed during session/new')
+        }
         bySession.set(handle.agent, sessionId)
         sessions.set(sessionId, {
           sessionId,
@@ -611,7 +621,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           terminalEnabled: terminalOutputCap,
           inflight: undefined,
         })
-        return Promise.resolve({ sessionId })
+        return { sessionId }
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {

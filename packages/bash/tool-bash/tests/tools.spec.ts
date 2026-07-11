@@ -242,12 +242,20 @@ describe('bash tool', () => {
     [{ command: '  ', description: 'd' }, /invalid command/],
     [{ command: 'x', description: '   ' }, /invalid description/],
     [{ command: 'x', description: 'd', timeoutMs: -1 }, /invalid timeoutMs/],
-    [{ command: 'x', description: 'd', timeoutMs: Number.NaN }, /invalid timeoutMs/],
   ])('rejects value-invalid args %j', async (args, pattern) => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', args)
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(pattern)
+  })
+
+  it('rejects a non-JSON numeric argument before tool-specific validation', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', {
+      command: 'x', description: 'd', timeoutMs: Number.NaN,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('tool execution arguments must be losslessly JSON-serializable')
   })
 
   it('registers all three schemas in the system prompt assembly', async () => {

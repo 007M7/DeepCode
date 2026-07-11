@@ -7,16 +7,18 @@
  * a prefix of the parent's log); everything downstream — drive the child, read
  * its final output, map the stop reason, dispose — is identical and lives here.
  *
- * This package owns no provider and registers nothing; it is a pure library the
- * backend packages depend on, so neither backend needs to know about the other.
+ * This package declares no provider and performs no import-time registration;
+ * it is a library the backend packages depend on, so neither backend needs to
+ * know about the other. Each accepted run does install one provider-owned
+ * effect for structured-concurrency cleanup.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context } from 'cordis'
+import type { Context, Fiber } from 'cordis'
 import { AgentId, type Agent, type AgentHandle, type AgentOptions } from '@deepseek-ai/dsh-agent'
-import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, isJsonValue, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
@@ -86,13 +88,17 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
 
 /** Extra inputs the spawn/fork backends supply to {@link startInProcessRun}. */
 export interface InProcessRunOptions {
-  /** The provider name (`spawn`/`fork`), for error context only. */
-  readonly providerName: string
   /**
    * The child session's seed: a balanced, contiguous-from-0 prefix of the
    * parent's log (FORK), or `undefined` for a fresh child (SPAWN).
    */
   readonly seed?: SessionEvent[]
+}
+
+/** Dispose a run-owner fiber and follow an already-started unload to quiescence. */
+async function quiesceFiber(fiber: Fiber): Promise<void> {
+  await Promise.resolve(fiber.dispose())
+  while (fiber.inertia !== undefined) await fiber.inertia
 }
 
 /**
@@ -108,9 +114,10 @@ export interface InProcessRunOptions {
  *
  * Throws {@link SubagentDepthError} before creating anything when the child's
  * depth (parent depth + 1) would exceed `request.maxDepth`.
- * @param ctx - the context whose `agents` factory creates and owns the child.
+ * @param ctx - the provider context that owns the live run as a second
+ *   structured-concurrency boundary alongside the parent agent.
  * @param request - the start request (prompt, parent, signal, per-child options).
- * @param options - the backend's inputs: provider name plus the optional seed.
+ * @param options - the backend's optional child-session seed.
  * @returns the live run handle for the child agent.
  */
 export function startInProcessRun(
@@ -118,7 +125,15 @@ export function startInProcessRun(
   request: SubagentStartRequest,
   options: InProcessRunOptions,
 ): SubagentRun {
-  const childDepth = depthOf(request.parent) + 1
+  // Snapshot the accepted request synchronously. The parent and signal are
+  // identity capabilities (kept live but never reread from the mutable request
+  // record); every data field is detached before asynchronous owner setup.
+  const parent = request.parent
+  const signal = request.signal
+  const persona = request.persona
+  const toolFilter = request.toolFilter === undefined ? undefined : structuredClone(request.toolFilter)
+  const seed = options.seed === undefined ? undefined : structuredClone(options.seed)
+  const childDepth = depthOf(parent) + 1
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
@@ -134,6 +149,17 @@ export function startInProcessRun(
   // validateStructuredValue to one isolation-immutable value.
   if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
   const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
+  // The accepted request owns a value snapshot, not the caller's mutable
+  // content array. Validate the same lossless-JSON contract Session.append
+  // enforces before any child exists, then detach it synchronously so mutation
+  // during async creation cannot change what is logged or sent to the model.
+  if (!isJsonValue(request.prompt)) {
+    throw new TypeError('subagent prompt must be losslessly JSON-serializable')
+  }
+  const prompt = structuredClone(request.prompt)
+  if (!isJsonValue(prompt)) {
+    throw new TypeError('subagent prompt must be stable losslessly JSON-serializable data')
+  }
 
   const childId = AgentId(randomUUID())
   // The child's OWN events begin after the seed (fork seeds the parent's
@@ -141,76 +167,43 @@ export function startInProcessRun(
   // boundary so a child that produces no message of its own never returns the
   // SEEDED parent's last assistant message as its result.
   const seedLength = options.seed?.length ?? 0
-  const parentHeader = request.parent.session.header
+  const parentHeader = parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
   // an explicit `request.agentOptions.model` overrides it. The deployment
   // persona needs no inheritance (a context-wide section both render); a
   // per-child `request.persona` becomes a SCOPED section of the same name in
   // the setup below, shadowing the deployment's for this child alone.
-  const agentOptions: AgentOptions = {
-    ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
+  const agentOptions: AgentOptions = structuredClone({
+    ...parent.options.model !== undefined ? { model: parent.options.model } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
-  }
+  })
 
-  // The child's scoped world, composed in the factory's setup window (after
-  // the child's scope exists and it is registered, before agent/session-start
-  // and the first prompt assembly; a throw here unwinds the half-created
-  // child inside the factory's rollback boundary):
+  // The child's scoped world, composed in the factory's unpublished setup
+  // window. The factory awaits it before inserting or announcing the child, so
+  // a throw/rejection exposes neither id and every first assembly sees it:
   //  - persona: a scoped `deployment:persona` section shadowing the global one;
   //  - toolFilter: a scoped restrict() masking the global tool surface
   //    (loud unknown-name validation lives in the registry);
   //  - outputSchema: the structured runtime, attached as scoped registrations.
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
-    if (request.persona !== undefined) {
-      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
+    if (persona !== undefined) {
+      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: persona })
     }
-    if (request.toolFilter !== undefined) {
-      childCtx.tools.restrict(request.toolFilter)
+    if (toolFilter !== undefined) {
+      childCtx.tools.restrict(toolFilter)
     }
     if (schema !== undefined) {
       structured = attachStructuredRuntime(childCtx, schema)
     }
   }
 
-  const handle: AgentHandle = ctx.agents.create({
-    agentId: childId,
-    sessionId: SessionId(randomUUID()),
-    meta: {
-      ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
-      parentSession: parentHeader.id,
-      // Record the seed boundary so a reload (and a replay harness) can tell the
-      // inherited prefix from the child's OWN events. 0 for a fresh spawn.
-      ...seedLength > 0 ? { seedLength } : {},
-    },
-    ...options.seed !== undefined ? { seed: options.seed } : {},
-    agentOptions,
-    setup,
-  })
-  const child = handle.agent
-
-  // Structured-concurrency link: the child's teardown rides the PARENT's
-  // scope, so a disposed parent reaches its whole subtree even if the
-  // delegating tool's `finally` never runs — through the MEMOIZED handle, so
-  // every path (tool finally, parent teardown, owner unload) observes the
-  // same quiescence boundary. Registered AFTER the child exists; if the
-  // parent began disposing in between, the registration throws
-  // INACTIVE_EFFECT — dispose the fresh child before rethrowing (no orphan).
-  // Definite assignment: the catch rethrows, so past this block the unlink
-  // disposer always exists.
-  let unlink!: () => Promise<void> | void
-  try {
-    unlink = request.parent.ctx.effect(() => () => handle.dispose())
-  } catch (error: unknown) {
-    // Fire-and-forget: start() must rethrow synchronously; the child's
-    // teardown (stop → unregister → detach) reaches quiescence on its own.
-    void handle.dispose()
-    throw error
-  }
-
   // Bridge the request's abort signal to the child (the consumer also bridges
   // its own exec.signal, but a backend-level bridge keeps the contract local).
+  // Install it after provider ownership succeeds but BEFORE awaiting creation,
+  // so an inactive provider cannot leave an orphaned listener and abort/dispose
+  // during async setup is still recorded and applied the moment a child exists.
   // `cancelled` records that a cancel was requested at all, so the pre-turn
   // cancel window — where the child clears the queued prompt before any
   // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
@@ -220,31 +213,104 @@ export function startInProcessRun(
   // abort listener, run.cancel), which control-flow narrowing cannot see — an
   // inline read at the result mapping would narrow to the initializer.
   const isCancelled = (): boolean => cancelled
+  let child: Agent | undefined
+  let handle: AgentHandle | undefined
+  let disposeRequested = false
+  const isDisposeRequested = (): boolean => disposeRequested
   const requestCancel = (reason: string): void => {
     cancelled = true
-    child.cancel(reason)
+    child?.cancel(reason)
   }
   const onAbort = (): void => { requestCancel('subagent cancelled') }
-  request.signal?.addEventListener('abort', onAbort, { once: true })
+
+  // One run-owned Cordis fiber is the common ownership node. Install the
+  // provider effect FIRST: a start racing an already-unloading provider fails
+  // before it can mint anything under the parent. The owner fiber is then
+  // nested under the parent scope, and the provider/run handle both dispose
+  // this exact fiber. AgentFactory binds its lifecycle to `ownerCtx`, so any of
+  // the three owners moves the fiber out of ACTIVE synchronously and setup
+  // cannot publish afterward.
+  let ownerCtx: Context | undefined
+  function subagentRunOwner(inner: Context): void { ownerCtx = inner }
+  let ownerFiber: (Fiber & PromiseLike<Fiber>) | undefined
+  let ownerSetupError: unknown
+  let ownerDisposing: Promise<void> | undefined
+  const disposeOwner = (): Promise<void> => (ownerDisposing ??= ownerFiber === undefined
+    ? Promise.resolve()
+    : quiesceFiber(ownerFiber))
+  let manualDisposeRequested = false
+  const isManualDisposeRequested = (): boolean => manualDisposeRequested
+  const unlinkProvider = ctx.effect(() => () => {
+    requestCancel('subagent provider disposed')
+    return disposeOwner()
+  }, 'subagent-inprocess.run()')
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) requestCancel('subagent cancelled')
+  try {
+    ownerFiber = parent.ctx.plugin(Object.assign(subagentRunOwner, {
+      inject: ['agents', 'sessions', 'llm', 'tools', 'systemPrompt'],
+    }))
+  } catch (error: unknown) {
+    ownerSetupError = error
+  }
+
+  const creation: Promise<Agent> = (async () => {
+    if (ownerSetupError !== undefined) {
+      throw ownerSetupError instanceof Error
+        ? ownerSetupError
+        : new Error('subagent run owner setup failed with a non-Error value', { cause: ownerSetupError })
+    }
+    await ownerFiber
+    if (ownerCtx === undefined) {
+      throw new Error('subagent run owner became inactive before child creation')
+    }
+    // Invoke the factory THROUGH the parent scope. Cordis binds the factory's
+    // lifecycle effect to the accessing context, so parent ownership exists
+    // before persistence/setup and publication—not as a fallible link added
+    // after the child is already visible. A disposed parent therefore rejects
+    // before any session/agent notification, and disposal during async setup
+    // wins the unpublished transaction.
+    const created = await ownerCtx.agents.create({
+      agentId: childId,
+      sessionId: SessionId(randomUUID()),
+      meta: {
+        ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
+        parentSession: parentHeader.id,
+        ...seedLength > 0 ? { seedLength } : {},
+      },
+      ...seed !== undefined ? { seed } : {},
+      agentOptions,
+      setup,
+    })
+    handle = created
+    child = created.agent
+
+    if (isCancelled()) created.agent.cancel('subagent cancelled')
+    return created.agent
+  })()
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      // A signal already aborted BEFORE the run starts never fires an `abort`
-      // event (`addEventListener` only fires on the transition), so the listener
-      // above won't catch it — settle `aborted` without running the child rather
-      // than completing an already-cancelled request.
-      if (request.signal?.aborted) return { output: [], stopReason: 'aborted' }
-      child.send(request.prompt)
-      await child.whenIdle()
+      let liveChild: Agent
+      try {
+        liveChild = await creation
+      } catch (error: unknown) {
+        if (isManualDisposeRequested()) return { output: [], stopReason: 'aborted' }
+        throw error instanceof Error ? error : new Error('subagent child creation failed with a non-Error value', { cause: error })
+      }
+      if (isCancelled() || isDisposeRequested()) return { output: [], stopReason: 'aborted' }
+      liveChild.send(prompt)
+      await liveChild.whenIdle()
       // Deliberately NO re-prompt when a structured child finishes cleanly
       // without calling structured_output: readResult maps that to `error` —
       // the shortfall goes to the parent instead of buying extra model turns.
-      return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured() } : undefined)
+      return readResult(liveChild, seedLength, isCancelled(), structured ? { captured: structured.captured() } : undefined)
     } finally {
-      request.signal?.removeEventListener('abort', onAbort)
+      signal?.removeEventListener('abort', onAbort)
     }
   })()
 
+  let disposing: Promise<void> | undefined
   return {
     id: childId,
     result,
@@ -252,13 +318,26 @@ export function startInProcessRun(
       requestCancel(reason ?? 'subagent cancelled')
     },
     async dispose(): Promise<void> {
-      request.signal?.removeEventListener('abort', onAbort)
-      // Through the parent-scope unlink when the parent is still live (one
-      // disposal path, and the dead effect leaves the parent's list); the
-      // memoized handle keeps a direct dispose equivalent if the parent's
-      // teardown already ran the unlink.
-      await unlink()
-      await handle.dispose()
+      return (disposing ??= (async () => {
+        signal?.removeEventListener('abort', onAbort)
+        disposeRequested = true
+        manualDisposeRequested = true
+        requestCancel('subagent disposed during creation')
+        // Removing provider ownership and disposing the common run-owner fiber
+        // are the same quiescence transaction; parent disposal may already have
+        // claimed it, in which case disposeOwner follows fiber inertia.
+        await unlinkProvider()
+        try {
+          await creation
+        } catch {
+          // Creation rollback already reached quiescence; there is no handle
+          // left to dispose, and dispose must not mask result's infrastructure
+          // rejection with the same error from a finally block.
+          return
+        }
+        await disposeOwner()
+        await handle?.dispose()
+      })())
     },
   }
 }

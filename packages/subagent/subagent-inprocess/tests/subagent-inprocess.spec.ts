@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { describe, expect, it, vi } from 'vitest'
+import { Context, type Fiber } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -49,9 +49,166 @@ describe('depthOf', () => {
 })
 
 describe('startInProcessRun', () => {
+  it('rejects a non-JSON prompt before acquiring any run ownership', async () => {
+    const { ctx, parent } = await setup([])
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: Number.NaN as unknown as string }],
+      parent,
+    }, {})).toThrow('subagent prompt must be losslessly JSON-serializable')
+  })
+
+  it('rejects a prompt whose getter becomes non-JSON while it is snapshotted', async () => {
+    const { ctx, parent } = await setup([])
+    let reads = 0
+    const prompt = [{
+      type: 'text' as const,
+      get text(): string {
+        reads += 1
+        return reads === 1 ? 'valid during pre-check' : Number.NaN as unknown as string
+      },
+    }]
+
+    expect(() => startInProcessRun(ctx, { prompt, parent }, {}))
+      .toThrow('subagent prompt must be stable losslessly JSON-serializable data')
+    expect(reads).toBe(2)
+  })
+
+  it('rejects when the run-owner fiber settles without installing its context', async () => {
+    const { ctx, parent } = await setup([])
+    function inertOwner(): void {}
+    const inertFiber = ctx.plugin(inertOwner)
+    await inertFiber
+    const parentWithoutOwnerContext = {
+      options: parent.options,
+      session: parent.session,
+      ctx: { plugin: () => inertFiber },
+    } as unknown as Agent
+
+    const run = startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent: parentWithoutOwnerContext,
+    }, {})
+    await expect(run.result).rejects.toThrow('subagent run owner became inactive before child creation')
+    await run.dispose()
+  })
+
+  it('normalizes a non-Error thrown while installing the run-owner fiber', async () => {
+    const { ctx, parent } = await setup([])
+    const setupFailure = 'non-Error owner setup failure'
+    const parentWithFailingOwnerSetup = {
+      options: parent.options,
+      session: parent.session,
+      ctx: { plugin: () => { throw setupFailure } },
+    } as unknown as Agent
+
+    const run = startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent: parentWithFailingOwnerSetup,
+    }, {})
+    await expect(run.result).rejects.toMatchObject({
+      message: 'subagent run owner setup failed with a non-Error value',
+      cause: setupFailure,
+    })
+    await run.dispose()
+  })
+
+  it('normalizes a non-Error rejected by asynchronous child creation', async () => {
+    const { ctx, parent } = await setup([])
+    const creationFailure = 'non-Error child creation failure'
+    function inertOwner(): void {}
+    const ownerFiber = ctx.plugin(inertOwner)
+    await ownerFiber
+    const rejectWithNonError = (): Promise<never> => {
+      // Deliberately violate the promise contract to exercise boundary normalization.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      return Promise.reject(creationFailure)
+    }
+    const rejectingOwnerCtx = {
+      agents: { create: rejectWithNonError },
+    } as unknown as Context
+    const parentWithRejectingFactory = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        plugin(plugin: (inner: Context) => void) {
+          plugin(rejectingOwnerCtx)
+          return ownerFiber
+        },
+      },
+    } as unknown as Agent
+
+    const run = startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent: parentWithRejectingFactory,
+    }, {})
+    await expect(run.result).rejects.toMatchObject({
+      message: 'subagent child creation failed with a non-Error value',
+      cause: creationFailure,
+    })
+    await run.dispose()
+  })
+
+  it('follows owner-fiber inertia when raw teardown was already in flight', async () => {
+    const { ctx, parent } = await setup([])
+    const gate = Promise.withResolvers<undefined>()
+    let inertia: Promise<undefined> | undefined = gate.promise
+    const fakeFiber = {
+      dispose: vi.fn(() => undefined),
+      get inertia() { return inertia },
+    } as unknown as Fiber & PromiseLike<Fiber>
+    const rejectingOwnerCtx = {
+      agents: { create: () => Promise.reject(new Error('creation stopped by teardown')) },
+    } as unknown as Context
+    const parentWithDisposingOwner = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        plugin(plugin: (inner: Context) => void) {
+          plugin(rejectingOwnerCtx)
+          return fakeFiber
+        },
+      },
+    } as unknown as Agent
+    const run = startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent: parentWithDisposingOwner,
+    }, {})
+
+    let settled = false
+    const disposing = run.dispose().then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fakeFiber.dispose).toHaveBeenCalledOnce()
+    expect(settled).toBe(false)
+
+    inertia = undefined
+    gate.resolve(undefined)
+    await disposing
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
+  })
+
+  it('does not attach an abort listener when provider ownership is already inactive', async () => {
+    const { ctx, parent } = await setup([])
+    let providerCtx: Context | undefined
+    function provider(inner: Context): void { providerCtx = inner }
+    const providerFiber = await ctx.plugin(provider)
+    await providerFiber.dispose()
+    if (providerCtx === undefined) throw new Error('provider context was not captured')
+    const inactiveProviderCtx = providerCtx
+
+    const controller = new AbortController()
+    const addListener = vi.spyOn(controller.signal, 'addEventListener')
+    expect(() => startInProcessRun(inactiveProviderCtx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent,
+      signal: controller.signal,
+    }, {})).toThrow(/inactive context/)
+    expect(addListener).not.toHaveBeenCalled()
+  })
+
   it('drives a fresh child (no seed) to completion and returns its output', async () => {
     const { ctx, parent } = await setup([textResponse('driver child answer')])
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'do X' }], parent }, { providerName: 'spawn' })
+    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'do X' }], parent }, {})
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('driver child answer')
@@ -59,9 +216,25 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('snapshots the prompt before asynchronous child creation', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const prompt = [{ type: 'text' as const, text: 'original prompt' }]
+    const run = startInProcessRun(ctx, { prompt, parent }, {})
+
+    prompt[0]!.text = 'mutated after start'
+    prompt.push({ type: 'text', text: 'also injected' })
+    await run.result
+
+    const child = ctx.agents.get(run.id)!
+    const userMessage = child.session.events.find(event => event.type === 'user/message')
+    expect(userMessage?.type === 'user/message' && userMessage.data.content)
+      .toEqual([{ type: 'text', text: 'original prompt' }])
+    await run.dispose()
+  })
+
   it('throws SubagentDepthError when the child would exceed maxDepth', async () => {
     const { ctx, parent } = await setup([])
-    expect(() => startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }, { providerName: 'spawn' }))
+    expect(() => startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }, {}))
       .toThrow(SubagentDepthError)
   })
 
@@ -73,7 +246,7 @@ describe('startInProcessRun', () => {
     parent.send([{ type: 'text', text: 'parent q' }])
     await parent.whenIdle()
     const seed = parent.session.events.slice()
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'child q' }], parent }, { providerName: 'fork', seed })
+    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'child q' }], parent }, { seed })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('seeded child reply')

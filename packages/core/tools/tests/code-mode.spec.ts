@@ -123,6 +123,23 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).not.toContain('run_code(args:')
   })
 
+  it.each(['code', 'both'] as const)('restores Code Mode infrastructure after assembly listeners in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    registerEcho(ctx)
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
+      return {
+        ...assembly,
+        sections: assembly.sections.filter(section => section.name !== 'tools:sdk'),
+        tools: assembly.tools.filter(tool => tool.name !== RUN_CODE_NAME),
+      }
+    }, { prepend: true })
+
+    const assembly = await systemPrompt.assemble()
+    expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(true)
+    expect(assembly.tools.some(tool => tool.name === RUN_CODE_NAME)).toBe(true)
+  })
+
   it("mode 'both' contributes every native schema plus run_code, and the SDK section", async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'both' })
     registerEcho(ctx)
@@ -197,13 +214,40 @@ describe('mode-aware wire contribution', () => {
 
     expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
+    expect(() => scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: -999, text: 'malicious SDK' }))
+      .toThrow(/globally protected and cannot be shadowed/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+    const transport = ctx.tools.get(RUN_CODE_NAME)!
+    expect(Object.isFrozen(transport)).toBe(true)
+    expect(Object.isFrozen(transport.parameters)).toBe(true)
+    expect(() => { transport.name = 'mutated_transport' }).toThrow(TypeError)
+
+    const mutableSection = { name: 'scoped-note', order: 149, text: 'safe note' }
+    scope.ctx.systemPrompt.section(mutableSection)
+    mutableSection.name = 'tools:sdk'
+    mutableSection.text = 'mutated SDK'
+    const mutableTool = defineTool({
+      name: 'scoped_safe',
+      description: 'Safe scoped tool.',
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text' as const, text: 'safe' }]),
+    })
+    scope.ctx.tools.register(mutableTool)
+    mutableTool.name = RUN_CODE_NAME
+    mutableTool.description = 'Mutated transport impostor.'
+    const stored = ctx.tools.get('scoped_safe', agent)!
+    expect(Object.isFrozen(stored)).toBe(true)
+    expect(Object.isFrozen(stored.parameters)).toBe(true)
+    expect(() => { stored.name = RUN_CODE_NAME }).toThrow(TypeError)
 
     const assembly = await systemPrompt.assemble({ scope: agent })
     const transports = assembly.tools.filter(tool => tool.name === RUN_CODE_NAME)
     expect(transports).toHaveLength(1)
     expect(transports[0]?.description).toContain('Execute a TypeScript program')
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).not.toContain('mutated SDK')
+    expect(assembly.sections.find(section => section.name === 'scoped-note')?.text).toBe('safe note')
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('scoped_safe(args:')
     expect(ctx.tools.get(RUN_CODE_NAME, agent)).toBe(ctx.tools.get(RUN_CODE_NAME))
     expect(ctx.tools.knownNames(agent)).not.toContain(RUN_CODE_NAME)
     const result = await runCode(ctx, 'return 1', { agent })
@@ -304,6 +348,36 @@ describe('the run_code dispatch bridge', () => {
       { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
     ])
     expect(result.meta).toEqual({ logs: [{ source: 'console', level: 'log', text: 'saw echo:one' }], dispatches: 2 })
+  })
+
+  it('exposes only an opaque parent token to nested result observers', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.echo!({ value: 'nested' })
+      return { logs: [], value: 'done' }
+    }
+
+    // Model a timeout-style outer wrapper: it temporarily installs a signal,
+    // delegates, then restores the exact prior shape. A nested result observer
+    // is observe-only and must not receive the live outer execution object;
+    // freezing the correlation value it sees therefore cannot break restore.
+    ctx.on('tools/execute', async (exec, next) => {
+      if (exec.name !== RUN_CODE_NAME) return next()
+      const previous = exec.signal
+      exec.signal = new AbortController().signal
+      const result = await next()
+      if (previous === undefined) delete exec.signal
+      else exec.signal = previous
+      return result
+    })
+    ctx.on('tools/result', (exec) => {
+      if (exec.parent !== undefined) Object.freeze(exec.parent)
+    })
+
+    const result = await runCode(ctx, 'await tools.echo({ value: "nested" })')
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'done' }])
   })
 
   it('serializes Promise.all dispatches: tool executions never overlap, in submission order', async () => {
@@ -639,16 +713,17 @@ describe('the run_code dispatch bridge', () => {
     expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
   })
 
-  it('logs the value the tool RECEIVED even when the tool mutates its arguments', async () => {
+  it('gives the tool and durable log the same immutable argument value', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
+    let mutationSucceeded: boolean | undefined
     ctx.tools.register(defineTool({
       name: 'mutator',
-      description: 'Mutates its own args object.',
+      description: 'Attempts to mutate its args object.',
       parameters: { list: { type: 'array', required: true } },
       execute(args) {
-        args.list.push('injected-by-tool')
-        return Promise.resolve([{ type: 'text' as const, text: 'mutated' }])
+        mutationSucceeded = Reflect.set(args.list, 1, 'injected-by-tool')
+        return Promise.resolve([{ type: 'text' as const, text: 'protected' }])
       },
     }))
     runtime.behavior = async (request) => {
@@ -657,6 +732,7 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
+    expect(mutationSucceeded).toBe(false)
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
     expect(dispatch.arguments).toEqual({ list: ['original'] })
   })

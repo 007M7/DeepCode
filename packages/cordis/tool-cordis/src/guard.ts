@@ -253,8 +253,8 @@ const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setT
  * metadata (`schemas`, and `get` returning a schema view, never the live
  * `ToolDefinition`). Exposing the raw definition would hand mount code the
  * tool's `execute` function, letting it call another tool directly and bypass
- * `ToolRegistry.execute` — the pre/post-execute waterfall (permission gates,
- * accounting) and result normalization. So `get` returns the same
+ * `ToolRegistry.execute` — identity protection, pre-policy, monotonic guards,
+ * around dispatch, post-policy, final observation, and result normalization. So `get` returns the same
  * name/description/parameters view as `schemas()`, and nothing invocable.
  */
 function sandboxTools(ctx: Context): Record<string, unknown> {

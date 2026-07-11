@@ -168,7 +168,7 @@ describe('agent loop', () => {
   it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter, 'Working in {{cwd}}.')
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('a-cwd'),
       sessionId: SessionId('s-cwd'),
       meta: { cwd: '/work/space' },
@@ -241,6 +241,44 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
     expect(adapter.requests[0]!.model).toBe('mock')
     expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou run on mock.')
+  })
+
+  it.each([
+    ['BigInt', { n: 1n }],
+    ['Map', new Map([['key', 'value']])],
+    ['class instance', new (class ResultMeta { x = 1 })()],
+  ])('normalizes non-JSON tool meta (%s) before the durable result commit', async (_kind, meta) => {
+    const adapter = new MockAdapter([
+      toolCallResponse('bad-meta-call', 'bad-meta', {}, 'calling'),
+      textResponse('recovered'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'bad-meta',
+      description: 'returns invalid durable metadata',
+      parameters: {},
+      execute: () => Promise.resolve({ content: [{ type: 'text' as const, text: 'apparent success' }], meta }),
+    }))
+    const agent = ctx.agentLoop.create(AgentId('bad-meta-agent'), { model: 'mock' })
+
+    send(agent, 'use the tool')
+    await waitForIdle(ctx, agent)
+
+    const result = agent.session.events.find(event => event.type === 'tool/result')
+    expect(result?.type).toBe('tool/result')
+    if (result?.type === 'tool/result') {
+      expect(result.data.callId).toBe('bad-meta-call')
+      expect(result.data.isError).toBe(true)
+      expect(result.data.meta).toBeUndefined()
+      expect(result.data.content).toEqual([{
+        type: 'text',
+        text: 'Error: tools/execute must return a losslessly JSON-serializable ToolExecutionResult',
+      }])
+    }
+    // The normalized failure was durably logged and fed back to the model; the
+    // turn continued normally instead of failing after an apparent success.
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('losslessly JSON-serializable')
   })
 
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {

@@ -22,7 +22,7 @@
  * @module @deepseek-ai/dsh-scope
  */
 
-import type { Context } from 'cordis'
+import type { Context, Fiber } from 'cordis'
 import { Context as CordisContext } from 'cordis'
 
 /**
@@ -78,19 +78,28 @@ export interface Scope {
   rawDispose: () => Promise<void> | void
   /**
    * Unwind the scope: dispose the backing fiber, running every collected
-   * registration disposer. Idempotent and always awaitable — a repeat call
-   * resolves immediately (the underlying Cordis disposer is single-shot and
-   * returns undefined the second time; this wrapper Promise-normalizes it).
+   * registration disposer. Idempotent and always awaitable: repeat and racing
+   * calls share one completion even though the underlying Cordis disposer is
+   * single-shot and returns undefined after its first invocation.
    * After disposal the scoped context is inert — a further registration
    * through it throws Cordis's INACTIVE_EFFECT.
    * @returns for the call that initiates teardown: resolves when every
-   *   registration's disposer has settled. A repeat/racing call resolves
-   *   immediately WITHOUT awaiting the in-flight teardown (the underlying
-   *   Cordis disposer is single-shot) — a caller needing a shared quiescence
-   *   boundary across racing disposers keeps its own completion promise (the
-   *   agent factory's pattern).
+   *   registration's disposer has settled. Every repeat/racing call awaits
+   *   that same quiescence boundary, including when {@link rawDispose} claimed
+   *   the underlying single-shot Cordis disposer first.
    */
   dispose(): Promise<void>
+}
+
+/**
+ * Dispose a Cordis fiber and await its lifecycle inertia even when some other
+ * caller claimed the single-shot raw disposer first. `Fiber.dispose()` returns
+ * `undefined` on a repeat call, but the fiber's `inertia` remains the
+ * authoritative promise while its async unload is running.
+ */
+async function quiesceFiber(fiber: Fiber): Promise<void> {
+  await Promise.resolve(fiber.dispose())
+  while (fiber.inertia !== undefined) await fiber.inertia
 }
 
 /**
@@ -127,21 +136,22 @@ export function createScope(ctx: Context, key: ScopeKey): Scope {
   // Runtime guard behind the ScopeKey type: callers outside the typechecker
   // (yml-configured plugins, JS consumers) can still pass a primitive.
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (typeof key !== 'object' || key === null) {
-    throw new TypeError('createScope: key must be an object (scope keys are identity-compared)')
+  if ((typeof key !== 'object' && typeof key !== 'function') || key === null) {
+    throw new TypeError('createScope: key must be a non-null object or function (scope keys are identity-compared)')
   }
   const fiber = ctx.plugin(scope)
   const scoped: Context = fiber.ctx.extend({ [kScope]: key })
+  let disposing: Promise<void> | undefined
   return {
     ctx: scoped,
     // fiber.dispose IS the disposer Cordis pushed onto the minting fiber's
     // disposable list — the identity a composite effect must yield (see
     // Scope.rawDispose).
     rawDispose: fiber.dispose,
-    // Promise.resolve-normalized: a cordis fiber's dispose returns undefined
-    // on a repeat call (the epoch is already cleared), and Scope.dispose
-    // promises an awaitable on every call.
-    dispose: () => Promise.resolve(fiber.dispose()),
+    // Memoize the public boundary and explicitly follow fiber inertia: the raw
+    // disposer must remain the exact Cordis function for ordered composition,
+    // so it cannot itself be wrapped to record a raw-first invocation.
+    dispose: () => (disposing ??= quiesceFiber(fiber)),
   }
 }
 
@@ -293,8 +303,10 @@ export interface ScopeHost {
   mint(key: ScopeKey): Scope
   /**
    * Dispose the host fiber and with it every scope minted through it.
-   * @returns resolves when all collected disposers have settled (first call;
-   *   a repeat call resolves immediately — single-shot, like Scope.dispose).
+   * Every racing/repeat caller observes the same completion, including when a
+   * child's raw disposer started before host disposal.
+   * @returns resolves when the host and every minted scope have reached
+   *   quiescence.
    */
   dispose(): Promise<void>
 }
@@ -334,8 +346,33 @@ export async function scopeHost(ctx: Context, services: string[]): Promise<Scope
     throw new Error(`scopeHost: service${missing.length === 1 ? '' : 's'} ${named} not available on this context — load the providing plugin(s) before minting scopes`)
   }
   const host = hostCtx
+  const scopes = new Set<Scope>()
+  let disposing: Promise<void> | undefined
+  const dispose = async (): Promise<void> => {
+    // Start every boundary before awaiting any one of them. A child whose raw
+    // disposer already ran is still followed through Scope.dispose(); a child
+    // the host unload claims first is followed through the same fiber inertia.
+    const tasks = [quiesceFiber(fiber), ...[...scopes].map(scope => scope.dispose())]
+    const results = await Promise.allSettled(tasks)
+    scopes.clear()
+    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, 'scopeHost: disposal failed')
+  }
   return {
-    mint: (key: ScopeKey) => createScope(host, key),
-    dispose: () => Promise.resolve(fiber.dispose()),
+    mint: (key: ScopeKey) => {
+      const minted = createScope(host, key)
+      let disposing: Promise<void> | undefined
+      const tracked: Scope = {
+        ctx: minted.ctx,
+        // Preserve the exact Cordis identity: only the public shared boundary
+        // is wrapped to retire this child from the host's tracking set.
+        rawDispose: minted.rawDispose,
+        dispose: () => (disposing ??= minted.dispose().finally(() => { scopes.delete(tracked) })),
+      }
+      scopes.add(tracked)
+      return tracked
+    },
+    dispose: () => (disposing ??= dispose()),
   }
 }

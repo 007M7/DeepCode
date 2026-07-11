@@ -7,6 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -226,16 +227,19 @@ describe('ReactLoopAgent', () => {
   })
 
   it('disposer is idempotent (double-stop)', async () => {
-    // Create a bare ReactLoopAgent and call start() directly to get the disposer.
-    // Then call it twice — the second call hits the early-return branch.
+    // Create a bare ReactLoopAgent and start it through the package-internal
+    // test seam. Then call its disposer twice — the second call hits the
+    // early-return branch.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
-    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const { agent } = prepared
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
-    const dispose = agent.start()
+    prepared.enableDrive()
+    const dispose = prepared.startDriver()
 
     // First dispose
     dispose()
@@ -324,7 +328,7 @@ describe('ReactLoopAgent', () => {
     // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
     // while running (not the fast path), then the disposer settles it and chains
     // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
-    // start() disposer keeps the emit synchronous.
+    // internal driver disposer keeps the emit synchronous.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -334,8 +338,10 @@ describe('ReactLoopAgent', () => {
     const adapter = new MockAdapter(['hang'])
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create(SessionId('bare'))
-    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
-    const dispose = agent.start()
+    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const { agent } = prepared
+    prepared.enableDrive()
+    const dispose = prepared.startDriver()
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')

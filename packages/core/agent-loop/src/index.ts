@@ -7,10 +7,11 @@
  * @module @deepseek-ai/dsh-agent-loop
  */
 
-import { Context, Service } from 'cordis'
+import { Context, FiberState, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
 import { createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
@@ -19,11 +20,9 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { ReactLoopAgent } from './agent.ts'
+import { prepareReactLoopAgent, ReactLoopAgent } from './agent.ts'
 
 export { ReactLoopAgent } from './agent.ts'
-export { Inbox, type InboxMessage } from './inbox.ts'
-export { runLoop } from './loop.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -69,6 +68,10 @@ export interface Config {
  */
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
+
+  /** IDs held by unpublished async creation transactions. */
+  private pendingAgentIds = new Set<AgentId>()
+  private pendingSessionIds = new Set<SessionId>()
 
   // The schema validates plain strings (cordis.yml config values are untyped at
   // runtime); the {@link Config} TYPE declares the branded `id`/`resumeSessionId`
@@ -165,18 +168,28 @@ export class AgentLoop extends Service implements AgentFactory {
    *   and agent options.
    * @returns the handle whose dispose tears down exactly this agent.
    */
-  createAgent(options: CreateAgentOptions): AgentHandle {
-    // Check the agent id BEFORE preparing the session: register() would reject a
-    // duplicate id only AFTER the session enters the store, leaving an orphaned
-    // live session (and lazy persistence state) that blocks reuse of that id.
-    this.assertAgentIdFree(options.agentId)
-    const session = this.ctx.sessions.prepare(options.sessionId, {
-      ...options.seed !== undefined ? { seed: options.seed } : {},
-      meta: options.meta ?? {},
-    })
-    // A seeded (forked) create is still a fresh start, NOT a resume — `resume`
-    // is reserved for reloading a PERSISTED session via resume()/resumeWith().
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup', options.setup)
+  async createAgent(options: CreateAgentOptions): Promise<AgentHandle> {
+    // Snapshot every caller-owned field before the first async setup boundary.
+    // The callback itself is an identity capability; all data fields are
+    // detached so caller mutation cannot drift a reserved/published identity or
+    // the options the accepted agent observes.
+    const agentId = options.agentId
+    const sessionId = options.sessionId
+    const setup = options.setup
+    const agentOptions = structuredClone(options.agentOptions ?? {})
+    const seed = options.seed === undefined ? undefined : structuredClone(options.seed)
+    const meta = structuredClone(options.meta ?? {})
+    const release = this.reserve(agentId, sessionId)
+    try {
+      const session = this.ctx.sessions.prepare(sessionId, {
+        ...seed !== undefined ? { seed } : {},
+        meta,
+      })
+      // A seeded (forked) create is still a fresh start, NOT a resume.
+      return await this.startOwned(agentId, agentOptions, session, 'startup', setup)
+    } finally {
+      release()
+    }
   }
 
   /**
@@ -226,31 +239,76 @@ export class AgentLoop extends Service implements AgentFactory {
    * AgentLoop's static inject, so they resolve fine).
    */
   private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<AgentHandle> {
-    this.assertAgentIdFree(options.agentId)
-    const { meta, events } = await persistence.load(options.resumeSessionId)
-    // Re-check the agent id AFTER the await: the pre-load check above can go
-    // stale while load() is pending (a concurrent resume/create may register the
-    // same id). Re-checking immediately before prepare()/start keeps the
-    // "no orphaned session on a duplicate id" guarantee under concurrency.
-    this.assertAgentIdFree(options.agentId)
-    // Reconstruct the live session with the FULL persisted header (createdAt,
-    // cwd, lineage) so resume preserves identity, not just the cwd. The seed
-    // events make lastTurnNumber/deriveMessages continue; the backend already
-    // has state (cursor) from the load above, so onCreated is a no-op and the
-    // seed is not re-persisted. prepare() (not create()) so the session
-    // lifecycle folds into the agent's composite effect (ordered teardown).
-    const session = this.ctx.sessions.prepare(options.resumeSessionId, {
-      seed: events,
-      meta: {
-        createdAt: meta.createdAt,
-        ...meta.cwd !== undefined ? { cwd: meta.cwd } : {},
-        ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
-        // Reconstruct the seed boundary from the persisted header, NOT from
-        // `events.length` (the resume seeds the WHOLE stored log).
-        ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
-      },
-    })
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'resume')
+    // Persistence is an async trust boundary. Reserve, load, reconstruct, and
+    // publish only the identities/options accepted at entry—never fields
+    // reread from a caller-owned object after the await.
+    const agentId = options.agentId
+    const sessionId = options.resumeSessionId
+    const agentOptions = structuredClone(options.agentOptions ?? {})
+    const setup = options.setup
+    const { promise: ownerDisposed, resolve: markOwnerDisposed } = Promise.withResolvers<void>()
+    const { promise: transactionSettled, resolve: markTransactionSettled } = Promise.withResolvers<void>()
+    let observingOwner = true
+    // Resume must observe its caller from BEFORE persistence I/O begins. The
+    // full agent lifecycle does not exist until load returns, so without this
+    // sentinel a never-settling backend outlives owner disposal and holds both
+    // public identities forever. `this.ctx.effect` retains the traceable caller
+    // ownership used by startOwned's lifecycle effect. Install it before even
+    // reserving the ids: an inactive owner cannot leak a reservation if effect
+    // registration fails.
+    const disposeLoadSentinel = this.ctx.effect(() => () => {
+      if (!observingOwner) return
+      markOwnerDisposed()
+      // Owner-triggered teardown does not reach quiescence until the resume
+      // transaction has observed disposal and released both reservations.
+      return transactionSettled
+    }, `agentLoop.resumeLoad(${agentId})`)
+    try {
+      const release = this.reserve(agentId, sessionId)
+      try {
+        const loadTask = persistence.load(sessionId)
+        const { meta, events } = await Promise.race([
+          loadTask,
+          ownerDisposed.then(() => {
+            throw new Error(`agent "${agentId}" resume aborted: owner disposed during persistence load`)
+          }),
+        ])
+        // An out-of-band direct registry/session insertion can still race this
+        // service's reservation, so the public enter primitives re-check exact
+        // liveness at publication.
+        const session = this.ctx.sessions.prepare(sessionId, {
+          seed: events,
+          meta: {
+            createdAt: meta.createdAt,
+            ...meta.cwd !== undefined ? { cwd: meta.cwd } : {},
+            ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
+            ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
+          },
+        })
+        // Calling startOwned synchronously installs the complete lifecycle
+        // effect before it reaches its first setup await. Only then disarm the
+        // load sentinel: ownership passes directly from one effect to the other
+        // with no disposal gap.
+        const starting = this.startOwned(agentId, agentOptions, session, 'resume', setup)
+        observingOwner = false
+        await disposeLoadSentinel()
+        return await starting
+      } finally {
+        release()
+      }
+    } finally {
+      try {
+        // Manual handoff/removal must not return transactionSettled: awaiting
+        // that promise from inside this transaction would deadlock it. If the
+        // owner already triggered cleanup, this idempotent second disposal is a
+        // no-op and the owner's first cleanup remains parked on the shared
+        // settlement promise.
+        observingOwner = false
+        await disposeLoadSentinel()
+      } finally {
+        markTransactionSettled()
+      }
+    }
   }
 
   /**
@@ -260,109 +318,136 @@ export class AgentLoop extends Service implements AgentFactory {
    * only after the session has already entered the store.
    */
   private assertAgentIdFree(id: AgentId): void {
-    if (this.ctx.agents.get(id) !== undefined) {
+    if (this.ctx.agents.get(id) !== undefined || this.pendingAgentIds.has(id)) {
       throw new Error(`agent "${id}" is already registered`)
     }
   }
 
+  /** Reserve both public identities for one unpublished async transaction. */
+  private reserve(agentId: AgentId, sessionId: SessionId): () => void {
+    this.assertAgentIdFree(agentId)
+    if (this.ctx.sessions.get(sessionId) !== undefined || this.pendingSessionIds.has(sessionId)) {
+      throw new Error(`session "${sessionId}" already exists`)
+    }
+    this.pendingAgentIds.add(agentId)
+    this.pendingSessionIds.add(sessionId)
+    return () => {
+      this.pendingAgentIds.delete(agentId)
+      this.pendingSessionIds.delete(sessionId)
+    }
+  }
+
   /**
-   * Shared: construct a ReactLoopAgent over a PREPARED (not-yet-entered)
-   * session, then build the ONE composite effect that owns the whole agent
-   * lifecycle — session entry, registry registration, and the loop. Keeping all
-   * three in a SINGLE effect (not sibling effects) is load-bearing: a fiber
-   * unload disposes sibling effects CONCURRENTLY (`Promise.all`), which would
-   * race the session detach against the loop's closing flush and drop the
-   * closing `turn/end`. Inside one effect the disposers run as an ORDERED LIFO
-   * chain — the runtime awaits each disposer's returned promise before the next:
-   *
-   *   yield session-detach   (disposed LAST  — detach onAppend + remove entry)
-   *   yield register         (disposed 2nd   — unregister)
-   *   yield stop-and-drain   (disposed FIRST — request loop stop, await agent.done)
-   *
-   * So on teardown: the loop is stopped and AWAITED to exit (its final
-   * `session/flush` + `turn/end` fire through the still-attached `onAppend`),
-   * THEN the agent is unregistered, THEN the session is detached — capturing the
-   * closing events before detach, whether the trigger is the handle's `dispose()`
-   * OR a fiber unload. Rollback safety: each yield runs before the next mutation,
-   * so a throwing `session/created`/`agent/created` listener unwinds the
-   * already-yielded disposers instead of leaking.
-   *
-   * `source` says why the session began ({@link SessionStartSource}); it is
-   * emitted as `agent/session-start` once, AFTER the agent is registered (so a
-   * listener can resolve the agent via `ctx.agents.get(id)` and `inject()` into
-   * it) and BEFORE the loop starts its first turn. The emit is contained: a
-   * throwing session-start listener must not abort agent construction — it is
-   * logged, and the agent still starts. (Unlike a turn-boundary throw, there is
-   * no open turn here to balance; the durable evidence of a session-start hook
-   * is whatever it `inject()`ed.)
-   *
-   * Returns the agent plus the composite effect's disposer (`disposeAgent`).
+   * Construct an unpublished agent and synchronously install its complete
+   * teardown skeleton before any setup await. The closures are assigned their
+   * session/registry/loop disposers only at publication, while the exact scope
+   * disposer is nested immediately. Therefore owner unload during setup flips
+   * `active`, unwinds the scope, and wins the race without any late Cordis
+   * effect collection.
    */
-  private start(
-    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
-    setup?: (agentCtx: Context) => void,
-  ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
-    const agent = new ReactLoopAgent(this.ctx, id, options, session)
-    // The ONE quiescence boundary every disposal path observes. Cordis effect
-    // disposers are single-shot but not await-idempotent: when the OWNING
-    // fiber's unload invokes the raw wrapper first, a concurrent
-    // `handle.dispose()` calling the same wrapper gets an immediate undefined
-    // (epoch already cleared) — so the handle path must await THIS promise,
-    // resolved by the teardown chain's final disposer, not the wrapper's
-    // return. Every disposer in the chain is deliberately infallible (stop()
-    // is infallible by contract, unregister/detach contain their listeners,
-    // the scope unwind is cordis-contained), so the final disposer always
-    // runs — a throwing link would skip the rest of a cordis dispose chain.
+  private prepareLifecycle(id: AgentId, options: AgentOptions, session: Session): {
+    agent: ReactLoopAgent
+    active: () => boolean
+    deactivated: Promise<void>
+    publish: (source: SessionStartSource) => void
+    disposeAgent: () => Promise<void>
+  } {
+    // When creation is invoked through an agent scope (subagents), the owner
+    // agent's disposed status flips synchronously at handle teardown—earlier
+    // than Cordis reaches nested scope effects. Include that signal in the
+    // pre-publication liveness check so a same-turn parent dispose cannot race
+    // an already-fulfilled setup promise into briefly publishing a child.
+    const ownerAgent = this.ctx.agent
+    const ownerFiber = this.ctx.fiber
+    const driver = prepareReactLoopAgent(this.ctx, id, options, session)
+    const { agent } = driver
+    const scope: Scope = createScope(this.ctx, agent)
+    agent.ctx = scope.ctx.extend({ agent })
+
+    let active = true
+    let detachSession: (() => void) | undefined
+    let detachAgent: (() => void) | undefined
+    let stop: (() => void) | undefined
+    const { promise: deactivated, resolve: markDeactivated } = Promise.withResolvers<void>()
     const { promise: torndown, resolve: markTorndown } = Promise.withResolvers<void>()
-    const dispose = this.ctx.effect(function* (this: AgentLoop) {
-      // First-yielded ⇒ disposed LAST: marks true teardown completion.
+
+    const dispose = this.ctx.effect(function* () {
+      // First yielded, disposed last: every preceding teardown stage settled.
       yield () => { markTorndown() }
-      // Mint the agent's scope (key = the agent) and wire the two-phase
-      // reference: the scope context tags registrations + filters dispatch;
-      // the extend adds the `ctx.agent` DX own-property on top. The raw
-      // disposer is yielded IMMEDIATELY (exact function identity nests the
-      // scope fiber out of the loop fiber's concurrent sibling list), so
-      // there is no window in which a throw leaves the scope un-nested.
-      //
-      // Yield order is the REVERSE of teardown (LIFO). Teardown runs:
-      //   stop/drain → unregister → detach session → unwind scope
-      // Detach BEFORE the scope unwind is deliberate: the scope fiber's
-      // unload is asynchronous (fiber inertia), and every disposer chained
-      // after an async one waits for it — detaching first keeps the
-      // store/registry rollback SYNCHRONOUS on every failure path (a caller
-      // that catches a throwing create() observes no half-created agent or
-      // session, and the ids are immediately reusable), at the cost that a
-      // scoped listener's own disposer runs after the session left the store
-      // (it heard the final stop/drain flush while still attached, so
-      // nothing durable is lost).
-      const scope = createScope(this.ctx, agent)
-      agent.ctx = scope.ctx.extend({ agent })
+      // Exact identity moves the scope fiber out of the owner's concurrent
+      // sibling list and into this ordered transaction.
       yield scope.rawDispose
-      // Enter the session THROUGH agent.ctx so the store captures the agent's
-      // scope as the session's dispatch carrier.
-      yield agent.ctx.sessions.enter(session)
+      yield () => {
+        detachSession?.()
+        detachSession = undefined
+      }
+      yield () => {
+        detachAgent?.()
+        detachAgent = undefined
+      }
+      // Last yielded, disposed first. Keep the pre-publication path
+      // synchronous: returning a Promise only after the loop actually began
+      // lets a failed announcement roll back registry/store before create's
+      // rejection is observed.
+      yield () => {
+        active = false
+        markDeactivated()
+        if (stop === undefined) return
+        stop()
+        return agent.done
+      }
+    }, 'agentLoop.lifecycle()')
+
+    let disposing: Promise<void> | undefined
+    const disposeAgent = (): Promise<void> => (disposing ??= (async () => {
+      await dispose()
+      await torndown
+    })())
+
+    const publish = (source: SessionStartSource): void => {
+      // Publication is one synchronous, rollback-covered sequence. Setup has
+      // already completed, so its scoped listeners observe both announcements.
+      detachSession = agent.ctx.sessions.enter(session)
+      detachAgent = this.ctx.agents.enter(agent)
       this.ctx.sessions.announce(session)
-      yield this.ctx.agents.register(agent)
-      // The creator's scoped composition, inside the rollback boundary: a
-      // throwing setup unwinds LIFO through register → scope → detach, so a
-      // half-created agent never leaks. Setup REGISTERS (through agent.ctx),
-      // it never drives — see CreateAgentOptions.setup.
-      setup?.(agent.ctx)
-      // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
-      // BEFORE the loop's first turn. Contained: a throwing listener is logged,
-      // never aborts construction (no open turn to balance here).
+      this.ctx.agents.announce(agent)
+      // Setup is over and both entries are live. Open the driving surface just
+      // before session-start so its listeners retain their supported ability to
+      // inject/queue, while setup itself can never drive an unpublished agent.
+      driver.enableDrive()
       try {
         agentEvents(this.ctx, agent).emit('agent/session-start', source)
       } catch (error: unknown) {
         this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
       }
-      const stop = agent.start()
-      // Disposed FIRST (LIFO): request loop stop (sync), then AWAIT the loop's
-      // actual exit so its closing flush lands while onAppend (yielded above,
-      // disposed later) is still attached.
-      yield async () => { stop(); await agent.done }
-    }.bind(this), 'agentLoop.start()')
-    return { agent, disposeAgent: async () => { await dispose(); await torndown } }
+      stop = driver.startDriver()
+    }
+
+    return {
+      agent,
+      active: () => active
+        && ownerFiber.state !== FiberState.UNLOADING
+        && ownerFiber.state !== FiberState.DISPOSED
+        && ownerFiber.state !== FiberState.FAILED
+        && ownerAgent?.status !== 'disposed',
+      deactivated,
+      publish,
+      disposeAgent,
+    }
+  }
+
+  /** Publish a no-setup config agent synchronously. */
+  private start(
+    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+  ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
+    const lifecycle = this.prepareLifecycle(id, options, session)
+    try {
+      lifecycle.publish(source)
+      return { agent: lifecycle.agent, disposeAgent: lifecycle.disposeAgent }
+    } catch (error: unknown) {
+      void lifecycle.disposeAgent()
+      throw error
+    }
   }
 
   /**
@@ -382,13 +467,37 @@ export class AgentLoop extends Service implements AgentFactory {
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */
-  private startOwned(
+  private async startOwned(
     id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
-    setup?: (agentCtx: Context) => void,
-  ): AgentHandle {
-    const { agent, disposeAgent } = this.start(id, options, session, source, setup)
-    let disposing: Promise<void> | undefined
-    return { agent, dispose: () => (disposing ??= disposeAgent()) }
+    setup?: (agentCtx: Context) => Promise<void> | void,
+  ): Promise<AgentHandle> {
+    const lifecycle = this.prepareLifecycle(id, options, session)
+    try {
+      // The owner-disposal branch makes a never-settling setup unable to hold
+      // the transaction or its ID reservations forever. Promise.race installs
+      // rejection observation on setup even if owner disposal wins first.
+      const setupTask = Promise.resolve(setup?.(lifecycle.agent.ctx))
+      await Promise.race([
+        setupTask,
+        lifecycle.deactivated.then(() => {
+          throw new Error(`agent "${id}" setup aborted: owner disposed during setup`)
+        }),
+      ])
+      // Cordis begins a fiber unload synchronously but invokes nested effect
+      // disposers from its next microtask. Give that already-started unload one
+      // checkpoint to deactivate this lifecycle before publication; otherwise
+      // an immediately fulfilled setup continuation can outrun its owner's
+      // same-turn dispose and briefly publish an already-doomed child.
+      await Promise.resolve()
+      if (!lifecycle.active()) {
+        throw new Error(`agent "${id}" setup aborted: owner disposed during setup`)
+      }
+      lifecycle.publish(source)
+      return { agent: lifecycle.agent, dispose: lifecycle.disposeAgent }
+    } catch (error: unknown) {
+      await lifecycle.disposeAgent()
+      throw error
+    }
   }
 }
 

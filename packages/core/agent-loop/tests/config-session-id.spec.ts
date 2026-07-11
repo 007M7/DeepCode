@@ -78,7 +78,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(AgentLoop, { agents: [] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
-    const a1 = ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sticky-1') }).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sticky-1') })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()

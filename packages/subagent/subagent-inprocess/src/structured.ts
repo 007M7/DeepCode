@@ -14,44 +14,39 @@
  * a disposed child leaves no residue — no placeholder schema,
  * strip-for-everyone-else pass, or refcounted global runtime.
  *
- * Four listeners enforce the contract:
+ * The child scope's registrations enforce the contract:
  *
- * - `system-prompt/assemble` (prepend, scoped): assembly re-assert — the
- *   listener post-processes its downstream chain so a listener inside that
- *   chain cannot leave the child's capture tool or instruction stripped or
- *   replaced. Tools are replaced in place and the section is re-inserted at
- *   its ascending-order position, so the untampered path keeps the registry's
- *   ordering (up to intra-band section order, which carries no contract). A
- *   listener prepended later can still wrap and transform this result; this is
- *   an ordinary waterfall listener, not a service-level finalizer. The loop
- *   logs the rendered assembly as the request header, so the demand is
- *   reconstructable log state, never a wire-only mutation.
- * - `agent/turn-continuation` (prepend, scoped): stop the child's turn once
- *   its output is captured — the loop's default "had tool calls ⇒ continue"
- *   would buy a wasted extra model step per structured child.
- * - `tools/pre-execute` (prepend, scoped): terminal means terminal WITHIN the
- *   step — deny every call arriving after the capture, so a response that
- *   lists `structured_output` before further tool calls cannot run side
- *   effects after the final answer was accepted.
- * - `tools/post-execute` (prepend, scoped): the capture COMMIT. The tool body
- *   only STAGES the validated value, KEYED BY THE EXECUTION OBJECT in a
- *   WeakMap; it becomes the run's captured result when this listener's
- *   downstream post-execute decision accepts THAT SAME pipeline trip. A
- *   later-prepended wrapper remains outside that decision. Execution-keyed
- *   staging makes the stale-stage class structurally impossible: a value
- *   orphaned by an outer short-circuiting listener (a post-execute block, or
- *   a pre-execute deny whose call never dispatched) can never match another
- *   execution's lookup — whatever call id that execution carries — and is
- *   reclaimed with the execution object itself.
+ * - `systemPrompt.protect()` declaratively protects the capture tool and its
+ *   instruction. The service restores their canonical pre-waterfall state
+ *   after EVERY assembly listener. Canonical absence is protected too: pure
+ *   Code Mode keeps `structured_output` in the SDK only and never grows a
+ *   second native wire tool. Code Mode's owner independently protects its SDK
+ *   and `run_code` transport. The loop logs the finalized assembly as the
+ *   request header, so the demand is reconstructable log state, never a
+ *   wire-only mutation.
+ * - `agent/turn-stop` (serial, scoped): stop the child's turn once its output
+ *   is captured. This terminal checkpoint runs after the ordinary continuation
+ *   waterfall and steering folding, so listener order cannot resurrect a
+ *   completed structured run or carry terminal steering into another turn.
+ * - `tools.guard()` is the monotonic terminal gate after the extensible
+ *   pre-execute waterfall: once capture commits, no later listener can turn
+ *   the denial back into a dispatched side effect.
+ * - `tools/result` is the capture COMMIT point. The tool body only STAGES the
+ *   validated value in a WeakMap keyed by the execution object; the awaited,
+ *   non-transforming notification promotes it only when the authoritative
+ *   result after the whole pre/execute/post pipeline succeeds. For a Code Mode
+ *   sub-dispatch, promotion waits again for the enclosing `run_code` result, so
+ *   a runtime failure or outer post-policy block cannot report structured
+ *   success. Execution identity makes call-id reuse and orphaned stages
+ *   irrelevant.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
 
 import type { Context } from 'cordis'
-import type { Agent, ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import type { ContinuationStop } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
-import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /** The model-facing tool name a structured child must call to finish. */
@@ -71,7 +66,7 @@ export const STRUCTURED_OUTPUT_INSTRUCTION
 export interface StructuredAttachment {
   /**
    * The captured value, once the child called the tool with valid arguments
-   * and the final post-execute decision accepted that call.
+   * and the authoritative final tool result accepted that call.
    * @returns the committed value, or undefined while none was accepted.
    */
   captured(): { value: unknown } | undefined
@@ -80,7 +75,7 @@ export interface StructuredAttachment {
 /**
  * Attach the structured-output runtime to a child for `schema`: register the
  * scoped capture tool (real schema), the scoped instruction section, and the
- * four scoped enforcement listeners (see the module doc). Call from the
+ * scoped enforcement registrations (see the module doc). Call from the
  * agent-creation `setup` window with the child's scope context — every
  * registration rides the child's fiber and unwinds with the child.
  * @param childCtx - the child agent's scope context (`setup`'s argument).
@@ -91,19 +86,16 @@ export interface StructuredAttachment {
 export function attachStructuredRuntime(childCtx: Context, schema: StructuredOutputSchema): StructuredAttachment {
   /**
    * Validated values staged by the capture tool body, awaiting THEIR OWN
-   * call's post-execute verdict — keyed by the {@link ToolExecution} OBJECT,
-   * the one token that provably ties a stage to one trip through the
-   * pipeline. A call id cannot key this: ids are adapter-minted and may
-   * repeat across steps. Keying by execution makes the stale-stage class
-   * structurally impossible — an entry orphaned by an outer short-circuiting
-   * listener can never match a different execution's lookup, needs no drop
-   * bookkeeping (the WeakMap reclaims it with the execution object), and two
-   * in-flight captures can never cross-clobber each other's STAGE should
-   * tool execution ever go parallel (the loop's documented TODO). Staging is
-   * the only layer this future-proofs: a parallel-execution cut would still
-   * owe its own single-accept rule for `captured` itself.
+   * authoritative `tools/result` notification. The execution object's identity
+   * uniquely identifies a trip through the pipeline: adapter call ids may
+   * repeat across steps, but another execution can never reach this WeakMap
+   * entry. This is distinct from the opaque `ToolExecutionToken` used to
+   * correlate nested transports. The final notification always deletes its own
+   * stage, whether the result succeeded or failed.
    */
   const staged = new WeakMap<ToolExecution, { value: unknown }>()
+  /** Successful nested capture waiting for its enclosing transport to commit. */
+  let pending: { parent: ToolExecution['token']; value: unknown } | undefined
   let captured: { value: unknown } | undefined
 
   const schemaEntry: ToolSchema = {
@@ -123,10 +115,10 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
       if (violations.length > 0) throw new ToolArgsError(violations)
-      // Two-phase commit, KEYED BY THIS EXECUTION: the body only stages; the
-      // post-execute listener promotes exactly this pipeline trip's entry
-      // when its downstream decision accepts it.
-      staged.set(exec, { value: args })
+      // Two-phase commit, keyed by THIS execution: later transformable
+      // waterfalls may still turn the success into an error. Snapshot the
+      // validated value independently of the already-frozen pipeline arguments.
+      staged.set(exec, { value: structuredClone(args) })
       return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
     },
   })
@@ -137,105 +129,58 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     text: STRUCTURED_OUTPUT_INSTRUCTION,
   })
 
-  // PREPENDED assembly re-assert: scoped dispatch means this fires only for the
-  // child's assemblies; `await next()` returns whatever this listener's
-  // downstream chain produced, and the capture tool + instruction are
-  // re-asserted onto it if anything stripped them. A listener prepended later
-  // can still wrap and transform the returned assembly; this is not a
-  // service-level finalizer.
-  childCtx.on('system-prompt/assemble', async function (
-    this: unknown, _assembly: PromptAssembly, _context: AssembleContext, next: () => Promise<PromptAssembly>,
-  ): Promise<PromptAssembly> {
-    const final = await next()
-    // REPLACE, not merely ensure-present: a downstream listener may have
-    // mutated or injected a same-named entry with the WRONG schema/text, and
-    // the model-visible demand must be exactly this run's own — the same
-    // schema validateStructuredValue enforces. Placement-preserving on both
-    // arrays: the untampered path keeps the registry's ordering (tool order
-    // is the `toolOrder`/lexicographic contract, section order the ascending
-    // contract `renderPrompt` trusts), so this never reorders what it only
-    // re-asserts — up to intra-band section order, which carries no contract
-    // (a 190-order section registered AFTER this runtime sorts before the
-    // instruction in the registry but after it here).
-    const freshTool: ToolSchema = { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) }
-    // Tools: replace the first same-named entry IN PLACE (its position is the
-    // chain's product; a tool's list position carries no semantic band to
-    // restore), drop any duplicates, append only when stripped entirely.
-    const tools: ToolSchema[] = []
-    let toolReplaced = false
-    for (const tool of final.tools) {
-      if (tool.name !== STRUCTURED_OUTPUT_TOOL) {
-        tools.push(tool)
-      } else if (!toolReplaced) {
-        tools.push(freshTool)
-        toolReplaced = true
+  // Service-owned finalization, not waterfall ordering. The canonical
+  // assembly determines both presence and absence: native/both modes restore
+  // the capture schema on the wire, while pure Code Mode removes any injected
+  // native entry. ToolRegistry's own protection independently restores the SDK
+  // section and run_code transport that carry the same schema.
+  childCtx.systemPrompt.protect({
+    sections: [`tool:${STRUCTURED_OUTPUT_TOOL}`],
+    tools: [STRUCTURED_OUTPUT_TOOL],
+  })
+
+  // Stop the child's turn once its output is captured. This monotonic serial
+  // checkpoint runs after the ordinary continuation waterfall, its reason,
+  // and late-steering folding, so no ordering trick can resume a finished run.
+  childCtx.on('agent/turn-stop', function (this: unknown): ContinuationStop | undefined {
+    return captured === undefined ? undefined : { action: 'stop' }
+  })
+
+  // Terminal WITHIN the step. Guards run after the whole pre-execute
+  // waterfall and compose monotonically (deny or abstain, never allow), so a
+  // later prepended listener cannot resurrect dispatch. Calls that precede
+  // capture in the same response remain untouched.
+  childCtx.tools.guard(exec => captured === undefined && pending === undefined
+    ? undefined
+    : `structured output already recorded: the run is complete, so \`${exec.name}\` is not executed`)
+
+  // The capture COMMIT observes the immutable, authoritative result after the
+  // complete pipeline and outer error normalization. This notification cannot
+  // transform the outcome, so there is no wrapper outside the commit verdict.
+  childCtx.on('tools/result', function (this: unknown, exec, result): void {
+    if (exec.name === STRUCTURED_OUTPUT_TOOL) {
+      const entry = staged.get(exec)
+      if (entry === undefined) return
+      staged.delete(exec)
+      if (result.isError) return
+      if (exec.parent === undefined) {
+        /* v8 ignore else -- sequential agent-loop dispatch lets the guard block every later supported call */
+        if (captured === undefined) captured = { value: entry.value }
+      } else {
+        /* v8 ignore else -- Code Mode serializes sub-dispatches, so the guard blocks every later supported call */
+        if (captured === undefined && pending === undefined) {
+          pending = { parent: exec.parent, value: entry.value }
+        }
       }
+      return
     }
-    if (!toolReplaced) tools.push(freshTool)
-    final.tools = tools
-    // Sections: remove every same-named entry and re-insert at the
-    // ascending-correct position (the first entry above order 190) — sections
-    // DO carry an order contract, and the renderer reads array order, so a
-    // stripped-or-moved instruction is restored to its band, not appended
-    // after unrelated higher-order sections. On the untampered path this
-    // lands at the end of the 190 band — where the registry's stable sort
-    // put it too, unless another 190-order section registered later.
-    const sectionName = `tool:${STRUCTURED_OUTPUT_TOOL}`
-    const sections = final.sections.filter(section => section.name !== sectionName)
-    const insertAt = sections.findIndex(section => section.order > 190)
-    sections.splice(insertAt === -1 ? sections.length : insertAt, 0, { name: sectionName, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION })
-    final.sections = sections
-    return final
-  }, { prepend: true })
-
-  // Stop the child's turn once its output is captured. `prepend: true` puts
-  // the veto OUTERMOST — an earlier-registered listener that short-circuits
-  // the chain (a goal-style force-continue returning without `next()`) would
-  // otherwise decide the turn before this listener ever ran, and no
-  // downstream decision may resurrect a structured turn that is finished.
-  childCtx.on('agent/turn-continuation', function (
-    this: unknown, _agent: Agent, _turn: number, _decision: ContinuationDecision, next: () => Promise<ContinuationDecision>,
-  ): Promise<ContinuationDecision> {
-    if (captured) return Promise.resolve({ action: 'stop' })
-    return next()
-  }, { prepend: true })
-
-  // Terminal WITHIN the step: deny every call after the capture. Calls that
-  // PRECEDE the capture in the same response ran before `captured` was set
-  // and are untouched; a second `structured_output` is denied like any other.
-  childCtx.on('tools/pre-execute', function (
-    this: unknown, exec: ToolExecution, next: () => Promise<PreToolDecision>,
-  ): Promise<PreToolDecision> {
-    if (captured) {
-      return Promise.resolve({
-        kind: 'deny',
-        reason: `structured output already recorded: the run is complete, so \`${exec.name}\` is not executed`,
-      })
-    }
-    return next()
-  }, { prepend: true })
-
-  // The capture COMMIT: promote a staged value only when the final
-  // post-execute decision accepts THE SAME EXECUTION that staged it — the
-  // lookup key IS the execution, so a stale entry from a different pipeline
-  // trip (its own chain short-circuited past this commit by an outer
-  // post-execute block, or an outer pre-execute deny whose call never
-  // dispatched) is unreachable here by construction, whatever the current
-  // call's id.
-  childCtx.on('tools/post-execute', async function (
-    this: unknown, exec: ToolExecution, _result: ToolExecutionResult, next: () => Promise<PostToolDecision>,
-  ): Promise<PostToolDecision> {
-    if (exec.name !== STRUCTURED_OUTPUT_TOOL) return next()
-    const entry = staged.get(exec)
-    if (entry === undefined) return next()
-    // Single-shot per execution: this trip's verdict is decided by the chain
-    // below, never revisited (the WeakMap would reclaim the entry either way;
-    // deleting states the intent).
-    staged.delete(exec)
-    const decision = await next()
-    if (decision.kind === 'accept') captured = { value: entry.value }
-    return decision
-  }, { prepend: true })
+    if (pending?.parent !== exec.token) return
+    const entry = pending
+    pending = undefined
+    if (result.isError) return
+    /* v8 ignore else -- Code Mode serializes outer executions, so the guard blocks every later supported call */
+    if (captured === undefined) captured = { value: entry.value }
+  })
 
   return { captured: () => captured }
 }

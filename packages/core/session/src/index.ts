@@ -538,8 +538,12 @@ export class SessionStore extends Service {
     const emitCtx = this.ctx
     session.onAppend = (event) => { emitCtx.emit(carrier, 'session/event', session, event) }
     this.store.set(session.id, session)
+    let entered = true
     return () => {
+      if (!entered) return
+      entered = false
       session.onAppend = undefined
+      this.carriers.delete(session)
       this.store.delete(session.id)
     }
   }
@@ -549,7 +553,7 @@ export class SessionStore extends Service {
    * yield the detach disposer first (rollback safety — see {@link enter}).
    * @param session - the entered session to announce to listeners. */
   announce(session: Session): void {
-    this.ctx.emit(this.carrierFor(session), 'session/created', session)
+    this.ctx.emit(this.liveCarrierFor(session), 'session/created', session)
   }
 
   /**
@@ -563,13 +567,23 @@ export class SessionStore extends Service {
    * @returns resolves when every flush listener has settled; rejects if one rejects.
    */
   async flush(session: Session): Promise<void> {
-    await this.ctx.parallel(this.carrierFor(session), 'session/flush', session)
+    await this.ctx.parallel(this.liveCarrierFor(session), 'session/flush', session)
   }
 
-  /** The carrier {@link enter} captured, or a subject-less one for a session
-   * never entered (defensive: dispatch stays filtered either way). */
-  private carrierFor(session: Session): Scoped<Session> {
-    return this.carriers.get(session) ?? scopeTarget(session, undefined)
+  /** Return the exact live session's carrier; detached/prepared objects reject. */
+  private liveCarrierFor(session: Session): Scoped<Session> {
+    if (this.store.get(session.id) !== session) {
+      throw new Error(`session "${session.id}" is not live in this store`)
+    }
+    const carrier = this.carriers.get(session)
+    // enter() installs store + carrier in one synchronous sequence; a live
+    // session without one is an internal invariant violation, never fallback
+    // to subject-less dispatch (that would silently cross scope boundaries).
+    /* v8 ignore next -- enter installs store and carrier in one synchronous sequence */
+    if (carrier === undefined) {
+      throw new Error(`session "${session.id}" has no dispatch carrier`)
+    }
+    return carrier
   }
 
   /**

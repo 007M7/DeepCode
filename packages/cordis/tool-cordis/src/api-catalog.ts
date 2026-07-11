@@ -57,7 +57,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`.',
     methods: [
       'create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent',
-      'createAgent(options: CreateAgentOptions): AgentHandle',
+      'async createAgent(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
   },
@@ -66,9 +66,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
     methods: [
       'setFactory(factory: AgentFactory): () => Promise<void> | void',
-      'create(options: CreateAgentOptions): AgentHandle',
+      'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
       'register(agent: Agent): () => Promise<void> | void',
+      'enter(agent: Agent): () => void',
+      'announce(agent: Agent): void',
       'get(id: AgentId): Agent | undefined',
       'list(): Agent[]',
     ],
@@ -161,25 +163,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'systemPrompt',
-    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.',
+    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative contribution protections; the agent loop calls `assemble(context)` once per step.',
     methods: [
       'section(section: PromptSection): () => Promise<void> | void',
       'tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void',
       'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void',
+      'protect(protection: PromptProtection): () => Promise<void> | void',
       'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
     ],
   },
   {
     key: 'tools',
-    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline.',
+    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.',
     methods: [
       'register(definition: ToolDefinition): () => Promise<void> | void',
       'restrict(filter: ToolRestriction): () => Promise<void> | void',
+      'guard(guard: ToolGuard): () => Promise<void> | void',
       'visible(scope?: ScopeKey): ToolDefinition[]',
       'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
       'schemas(scope?: ScopeKey): ToolSchema[]',
       'knownNames(scope?: ScopeKey): string[]',
-      'async execute(exec: ToolExecution): Promise<ToolExecutionResult>',
+      'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
     ],
   },
   {
@@ -215,13 +219,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent was registered in the AgentRegistry and is ready to receive messages.',
+    summary: 'An agent\'s fully composed scoped world was published in the AgentRegistry.',
   },
   {
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent was disposed and removed from the registry; its fiber and any in-flight turn have been torn down.',
+    summary: 'An agent was removed from the registry after its driver and any in-flight turn reached quiescence.',
   },
   {
     name: 'agent/error',
@@ -284,6 +288,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Waterfall: override the turn-continuation decision via a typed ContinuationDecision.',
   },
   {
+    name: 'agent/turn-stop',
+    mode: 'serial',
+    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): Promise<ContinuationStop | undefined> | ContinuationStop | undefined',
+    summary: 'Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded.',
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -328,7 +338,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'subagent/end',
     mode: 'emit',
-    signature: '\'subagent/end\'(info: SubagentRunEndInfo): void',
+    signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
     summary: 'A subagent run settled — emitted when SubagentRun.result resolves (any stop reason).',
   },
   {
@@ -346,7 +356,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'subagent/start',
     mode: 'emit',
-    signature: '\'subagent/start\'(info: SubagentRunInfo): void',
+    signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
     summary: 'A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins.',
   },
   {
@@ -359,7 +369,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/change',
     mode: 'emit',
     signature: '\'system-prompt/change\'(): void',
-    summary: 'A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed — possibly for one scope only).',
+    summary: 'A section, tool provider, variable provider, or protection was registered or unregistered (the assembly inputs changed — possibly for one scope only).',
   },
   {
     name: 'tools/change',
@@ -384,6 +394,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
     summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+  },
+  {
+    name: 'tools/result',
+    mode: 'parallel',
+    signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<void> | void',
+    summary: 'Awaited notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
   },
   {
     name: 'workflow/agent-end',
@@ -431,7 +447,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentFactory',
-    declaration: 'export interface AgentFactory {\n    createAgent(options: CreateAgentOptions): AgentHandle;\n    resume(options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
+    declaration: 'export interface AgentFactory {\n    createAgent(options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
   {
     name: 'AgentHandle',
@@ -563,7 +579,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    agentId: AgentId;\n    sessionId: SessionId;\n    meta?: {\n        cwd?: string;\n        parentSession?: SessionId;\n        seedLength?: number;\n    };\n    seed?: SessionEvent[];\n    agentOptions?: AgentOptions;\n    setup?: (agentCtx: Context) => void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    agentId: AgentId;\n    sessionId: SessionId;\n    meta?: {\n        cwd?: string;\n        parentSession?: SessionId;\n        seedLength?: number;\n    };\n    seed?: SessionEvent[];\n    agentOptions?: AgentOptions;\n    setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'CreateSessionOptions',
@@ -666,6 +682,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
   },
   {
+    name: 'PromptProtection',
+    declaration: 'export interface PromptProtection {\n    sections?: readonly string[];\n    tools?: readonly string[];\n}',
+  },
+  {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    name: string;\n    order: number;\n    text: string | ((context: AssembleContext) => string);\n}',
   },
@@ -675,7 +695,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResumeAgentOptions',
-    declaration: 'export interface ResumeAgentOptions {\n    agentId: AgentId;\n    resumeSessionId: SessionId;\n    agentOptions?: AgentOptions;\n}',
+    declaration: 'export interface ResumeAgentOptions {\n    agentId: AgentId;\n    resumeSessionId: SessionId;\n    agentOptions?: AgentOptions;\n    setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'ScopeKey',
@@ -807,11 +827,23 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecution',
-    declaration: 'export interface ToolExecution {\n    callId: CallId;\n    name: string;\n    arguments: unknown;\n    agent?: Agent;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+  },
+  {
+    name: 'ToolExecutionInput',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionResult',
     declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+  },
+  {
+    name: 'ToolExecutionToken',
+    declaration: 'export interface ToolExecutionToken {\n    readonly [toolExecutionTokenBrand]: true;\n}',
+  },
+  {
+    name: 'ToolGuard',
+    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
   },
   {
     name: 'ToolProviderResult',

@@ -11,7 +11,7 @@ import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, ContinuationStop, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -20,6 +20,7 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
+import type { Inbox } from './inbox.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
@@ -33,6 +34,20 @@ type CodedError = Error & { code?: string }
  */
 function toError(error: unknown): CodedError {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
+}
+
+/**
+ * Validate the runtime result of the terminal-stop serial event. Event types
+ * protect TypeScript listeners, but JavaScript and casts can still return an
+ * arbitrary bail value; accepting one as an implicit stop would hide a broken
+ * policy plugin.
+ */
+function assertContinuationStop(value: unknown): asserts value is ContinuationStop | undefined {
+  if (value === undefined) return
+  const candidate = Object(value) as { action?: unknown }
+  if (candidate.action !== 'stop') {
+    throw new Error('agent/turn-stop returned an invalid result; expected { action: \'stop\' } or undefined')
+  }
 }
 
 /**
@@ -108,6 +123,8 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
  * loop testable without a real agent.
  */
 export interface LoopHandle {
+  /** Native-private agent inbox handed to the driver only at internal startup. */
+  readonly inbox: Inbox
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
@@ -185,6 +202,9 @@ export interface LoopHandle {
  *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
  *         recorded as next-step steering
  *       if action==stop && steering arrived (step/end/continuation listeners): continue anyway
+ *       terminal = serial agent/turn-stop              ⟵ stop or abstain; after all ordinary
+ *                                                        continuation and steering folding
+ *       if terminal: discard pending steering and break
  *       if action==stop: break
  *     session('turn/end')                             ⟵ durable turn boundary (no agent/* mirror)
  *     await ctx.sessions.flush(session)               ⟵ durability checkpoint (store-owned carrier)
@@ -210,7 +230,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
   const events = agentEvents(ctx, agent)
 
   while (!handle.isDisposed()) {
-    await agent.inbox.waitForQueued(handle.disposed)
+    await handle.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
     // Pre-step cancel (window 1): a `cancel()` landed after a `send()` woke the
@@ -228,7 +248,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     //     resolve before it runs (the quiescence contract).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      if (!agent.inbox.hasQueued) {
+      if (!handle.inbox.hasQueued) {
         handle.settleIdle()
         continue
       }
@@ -250,7 +270,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     //     is still queued and unrun (the same early-resolve race window 1 fixes).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      if (!agent.inbox.hasQueued) {
+      if (!handle.inbox.hasQueued) {
         handle.setStatus('idle')
         continue
       }
@@ -261,8 +281,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     // the loop waits above, so the next real turn must continue from whatever
     // turn number is actually last in the log — a stale counter would collide.
     const turn = lastTurnNumber(session) + 1
+    let terminalStopped = false
     try {
-      await runTurn(ctx, events, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
     } catch (error: unknown) {
       // Backstop: runTurn rethrows only a PRE-turn throw (the invariant guard
       // before turn/start) — no turn/start was appended, so no turn is open and
@@ -286,27 +307,30 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     // cancelled.
     handle.clearCancel()
 
-    // Steering that arrived too late to join this turn (turn-end listeners,
-    // flush) becomes a queued message — it must never be stranded. (A cancelled
-    // turn already cleared its steering, so there is nothing to re-enqueue.)
-    for (const message of agent.inbox.drainSteering()) {
-      agent.inbox.enqueue(message)
+    // Steering that arrived too late to join an ordinary turn (turn-end
+    // listeners, flush) becomes queued input so it is never stranded. A
+    // terminal-stop owner is the deliberate exception: discard the steering
+    // again after the close + flush window so terminal policy cannot be undone
+    // after its in-turn drain. Ordinary queued sends live in a separate FIFO and
+    // remain untouched.
+    for (const message of handle.inbox.drainSteering()) {
+      if (!terminalStopped) handle.inbox.enqueue(message)
     }
 
-    if (!agent.inbox.hasQueued) handle.setStatus('idle')
+    if (!handle.inbox.hasQueued) handle.setStatus('idle')
   }
 }
 
 async function runTurn(
   ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
-): Promise<void> {
+): Promise<boolean> {
   const { session } = agent
 
   // --- Pre-turn. A throw here (the invariant guard) is owed NO turn/end —
   // turn/start has not been appended — so it propagates to runLoop's backstop
   // untouched. The queued messages are drained here but appended AFTER
   // turn/start (below), so every event in the log lives inside a turn.
-  const queued = agent.inbox.drainQueued()
+  const queued = handle.inbox.drainQueued()
   const first = queued[0]
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
@@ -316,6 +340,7 @@ async function runTurn(
   let step = 0
   let stepOpen = false
   let errorReported = false
+  let terminalStopped = false
 
   // Close the open step exactly once (idempotent via stepOpen). Step boundaries
   // are durable session events only — there is no agent/* step emit to mirror
@@ -449,7 +474,7 @@ async function runTurn(
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(agent, turn)
+      drainSteering(agent, handle.inbox, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -616,7 +641,7 @@ async function runTurn(
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(agent, turn)
+      const steered = drainSteering(agent, handle.inbox, turn)
 
       if (closeStep()) break
 
@@ -638,14 +663,39 @@ async function runTurn(
       // iteration drains it before its request — the typed twin of the /goal
       // step/end-steer pattern.
       if (decision.action === 'continue' && decision.reason) {
-        agent.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
+        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
       }
       let shouldContinue = decision.action === 'continue'
 
       // Steering from step/end session-event or continuation listeners (the
       // /goal pattern) demands the model see it — it overrides a stop decision;
       // the next iteration's drain records it.
-      if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
+      if (!shouldContinue && handle.inbox.hasSteering) shouldContinue = true
+
+      // Terminal policy runs only AFTER the extensible continuation waterfall,
+      // its optional reason, and late steering have all been folded. Unlike the
+      // waterfall, this serial seam is monotonic: the first stop bail wins, and
+      // no later listener or steering override can resurrect the turn.
+      let terminalStop = false
+      try {
+        const stop = await events.strictSerial('agent/turn-stop', turn)
+        assertContinuationStop(stop)
+        terminalStop = stop !== undefined
+      } catch (error: unknown) {
+        // A broken terminal policy is an ordinary continuation failure: fail
+        // this turn closed while leaving the driver alive for later turns.
+        failTurn(toError(error))
+        break
+      }
+      if (terminalStop) {
+        terminalStopped = true
+        // A continuation reason or listener may have queued steering before the
+        // terminal checkpoint. Discard only steering (never ordinary queued
+        // prompts) so it cannot become a next step or be re-enqueued as a fresh
+        // turn by runLoop's late-steering fallback.
+        handle.inbox.drainSteering()
+        shouldContinue = false
+      }
 
       // A cancel that landed during the continuation window — after the step's
       // AbortController was cleared (setAbort(undefined)) but before the next
@@ -720,11 +770,12 @@ async function runTurn(
       // contained: a throwing agent/error listener must not escape the loop.
     }
   }
+  return terminalStopped
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
-  const messages = agent.inbox.drainSteering()
+function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boolean {
+  const messages = inbox.drainSteering()
   for (const message of messages) {
     agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
   }

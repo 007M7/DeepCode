@@ -34,6 +34,8 @@
 
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
@@ -93,7 +95,7 @@ declare module 'cordis' {
      * @param info - which provider started which child agent.
      * @mode emit
      */
-    'subagent/start'(info: SubagentRunInfo): void
+    'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
     /**
      * A subagent run settled — emitted when {@link SubagentRun.result}
      * resolves (any stop reason). Paired with {@link Events['subagent/start']}.
@@ -104,7 +106,7 @@ declare module 'cordis' {
      * @param info - the run identity plus stop reason and final output.
      * @mode emit
      */
-    'subagent/end'(info: SubagentRunEndInfo): void
+    'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
   }
 }
 
@@ -224,13 +226,32 @@ export class SubagentService extends Service {
    * @returns the live run (its `result` resolves when the child settles).
    */
   start(name: string, request: SubagentStartRequest): SubagentRun {
+    // Parent is the lifecycle scope identity accepted at start. Never reread it
+    // from the caller-owned request after the provider/result async boundary,
+    // or start/end could be dispatched into different agent scopes.
+    const parent = request.parent
     const provider = this.providers.get(name)
     if (!provider) {
       throw new SubagentError(`no subagent provider registered for "${name}"`, 'NO_PROVIDER')
     }
     this.assertCapabilities(provider, request)
+    if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
 
-    const run = provider.start(request)
+    // Detach every data field before crossing into a provider. Parent/signal
+    // are live identity capabilities and stay exact; the mutable request record
+    // and its arrays/objects are never retained, so every backend (including an
+    // async out-of-process one) observes the request accepted at start.
+    const accepted: SubagentStartRequest = {
+      prompt: structuredClone(request.prompt),
+      parent,
+      ...request.signal !== undefined ? { signal: request.signal } : {},
+      ...request.agentOptions !== undefined ? { agentOptions: structuredClone(request.agentOptions) } : {},
+      ...request.outputSchema !== undefined ? { outputSchema: structuredClone(request.outputSchema) } : {},
+      ...request.maxDepth !== undefined ? { maxDepth: request.maxDepth } : {},
+      ...request.toolFilter !== undefined ? { toolFilter: structuredClone(request.toolFilter) } : {},
+      ...request.persona !== undefined ? { persona: request.persona } : {},
+    }
+    const run = provider.start(accepted)
     // Emit `subagent/start` with PER-LISTENER containment (see {@link emitLifecycle}):
     // the run is already live, so neither a throwing subscriber escaping
     // `start()` (the caller would never receive the run to dispose it — a leaked
@@ -238,7 +259,7 @@ export class SubagentService extends Service {
     // acceptable. `ctx.emit` halts the dispatch on the first throw, so a single
     // surrounding try/catch is not enough — each listener is invoked and
     // contained individually.
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, request.parent)
+    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
     // Emit `subagent/end` when the run settles. The result promise does not
     // reject on a child-level failure (it resolves with stopReason 'error'),
     // so a rejection here is an infrastructure fault — surface its stop reason
@@ -268,9 +289,9 @@ export class SubagentService extends Service {
         } catch (error: unknown) {
           this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
         }
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} }, request.parent)
+        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} }, parent)
       },
-      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, request.parent) },
+      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, parent) },
     )
     return run
   }

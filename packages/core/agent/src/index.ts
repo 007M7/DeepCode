@@ -18,14 +18,13 @@ declare module 'cordis' {
   interface Context {
     agents: AgentRegistry
     /**
-     * The agent whose scope this context belongs to, or `undefined` on any
-     * context not derived from an agent scope. Pure DX sugar over the
-     * `dsh-scope` tag: the agent loop sets it as an own property on each
-     * `Agent.ctx`, and {@link AgentRegistry} registers a root accessor
-     * defaulting to `undefined` so the read is safe on every context (a plain
-     * plugin context answers `undefined` instead of throwing the Cordis
-     * unknown-property error). Core packages below the agent layer read the
-     * `dsh-scope` tag (`scopeOf`) instead, never this field.
+     * The agent association installed as an own property on `Agent.ctx`, or
+     * `undefined` on a plain context. Contexts derived from `Agent.ctx` inherit
+     * the association; a deliberately nested scope may carry a nearer
+     * `dsh-scope` tag while retaining it, so this field is DX context rather
+     * than the scope resolver. {@link AgentRegistry} registers a root accessor
+     * defaulting to `undefined`, and core packages below the agent layer use
+     * `scopeOf()` for layer selection instead of reading this field.
      */
     agent?: Agent
   }
@@ -66,19 +65,20 @@ export interface CreateAgentOptions {
   /** Per-agent options (model, …). */
   agentOptions?: AgentOptions
   /**
-   * Creation-time composition of the agent's scoped world. The factory runs it
-   * inside the agent's composite lifecycle effect — after the scope is minted
-   * and the agent registered, before `agent/session-start` fires and the loop
-   * starts — so everything it registers through `agentCtx` (scoped tools,
-   * prompt sections/variables, `restrict()`, listeners, `agentCtx.plugin(…)`
-   * profiles) exists before the first prompt assembly, and a THROWING setup
-   * unwinds inside the rollback boundary instead of leaking a half-created
-   * agent. **Setup registers, it never drives**: calling
-   * `send`/`steer`/`inject` here would open a turn before `agent/session-start`
-   * (the dev invariants flag a `turn/start` logged before session-start as a
-   * teaching error) — drive the agent after creation returns.
+   * Creation-time composition of the agent's scoped world. The factory awaits
+   * setup after minting `agentCtx` but BEFORE inserting or announcing either
+   * the session or agent, so observers can never see a partially configured
+   * world. Everything registered through `agentCtx` (scoped tools, prompt
+   * sections/variables, `restrict()`, listeners, awaited child plugins) exists
+   * before `session/created`, `agent/created`, `agent/session-start`, and the
+   * first prompt assembly. A throw/rejection or owner disposal rolls the scope
+   * back without publishing either id.
+   *
+   * **Setup composes, it never drives**: calling `send`/`steer`/`inject` here
+   * would run an unpublished agent and violate the session-start boundary.
+   * Drive the agent only after the creation promise resolves.
    */
-  setup?: (agentCtx: Context) => void
+  setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
@@ -92,15 +92,26 @@ export interface ResumeAgentOptions {
   resumeSessionId: SessionId
   /** Per-agent options (model, …). */
   agentOptions?: AgentOptions
+  /**
+   * Resume-time composition of the agent's fresh scoped world. Persistence is
+   * loaded first; the factory then mints `agentCtx` and awaits setup while the
+   * reconstructed session and agent remain unpublished. The callback has the
+   * same composition-only contract as {@link CreateAgentOptions.setup}: all
+   * registrations exist before either creation announcement, driving verbs are
+   * unavailable until the session-start boundary, and rejection or owner
+   * disposal rolls the transaction back without publishing either id.
+   */
+  setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
  * An owned agent plus its disposer, returned by {@link AgentRegistry.create} /
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: only the holder
- * can tear this agent down. `dispose()` unregisters the agent, stops its loop,
- * awaits the loop's exit (quiescence — NOT just the `disposed` status flip), and
- * removes the agent's session from the store, in an order that captures the
- * loop's final `session/flush` before the session is detached.
+ * can tear this agent down. `dispose()` stops the loop, awaits its exit
+ * (quiescence — NOT just the `disposed` status flip), unregisters the agent,
+ * removes its session from the store, and finally unwinds its scoped world.
+ * This order captures the loop's final `session/flush` before the session is
+ * detached and keeps scoped listeners alive through that flush.
  *
  * `ctx.agents.get(id)` still returns a bare {@link Agent} — the handle is only
  * for the OWNER that created it. Config-created agents (the loop's own startup)
@@ -119,15 +130,27 @@ export interface AgentHandle {
  */
 export interface AgentFactory {
   /**
-   * Create, start, and register a new agent on a caller-supplied session id.
-   * Returns an {@link AgentHandle} — the owner disposes it to tear down exactly
-   * this agent (unregister + stop loop + await quiescence + remove session).
+   * Create a new agent on a caller-supplied session id. Async because creation
+   * awaits unpublished setup, inserts both session and agent, emits their
+   * creation notifications in order, unlocks driving at
+   * `agent/session-start`, and only then starts the loop. The sequence is
+   * rollback-covered, but notifications delivered before a later listener
+   * failure remain observable; if agent announcement began, rollback emits
+   * `agent/disposed`, while the session entry is removed without a separate
+   * disposal event. The owner disposes the resolved handle to stop/drain,
+   * unregister, remove the session, and unwind the scope.
+   * @param options - agent/session identity, configuration, and optional setup.
+   * @returns the owned handle after setup, both announcements, and loop start complete.
    */
-  createAgent(options: CreateAgentOptions): AgentHandle
+  createAgent(options: CreateAgentOptions): Promise<AgentHandle>
   /**
    * Load a persisted session and resume an agent on it. Async because it awaits
-   * `ctx.sessionPersistence.load`; must be called after that service exists
-   * (consumers inject `sessionPersistence`). Returns an {@link AgentHandle}.
+   * both `ctx.sessionPersistence.load` and the optional unpublished setup
+   * transaction; must be called after that service exists (consumers inject
+   * `sessionPersistence`). Publication and drive unlocking follow the same
+   * ordered boundary as {@link createAgent}.
+   * @param options - persisted identity, configuration, and optional setup.
+   * @returns the owned handle after setup, both announcements, and loop start complete.
    */
   resume(options: ResumeAgentOptions): Promise<AgentHandle>
 }
@@ -139,11 +162,13 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
  * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
  * orchestrator plugins can find them without depending on the concrete loop
  * package. Agent *creation* is provided by whichever plugin implements the
- * {@link AgentFactory} (phase 1: `@deepseek-ai/dsh-agent-loop`), registered via
+ * {@link AgentFactory} (`@deepseek-ai/dsh-agent-loop`), registered via
  * {@link setFactory}.
  */
 export class AgentRegistry extends Service {
   private store = new Map<AgentId, Agent>()
+  /** Entries whose `agent/created` announcement phase began. */
+  private announced = new WeakSet<Agent>()
   private factory: AgentFactory | undefined
 
   constructor(ctx: Context) {
@@ -180,15 +205,15 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Create, start, and register a new agent through the registered factory.
+   * Create and publish a new agent through the registered factory.
    * Distinct from {@link register} (which records an already-constructed
-   * agent): this constructs the agent and its session. Throws if no factory is
-   * registered. Returns an {@link AgentHandle} — the owner disposes it to tear
-   * down exactly this agent.
+   * agent): this constructs the agent and its session. Rejects if no factory is
+   * registered or creation/setup fails. The resolved {@link AgentHandle} lets
+   * the owner tear down exactly this agent.
    * @param options - agent id, session id/seed/metadata, and agent options.
-   * @returns the handle whose dispose tears down exactly this agent.
+   * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
-  create(options: CreateAgentOptions): AgentHandle {
+  async create(options: CreateAgentOptions): Promise<AgentHandle> {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
     return this.factory.createAgent(options)
   }
@@ -196,9 +221,9 @@ export class AgentRegistry extends Service {
   /**
    * Load a persisted session and resume an agent on it through the registered
    * factory. Rejects if no factory is registered; the factory rejects if
-   * session persistence is not configured. Returns an {@link AgentHandle}.
-   * @param options - the persisted session id plus agent id and options.
-   * @returns the handle for the resumed agent.
+   * session persistence is not configured or persistence/setup fails.
+   * @param options - persisted identity, configuration, and optional setup.
+   * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
@@ -225,37 +250,56 @@ export class AgentRegistry extends Service {
    */
   register(agent: Agent): () => Promise<void> | void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
-      if (this.store.has(agent.id)) {
-        throw new Error(`agent "${agent.id}" is already registered`)
-      }
-      this.store.set(agent.id, agent)
-      // Yield the rollback BEFORE emitting `agent/created`: a generator effect
-      // collects each yielded disposer before the next step runs, so a
-      // throwing `agent/created` listener rolls the entry back instead of
-      // leaking it (a leak would wedge the duplicate-id check until restart).
-      // The duplicate throw above fires before any mutation — it leaks nothing.
-      yield () => {
-        this.store.delete(agent.id)
-        // CONTAIN a throwing `agent/disposed` listener: this disposer runs as
-        // one link in the owning fiber/effect's disposal chain, and Cordis
-        // chains later disposers with `task.then(next)` — so an UNCAUGHT throw
-        // here rejects the chain and SKIPS every later disposer. When this
-        // registration shares a composite effect with a session (the agent
-        // factory's `AgentLoop.start`, where the session-detach disposer runs
-        // AFTER this one), a swallowed-less throw would strand the session in
-        // the store with `onAppend` attached — a leak AND a durability hole.
-        // The store entry is already removed above (the useful state), so
-        // logging the listener bug and continuing is correct (mirrors the
-        // guarded `agent/status` emit in dsh-agent-loop's ReactLoopAgent).
-        try {
-          this.ctx.emit(scopeTarget(agent, agent), 'agent/disposed', agent)
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`agent "${agent.id}": agent/disposed listener threw: ${String(error)}`)
-        }
-      }
-      this.ctx.emit(scopeTarget(agent, agent), 'agent/created', agent)
+      yield this.enter(agent)
+      this.announce(agent)
     }.bind(this), 'agents.register()')
     return dispose
+  }
+
+  /**
+   * Insert an already-constructed agent without announcing it. This is the
+   * advanced ordered-lifecycle primitive used by the async agent factory: it
+   * first completes setup while the agent is unpublished, then assigns the
+   * returned detach closure into its pre-installed composite teardown before
+   * calling {@link announce}. Ordinary callers use {@link register}.
+   * @param agent - the prepared, unpublished agent.
+   * @returns an idempotent closure that removes this exact entry and emits
+   *   `agent/disposed` with listener failures contained.
+   */
+  enter(agent: Agent): () => void {
+    if (this.store.has(agent.id)) {
+      throw new Error(`agent "${agent.id}" is already registered`)
+    }
+    this.store.set(agent.id, agent)
+    let entered = true
+    return () => {
+      if (!entered) return
+      entered = false
+      this.store.delete(agent.id)
+      // An insertion rolled back before announce was never externally created,
+      // so emitting disposed would invent an impossible lifecycle edge. Marking
+      // happens before the created emit: if a later created listener throws,
+      // earlier listeners may already have observed it and must see disposal.
+      if (!this.announced.delete(agent)) return
+      try {
+        this.ctx.emit(scopeTarget(agent, agent), 'agent/disposed', agent)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`agent "${agent.id}": agent/disposed listener threw: ${String(error)}`)
+      }
+    }
+  }
+
+  /**
+   * Announce an agent previously inserted with {@link enter}.
+   * @param agent - the live inserted agent to announce.
+   * @throws if `agent` is not the exact live registry entry for its id.
+   */
+  announce(agent: Agent): void {
+    if (this.store.get(agent.id) !== agent) {
+      throw new Error(`agent "${agent.id}" is not live in this registry`)
+    }
+    this.announced.add(agent)
+    this.ctx.emit(scopeTarget(agent, agent), 'agent/created', agent)
   }
 
   /**

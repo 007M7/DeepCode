@@ -62,6 +62,21 @@ describe('scoped sections', () => {
     scope.ctx.systemPrompt.section({ name: 'y', order: 1, text: 'a' })
     expect(() => scope.ctx.systemPrompt.section({ name: 'y', order: 1, text: 'b' })).toThrow(/already registered in this scope/)
   })
+
+  it.each([
+    [['reserved'], 'section "reserved"'],
+    [['first', 'second'], 'sections "first", "second"'],
+  ])('rejects global protection added after scoped shadows (%j)', async (names, message) => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'child')
+    for (const name of names) {
+      scope.ctx.systemPrompt.section({ name, order: 1, text: `scoped ${name}` })
+    }
+
+    expect(() => ctx.systemPrompt.protect({ sections: names })).toThrow(message)
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
+      .toContain(`scoped ${names[0]}`)
+  })
 })
 
 describe('scoped variables', () => {
@@ -147,5 +162,32 @@ describe('scoped assemble dispatch', () => {
     expect(scoped.sections.some(s => s.name === 'listener:extra')).toBe(true)
     expect(global.sections.some(s => s.name === 'listener:extra')).toBe(false)
     expect(shaped).toHaveLength(1)
+  })
+
+  it('a scoped protection finalizes only its own assemblies and disappears with the scope', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'child')
+    const key = scopeKeyOf(scope)
+    ctx.systemPrompt.section({ name: 'required', order: 10, text: 'required' })
+    ctx.systemPrompt.tools(() => ({ schemas: [schema('required')] }))
+    scope.ctx.systemPrompt.protect({ sections: ['required'], tools: ['required'] })
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const result = await next()
+      result.sections = result.sections.filter(section => section.name !== 'required')
+      result.tools = result.tools.filter(tool => tool.name !== 'required')
+      return result
+    }, { prepend: true })
+
+    const scoped = await ctx.systemPrompt.assemble({ scope: key })
+    const global = await ctx.systemPrompt.assemble()
+    expect(scoped.sections.some(section => section.name === 'required')).toBe(true)
+    expect(scoped.tools.some(tool => tool.name === 'required')).toBe(true)
+    expect(global.sections.some(section => section.name === 'required')).toBe(false)
+    expect(global.tools.some(tool => tool.name === 'required')).toBe(false)
+
+    await scope.dispose()
+    const disposed = await ctx.systemPrompt.assemble({ scope: key })
+    expect(disposed.sections.some(section => section.name === 'required')).toBe(false)
+    expect(disposed.tools.some(tool => tool.name === 'required')).toBe(false)
   })
 })

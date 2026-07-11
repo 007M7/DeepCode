@@ -32,7 +32,7 @@ export const name = 'subagent-fork'
 // per-run structured runtime gates its capture-tool registration on `tools`
 // itself, so this backend's apply timing (and the delegation tool's position
 // in the model-visible tool list) is unchanged by structured output.
-export const inject = ['subagents', 'agents']
+export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */
 export interface Config {
@@ -77,7 +77,6 @@ class ForkProvider implements SubagentProvider {
   start(request: SubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(this.ctx, request, {
-      providerName: this.name,
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},

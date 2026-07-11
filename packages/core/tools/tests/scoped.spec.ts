@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import type { PreToolDecision, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -149,6 +149,11 @@ describe('restrict()', () => {
     expect(() => scope.ctx.tools.restrict({})).toThrow(/no-op/)
     expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown tool "reall"; known tools for this scope: real/)
     expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown tools "ghost", "wraith"/)
+
+    const emptyCtx = await mount()
+    const { scope: emptyScope } = await mintAgentScope(emptyCtx, 'empty')
+    expect(() => emptyScope.ctx.tools.restrict({ deny: ['ghost'] }))
+      .toThrow(/known tools for this scope: \(none\)/)
   })
 })
 
@@ -169,5 +174,297 @@ describe('scoped execution dispatch', () => {
     expect(await run(ctx, 't', other)).toBe('ran:t')
     expect(await run(ctx, 't')).toBe('ran:t')
     expect(seen).toEqual(['a'])
+  })
+
+  it('applies scoped guards after pre-execute and unwinds duplicate registrations independently', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    const other = { id: 'other' as AgentId } as Agent
+    let bodyCalls = 0
+    ctx.tools.register({
+      ...tool('t'),
+      execute: () => {
+        bodyCalls += 1
+        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+      },
+    })
+    let guardViewFrozen = false
+    const guard = (execution: Readonly<ToolExecution>): string => {
+      guardViewFrozen = Object.isFrozen(execution) && Object.isFrozen(execution.arguments)
+      return 'terminal policy'
+    }
+    const liftFirst = scope.ctx.tools.guard(guard)
+    scope.ctx.tools.guard(guard)
+    // Registered later and prepended outside every existing waterfall listener:
+    // it can force the extensible pre decision to allow, but cannot bypass the
+    // owner-level monotonic guard that runs after the waterfall.
+    scope.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
+
+    expect(await run(ctx, 't', key)).toBe('Error: terminal policy')
+    expect(guardViewFrozen).toBe(true)
+    expect(await run(ctx, 't', other)).toBe('ran:t')
+    expect(bodyCalls).toBe(1)
+
+    await liftFirst()
+    expect(await run(ctx, 't', key)).toBe('Error: terminal policy')
+    await scope.dispose()
+    expect(await run(ctx, 't', key)).toBe('ran:t')
+    expect(bodyCalls).toBe(2)
+  })
+
+  it('composes global guards monotonically when one abstains and a later one denies', async () => {
+    const ctx = await mount()
+    let bodyCalls = 0
+    ctx.tools.register({
+      ...tool('t'),
+      execute: () => {
+        bodyCalls += 1
+        return Promise.resolve([])
+      },
+    })
+    ctx.tools.guard(() => undefined)
+    ctx.tools.guard(() => 'global denial')
+
+    expect(await run(ctx, 't')).toBe('Error: global denial')
+    expect(bodyCalls).toBe(0)
+  })
+
+  it('protects call identity before policy and dispatch while leaving only signal mutable', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    let safeCalls = 0
+    let dangerCalls = 0
+    let scopedResults = 0
+    let safeArguments: unknown
+    ctx.tools.register({
+      ...tool('safe'),
+      execute: (args) => {
+        safeCalls += 1
+        safeArguments = args
+        return Promise.resolve([{ type: 'text', text: 'safe' }])
+      },
+    })
+    ctx.tools.register({
+      ...tool('danger'),
+      execute: () => {
+        dangerCalls += 1
+        return Promise.resolve([{ type: 'text', text: 'danger' }])
+      },
+    })
+    scope.ctx.tools.guard(exec => exec.name === 'danger' ? 'danger denied' : undefined)
+    ctx.on('tools/pre-execute', (exec, next) => {
+      expect(Reflect.set(exec, 'agent', undefined)).toBe(false)
+      expect(Reflect.set(exec, 'name', 'safe')).toBe(false)
+      expect(Reflect.set(exec.arguments as object, 'injected', true)).toBe(false)
+      return next()
+    })
+    ctx.on('tools/execute', (exec, next) => {
+      expect(Reflect.set(exec, 'name', 'danger')).toBe(false)
+      return next()
+    })
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      expect(Reflect.set(exec, 'agent', undefined)).toBe(false)
+      return next()
+    })
+    scope.ctx.on('tools/result', () => { scopedResults += 1 })
+
+    expect(await run(ctx, 'danger', key)).toBe('Error: danger denied')
+    const callerArguments = { source: true }
+    const safeResult = await ctx.tools.execute({
+      callId: CallId('safe-call'),
+      name: 'safe',
+      arguments: callerArguments,
+      agent: key,
+    })
+    expect(safeResult.content[0]).toMatchObject({ text: 'safe' })
+    expect(Object.isFrozen(callerArguments)).toBe(false)
+    expect(safeArguments).not.toBe(callerArguments)
+    expect(Object.isFrozen(safeArguments)).toBe(true)
+    expect(callerArguments).toEqual({ source: true })
+    expect({ safeCalls, dangerCalls, scopedResults }).toEqual({
+      safeCalls: 1,
+      dangerCalls: 0,
+      scopedResults: 2,
+    })
+  })
+
+  it('normalizes non-cloneable arguments and still publishes one scoped final outcome', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    let policyCalls = 0
+    let bodyCalls = 0
+    let scopedObserved = 0
+    let globalObserved = 0
+    ctx.tools.register({
+      ...tool('t'),
+      execute: () => {
+        bodyCalls += 1
+        return Promise.resolve([])
+      },
+    })
+    ctx.on('tools/pre-execute', (_exec, next) => {
+      policyCalls += 1
+      return next()
+    })
+    let parent!: ToolExecutionToken
+    ctx.tools.register(tool('parent'))
+    const stopCapture = ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'parent') parent = exec.token
+      return next()
+    })
+    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    stopCapture()
+    policyCalls = 0
+    const signal = new AbortController().signal
+    scope.ctx.on('tools/result', (exec, result) => {
+      scopedObserved += 1
+      expect(exec.arguments).toBeUndefined()
+      expect(exec.parent).toBe(parent)
+      expect(exec.signal).toBe(signal)
+      expect(Object.isFrozen(exec)).toBe(true)
+      expect(result.isError).toBe(true)
+    })
+    ctx.on('tools/result', () => { globalObserved += 1 })
+    const callerArguments = { invalid: () => undefined }
+
+    const scopedResult = await ctx.tools.execute({
+      callId: CallId('non-cloneable'),
+      name: 't',
+      arguments: callerArguments,
+      agent: key,
+      parent,
+      signal,
+    })
+    const subjectlessResult = await ctx.tools.execute({
+      callId: CallId('non-cloneable-subjectless'),
+      name: 't',
+      arguments: { invalid: () => undefined },
+    })
+    expect(scopedResult.isError).toBe(true)
+    expect(scopedResult.content[0]?.type === 'text' && scopedResult.content[0].text).toContain('losslessly JSON-serializable')
+    expect(subjectlessResult.isError).toBe(true)
+    expect({ policyCalls, bodyCalls, scopedObserved, globalObserved }).toEqual({
+      policyCalls: 0,
+      bodyCalls: 0,
+      scopedObserved: 1,
+      globalObserved: 2,
+    })
+    expect(Object.isFrozen(callerArguments)).toBe(false)
+    expect(callerArguments.invalid).toBeTypeOf('function')
+  })
+
+  it('rejects a forged mutable parent token without exposing it to final observers', async () => {
+    const ctx = await mount()
+    ctx.tools.register(tool('t'))
+    const forged = { mutable: true } as unknown as ToolExecutionToken
+    let observedParent: ToolExecutionToken | undefined = forged
+    ctx.on('tools/result', (exec) => { observedParent = exec.parent })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('forged-parent'), name: 't', arguments: {}, parent: forged,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text', text: 'Error: tool execution parent must be a registry-minted opaque token',
+    }])
+    expect(observedParent).toBeUndefined()
+    expect(Object.isFrozen(forged)).toBe(false)
+  })
+
+  it.each([
+    ['Map', new Map([['mutable', true]])],
+    ['class instance', new (class Arguments { value = 1 })()],
+  ])('rejects cloneable non-JSON arguments (%s) before policy or dispatch', async (_kind, argumentsValue) => {
+    const ctx = await mount()
+    let policyCalls = 0
+    let bodyCalls = 0
+    let observed = 0
+    ctx.tools.register({
+      ...tool('t'),
+      execute: () => {
+        bodyCalls += 1
+        return Promise.resolve([])
+      },
+    })
+    ctx.on('tools/pre-execute', (_exec, next) => {
+      policyCalls += 1
+      return next()
+    })
+    ctx.on('tools/result', (exec, result) => {
+      observed += 1
+      expect(exec.arguments).toBeUndefined()
+      expect(result.isError).toBe(true)
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('bad-arguments'), name: 't', arguments: argumentsValue,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text', text: 'Error: tool execution arguments must be losslessly JSON-serializable',
+    }])
+    expect({ policyCalls, bodyCalls, observed }).toEqual({ policyCalls: 0, bodyCalls: 0, observed: 1 })
+  })
+
+  it('rejects arguments that change to non-JSON data while being snapshotted', async () => {
+    const ctx = await mount()
+    ctx.tools.register(tool('t'))
+    let reads = 0
+    const argumentsValue = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => ++reads === 1 ? 'safe' : new Map([['mutable', true]]),
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('unstable-arguments'), name: 't', arguments: argumentsValue,
+    })
+
+    expect(result).toEqual({
+      callId: CallId('unstable-arguments'),
+      content: [{
+        type: 'text', text: 'Error: tool execution arguments must be stable losslessly JSON-serializable data',
+      }],
+      isError: true,
+    })
+  })
+
+  it('notifies every tools/result observer with the frozen final outcome and contains failures', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    ctx.tools.register(tool('t'))
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => ctx.logger)
+    const seen: boolean[] = []
+    const dispatchModes: string[] = []
+    ctx.on('internal/dispatch', (mode, name) => {
+      if (name === 'tools/result') dispatchModes.push(mode)
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      await next()
+      return {
+        callId: exec.callId,
+        content: [{ type: 'text', text: 'outer failure' }],
+        isError: true,
+      }
+    }, { prepend: true })
+    scope.ctx.on('tools/result', (_exec, result) => {
+      expect(Object.isFrozen(_exec)).toBe(true)
+      expect(Object.isFrozen(_exec.arguments)).toBe(true)
+      expect(Object.isFrozen(result)).toBe(true)
+      expect(Object.isFrozen(result.content)).toBe(true)
+      seen.push(result.isError)
+    })
+    ctx.on('tools/result', () => {
+      throw { toString: () => { throw new Error('coercion trap') } }
+    })
+    ctx.on('tools/result', (_exec, result) => { seen.push(result.isError) })
+
+    const result = await ctx.tools.execute({ callId: CallId('final'), name: 't', arguments: {}, agent: key })
+    expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'outer failure' }] })
+    expect(seen).toEqual([true, true])
+    expect(dispatchModes).toEqual(['parallel'])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('<unprintable thrown value>')
   })
 })

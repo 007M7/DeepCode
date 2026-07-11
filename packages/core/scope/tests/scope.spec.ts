@@ -30,14 +30,19 @@ async function mintScope(ctx: Context, key: object): Promise<Scope> {
 }
 
 describe('createScope', () => {
-  it('rejects a primitive key at runtime (identity-compared keys must be objects)', () => {
+  it('rejects primitive keys but accepts callable objects (matching ScopeKey)', async () => {
     const ctx = new Context()
     // Typed through `unknown` so the ScopeKey type cannot argue the assertion
     // away: this test exercises exactly the callers the typechecker misses.
     const badKeys: unknown[] = ['k', null]
     for (const bad of badKeys) {
-      expect(() => createScope(ctx, bad as ScopeKey)).toThrow(/must be an object/)
+      expect(() => createScope(ctx, bad as ScopeKey)).toThrow(/must be a non-null object or function/)
     }
+
+    const callable = Object.assign(() => {}, { nameForTest: 'callable-key' })
+    const scope = await mintScope(ctx, callable)
+    expect(scopeOf(scope.ctx)).toBe(callable)
+    await scope.dispose()
   })
 
   it('tags the scoped context, readable through derivations (nearest tag wins)', async () => {
@@ -89,6 +94,29 @@ describe('createScope', () => {
     await expect(scope.dispose()).resolves.toBeUndefined()
     // Registration through a disposed scope throws INACTIVE_EFFECT.
     expect(() => scope.ctx.effect(() => () => {})).toThrow(/inactive context/)
+  })
+
+  it('dispose() follows a rawDispose-first race through async quiescence', async () => {
+    const ctx = new Context()
+    const scope = await mintScope(ctx, { name: 'raw-first' })
+    const gate = Promise.withResolvers<undefined>()
+    let cleanupFinished = false
+    scope.ctx.effect(() => async () => {
+      await gate.promise
+      cleanupFinished = true
+    })
+
+    const raw = Promise.resolve(scope.rawDispose())
+    let publicSettled = false
+    const publicDispose = scope.dispose().then(() => { publicSettled = true })
+    await Promise.resolve()
+    expect(publicSettled).toBe(false)
+    expect(cleanupFinished).toBe(false)
+
+    gate.resolve(undefined)
+    await Promise.all([raw, publicDispose])
+    expect(cleanupFinished).toBe(true)
+    await expect(scope.dispose()).resolves.toBeUndefined()
   })
 
   it('rawDispose is the exact cordis disposer: yielding it nests the scope at its position', async () => {
@@ -285,6 +313,52 @@ describe('scopeHost', () => {
     await host.dispose()
     expect(order).toEqual(['scoped-disposed'])
     expect(() => scope.ctx.effect(() => () => {})).toThrow(/inactive context/)
+  })
+
+  it('dispose waits for a child whose raw disposer won the race', async () => {
+    const ctx = new Context()
+    ctx.provide('answers', { value: 42 })
+    const host = await scopeHost(ctx, ['answers'])
+    const scope = host.mint({ name: 'raw-first-child' })
+    const gate = Promise.withResolvers<undefined>()
+    let cleanupFinished = false
+    scope.ctx.effect(() => async () => {
+      await gate.promise
+      cleanupFinished = true
+    })
+
+    const raw = Promise.resolve(scope.rawDispose())
+    let hostSettled = false
+    const hostDispose = host.dispose().then(() => { hostSettled = true })
+    await Promise.resolve()
+    expect(hostSettled).toBe(false)
+
+    gate.resolve(undefined)
+    await Promise.all([raw, hostDispose])
+    expect(cleanupFinished).toBe(true)
+    await expect(host.dispose()).resolves.toBeUndefined()
+  })
+
+  it('reaches every child before surfacing one or multiple disposal failures', async () => {
+    const oneCtx = new Context()
+    oneCtx.provide('answers', { value: 42 })
+    const oneHost = await scopeHost(oneCtx, ['answers'])
+    const one = oneHost.mint({ name: 'one' })
+    one.dispose = () => Promise.reject(new Error('one failed'))
+    await expect(oneHost.dispose()).rejects.toThrow('one failed')
+
+    const manyCtx = new Context()
+    manyCtx.provide('answers', { value: 42 })
+    const manyHost = await scopeHost(manyCtx, ['answers'])
+    const a = manyHost.mint({ name: 'a' })
+    const b = manyHost.mint({ name: 'b' })
+    a.dispose = () => Promise.reject(new Error('a failed'))
+    b.dispose = () => Promise.reject(new Error('b failed'))
+    await expect(manyHost.dispose()).rejects.toMatchObject({
+      name: 'AggregateError',
+      message: 'scopeHost: disposal failed',
+      errors: [expect.objectContaining({ message: 'a failed' }), expect.objectContaining({ message: 'b failed' })],
+    })
   })
 
   it('fails LOUD naming absent services instead of resolving as a silent no-op host', async () => {

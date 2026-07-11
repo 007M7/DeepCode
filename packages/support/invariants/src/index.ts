@@ -390,10 +390,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     'agent/session-prefix': args => args[0],
     'agent/step-result': args => args[0],
     'agent/turn-continuation': args => args[0],
+    'agent/turn-stop': args => args[0],
     'agent/error': args => args[0],
     'tools/pre-execute': args => (args[0] as ToolExecution).agent,
     'tools/execute': args => (args[0] as ToolExecution).agent,
     'tools/post-execute': args => (args[0] as ToolExecution).agent,
+    'tools/result': args => (args[0] as ToolExecution).agent,
     'system-prompt/assemble': args => (args[1] as AssembleContext).scope,
     'session/created': null,
     'session/event': null,
@@ -429,11 +431,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // --- Setup-drives invariant ---------------------------------------------
   //
-  // CreateAgentOptions.setup REGISTERS the agent's scoped world; it must not
-  // DRIVE the agent — an inject() there opens a turn before
-  // `agent/session-start`, inverting the "session-start fires before the
-  // first turn" contract every bridge keys on. A turn/start appended to a
-  // live agent's session before its agent/session-start fired is therefore a
+  // CreateAgentOptions.setup COMPOSES the agent's scoped world; it must not
+  // DRIVE the agent. ReactLoopAgent rejects every driving verb structurally
+  // until rollback-covered publication reaches the session-start boundary; this event-level invariant remains the
+  // cross-implementation backstop for alternate Agent implementations and raw
+  // session writes. A turn/start appended before agent/session-start is a
   // creation-time misuse, reported at the appending call site. Sessions of
   // agents that exist BEFORE this plugin applies are marked started (their
   // ordering is unknowable after the fact — never a false positive on HMR).
@@ -450,7 +452,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (owner === undefined) return
     throw new InvariantError(
       `agent "${owner.id}": a turn opened before agent/session-start fired — `
-      + 'CreateAgentOptions.setup registers the scoped world, it must not drive the agent '
+      + 'CreateAgentOptions.setup composes the scoped world, it must not drive the agent '
       + '(send/steer/inject belong after creation returns)')
   })
 

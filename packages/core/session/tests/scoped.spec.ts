@@ -91,16 +91,33 @@ describe('sessions.flush()', () => {
     await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
   })
 
-  it('flushes a never-entered session with a subject-less carrier (defensive path)', async () => {
+  it('rejects a never-entered session instead of inventing a carrier', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'owner')
     const flushed: string[] = []
     ctx.on('session/flush', (session: Session) => void flushed.push(`global:${session.id}`))
     scope.ctx.on('session/flush', (session: Session) => void flushed.push(`owner:${session.id}`))
 
-    const detached = ctx.sessions.prepare()
-    await ctx.sessions.flush(detached)
-    expect(flushed).toEqual([`global:${detached.id}`])
+    const prepared = ctx.sessions.prepare()
+    await expect(ctx.sessions.flush(prepared)).rejects.toThrow(/not live/)
+    expect(flushed).toEqual([])
+  })
+
+  it('clears a detached carrier and rejects stale flushes', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'owner')
+    const flushed: string[] = []
+    ctx.on('session/flush', (session: Session) => void flushed.push(`global:${session.id}`))
+    scope.ctx.on('session/flush', (session: Session) => void flushed.push(`owner:${session.id}`))
+
+    const session = scope.ctx.sessions.prepare()
+    const detach = scope.ctx.sessions.enter(session)
+    await ctx.sessions.flush(session)
+    expect(flushed.sort()).toEqual([`global:${session.id}`, `owner:${session.id}`])
+
+    detach()
+    await expect(ctx.sessions.flush(session)).rejects.toThrow(/not live/)
+    expect(flushed).toHaveLength(2)
   })
 
   it('keyOf sanity: distinct scopes carry distinct keys', async () => {

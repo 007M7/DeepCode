@@ -120,9 +120,11 @@ export interface SubagentResult {
   /** The child's final assistant output (the last assistant message's content). */
   output: ContentBlock[]
   /**
-   * The structured result, present IFF the request carried an `outputSchema`
-   * AND the provider honored it. Shape is validated against the request schema
-   * by the provider; `unknown` here because the seam is schema-agnostic.
+   * The structured result after a requested `outputSchema` was successfully
+   * satisfied. Requesting a schema does not guarantee presence: a provider can
+   * end with `stopReason: 'error'` when the child fails or finishes without a
+   * valid capture. Shape is validated against the request schema by the
+   * provider; `unknown` here because the seam is schema-agnostic.
    */
   structured?: unknown
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */

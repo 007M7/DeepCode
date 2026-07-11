@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import LlmService from '@deepseek-ai/dsh-llm'
@@ -160,6 +160,38 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
+  it('a cancel from agent/queued maps a no-turn child log to aborted', async () => {
+    const { ctx, parent } = await setup([])
+    ctx.on('agent/queued', (agent) => {
+      if (agent.id === run.id) run.cancel('queued-window')
+    })
+    const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
+    const result = await run.result
+    expect(result).toMatchObject({ stopReason: 'aborted', output: [] })
+    const child = ctx.agents.get(run.id)!
+    expect(child.session.events.some(event => event.type === 'turn/end')).toBe(false)
+    await run.dispose()
+  })
+
+  it('dispose during async child creation waits for rollback and leaves no orphan', async () => {
+    const { ctx, parent } = await setup([])
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+    ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+    const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
+
+    // Same tick: the factory has reserved ids and entered its async setup
+    // transaction, but has not published the child yet.
+    await run.dispose()
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted', output: [] })
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+    expect(published).toEqual([])
+  })
+
   it('cancelling a running child settles the run as aborted (the abort bridge + cancel())', async () => {
     // 'hang' makes the child's model stream one chunk then wait until aborted.
     const controller = new AbortController()
@@ -206,7 +238,7 @@ describe('dsh-subagent-spawn', () => {
   it('inherits the parent cwd into the child session', async () => {
     const { ctx } = await setup([textResponse('x')])
     // A parent WITH a cwd (config agents have none, so create one explicitly).
-    const parentHandle = ctx.agents.create({
+    const parentHandle = await ctx.agents.create({
       agentId: AgentId('cwd-parent'),
       sessionId: SessionId('cwd-parent-session'),
       meta: { cwd: '/tmp/parent-workspace' },
@@ -223,7 +255,7 @@ describe('dsh-subagent-spawn', () => {
   it('uses request.agentOptions.model when the parent has no model of its own', async () => {
     const { ctx } = await setup([textResponse('explicit model child')])
     // A parent with NO model (its own turns would need one supplied per-request).
-    const parentHandle = ctx.agents.create({
+    const parentHandle = await ctx.agents.create({
       agentId: AgentId('modelless-parent'),
       sessionId: SessionId('modelless-parent-session'),
       agentOptions: {},
@@ -305,15 +337,70 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
+  it('a backend unload during child creation prevents every publication notification', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(Invariants)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentService)
+    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+    ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+
+    const run = ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'must never run' }], parent,
+    })
+    await fiber.dispose()
+    await run.result.catch(() => undefined)
+    await run.dispose()
+
+    expect(ctx.agents.get(run.id)).toBeUndefined()
+    expect(published).toEqual([])
+  })
+
+  it('a start racing an already-unloading backend cannot mint a run-owner fiber', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentService)
+    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
+    const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+    const parentEffects = parent.ctx.fiber.getEffects().length
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+
+    const unloading = fiber.dispose()
+    expect(() => ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'must never start' }], parent,
+    })).toThrow(/inactive context/)
+    await unloading
+
+    expect(parent.ctx.fiber.getEffects()).toHaveLength(parentEffects)
+    expect(published).toEqual([])
+  })
+
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in spawn).toBe(false)
     expect(spawn.name).toBe('subagent-spawn')
-    expect(spawn.inject).toEqual(['subagents', 'agents'])
+    expect(spawn.inject).toEqual(['subagents'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(spawn) as Record<string, unknown>
     expect(unwrapped).toBe(spawn)
     expect(unwrapped.name).toBe('subagent-spawn')
-    expect(unwrapped.inject).toEqual(['subagents', 'agents'])
+    expect(unwrapped.inject).toEqual(['subagents'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 
@@ -369,11 +456,13 @@ describe('dsh-subagent-spawn', () => {
     it('an unknown toolFilter name fails the spawn loudly with no orphaned child', async () => {
       const { ctx, parent } = await setup([])
       const before = ctx.agents.list().length
-      expect(() => ctx.subagents.start('spawn', {
+      const run = ctx.subagents.start('spawn', {
         prompt: [{ type: 'text', text: 'do X' }],
         parent,
         toolFilter: { deny: ['no_such_tool'] },
-      })).toThrow(/unknown tool "no_such_tool"/)
+      })
+      await expect(run.result).rejects.toThrow(/unknown tool "no_such_tool"/)
+      await run.dispose()
       expect(ctx.agents.list().length).toBe(before)
     })
   })
@@ -381,19 +470,53 @@ describe('dsh-subagent-spawn', () => {
   it('spawning from a DISPOSING parent fails loud with no orphaned child (INACTIVE_EFFECT teaching error)', async () => {
     const { ctx } = await setup([])
     // A handle-owned parent we can dispose (config agents dispose with the loop fiber).
-    const parentHandle = ctx.agents.create({
+    const parentHandle = await ctx.agents.create({
       agentId: AgentId('doomed-parent'),
       sessionId: SessionId('doomed-s'),
       agentOptions: { model: 'mock' },
     })
     await parentHandle.dispose()
     const before = ctx.agents.list().length
-    expect(() => ctx.subagents.start('spawn', {
+    const sessionsBefore = ctx.sessions.list().length
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+    ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+    const run = ctx.subagents.start('spawn', {
       prompt: [{ type: 'text', text: 'do X' }],
       parent: parentHandle.agent,
-    })).toThrow(/inactive context/)
-    // The freshly created child's disposal was initiated before the rethrow
-    // (fire-and-forget — start() throws synchronously); quiescence follows.
-    await vi.waitFor(() => { expect(ctx.agents.list().length).toBe(before) })
+    })
+    await expect(run.result).rejects.toThrow(/inactive context/)
+    await run.dispose()
+    expect(ctx.agents.list().length).toBe(before)
+    expect(ctx.sessions.list()).toHaveLength(sessionsBefore)
+    expect(published).toEqual([])
+  })
+
+  it('parent disposal during the child setup transaction prevents every publication notification', async () => {
+    const { ctx } = await setup([])
+    const parentHandle = await ctx.agents.create({
+      agentId: AgentId('setup-race-parent'),
+      sessionId: SessionId('setup-race-parent-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+    ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+
+    const run = ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'must never run' }],
+      parent: parentHandle.agent,
+    })
+    // The factory has entered its awaited unpublished setup transaction. Parent
+    // ownership was installed before that await, so disposal wins without an
+    // observer ever seeing the child.
+    await parentHandle.dispose()
+    await expect(run.result).rejects.toThrow(/owner disposed during setup|inactive context/)
+    await run.dispose()
+
+    expect(ctx.agents.get(run.id)).toBeUndefined()
+    expect(published).toEqual([])
   })
 })

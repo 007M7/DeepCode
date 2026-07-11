@@ -200,12 +200,12 @@ describe('dsh-subagent-fork', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in fork).toBe(false)
     expect(fork.name).toBe('subagent-fork')
-    expect(fork.inject).toEqual(['subagents', 'agents'])
+    expect(fork.inject).toEqual(['subagents'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(fork) as Record<string, unknown>
     expect(unwrapped).toBe(fork)
     expect(unwrapped.name).toBe('subagent-fork')
-    expect(unwrapped.inject).toEqual(['subagents', 'agents'])
+    expect(unwrapped.inject).toEqual(['subagents'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 })

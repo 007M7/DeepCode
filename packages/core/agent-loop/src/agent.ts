@@ -16,6 +16,51 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { Inbox } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
+/** Agents whose rollback-covered publication enabled driving. */
+const driveEnabledAgents = new WeakSet<ReactLoopAgent>()
+
+/** Sessions already claimed by a concrete driver construction. */
+const claimedDriverSessions = new WeakSet<Session>()
+
+/** Module-private driver entry: its symbol is absent from the package surface. */
+const startDriver = Symbol('dsh.agent-loop.start-driver')
+
+/** Factory-owned controls that can operate only on the agent created with them. */
+export interface PreparedReactLoopAgent {
+  /** The unpublished concrete agent. */
+  agent: ReactLoopAgent
+  /** Open its driving verbs at the rollback-covered publication boundary. */
+  enableDrive(): void
+  /** Start its driver after publication and session-start notification. */
+  startDriver(): () => void
+}
+
+/**
+ * Construct one concrete agent together with unforgeable, instance-bound
+ * lifecycle controls. The package surface deliberately exposes neither source
+ * subpaths nor this helper: setup code may identify the concrete class, but it
+ * cannot enable or start the factory's unpublished instance.
+ * @param ctx - the agent-loop service context used for driving and events.
+ * @param id - the concrete agent identity.
+ * @param options - loop options for the agent.
+ * @param session - the prepared session the agent will own.
+ * @returns the agent and closures bound only to that exact instance.
+ */
+export function prepareReactLoopAgent(
+  ctx: Context, id: AgentId, options: AgentOptions, session: Session,
+): PreparedReactLoopAgent {
+  if (claimedDriverSessions.has(session)) {
+    throw new Error(`session "${session.id}" already has a concrete agent driver`)
+  }
+  claimedDriverSessions.add(session)
+  const agent = new ReactLoopAgent(ctx, id, options, session)
+  return {
+    agent,
+    enableDrive: () => { driveEnabledAgents.add(agent) },
+    startDriver: () => agent[startDriver](),
+  }
+}
+
 /**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.
  *
@@ -24,11 +69,8 @@ import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
  * the agent/* event taxonomy — plugins never need this class.
  */
 export class ReactLoopAgent implements Agent {
-  /**
-   * The queued + steering FIFOs behind {@link send}/{@link steer}. Public so
-   * the driver loop can drain it; {@link cancel} clears it wholesale.
-   */
-  readonly inbox = new Inbox()
+  /** Queued + steering FIFOs; native-private so setup cannot bypass driving verbs. */
+  readonly #inbox = new Inbox()
 
   /**
    * The agent's scope context ({@link Agent.ctx}), wired by the factory right
@@ -119,7 +161,7 @@ export class ReactLoopAgent implements Agent {
   /**
    * Resolve and clear all pending {@link whenIdle} waiters. Called on a
    * running→idle transition (from {@link setStatus}) and on disposal (from the
-   * {@link start} disposer, which chains `done` for true loop-exit quiescence).
+   * internal driver disposer, which chains `done` for true loop-exit quiescence).
    */
   private settleIdleWaiters(): void {
     const waiters = this.idleWaiters
@@ -131,22 +173,31 @@ export class ReactLoopAgent implements Agent {
     return options?.source ?? { kind: 'user' }
   }
 
+  /** Reject every driving verb while creation setup still owns the agent. */
+  private assertDriveEnabled(action: string): void {
+    if (driveEnabledAgents.has(this)) return
+    throw new Error(`agent "${this.id}" cannot ${action} before creation setup completes`)
+  }
+
   send(content: ContentBlock[], options?: SendOptions): void {
+    this.assertDriveEnabled('send')
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     const source = this.resolveSource(options)
-    this.inbox.enqueue({ content, source })
+    this.#inbox.enqueue({ content, source })
     this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: false })
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
+    this.assertDriveEnabled('steer')
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     if (this._status !== 'running') { this.send(content, options); return }
     const source = this.resolveSource(options)
-    this.inbox.steer({ content, source })
+    this.#inbox.steer({ content, source })
     this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: true })
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
+    this.assertDriveEnabled('inject')
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     const source = this.resolveSource(options)
     if (isTurnOpen(this.session)) {
@@ -220,6 +271,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(reason?: string): void {
+    this.assertDriveEnabled('cancel')
     // Arm-gate: only mark a cancellation when there is actually work to cancel —
     // a running turn, an in-flight step, or queued/steering work. An idle cancel
     // with nothing pending is a true no-op; arming the marker then would wrongly
@@ -229,7 +281,7 @@ export class ReactLoopAgent implements Agent {
     // the pre-step window (a send() queued but the loop not yet flipped to
     // running) has status `idle` with `hasQueued` true, and the marker exists
     // precisely to cover it.
-    if (this._status === 'running' || this.currentAbort !== undefined || this.inbox.hasQueued || this.inbox.hasSteering) {
+    if (this._status === 'running' || this.currentAbort !== undefined || this.#inbox.hasQueued || this.#inbox.hasSteering) {
       this.cancelRequested = true
       // Capture the resolved reason for the marker-only windows (pre-step /
       // continuation). The mid-step path reads it from abort.signal.reason
@@ -240,7 +292,7 @@ export class ReactLoopAgent implements Agent {
     // cancelled turn's steering is not re-enqueued). Cleared directly even when
     // the loop is parked in waitForQueued — there is no turn to stop and nothing
     // left for the parked loop to run, so no wake is needed.
-    this.inbox.clear()
+    this.#inbox.clear()
     // Interrupt an in-flight step immediately (the running turn observes the
     // abort and ends `aborted`). The marker covers the windows where no step is
     // running (pre-step, continuation).
@@ -263,7 +315,7 @@ export class ReactLoopAgent implements Agent {
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
-    if (this._status !== 'running' && !this.inbox.hasQueued) return Promise.resolve()
+    if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
     // Register an internal waiter (resolved by settleIdleWaiters on the next
     // running→idle/disposed transition), NOT an effect-scoped `ctx.on` listener:
     // a concurrent fiber disposal runs this agent's listener disposers, which
@@ -287,8 +339,9 @@ export class ReactLoopAgent implements Agent {
    * @returns the disposer — idempotent and infallible (it runs inside the
    *   fiber's LIFO disposal chain, where a throw would skip later disposers).
    */
-  start(): () => void {
+  [startDriver](): () => void {
     this.done = runLoop(this.loopCtx, this, {
+      inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,

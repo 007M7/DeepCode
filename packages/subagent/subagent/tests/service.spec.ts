@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentService, {
   SubagentError,
   type SubagentCapabilities,
@@ -225,6 +226,45 @@ describe('SubagentService', () => {
     // `subagent/end` fires from a `.then` on the result — let the microtask run.
     await Promise.resolve()
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
+  })
+
+  it('pins start and end to the parent accepted at start despite caller mutation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const gate = Promise.withResolvers<SubagentResult>()
+    let acceptedRequest: SubagentStartRequest | undefined
+    ctx.subagents.registerProvider({
+      name: 'deferred',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: (accepted) => {
+        acceptedRequest = accepted
+        return {
+          id: AgentId('deferred-child'),
+          result: gate.promise,
+          cancel() {},
+          async dispose() {},
+        }
+      },
+    })
+    const accepted = fakeParent('accepted-parent')
+    const replacement = fakeParent('replacement-parent')
+    const keys: unknown[] = []
+    ctx.on('subagent/start', function () { keys.push(carrierKeyOf(this)) })
+    ctx.on('subagent/end', function () { keys.push(carrierKeyOf(this)) })
+    const request = baseRequest({ parent: accepted })
+
+    const run = ctx.subagents.start('deferred', request)
+    request.parent = replacement
+    request.prompt[0] = { type: 'text', text: 'mutated prompt' }
+    expect(acceptedRequest?.parent).toBe(accepted)
+    expect(acceptedRequest?.prompt).toEqual([{ type: 'text', text: 'do a thing' }])
+    expect(acceptedRequest?.prompt).not.toBe(request.prompt)
+    gate.resolve({ output: [], stopReason: 'completed' })
+    await run.result
+    await Promise.resolve()
+
+    expect(keys).toEqual([accepted, accepted])
   })
 
   it('carries lastAssistantMessage (the child output) onto the end event', async () => {

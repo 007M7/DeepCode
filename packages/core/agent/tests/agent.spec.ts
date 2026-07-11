@@ -77,6 +77,36 @@ describe('AgentRegistry', () => {
     await dispose()
     expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
   })
+
+  it('splits insertion from announcement and makes the detach exact/idempotent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const created: Agent[] = []
+    const disposed: Agent[] = []
+    ctx.on('agent/created', agent => void created.push(agent))
+    ctx.on('agent/disposed', agent => void disposed.push(agent))
+
+    const first = stubAgent('split')
+    const detachFirst = ctx.agents.enter(first)
+    expect(ctx.agents.get(first.id)).toBe(first)
+    expect(created).toEqual([])
+    ctx.agents.announce(first)
+    expect(created).toEqual([first])
+    detachFirst()
+    detachFirst()
+    expect(disposed).toEqual([first])
+
+    const replacement = stubAgent('split')
+    const detachReplacement = ctx.agents.enter(replacement)
+    // A stale repeated detach cannot remove the replacement.
+    detachFirst()
+    expect(ctx.agents.get(replacement.id)).toBe(replacement)
+    expect(() => { ctx.agents.announce(first) }).toThrow(/not live/)
+    detachReplacement()
+    // The replacement was inserted but never announced, so rollback produces
+    // no disposed-without-created notification.
+    expect(disposed).toEqual([first])
+  })
 })
 
 describe('AgentRegistry factory seam', () => {
@@ -84,7 +114,7 @@ describe('AgentRegistry factory seam', () => {
   function stubFactory() {
     const calls: { create: unknown[]; resume: unknown[] } = { create: [], resume: [] }
     const factory: import('@deepseek-ai/dsh-agent').AgentFactory = {
-      createAgent(options) {
+      async createAgent(options) {
         calls.create.push(options)
         return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
       },
@@ -99,7 +129,7 @@ describe('AgentRegistry factory seam', () => {
   it('create()/resume() throw when no factory is registered', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).toThrow(/no agent factory/)
+    await expect(ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
     await expect(ctx.agents.resume({ agentId: AgentId('a'), resumeSessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
   })
 
@@ -109,7 +139,7 @@ describe('AgentRegistry factory seam', () => {
     const { factory, calls } = stubFactory()
     ctx.agents.setFactory(factory)
 
-    const created = ctx.agents.create({ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } })
+    const created = await ctx.agents.create({ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } })
     expect(created.agent.id).toBe('c1')
     expect(calls.create).toEqual([{ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } }])
 
@@ -132,10 +162,10 @@ describe('AgentRegistry factory seam', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       dispose = inner.agents.setFactory(stubFactory().factory)
     }, { inject: ['agents'] }))
-    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).not.toThrow()
+    await expect(ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).resolves.toBeDefined()
     void dispose
     await fiber.dispose()
     // factory slot cleared → create throws again
-    expect(() => ctx.agents.create({ agentId: AgentId('a2'), sessionId: SessionId('s2') })).toThrow(/no agent factory/)
+    await expect(ctx.agents.create({ agentId: AgentId('a2'), sessionId: SessionId('s2') })).rejects.toThrow(/no agent factory/)
   })
 })

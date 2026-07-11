@@ -1,12 +1,14 @@
 /**
  * Code Mode: the `run_code` tool and its dispatch bridge. The model writes a
- * TypeScript program; the bridge hands it to `ctx.codeRuntime` with one
- * async binding per registered tool, serializes every binding call through a
- * per-run queue onto `ToolRegistry.execute()` (so `tools/pre-execute` /
- * `tools/post-execute` gate sub-calls exactly like native ones), logs each
- * sub-dispatch as a `tool/code-dispatch` session event, and returns only the
- * program's curated output. The registry itself decides WHEN this tool
- * exists (its `mode` config); this module owns only the tool and the bridge.
+ * TypeScript program; the bridge hands it to `ctx.codeRuntime` with one async
+ * binding per end capability visible to the calling agent, then serializes
+ * every binding call through a per-run queue onto `ToolRegistry.execute()`.
+ * Sub-calls therefore traverse the complete pre/guard/around/post/final-result
+ * pipeline exactly like native calls and carry the outer execution's opaque
+ * token for correlation. The bridge logs each sub-dispatch as a
+ * `tool/code-dispatch` session event and returns only the program's curated
+ * output. The registry itself decides WHEN this tool exists (its `mode`
+ * config); this module owns only the tool and the bridge.
  *
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
@@ -205,6 +207,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             name,
             arguments: normalized.dispatched,
             ...exec.agent ? { agent: exec.agent } : {},
+            parent: exec.token,
             signal: runController.signal,
           })
           const text = textOf(result.content)

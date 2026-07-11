@@ -14,6 +14,7 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "HookContext", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "PromptDecision", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationDecision", "source": "packages/core/agent/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationStop", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionStartSource", "source": "packages/core/agent/src/types.ts" },
 
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/llm/src/types.ts" },
@@ -39,7 +40,10 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaProp", "source": "packages/core/tools/src/schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaSpec", "source": "packages/core/tools/src/schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "InferArgs", "source": "packages/core/tools/src/schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionToken", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionInput", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolGuard", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PreToolDecision", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },

@@ -289,6 +289,7 @@ describe('SessionStore', () => {
     expect(created).toEqual([session])
     // The detach disposer removes the entry + stops notification.
     detach()
+    detach() // idempotent: cannot disturb a later same-id lifecycle
     expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
   })
 

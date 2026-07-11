@@ -29,7 +29,7 @@ export const name = 'subagent-spawn'
 // output through the child's creation context, whose factory already requires
 // the tool service. Keeping it out of this backend's inject list preserves the
 // provider's independent apply timing.
-export const inject = ['subagents', 'agents']
+export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */
 export interface Config {
@@ -59,7 +59,7 @@ class SpawnProvider implements SubagentProvider {
     // Fresh child: no seed. The shared driver mints ids, stamps cwd/lineage/
     // depth, drives the one-shot (including the structured capture when the
     // request carries an outputSchema), and maps the result.
-    return startInProcessRun(this.ctx, request, { providerName: this.name })
+    return startInProcessRun(this.ctx, request, {})
   }
 }
 

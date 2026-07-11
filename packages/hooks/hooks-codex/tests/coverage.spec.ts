@@ -553,7 +553,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     ctx.llm.registerAdapter(['mock'], adapter)
     ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const handle = ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
+    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
     expect(existsSync(marker)).toBe(true)

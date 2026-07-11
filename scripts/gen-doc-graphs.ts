@@ -120,10 +120,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'tools',
     pkg: 'tools',
-    title: 'Tool registry and execution waterfall',
+    title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
     consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
-    note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
+    note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
   },
   {
     key: 'userInteraction',
@@ -217,6 +217,9 @@ const SERVICE_ROLES: ServiceRole[] = [
 ]
 
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
+  // tools/result uses ctx.events.dispatch directly so the registry can await
+  // every observer while containing each callback independently.
+  { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },
   // Subagent lifecycle events intentionally bypass ctx.emit and call
   // ctx.events.dispatch directly so one throwing listener cannot starve later
   // listeners or strand an already-started child run.
@@ -534,12 +537,12 @@ function collectEventRelations(): Map<string, EventRelation> {
         if (method === 'on') {
           const event = eventArg(node.arguments, method)
           if (event) ensure(event).listeners.add(leaf)
-        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'strictSerial' || method === 'waterfall') {
           const event = eventArg(node.arguments, method)
           if (event) {
             const relation = ensure(event)
             const methods = relation.dispatchers.get(leaf) ?? new Set<string>()
-            methods.add(method)
+            methods.add(method === 'strictSerial' ? 'strictSerial (serial)' : method)
             relation.dispatchers.set(leaf, methods)
           }
         }
@@ -566,13 +569,13 @@ function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.Sourc
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
   // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
-  // dispatcher (`events` from `agentEvents(ctx, agent)`), the agent's own
-  // context handle (`this.loopCtx`), and the session store's captured
-  // dispatch context (`emitCtx`). Conventional receiver names, pinned by the
-  // fused-dispatch convention; a rename here must update this list (the
-  // producer/consumer matrix silently losing a dispatcher is the failure
-  // mode this list exists to prevent).
-  return target === 'events' || target === 'this.loopCtx' || target === 'emitCtx'
+  // dispatcher (`events` from `agentEvents(ctx, agent)`), an agent's setup
+  // context (`childCtx`), the agent's own context handle (`this.loopCtx`), and
+  // the session store's captured dispatch context (`emitCtx`). Conventional
+  // receiver names, pinned by the fused-dispatch convention; a rename here
+  // must update this list (the producer/consumer matrix silently losing a
+  // dispatcher or listener is the failure mode this list exists to prevent).
+  return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
 function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {
@@ -690,6 +693,7 @@ function renderLifecycle(): string {
     '  Tools-->>Session: tool-owned events when applicable',
     `  Driver->>Session: ${mermaidCode('tool/result')} and ${mermaidCode('step/end')}`,
     `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
@@ -705,7 +709,7 @@ function renderToolPipeline(): string {
   const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
   return [
     ...generatedHeader('Tool Execution Pipeline'),
-    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.',
     '',
     '```mermaid',
     'flowchart TD',
@@ -713,19 +717,24 @@ function renderToolPipeline(): string {
     `  toolCall["Session event: ${mermaidCode('tool/call')}<br/>logged before execution"]`,
     '  presentCall["UI pending card<br/>presentCall(args)"]',
     `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
+    '  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]',
     '  denied["deny or ask<br/>tool body skipped"]',
     `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
     '  toolBody["Registered tool execute() body"]',
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
     `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
+    `  final["${mermaidCode('tools/result')} parallel notification<br/>frozen authoritative outcome"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
+    '  allResults["All calls in the step settled<br/>and tool/result events recorded"]',
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
     '  model --> toolCall',
     '  toolCall --> presentCall',
     '  toolCall --> pre',
-    '  pre -->|allow| around',
+    '  pre -->|allow| guards',
+    '  guards -->|allow| around',
+    '  guards -->|deny| denied',
     '  around --> toolBody',
     '  pre -->|deny or ask| denied',
     '  denied --> post',
@@ -734,12 +743,14 @@ function renderToolPipeline(): string {
     '  toolBody --> owned',
     '  toolBody --> around',
     '  around --> post',
-    '  post --> context',
-    '  post --> toolResult',
+    '  post --> final',
+    '  final --> toolResult',
     '  toolResult --> presentResult',
+    '  toolResult --> allResults',
+    '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the same pipeline twice over: `run_code` is itself a registered tool body, and each tool call its program makes re-enters `ctx.tools.execute()` through BOTH waterfalls — serialized one at a time, logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The awaited `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')

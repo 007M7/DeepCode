@@ -828,11 +828,15 @@ describe('scoped-dispatch invariants', () => {
       ['agent/pre-step', [agent, 1, 1, '', new AbortController().signal]],
       ['agent/prompt-submit', [agent, [], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' })]],
       ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
+      ['agent/session-prefix', [agent, [], new AbortController().signal, () => Promise.resolve([])]],
       ['agent/step-result', [agent, 1, 1, { role: 'assistant', content: [] }, () => Promise.resolve({ role: 'assistant', content: [] })]],
       ['agent/turn-continuation', [agent, 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' })]],
+      ['agent/turn-stop', [agent, 1]],
       ['agent/error', [agent, 1, 0, new Error('x')]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
+      ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ callId: 'c', content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
+      ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }]],
     ]
     for (const [event, args] of rows) {
       const subject = event.startsWith('tools/') ? agent : agent
@@ -870,7 +874,7 @@ describe('scoped-dispatch invariants', () => {
     }).not.toThrow()
   })
 
-  it('rejects a turn opened before agent/session-start (setup drives the agent)', async () => {
+  it('backstops alternate agents that open a turn before agent/session-start', async () => {
     const ctx = await scopedCtx()
     // A live agent whose session is in the store but whose session-start has
     // not fired: appending turn/start must throw the teaching error.

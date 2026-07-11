@@ -18,8 +18,8 @@
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
  *   `agent/request`/`agent/session-prefix`/`agent/step-result`/
- *   `agent/turn-continuation` waterfalls and
- *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
+ *   `agent/turn-continuation` waterfalls and the serial `agent/pre-step` /
+ *   `agent/turn-stop` checkpoints) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
  *   `agent/disposed`, `agent/queued`, `agent/session-start`)
  *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
@@ -37,8 +37,9 @@
  * and `docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
  *
  * The interception waterfalls here (`agent/prompt-submit`, `agent/request`,
- * `agent/step-result`, `agent/turn-continuation`) each return a typed Decision —
- * the convention pinned by
+ * `agent/step-result`, `agent/turn-continuation`) each return a typed Decision;
+ * the terminal serial `agent/turn-stop` returns the stop-only subset. The
+ * convention is pinned by
  * `docs/rfc/implemented/feature/2026-06-30-interception-seams.md`.
  *
  * @module @deepseek-ai/dsh-agent/types
@@ -162,6 +163,13 @@ export type ContinuationDecision =
   | { action: 'continue'; reason?: HookContext }
 
 /**
+ * The terminal subset of {@link ContinuationDecision}. A listener on
+ * `agent/turn-stop` returns this to make the already-composed continuation
+ * outcome terminal; `undefined` abstains.
+ */
+export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
+
+/**
  * Why an agent's session lifecycle began, carried by `agent/session-start`. A
  * bridge keys its SessionStart hook's matcher on this (Claude Code's
  * `startup`/`resume`/`clear`/`compact` source set). `startup` = a fresh create
@@ -274,9 +282,12 @@ declare module 'cordis' {
   interface Events {
     // ---- lifecycle (emit) ----
     /**
-     * An agent was registered in the {@link AgentRegistry} and is ready to
-     * receive messages.
-     * @param agent - the newly registered agent, already resolvable in the registry.
+     * An agent's fully composed scoped world was published in the
+     * {@link AgentRegistry}. Its session is already live in the session store,
+     * but concrete factories may keep driving verbs locked until the subsequent
+     * `agent/session-start` boundary; that event is the first supported place
+     * to inject or queue work during startup.
+     * @param agent - the newly registered agent with its live session and completed setup.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a
      * plain plugin context fires for every agent. The dispatch `this` is the
@@ -286,9 +297,11 @@ declare module 'cordis' {
      */
     'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * An agent was disposed and removed from the registry; its fiber and any
-     * in-flight turn have been torn down.
-     * @param agent - the agent that was torn down; its handle is now inert.
+     * An agent was removed from the registry after its driver and any in-flight
+     * turn reached quiescence. Ordered teardown may still be detaching the
+     * session and unwinding the agent's scoped registrations when this
+     * notification runs.
+     * @param agent - the deregistered agent; its driving handle is now inert.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a
      * plain plugin context fires for every agent. The dispatch `this` is the
@@ -534,6 +547,25 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
+    /**
+     * Serial terminal-stop checkpoint after the ordinary
+     * `agent/turn-continuation` waterfall, any `continue.reason`, and the
+     * pending-steering continuation override have been folded. A listener
+     * returns `{ action: 'stop' }` to make this turn terminal, or `undefined`
+     * to abstain. Terminal stop is monotonic: listener order and steering
+     * cannot resume the turn, and pending steering is discarded rather than
+     * becoming another step or turn. A malformed non-undefined result fails
+     * the turn closed.
+     * @param agent - the agent whose composed continuation outcome may be stopped.
+     * @param turn - the turn at its terminal-stop checkpoint.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
+     * @mode serial
+     */
+    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
 
     // ---- error notifications (emit) ----
     /**
