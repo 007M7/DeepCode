@@ -3,9 +3,9 @@
  *
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
- * agent registry, the background task registry + its `task_*` control tools,
- * the dev-mode invariants, the model-facing `bash` tool
- * schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
+ * skill registry plus local provider, the agent registry, the background task
+ * registry + its `task_*` controls, the dev-mode invariants, the model-facing
+ * `bash` and `skill` tools, and the concrete `agent-loop` — and forwards the loop's `agents`
  * list as its OWN config (default `[]`), so each app supplies its own
  * pre-created agents.
  *
@@ -50,14 +50,27 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 
 export const name = 'agent-core'
+
+/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
+export interface SkillConfig {
+  /** Registry-level discovery cache settings. */
+  registry?: SkillRegistryConfig
+  /** Local filesystem skill provider settings. */
+  local?: SkillLocal.Config
+  /** Model-facing skill catalog and tool settings. */
+  tool?: toolSkill.Config
+}
 
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
@@ -80,10 +93,23 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
+  /** Skill registry, local provider, and model-facing consumer config. */
+  skills?: SkillConfig
 }
 
-/** Intersect the owners' schemas so validation + defaulting stay identical (the registry's nested under `tools`). */
-export const Config = z.intersect([AgentLoop.Config, SystemPrompt.Config, z.object({ tools: ToolRegistry.Config })]) as unknown as z<Config>
+/** The skill config schema exported for app packages that forward `skills`. */
+export const SkillConfigSchema: z<SkillConfig> = z.object({
+  registry: SkillService.Config,
+  local: SkillLocal.Config,
+  tool: toolSkill.Config,
+})
+
+/** Intersect the owners' schemas so validation + defaulting stay identical. */
+export const Config = z.intersect([
+  AgentLoop.Config,
+  SystemPrompt.Config,
+  z.object({ tools: ToolRegistry.Config, skills: SkillConfigSchema }),
+]) as unknown as z<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
@@ -109,10 +135,13 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
+  ctx.plugin(SkillService, config.skills?.registry ?? {})
+  ctx.plugin(SkillLocal, config.skills?.local ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
+  ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(toolTasks)
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

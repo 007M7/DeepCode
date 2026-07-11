@@ -22,8 +22,10 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from './types.ts'
 
+export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 export type {
   BashExecRequest,
   BashExecSpec,
@@ -31,6 +33,7 @@ export type {
   BashProcessRead,
   BashProcessStatus,
   BashRunResult,
+  BashSandboxInfo,
   CollectedOutput,
 } from './types.ts'
 
@@ -65,6 +68,15 @@ declare module 'cordis' {
 export abstract class BashExecutor extends Service {
   constructor(ctx: Context) {
     super(ctx, 'bash')
+  }
+
+  /**
+   * The sandbox mode this executor applies by default, or `undefined` when it
+   * does not sandbox commands.
+   * @returns the configured default sandbox mode, when supported.
+   */
+  get sandboxMode(): SandboxMode | undefined {
+    return undefined
   }
 
   /**

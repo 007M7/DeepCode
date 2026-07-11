@@ -16,6 +16,7 @@ class StubExecutor extends BashExecutor {
       workdir: request.workdir ?? '/stub',
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
+      sandboxMode: request.sandboxMode,
     }
   }
 
@@ -54,7 +55,7 @@ describe('BashExecutor service seam', () => {
     const ctx = new Context()
     await ctx.plugin(StubExecutor)
     const spec = ctx.bash.resolve({ command: 'echo hi' })
-    expect(spec).toEqual({ command: 'echo hi', workdir: '/stub', timeoutMs: 1000 })
+    expect(spec).toEqual({ command: 'echo hi', workdir: '/stub', timeoutMs: 1000, sandboxMode: undefined })
 
     const result = await ctx.bash.run(spec)
     expect(result.exitCode).toBe(0)
@@ -67,6 +68,12 @@ describe('BashExecutor service seam', () => {
     expect(proc.kill()).toBe(true)
     expect(proc.kill()).toBe(false) // already settled → no-op
     await proc.done
+  })
+
+  it('reports no default sandbox mode from the task-free base seam', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubExecutor)
+    expect(ctx.bash.sandboxMode).toBeUndefined()
   })
 
   it('loading a second implementation throws (one bash service per context — cordis standard)', async () => {

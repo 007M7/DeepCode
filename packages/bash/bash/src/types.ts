@@ -12,6 +12,24 @@
  * @module dsh-bash/types
  */
 
+import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+
+/**
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
+ */
+export interface BashSandboxInfo {
+  /** The mode the command actually ran under. */
+  mode: SandboxMode
+  /** Whether the sandbox denied a file operation. */
+  denied: boolean
+  /** How completely the selected runner enforced the requested mode. */
+  enforcement?: SandboxEnforcement
+  /** Whether the sandbox runner failed before the command could run. */
+  runnerFailed?: boolean
+}
+
 /**
  * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
  * filled by {@link BashExecutor.resolve} from the implementation's config.
@@ -44,6 +62,8 @@ export interface BashExecRequest {
    * uses shell syntax like `FOO=bar cmd`).
    */
   env?: Record<string, string> | undefined
+  /** Explicit per-call sandbox mode override. */
+  sandboxMode?: SandboxMode | undefined
 }
 
 /**
@@ -76,6 +96,8 @@ export interface BashExecSpec {
    * config default, absent means "no extra env".
    */
   env?: Record<string, string> | undefined
+  /** Resolved sandbox mode; ignored by executors that do not confine. */
+  sandboxMode: SandboxMode | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
@@ -102,6 +124,8 @@ export interface BashRunResult {
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
+  sandbox?: BashSandboxInfo
 }
 
 /** Lifecycle of a background process. */
@@ -138,6 +162,8 @@ export interface BashProcess {
   signal: NodeJS.Signals | null
   /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
   readonly done: Promise<void>
+  /** Sandbox facts, stamped once a confined process settles. */
+  sandbox?: BashSandboxInfo
   /**
    * Read output produced since the previous read (consuming — consecutive
    * reads never re-deliver). Reads that lost data flag `lossy` and point at

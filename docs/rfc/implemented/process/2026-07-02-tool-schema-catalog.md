@@ -31,7 +31,7 @@ The boot manifest (`TOOL_PACKAGES`) is a hand-written list — in tension with t
 
 ### Scope
 
-Shipped product tool PACKAGES under `packages/*/tool-*`, each booted with its default config: `dsh-tool-bash` (`bash`, `bash_output`, `bash_kill`), `dsh-tool-todo` (`todo_write`), `dsh-tool-subagent` (`subagent`). The `examples/` demo tools (`echo`) are excluded, matching the cordis catalog's packages-only scope — a demo tool is not part of the product surface a reader is cataloguing.
+Shipped product tool packages under `packages/*/tool-*`, each booted with its default config, including `dsh-tool-bash` (`bash`), `dsh-tool-tasks` (`task_output`, `task_list`, `task_kill`), and `dsh-tool-subagent` (`subagent`). Example-only tools are excluded.
 
 The unit is the PACKAGE, not the deployed tool instance. A package's registered tool name can be a load-time config — `tool-subagent`'s `toolName` — so the same package surfaces as `subagent` (spawn backend) AND `subagent_fork` (fork backend) in the shipped `coding-agent` / `acp-agent` configs, with an identical schema. The generator boots each package once at its default and records such shipped aliases in a per-package note, rather than enumerating every deployment permutation. Cataloguing at the package level keeps the source of truth the package (what a plugin author reads) and avoids leaking example-app `cordis.yml` config into a packages-scoped generator; the note keeps the doc honest about the names a reader will actually see the model receive. The design deliberately does not attempt to catalog "every configured tool instance across every leaf config" — that is a deployment inventory, a different (and unbounded) surface.
 

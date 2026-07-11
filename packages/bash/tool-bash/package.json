@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-bash",
-  "description": "Model-facing bash tools (bash, bash_output, bash_kill) over the DeepSeek Harness bash executor seam",
+  "description": "Model-facing bash tool with optional generic background-task and sandbox-escalation support",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -23,8 +23,10 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
+    "@deepseek-ai/dsh-user-approval": "^0.0.1",
     "@deepseek-ai/dsh-bash": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-sandbox": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-tasks": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
@@ -36,9 +38,11 @@
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-bash": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks": "workspace:^",

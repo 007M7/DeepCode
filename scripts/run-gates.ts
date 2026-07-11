@@ -286,18 +286,28 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
     ...dependencyOptions,
     verify: async (result) => {
       const output = result.stdout + result.stderr
-      if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
-        throw new Error('demo smoke did not show the echo tool call.')
+      const sessionsRoot = join(root, '.sessions')
+      try {
+        if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
+          throw new Error('demo smoke did not show the echo tool call.')
+        }
+        if (!output.includes('[tool result] ECHO: CI SMOKE')) {
+          throw new Error('demo smoke did not show the echo tool result.')
+        }
+        const buckets = await readdir(sessionsRoot, { withFileTypes: true })
+        let found = false
+        for (const bucket of buckets) {
+          if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
+          const entries = await readdir(join(sessionsRoot, bucket.name))
+          if (entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
+            found = true
+            break
+          }
+        }
+        if (!found) throw new Error('demo smoke did not create a main-session JSONL log in a cwd bucket.')
+      } finally {
+        await rm(sessionsRoot, { recursive: true, force: true })
       }
-      if (!output.includes('[tool result] ECHO: CI SMOKE')) {
-        throw new Error('demo smoke did not show the echo tool result.')
-      }
-      const sessionDir = join(root, '.sessions', '_no-cwd')
-      const entries = await readdir(sessionDir)
-      if (!entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
-        throw new Error('demo smoke did not create a main-session JSONL log.')
-      }
-      await rm(join(root, '.sessions'), { recursive: true, force: true })
     },
   }
 }

@@ -123,6 +123,9 @@ export class LocalBashExecutor extends BashExecutor {
       // means none). env merges AFTER the scrub in run.ts.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
+      // A local executor carries the override as an explicit inert fact; a
+      // sandboxing subclass resolves it to its configured fallback.
+      sandboxMode: request.sandboxMode,
     }
   }
 
@@ -183,6 +186,7 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
+        this.onProcessDone(proc, running)
         this.live.delete(proc)
       }, (error: unknown) => {
         // Spawn-level failure (bad workdir, …): the process never ran. The
@@ -220,6 +224,15 @@ export class LocalBashExecutor extends BashExecutor {
     this.live.set(proc, running)
     return proc
   }
+
+  /**
+   * Settlement hook for subclasses that attach execution facts to a process.
+   * Called after exit facts are stamped and before {@link BashProcess.done}
+   * resolves. The base implementation is intentionally empty.
+   * @param _proc - the settled process handle.
+   * @param _running - the process collectors, including full in-memory stderr.
+   */
+  protected onProcessDone(_proc: BashProcess, _running: RunningBash): void {}
 }
 
 export default LocalBashExecutor

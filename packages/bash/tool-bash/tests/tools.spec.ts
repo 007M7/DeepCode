@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
@@ -12,6 +12,8 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome, renderProcessRead, renderResult } from '@deepseek-ai/dsh-tool-bash'
@@ -81,6 +83,82 @@ async function callUntilText(
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`${name} output did not include ${JSON.stringify(expected)}; last text was ${JSON.stringify(last !== undefined ? text(last) : '')}`)
+}
+
+class RecordingSandboxExecutor extends BashExecutor {
+  readonly modes: Array<string | undefined> = []
+
+  override get sandboxMode() {
+    return 'read-only' as const
+  }
+
+  resolve(request: BashExecRequest): BashExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      timeoutMs: request.timeoutMs ?? 1000,
+      ...request.signal ? { signal: request.signal } : {},
+      sandboxMode: request.sandboxMode ?? 'read-only',
+    }
+  }
+
+  run(spec: BashExecSpec): Promise<BashRunResult> {
+    this.modes.push(spec.sandboxMode)
+    return Promise.resolve({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: spec.timeoutMs,
+      stdout: { text: 'ok', truncated: false },
+      stderr: { text: '', truncated: false },
+      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+    })
+  }
+
+  start(spec: BashExecSpec): BashProcess {
+    this.modes.push(spec.sandboxMode)
+    return {
+      command: spec.command,
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      readOutput: () => ({ delta: '', lossy: false }),
+      kill: () => false,
+    }
+  }
+}
+
+async function setupSandboxed(withApproval = false) {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(TaskService)
+  await ctx.plugin(ToolTasks)
+  await ctx.plugin(RecordingSandboxExecutor)
+  if (withApproval) await ctx.plugin(ApprovalService)
+  await ctx.plugin(ToolBash)
+  return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
+}
+
+function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access'): Agent {
+  const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
+  if (mode !== undefined) events.push({ type: 'bash/sandbox-mode', data: { mode } })
+  return {
+    id: 'sandbox-agent',
+    session: {
+      header: { version: 0, id: 'sandbox-session', createdAt: 0 },
+      events,
+      append: (type: string, data: Record<string, unknown>) => {
+        const event = { type, data }
+        events.push(event)
+        return event
+      },
+    },
+  } as unknown as Agent
 }
 
 describe('bash tool', () => {
@@ -324,7 +402,7 @@ describe('background execution through the task runtime', () => {
     class CountingStartExecutor extends BashExecutor {
       starts = 0
       resolve(request: BashExecRequest): BashExecSpec {
-        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0 }
+        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
       }
       run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
       start(spec: BashExecSpec): BashProcess {
@@ -366,7 +444,7 @@ describe('background execution through the task runtime', () => {
     class LeakProbeExecutor extends BashExecutor {
       starts = 0
       resolve(request: BashExecRequest): BashExecSpec {
-        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0 }
+        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
       }
 
       run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
@@ -428,6 +506,104 @@ describe('background execution through the task runtime', () => {
   })
 })
 
+describe('sandbox escalation through the generic task producer', () => {
+  const escalate = {
+    command: 'true',
+    description: 'test escalation',
+    sandbox_permissions: 'workspace-write',
+    justification: 'the command needs workspace writes',
+  }
+
+  it('advertises the sandbox fields and validates their pairing', async () => {
+    const { ctx } = await setupSandboxed()
+    const schema = ctx.tools.schemas().find(item => item.name === 'bash')!
+    const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
+    expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(schema.description).toContain('approval prompt')
+
+    for (const args of [
+      { command: 'true', description: 'd', sandbox_permissions: 'workspace-write' },
+      { command: 'true', description: 'd', justification: 'why' },
+      { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: ' ' },
+    ]) {
+      expect((await call(ctx, 'bash', args)).isError).toBe(true)
+    }
+  })
+
+  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
+    const plain = await setup()
+    expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
+
+    const { ctx } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+    expect(text(result)).toContain('not strictly wider')
+    expect(prompted).not.toHaveBeenCalled()
+
+    const malformed = sandboxAgent()
+    ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
+      type: 'bash/sandbox-mode',
+      data: { mode: 'unknown-mode' },
+    })
+    expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+  })
+
+  it('fails closed when approval cannot be routed', async () => {
+    const withoutService = await setupSandboxed()
+    expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
+
+    const withService = await setupSandboxed(true)
+    expect(text(await call(withService.ctx, 'bash', escalate))).toContain('no agent to route')
+    expect(text(await call(withService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval channel')
+  })
+
+  it.each([
+    ['rejected', 'user rejected'],
+    ['cancelled', 'was cancelled'],
+  ] as const)('maps an approval %s to its distinct failure', async (outcome, message) => {
+    const { ctx, bash } = await setupSandboxed(true)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>(outcome))
+    const result = await call(ctx, 'bash', escalate, sandboxAgent())
+    expect(text(result)).toContain(message)
+    expect(bash.modes).toEqual([])
+  })
+
+  it('runs a granted foreground or background call under the approved mode', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const agent = sandboxAgent()
+    ctx.agents.register(agent)
+    const foreground = await ctx.tools.execute({
+      callId: CallId('sandbox-signal'),
+      name: 'bash',
+      arguments: escalate,
+      agent,
+      signal: new AbortController().signal,
+    })
+    expect(foreground.isError).toBe(false)
+    const background = await call(ctx, 'bash', { ...escalate, run_in_background: true }, agent)
+    expect(text(background)).toBe('started background task bash-1')
+    expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
+  })
+
+  it('uses the session override for ordinary calls and evaluates widening against it', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const agent = sandboxAgent('workspace-write')
+    await call(ctx, 'bash', { command: 'true', description: 'ordinary' }, agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'danger-full-access' }, agent)
+    expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+  })
+
+  it('keeps the exhaustiveness backstop for a rogue approval implementation', async () => {
+    const { ctx } = await setupSandboxed(true)
+    ctx.approval.request = () => Promise.resolve('rogue' as ApprovalOutcome)
+    const result = await call(ctx, 'bash', escalate, sandboxAgent())
+    expect(text(result)).toContain('unreachable variant in ApprovalOutcome')
+  })
+})
+
 describe('renderProcessRead', () => {
   const base: BashProcessRead = { delta: 'out\n', lossy: false }
 
@@ -458,6 +634,20 @@ describe('renderProcessRead', () => {
       .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
     expect(renderProcessRead({ delta: 'tail\n', lossy: true }))
       .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+
+  it('appends settled sandbox denial and runner-failure facts', () => {
+    expect(renderProcessRead(base, { mode: 'read-only', denied: true }, ['workspace-write']))
+      .toContain('[sandbox: escalation available')
+    expect(renderProcessRead({ delta: 'tail', lossy: false }, { mode: 'read-only', denied: true }))
+      .toBe('tail\n[sandbox: file access denied under read-only mode]')
+    const runner = renderProcessRead(
+      { delta: '', lossy: false },
+      { mode: 'workspace-write', denied: true, runnerFailed: true },
+      ['danger-full-access'],
+    )
+    expect(runner).toContain('sandbox runner itself failed under workspace-write mode')
+    expect(runner).not.toContain('file access denied')
   })
 })
 
@@ -584,6 +774,23 @@ describe('renderResult', () => {
   it('notes truncation with a fallback when the spill path is missing', () => {
     expect(renderResult({ ...base, stdout: { text: 'tail', truncated: true } }))
       .toBe('tail\n[output truncated; full output: (unavailable)]')
+  })
+
+  it('reports sandbox denials before exit status and hints only when escalation is advertised', () => {
+    const result: BashRunResult = {
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: 1000,
+      stdout: { text: '', truncated: false },
+      stderr: { text: 'denied', truncated: false },
+      sandbox: { mode: 'read-only', denied: true },
+    }
+    expect(renderResult(result)).toMatch(/denied under read-only mode\]\n\[exit code: 1\]$/)
+    expect(renderResult(result, ['workspace-write'])).toContain('[sandbox: escalation available')
+    expect(renderResult({ ...result, sandbox: { mode: 'read-only', denied: false } }, ['workspace-write']))
+      .not.toContain('[sandbox:')
   })
 })
 
@@ -746,6 +953,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
+        sandboxMode: request.sandboxMode,
       }
     }
     run(): Promise<BashRunResult> {

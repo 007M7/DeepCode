@@ -31,6 +31,15 @@
     },
     {
       "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../sandbox/sandbox"
     }
   ]
 }

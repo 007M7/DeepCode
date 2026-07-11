@@ -30,11 +30,15 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
-import type { BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type {} from '@deepseek-ai/dsh-user-approval'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import type { BashProcess, BashProcessRead, BashRunResult, BashSandboxInfo, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
@@ -62,13 +66,17 @@ export const Config: z<Config> = z.object({
  * the DSL has no vocabulary for: non-empty strings and a positive, finite
  * timeout.
  */
-function validateBashArgs(args: {
+interface BashToolArgs {
   command: string
   description: string
   timeoutMs?: number
   workdir?: string
   run_in_background?: boolean
-}): void {
+  sandbox_permissions?: string
+  justification?: string
+}
+
+function validateBashArgs(args: BashToolArgs): void {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
@@ -78,6 +86,36 @@ function validateBashArgs(args: {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
+  if (args.sandbox_permissions !== undefined && args.justification === undefined) {
+    throw new Error('invalid escalation: sandbox_permissions requires a justification')
+  }
+  if (args.justification !== undefined && args.sandbox_permissions === undefined) {
+    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
+  }
+  if (args.justification !== undefined && args.justification.trim().length === 0) {
+    throw new Error('invalid justification: expected a non-empty sentence')
+  }
+}
+
+const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
+  'read-only': ['workspace-write', 'danger-full-access'],
+  'workspace-write': ['danger-full-access'],
+}
+
+const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
+
+function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
+  const background = backgroundEnabled
+    ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.'
+    : 'Background execution is not available; long-running commands must finish within the timeout.'
+  const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
+    + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
+    + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
+    + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
+    + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
+    + background
+  if (escalationModes.length === 0) return base
+  return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command IS denied and a wider mode would let it succeed, retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. The approval prompt raised by that retry is how the user consents. Never escalate speculatively, and treat a rejected escalation as final for that command.'
 }
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
@@ -92,9 +130,10 @@ function streamText(output: CollectedOutput): string {
  * errored — the model decides how to react; only infrastructure failures
  * (spawn errors, aborts) surface as isError results.
  * @param result - the completed foreground run from the executor.
- * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
+ * @param escalationModes - escalation targets advertised by this composition.
+ * @returns the model-facing text: output body (or `(no output)`), then any sandbox/timeout/signal/exit markers, each on its own line.
  */
-export function renderResult(result: BashRunResult): string {
+export function renderResult(result: BashRunResult, escalationModes: readonly SandboxMode[] = []): string {
   const out = streamText(result.stdout)
   const err = streamText(result.stderr)
 
@@ -107,6 +146,12 @@ export function renderResult(result: BashRunResult): string {
   if (body.length === 0) body = '(no output)'
 
   const markers: string[] = []
+  if (result.sandbox?.denied) {
+    markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
+    if (escalationModes.length > 0) {
+      markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
+    }
+  }
   // Timeout is reported independently of how the process actually ended: a
   // command can trap SIGTERM and exit 0 after our timer fired (e.g.
   // `trap "exit 0" TERM; sleep 60`), giving timedOut:true / exitCode:0 /
@@ -130,14 +175,30 @@ export function renderResult(result: BashRunResult): string {
  * rendering (`(no new output)`) is the control surface's job, not this
  * producer's. Exported for tests.
  * @param read - one incremental read from the process handle.
- * @returns the delta text with any loss notice appended.
+ * @param sandbox - settled sandbox facts, when this was a confined process.
+ * @param escalationModes - escalation targets advertised by this composition.
+ * @returns the delta text with any loss or sandbox notice appended.
  */
-export function renderProcessRead(read: BashProcessRead): string {
-  if (!read.lossy) return read.delta
-  const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
-  const notice = `[some output was dropped from memory; full output: ${paths.length > 0 ? paths.join(', ') : '(unavailable)'}]`
-  if (read.delta.length === 0) return notice
-  return `${read.delta}${read.delta.endsWith('\n') ? '' : '\n'}${notice}`
+export function renderProcessRead(
+  read: BashProcessRead,
+  sandbox?: BashSandboxInfo,
+  escalationModes: readonly SandboxMode[] = [],
+): string {
+  const notices: string[] = []
+  if (read.lossy) {
+    const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
+    notices.push(`[some output was dropped from memory; full output: ${paths.length > 0 ? paths.join(', ') : '(unavailable)'}]`)
+  }
+  if (sandbox?.runnerFailed) {
+    notices.push(`[sandbox: the sandbox runner itself failed under ${sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`)
+  } else if (sandbox?.denied) {
+    notices.push(`[sandbox: file access denied under ${sandbox.mode} mode]`)
+    if (escalationModes.length > 0) {
+      notices.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
+    }
+  }
+  if (notices.length === 0) return read.delta
+  return `${read.delta}${read.delta.length > 0 && !read.delta.endsWith('\n') ? '\n' : ''}${notices.join('\n')}`
 }
 
 /**
@@ -300,6 +361,42 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
 
 export function apply(ctx: Context, config: Config): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
+  const defaultMode = ctx.bash.sandboxMode
+  const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
+
+  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
+    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
+
+  const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
+    if (escalationModes.length === 0) {
+      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
+    }
+    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
+    if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
+      throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
+    }
+    const approval = ctx.get('approval')
+    if (approval === undefined) {
+      throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`)
+    }
+    if (exec.agent === undefined) {
+      throw new Error(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`)
+    }
+    const outcome = await approval.request({
+      agent: exec.agent,
+      toolName: 'bash',
+      callId: exec.callId,
+      reason: `escalate sandbox to ${mode}: ${justification}`,
+      ...exec.signal ? { signal: exec.signal } : {},
+    })
+    switch (outcome) {
+      case 'allowed-once': return mode as SandboxMode
+      case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
+      case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
+      case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)
+      default: return assertNever(outcome, 'ApprovalOutcome')
+    }
+  }
 
   // The bash tool's cross-call HABIT, which the per-tool description cannot
   // carry (it describes one call): the exit-code marker is only useful
@@ -312,14 +409,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'bash',
-    description: 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
-      + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
-      + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
-      + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
-      + (backgroundEnabled
-        ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
-          + 'read its output with `task_output` and stop it with `task_kill`.'
-        : 'Background execution is not available; long-running commands must finish within the timeout.'),
+    description: bashDescription(backgroundEnabled, escalationModes),
     parameters: {
       command: { type: 'string', required: true, description: 'The bash command to execute.' },
       description: {
@@ -334,8 +424,19 @@ export function apply(ctx: Context, config: Config): void {
       ...backgroundEnabled ? {
         run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies.' },
       } : {},
+      ...escalationModes.length > 0 ? {
+        sandbox_permissions: {
+          type: 'string' as const,
+          enum: [...escalationModes],
+          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
+        },
+        justification: {
+          type: 'string' as const,
+          description: 'Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access.',
+        },
+      } : {},
     },
-    async execute(args, exec) {
+    async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
       // `description` is display/logging metadata only (surfaced to UIs via
       // the tool/call session event); it is intentionally NOT forwarded to
@@ -343,11 +444,15 @@ export function apply(ctx: Context, config: Config): void {
       // Default the workdir to the calling agent's session cwd so each ACP
       // session runs in its own workspace (see resolveWorkdir); an explicit
       // model workdir still wins.
+      const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
+        : sessionOverride(exec)
       const workdir = resolveWorkdir(args.workdir, exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        ...sandboxMode !== undefined ? { sandboxMode } : {},
       }
       if (args.run_in_background === true) {
         // The schema omission is advertising, not enforcement — the arg
@@ -380,7 +485,7 @@ export function apply(ctx: Context, config: Config): void {
             return {
               cancel: () => void proc.kill(),
               done: proc.done.then(() => processOutcome(proc)),
-              readOutput: () => renderProcessRead(proc.readOutput()),
+              readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
             }
           },
         })
@@ -391,7 +496,7 @@ export function apply(ctx: Context, config: Config): void {
         ...exec.signal ? { signal: exec.signal } : {},
       }))
       if (result.aborted) throw new Error('command aborted')
-      return [{ type: 'text', text: renderResult(result) }]
+      return [{ type: 'text', text: renderResult(result, escalationModes) }]
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,
