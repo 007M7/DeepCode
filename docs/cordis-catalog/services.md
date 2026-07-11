@@ -179,7 +179,7 @@ async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
 async traceEvent(sessionId: SessionId, seq: number): Promise<SessionEventTrace>
-registerSearchProvider(provider: SessionSearchProvider): () => void
+registerSearchProvider(provider: SessionSearchProvider): () => Promise<void>
 registerEventTextExtractor<K extends SessionEventType>( type: K, extractor: SessionEventTextExtractor<K>, ): () => void
 registerContentTextExtractor<K extends ContentBlockType>( type: K, extractor: SessionContentTextExtractor<K>, ): () => void
 searchSessions( request: SessionSearchRequest, exec?: SessionQueryExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>

@@ -151,9 +151,9 @@ export class SessionQueryService extends Service {
   /**
    * Register one full-text provider with effect-scoped disposal.
    * @param provider - provider and synchronization implementation.
-   * @returns disposer that unregisters the provider.
+   * @returns async disposer that immediately unregisters selection and awaits accepted provider work.
    */
-  registerSearchProvider(provider: SessionSearchProvider): () => void {
+  registerSearchProvider(provider: SessionSearchProvider): () => Promise<void> {
     return this._providers.register(this.ctx, provider)
   }
 

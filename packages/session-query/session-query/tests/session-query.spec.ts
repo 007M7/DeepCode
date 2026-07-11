@@ -400,8 +400,35 @@ describe('provider selection and synchronization', () => {
     await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'x', limit: 1 }, { signal: new AbortController().signal }))
       .resolves.toMatchObject({ providerId: provider.id })
 
-    dispose()
+    await dispose()
     await expect(ctx.sessionQuery.searchSessions({ query: 'x' })).rejects.toThrow(expectCode('SESSION_QUERY_PROVIDER_UNAVAILABLE'))
+  })
+
+  it('deselects immediately and drains accepted work before disposal settles', async () => {
+    const ctx = await liveContext()
+    const provider = new FakeProvider()
+    const queryStarted = deferred()
+    const releaseQuery = deferred()
+    provider.searchSessions = async () => {
+      queryStarted.resolve()
+      await releaseQuery.promise
+      return { providerId: provider.id, items: [] }
+    }
+    const dispose = ctx.sessionQuery.registerSearchProvider(provider)
+
+    const accepted = ctx.sessionQuery.searchSessions({ query: 'accepted' })
+    await queryStarted.promise
+    let disposed = false
+    const disposal = dispose().then(() => { disposed = true })
+    await expect(ctx.sessionQuery.searchSessions({ query: 'future' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PROVIDER_UNAVAILABLE'))
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+
+    releaseQuery.resolve()
+    await expect(accepted).resolves.toMatchObject({ providerId: provider.id })
+    await disposal
+    expect(disposed).toBe(true)
   })
 
   it('serializes concurrent synchronization and supports cancellation while provider search is pending', async () => {
@@ -557,6 +584,60 @@ describe('provider selection and synchronization', () => {
     await expect(ctx.sessionQuery.searchEvents({ sessionId: persisted.id, query: 'target' }))
       .resolves.toMatchObject({ providerId: provider.id })
     expect(provider.persisted.get(persisted.id)?.documents[0]?.text).toBe('persisted target')
+  })
+
+  it('cancels a persisted-only event search while persistence listing is blocked', async () => {
+    const persisted = header('blocked-persisted-target', 1)
+    TestPersistence.reset([{ meta: persisted, events: eventLog('persisted target') }])
+    const listStarted = deferred()
+    const releaseList = deferred()
+    TestPersistence.onList = listStarted.resolve
+    TestPersistence.listBarrier = releaseList.promise
+    const ctx = await liveContext()
+    const persistenceFiber = await ctx.plugin(TestPersistence)
+    await listStarted.promise
+    const provider = new FakeProvider()
+    const disposeProvider = ctx.sessionQuery.registerSearchProvider(provider)
+    const controller = new AbortController()
+
+    const pending = ctx.sessionQuery.searchEvents(
+      { sessionId: persisted.id, query: 'target' },
+      { signal: controller.signal },
+    )
+    controller.abort()
+    await expect(pending).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    expect(provider.eventRequests).toEqual([])
+
+    releaseList.resolve()
+    await disposeProvider()
+    await persistenceFiber.dispose()
+    TestPersistence.listBarrier = undefined
+    TestPersistence.onList = undefined
+  })
+
+  it('normalizes non-Error query rejections and preserves Error identity', async () => {
+    const ctx = await liveContext()
+    const provider = new FakeProvider()
+    ctx.sessionQuery.registerSearchProvider(provider)
+    const signals = [undefined, new AbortController().signal]
+
+    for (const [index, signal] of signals.entries()) {
+      const exec = signal === undefined ? undefined : { signal }
+      const identity = new Error(`query failure ${index}`)
+      provider.searchSessions = () => Promise.reject(identity)
+      const preserved = await ctx.sessionQuery.searchSessions({ query: 'x' }, exec)
+        .then(() => undefined, (error: unknown) => error)
+      expect(preserved).toBe(identity)
+
+      const rejection = { index }
+      // Deliberately violate the Promise convention to test the provider boundary.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      provider.searchSessions = () => Promise.reject(rejection)
+      const normalized = await ctx.sessionQuery.searchSessions({ query: 'x' }, exec)
+        .then(() => undefined, (error: unknown) => error)
+      expect(normalized).toBeInstanceOf(SessionQueryError)
+      expect(normalized).toMatchObject({ code: 'SESSION_QUERY_PROVIDER_ERROR', cause: rejection })
+    }
   })
 
   it('fails loudly for duplicate, configured, unavailable, and ambiguous providers', async () => {

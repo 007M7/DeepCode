@@ -23,7 +23,6 @@ import { filterEventResults, filterSessionResults } from './filters.ts'
 
 interface ProviderState {
   provider: SessionSearchProvider
-  active: boolean
   chain: Promise<void>
   liveIds: Set<SessionId>
 }
@@ -49,26 +48,25 @@ export class SessionProviderCoordinator {
    * Register one effect-scoped provider.
    * @param ctx - contributing caller context.
    * @param provider - provider implementation.
-   * @returns disposer for the registration.
+   * @returns async disposer that deselects immediately and drains accepted work.
    */
-  register(ctx: Context, provider: SessionSearchProvider): () => void {
+  register(ctx: Context, provider: SessionSearchProvider): () => Promise<void> {
     if (this._providers.has(provider.id)) {
       throw new SessionQueryError(`a session-query provider with id "${provider.id}" is already registered`, 'SESSION_QUERY_DUPLICATE_PROVIDER')
     }
     const state: ProviderState = {
       provider,
-      active: true,
       chain: Promise.resolve(),
       liveIds: new Set(),
     }
     const dispose = ctx.effect(function* (this: SessionProviderCoordinator) {
       this._providers.set(provider.id, state)
-      yield () => {
-        state.active = false
+      yield async () => {
         this._providers.delete(provider.id)
+        await state.chain
       }
     }.bind(this), 'sessionQuery.registerSearchProvider()')
-    return () => void dispose()
+    return async () => { await dispose() }
   }
 
   /**
@@ -83,7 +81,7 @@ export class SessionProviderCoordinator {
   ): Promise<SessionSearchPage<SessionSearchHit>> {
     const state = this._resolveProvider()
     const normalized = this._normalizeSessionSearch(request)
-    const work = this._runFullSearch(state, async () => {
+    const work = this._runFullSearch(state, undefined, async () => {
       if (exec?.signal?.aborted) throw aborted()
       const result = await state.provider.searchSessions(normalized, exec)
       return this._validateSearchPage(state, result, normalized.limit)
@@ -113,22 +111,25 @@ export class SessionProviderCoordinator {
     if (live !== undefined) {
       work = this._runLiveSearch(state, live, query)
     } else {
-      const persistence = await this._corpus().persistenceView()
-      if (persistence === undefined || !persistence.headers.some(header => header.id === request.sessionId)) {
-        throw new SessionQueryError(`session "${request.sessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
-      }
-      work = this._runFullSearch(state, query)
+      work = this._runFullSearch(state, request.sessionId, query)
     }
     return waitFor(work, exec?.signal)
   }
 
-  private _runFullSearch<T>(state: ProviderState, query: () => Promise<T>): Promise<T> {
+  private _runFullSearch<T>(
+    state: ProviderState,
+    requiredSessionId: SessionId | undefined,
+    query: () => Promise<T>,
+  ): Promise<T> {
     const liveSessions = this._corpus().listLive()
     return this._serialize(state, async () => {
       await this._synchronize(state, async () => {
-        /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
-        if (!state.active) return
         const persistence = await this._corpus().persistenceView()
+        const missingRequired = requiredSessionId !== undefined
+          && (persistence === undefined || !persistence.headers.some(header => header.id === requiredSessionId))
+        if (missingRequired) {
+          throw new SessionQueryError(`session "${requiredSessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
+        }
         if (persistence === undefined) {
           await state.provider.setPersistedActive(false)
         } else {
@@ -172,8 +173,6 @@ export class SessionProviderCoordinator {
     }
     return this._serialize(state, async () => {
       await this._synchronize(state, async () => {
-        /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
-        if (!state.active) return
         await state.provider.replaceLive(snapshot)
         state.liveIds.add(session.id)
       })
@@ -272,30 +271,33 @@ export class SessionProviderCoordinator {
 }
 
 function waitFor<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (signal === undefined) return work
+  const observed = work.catch((error: unknown) => { throw operationError(error) })
+  if (signal === undefined) return observed
   if (signal.aborted) {
     // Cancellation supersedes the caller's result, but shared work must still
     // have a rejection observer when it has already failed synchronously.
-    void work.catch((_supersededError: unknown) => undefined)
+    void observed.catch((_supersededError: unknown) => undefined)
     return Promise.reject(aborted())
   }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => { reject(aborted()) }
     signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
+    observed.then(
       (value) => {
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
       (error: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        /* v8 ignore next -- Promise contracts reject with Error; retain a typed boundary for third-party providers */
-        reject(error instanceof Error
-          ? error
-          : new SessionQueryError('session-query operation failed with a non-Error rejection', 'SESSION_QUERY_PROVIDER_ERROR', { cause: error }))
+        reject(operationError(error))
       },
     )
   })
+}
+
+function operationError(error: unknown): Error {
+  if (error instanceof Error) return error
+  return new SessionQueryError('session-query operation failed with a non-Error rejection', 'SESSION_QUERY_PROVIDER_ERROR', { cause: error })
 }
 
 function aborted(): SessionQueryError {
