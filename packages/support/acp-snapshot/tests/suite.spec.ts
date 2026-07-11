@@ -8,8 +8,10 @@ import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src
 import {
   childFixturePaths,
   fixtureContext,
+  formatSystemPromptSnapshot,
   headerDeltaCount,
   normalizedHeaders,
+  normalizedSystemPrompts,
   refreshFixtureReplacements,
   stabilizeRefreshLog,
 } from '../src/suite.ts'
@@ -78,6 +80,7 @@ afterAll(async () => {
 
 function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
+  writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -124,6 +127,8 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const authored = readFileSync(join(refreshDir, 'authored-error', 'session.jsonl'), 'utf8')
     expect(authored).toContain('"error":"model exploded"')
     expect(authored).not.toContain('"error":"stale"')
+
+    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe('SYS PROMPT\n')
   })
 })
 
@@ -216,6 +221,28 @@ describe('normalizedHeaders', () => {
   it('yields nothing for a log without header events', () => {
     const log = `${JSON.stringify({ type: 'session', id: 'a', createdAt: 5 })}\n`
     expect(normalizedHeaders(log, { sessionIds: [], cwd: '/w' })).toEqual([])
+  })
+})
+
+describe('normalizedSystemPrompts', () => {
+  it('extracts normalized string prompts and omits absent or non-string fields', () => {
+    const log = [
+      '{"type":"session","id":"a","createdAt":5,"cwd":"/w"}',
+      '{"type":"request/header","seq":0,"time":9,"data":{"header":{"system":"work in /w"}}}',
+      '{"type":"request/header","seq":1,"time":9,"data":{"header":{}}}',
+      '{"type":"request/header","seq":2,"time":9,"data":{"header":{"system":null}}}',
+      '{"type":"request/header","seq":3,"time":9,"data":{"header":null}}',
+      '{"type":"request/header","seq":4,"time":9,"data":{"header":"invalid"}}',
+      '',
+    ].join('\n')
+    expect(normalizedSystemPrompts(log, { sessionIds: [], cwd: '/w' })).toEqual(['work in {{cwd}}'])
+  })
+})
+
+describe('formatSystemPromptSnapshot', () => {
+  it('adds a missing terminal newline without changing an existing one', () => {
+    expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
+    expect(formatSystemPromptSnapshot('prompt\n')).toBe('prompt\n')
   })
 })
 
