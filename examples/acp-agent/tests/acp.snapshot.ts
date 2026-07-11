@@ -1,15 +1,16 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { defineAcpSnapshotSuite, type Scenario } from '@deepseek-ai/dsh-acp-snapshot'
+import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record write-back, the pinned-header
+ * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
- * `pnpm run test:snapshot:record` re-records the `recorded` scenarios against
- * the real API. See the package README (packages/support/acp-snapshot) and the
- * snapshot RFC, docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * `pnpm run test:snapshot:record` re-records model transcripts against the real
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
+ * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-agent bin (the demo:acp entry), this example's cordis.yml, and
@@ -25,6 +26,21 @@ const AGENT = {
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+
+function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
+  switch (value) {
+    case undefined:
+    case '':
+    case 'replay':
+      return 'replay'
+    case 'record':
+      return 'record'
+    case 'refresh':
+      return 'refresh'
+    default:
+      throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
+  }
+}
 
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
@@ -111,5 +127,5 @@ defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
   scenarios: SCENARIOS,
-  mode: process.env.DSH_SNAPSHOT === 'record' ? 'record' : 'replay',
+  mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
 })
