@@ -26,8 +26,13 @@ interface ProviderState {
   active: boolean
   chain: Promise<void>
   liveIds: Set<SessionId>
-  fullSync: Promise<void> | undefined
+  fullSync: FullSync | undefined
   liveSync: Map<SessionId, Promise<void>>
+}
+
+interface FullSync {
+  liveKey: string
+  promise: Promise<void>
 }
 
 /** Coordinates one selected provider against live and persisted corpus layers. */
@@ -159,7 +164,15 @@ export class SessionProviderCoordinator {
   }
 
   private _syncAll(state: ProviderState): Promise<void> {
-    if (state.fullSync !== undefined) return state.fullSync
+    // Capture the direct source before awaiting: only searches that observed
+    // the same live corpus may share an in-flight full synchronization.
+    const liveSessions = this._corpus().listLive()
+    const liveKey = JSON.stringify(liveSessions.map(session => this._snapshotLive(session)).map(snapshot => [
+      snapshot.session.header.id,
+      snapshot.fingerprint,
+      snapshot.session.persisted,
+    ]))
+    if (state.fullSync?.liveKey === liveKey) return state.fullSync.promise
     const promise = this._enqueue(state, async () => {
       /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
       if (!state.active) return
@@ -169,12 +182,13 @@ export class SessionProviderCoordinator {
       } else {
         await this._syncPersisted(state, persistence)
       }
-      await this._replaceLiveCorpus(state, this._corpus().listLive())
+      await this._replaceLiveCorpus(state, liveSessions)
     })
-    state.fullSync = promise
+    const fullSync = { liveKey, promise }
+    state.fullSync = fullSync
     void promise.finally(() => {
       /* v8 ignore next -- a newer invalidation may already own the sync slot */
-      if (state.fullSync === promise) state.fullSync = undefined
+      if (state.fullSync === fullSync) state.fullSync = undefined
     }).catch(() => undefined)
     return promise
   }

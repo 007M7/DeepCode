@@ -467,6 +467,48 @@ describe('provider selection and synchronization', () => {
       .rejects.toThrow('search failed')
   })
 
+  it('reconciles a live removal observed while an older full sync is in flight', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.prepare(SessionId('removed-during-sync'))
+    const detach = ctx.sessions.enter(session)
+    ctx.sessions.announce(session)
+    session.append('user/message', { content: [{ type: 'text', text: 'stale live hit' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const provider = new FakeProvider()
+    const replaceStarted = deferred()
+    const releaseReplace = deferred()
+    provider.replaceLive = async (snapshot) => {
+      replaceStarted.resolve()
+      await releaseReplace.promise
+      provider.live.set(snapshot.session.header.id, structuredClone(snapshot))
+    }
+    const searchLiveIds: SessionIdType[][] = []
+    provider.searchSessions = () => {
+      searchLiveIds.push([...provider.live.keys()])
+      const items: SessionSearchHit[] = []
+      for (const snapshot of provider.live.values()) {
+        const document = snapshot.documents[0]
+        if (document === undefined) continue
+        items.push({
+          ...structuredClone(snapshot.session),
+          bestMatch: { ...structuredClone(document), snippet: document.text },
+        })
+      }
+      return Promise.resolve({ providerId: provider.id, items })
+    }
+    ctx.sessionQuery.registerSearchProvider(provider)
+
+    const first = ctx.sessionQuery.searchSessions({ query: 'stale' })
+    await replaceStarted.promise
+    detach()
+    const second = ctx.sessionQuery.searchSessions({ query: 'stale' })
+    releaseReplace.resolve()
+
+    await first
+    await expect(second).resolves.toMatchObject({ items: [] })
+    expect(provider.removedLive).toContain(session.id)
+    expect(searchLiveIds.at(-1)).toEqual([])
+  })
+
   it('searches a persisted target after corpus reconciliation', async () => {
     const persisted = header('event-persisted', 1)
     TestPersistence.reset([{ meta: persisted, events: eventLog('persisted target') }])
@@ -528,6 +570,7 @@ describe('provider selection and synchronization', () => {
     await ctx.sessionQuery.searchSessions({ query: 'x' })
     expect(provider.persisted.get(persisted.id)?.documents[0]?.text).toBe('persisted')
     expect(provider.live.get(overlaid.id)?.documents[0]?.text).toBe('override')
+    expect(provider.live.get(overlaid.id)?.session).toMatchObject({ live: true, persisted: true })
     expect(provider.removedPersisted).toEqual([SessionId('stale')])
     expect(provider.activeHistory.at(-1)).toBe(true)
     const fingerprint = provider.persisted.get(persisted.id)?.fingerprint
