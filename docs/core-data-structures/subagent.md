@@ -38,7 +38,7 @@ interface SubagentStartRequest {
 
 ## The terminal result: `SubagentResult`
 
-The outcome of a run, resolved by `SubagentRun.result`. `structured` is present iff the request carried an `outputSchema` AND the provider honored it. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success.
+The outcome of a run, resolved by `SubagentRun.result`. `structured` is present only after a requested `outputSchema` was successfully satisfied; requesting a schema does not guarantee it, and a provider may return `stopReason: 'error'` when the child fails or finishes without a valid capture. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success.
 
 ```ts type-equiv
 interface SubagentResult {
@@ -92,7 +92,7 @@ The service (`ctx.subagents`) emits `subagent/start` when a run begins and `suba
 
 ## In-process backends: depth and seed
 
-The two in-process backends ([dsh-subagent-spawn](../../packages/subagent/subagent-spawn) fresh, [dsh-subagent-fork](../../packages/subagent/subagent-fork) seeded) run the child as a child `Agent` on the same context via `ctx.agents.create`. Two pieces of vocabulary ride on the existing agent/session types rather than new core types:
+The two in-process backends ([dsh-subagent-spawn](../../packages/subagent/subagent-spawn) fresh, [dsh-subagent-fork](../../packages/subagent/subagent-fork) seeded) run the child as a child `Agent` on the same application. They synchronously snapshot caller-owned data, install provider ownership before attaching the abort listener, create one run-owner fiber under `parent.ctx`, and invoke the factory through that fiber: parent teardown, provider teardown, and manual run disposal share the same pre-publication ownership and quiescence boundary, while the child still receives a flat new scope rather than inheriting the parent's capabilities. Two pieces of vocabulary ride on the existing agent/session types rather than new core types:
 
 - **Delegation depth** is a merge-extensible `AgentOptions.subagentDepth` field (`0` for a top-level agent, parent + 1 for a child). The seam owns it — the loop neither sets nor reads it — so a nested spawn reads its parent's depth from `parent.options.subagentDepth` and the `depthLimit` capability caps the tree by refusing a child whose depth would exceed `request.maxDepth`.
 - **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `resume` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).

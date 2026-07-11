@@ -17,28 +17,30 @@ The loop itself is deliberately thin — every behavior beyond "call the model, 
 
 ```ts cordis-catalog
 create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
-createAgent(options: CreateAgentOptions): AgentHandle
+async createAgent(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:69`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
-Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (phase 1: `@deepseek-ai/dsh-agent-loop`), registered via setFactory.
+Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
 setFactory(factory: AgentFactory): () => Promise<void> | void
-create(options: CreateAgentOptions): AgentHandle
+async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => Promise<void> | void
+enter(agent: Agent): () => void
+announce(agent: Agent): void
 get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:145`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:168`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -199,40 +201,42 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:155`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative contribution protections; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => Promise<void> | void
 tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void
+protect(protection: PromptProtection): () => Promise<void> | void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:335`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:379`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also owns the reserved `run_code` presentation transport and the `tools:sdk` prompt section.
 
 Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so what the model is shown, what a presenter renders, what a program can call, and what dispatches can never disagree.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => Promise<void> | void
 restrict(filter: ToolRestriction): () => Promise<void> | void
+guard(guard: ToolGuard): () => Promise<void> | void
 visible(scope?: ScopeKey): ToolDefinition[]
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 schemas(scope?: ScopeKey): ToolSchema[]
 knownNames(scope?: ScopeKey): string[]
-async execute(exec: ToolExecution): Promise<ToolExecutionResult>
+async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:392`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:474`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

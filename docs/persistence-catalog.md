@@ -219,7 +219,7 @@ One bridged sub-dispatch from a `run_code` program: the parent `run_code` call i
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:36`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:38`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 

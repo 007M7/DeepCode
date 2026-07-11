@@ -33,11 +33,9 @@ These invariants hold and are pinned by tests:
 - A `tool-bash` HMR reload does NOT make an existing background task readable or killable by a different session (ownership survives on the executor).
 - Existing non-ACP demos still work without managing handles explicitly; config-created agents remain owned by the `AgentLoop` plugin fiber.
 
-## Seam precondition (recorded)
+## Session owner tokens are unique among live agents
 
-The bash owner-token comparison relies on `session.header.id` being unique among live agents. The agent registry does NOT enforce this — it rejects a duplicate *agentId*, not a duplicate session id, and `createAgent` accepts an arbitrary `sessionId`. This is NOT reachable via ACP (UUID sessionId, `agentId === sessionId`, duplicate-load rejected), so it is not a live product hole, but a programmatic caller that registers two agents with the same session id would break bash isolation and mis-route the completion notice. The access *policy* (token comparison) stays in `tool-bash` (the consumer); the bash seam stores only an opaque `owner` string and never interprets it — the correct interface/impl/consumer split.
-
-The planned resolution is to remove the precondition by construction — see [unify the agent id and the session id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md): once an agent IS its session (one id), the registry's existing unique-`agentId` check is a unique-session-id guarantee and no two live agents can share a session token.
+The bash owner-token comparison relies on `session.header.id` being unique among live agents. `SessionStore.enter()` rejects a duplicate live session id, and the async agent factory reserves both agent and session ids across persistence loading and unpublished setup before rechecking the store at publication. A programmatic caller therefore cannot publish two live agents with one session token. The access *policy* (token comparison) stays in `tool-bash` (the consumer); the bash seam stores only an opaque `owner` string and never interprets it — the correct interface/implementation/consumer split.
 
 ## Alternatives considered
 

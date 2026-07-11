@@ -9,7 +9,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 ### Public API
 
 - `ctx.sessions.create(id?: SessionId, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage, seed boundary) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` and persisted `seedLength` to preserve them. Disposed with the calling fiber.
-- `ctx.sessions.flush(session: Session): Promise<void>` Dispatch the awaited `session/flush` durability checkpoint with the carrier captured at enter — THE flush entry point (the loop's turn-end checkpoint and idle injection call it; never dispatch a raw `ctx.parallel`).
+- `ctx.sessions.flush(session: Session): Promise<void>` Dispatch the awaited `session/flush` durability checkpoint with the carrier captured at enter — THE flush entry point (the loop's turn-end checkpoint and idle injection call it; never dispatch a raw `ctx.parallel`). Rejects a prepared, detached, or stale same-id object instead of inventing a subject-less carrier.
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
@@ -19,18 +19,14 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 `create()` covers the common case (the session is owned by the calling fiber). When a session must be torn down **in order with another resource** — so a final flush is captured before `onAppend` detaches — `create()`'s self-contained effect is wrong, because a fiber unload disposes sibling effects *concurrently*. For that, split the lifecycle and fold it into the owner's single effect:
 
 - `ctx.sessions.prepare(id?, options?): Session` — validate the id/cwd and construct the `Session`, WITHOUT entering it into the store. Same options as `create`.
-- `ctx.sessions.enter(session): () => void` — wire `onAppend` → `session/event` and add the session to the store; returns the DETACH disposer. Does NOT emit `session/created` (the caller yields the disposer first, then calls `announce`, so a throwing listener rolls the attach back). The id was already validated by `prepare`, which runs in the same synchronous sequence, so `enter` does not re-check.
+- `ctx.sessions.enter(session): () => void` — wire `onAppend` → `session/event`, capture its scope carrier, and add the session to the store; returns the idempotent DETACH disposer, which clears both notification and carrier state. Does NOT emit `session/created` (the caller installs the disposer first, then calls `announce`, so a throwing listener rolls the attach back). It re-checks the id because public `prepare`/`enter` calls may be interleaved; a stale prepared object must not overwrite a live same-id session.
 - `ctx.sessions.announce(session): void` — emit `session/created` for an entered session.
 
-`dsh-agent-loop`'s `AgentLoop.start` is the canonical consumer: it yields `enter`'s detach disposer, the registry unregister, and the loop-stop disposer into ONE composite effect, so teardown stops + awaits the loop (final flush captured) BEFORE detaching the session — whether the trigger is the `AgentHandle`'s `dispose()` or a fiber unload.
+`dsh-agent-loop` is the canonical consumer: after unpublished agent setup it enters both session and agent before announcing either, then nests loop stop, agent removal, session detach, and scope unwind in one ordered lifecycle. The final flush therefore settles before this package detaches the session, whether teardown starts from an `AgentHandle` or owner-fiber unload.
 
-### Events
+### Live service events
 
-| Event | Mode | Purpose |
-|---|---|---|
-| `session/created` | emit | A session was created |
-| `session/event` | emit (scope-filtered by the owning session's scope) | An event was appended (sync, fire-and-forget) |
-| `session/flush` | parallel | Awaited durability checkpoint (persistence plugins drain buffers here) |
+The store announces creation, publishes each append, and provides an awaited durability checkpoint. Exact `session/*` signatures, modes, and scope-carrier behavior live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the append-only payload vocabulary is separately generated into the [persistence catalog](../../../docs/persistence-catalog.md). Persistence consumers write behind from the append notification and drain on the store-owned flush entry point rather than dispatching the event directly.
 
 ### Class: `Session`
 

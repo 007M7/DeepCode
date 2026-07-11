@@ -60,7 +60,9 @@ A **session** is one agent's append-only event log. A **turn** drains one queued
 ### Turn Flow
 
 ```text
-create agent -> mint agent scope (agent.ctx) -> run creation setup -> emit agent/session-start(source)
+reserve ids -> mint agent.ctx -> await unpublished setup
+  -> enter session + agent -> session/created -> agent/created
+  -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for queued messages
   emit agent/status(running)
@@ -82,11 +84,12 @@ forever:
       'assistant/message'
       each tool call:
         'tool/call'
-        tools/pre-execute -> tools/execute -> tools/post-execute
+        tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
         'tool/result'
       append post-tool context and steering
       'step/end'
       agent/turn-continuation
+      agent/turn-stop (terminal policy)
       stop unless tools or continuation policy ask for another step
     'turn/end'
     checkpoint persistence and notify idle/running status
@@ -94,7 +97,7 @@ forever:
 
 Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, its `persona` config, shared context-wide) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
-Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; leftover steering after a turn is re-queued as ordinary input.
+Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
 
 ### Failure Boundaries
 
@@ -148,7 +151,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
-| Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
+| Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall; use serial `agent/turn-stop` for a monotonic terminal stop |
 | Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |

@@ -7,11 +7,12 @@ Scoped-context registration primitive. `createScope(ctx, key)` mints a Cordis co
 - `createScope(ctx: Context, key: ScopeKey): Scope` Mint a scope under `ctx`'s fiber. Usable synchronously (effect collection is uid-gated; service resolution falls through to the minting plugin's dependency surface). Throws on a primitive key, or when `ctx`'s fiber is disposing (`INACTIVE_EFFECT`).
 - `Scope.ctx` The tagged context: registrations through it are scope-visible AND scope-lifetime. Derived contexts (an `extend`, a fiber mounted under it) inherit the tag; nested scopes shadow (nearest tag wins).
 - `Scope.rawDispose` The EXACT Cordis disposer for the backing fiber — a composite (generator) effect yields THIS function to nest the scope's teardown at that yield position (Cordis dedupes nested effects by function identity; yielding a wrapper leaves the scope disposing as a concurrent sibling).
-- `Scope.dispose(): Promise<void>` Idempotent, always-awaitable teardown of every registration made through the scope.
+- `Scope.dispose(): Promise<void>` Idempotent, shared quiescence boundary for every registration made through the scope. Racing/repeat calls await the same teardown, including when `rawDispose` invoked the underlying single-shot Cordis disposer first.
 - `scopeOf(ctx: Context): ScopeKey | undefined` The tag a context (or any context derived from it) carries; `undefined` = context-global.
 - `scopeTarget(base: T, key?: ScopeKey): Scoped<T>` Build the dispatch `thisArg` for a scope-filtered event: composes `base`'s own `Context.filter` with the scope predicate (untagged listener ⇒ admitted; tagged ⇒ admitted iff tag === key; `key === undefined` ⇒ untagged only). Listener `this` stays `base`-shaped. `{ global: true }` listeners bypass filtering (Cordis semantics).
 - `Scoped<T>` The compile-time carrier brand: scope-filtered events demand it as their `this` type, so dispatching with a bare subject is a compile error.
 - `isScopeCarrier(value)` / `carrierKeyOf(value)` Runtime carrier marks, used by the dev invariants to assert every scope-filtered dispatch carries a carrier keyed to the subject its arguments name.
+- `scopeHost(ctx, services)` Test/tooling host whose shared `dispose()` waits for both the host fiber and every minted scope, including a child already tearing down through `rawDispose`.
 
 ## Design contract
 

@@ -18,7 +18,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
-| [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/pre-execute`/`tools/post-execute` pipeline |
+| [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, and the guarded execution pipeline |
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
 | [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
@@ -339,7 +339,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, the serial `agent/pre-step` surface-mutation seam, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 
@@ -368,6 +368,12 @@ type PromptDecision =
 type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: HookContext }
+```
+
+`agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
+
+```ts type-equiv
+type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 ```
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):

@@ -28,6 +28,8 @@ export function apply(ctx: Context) {
 }
 ```
 
+This waterfall is the reorderable policy layer. Use `ctx.tools.guard()` when an invariant needs a monotonic final denial, `tools/execute` when a plugin must wrap the actual dispatch lifetime (timeouts/retries/metrics; only `exec.signal` is replaceable), `tools/post-execute` for explicit result transformation, and `tools/result` for contained observation of the immutable final outcome. The [adding-a-tool guide](./adding-a-tool.md#execution-policy-and-observation) gives the selection rule.
+
 ## A UI plugin
 
 A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.send()` / `agent.steer()`.
@@ -92,14 +94,17 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
 | `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
-| Dynamic workflow | orchestrator plugin on `turn/end` (or `step/end`) driving `send`/`steer` + subagents |
+| Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt protection, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `ctx.compact` seam + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam; auto = token-pressure check before each step; a manual trigger invokes the same `ctx.compact` routine ([compaction RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
-| System prompt configurability | `ctx.systemPrompt.section()` with ordering |
+| System prompt configurability | `ctx.systemPrompt.section()` with ordering; an owner uses `systemPrompt.protect()` only when its canonical section/tool presence is a correctness invariant |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
 | Built-in tools | `ctx.tools.register()`; schemas flow into the assembly automatically — the `dsh-tool-*` families (bash, fs, web, subagent, todo) are the shipped examples |
-| ToolSearch / progressive disclosure | filter tools at `system-prompt/assemble` (the assembly carries the schemas; the loop logs the result as the request header, so disclosure stays reconstructable) |
+| ToolSearch / progressive disclosure | filter ordinary capabilities at `system-prompt/assemble` (the loop logs the result as the request header); owner-protected transport and correctness entries retain their canonical presence or absence |
+| Tool deadline / retry / metrics | wrap core dispatch with `tools/execute`; a wrapper may replace `exec.signal`, delegate, and inspect the normalized result in one lexical lifetime |
+| Final tool-result metrics / audit / capture | observe immutable authoritative outcomes with `tools/result`; use `tools/post-execute` instead only when the plugin must transform the result or attach context |
+| Monotonic terminal turn policy | return `{ action: 'stop' }` from serial `agent/turn-stop`, after continuation and steering have already been folded |
 | Tool sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or a sandboxing `BashExecutor` on the `dsh-bash` seam |
 | Permission system / AskUserQuestion | `tools/pre-execute` (deny/ask); register an ask tool |
 | Plan mode | `tools/pre-execute` (deny writes) + a mode prompt section via `ctx.systemPrompt.section()` or `agent.inject()` (model-visible ⟺ logged: `agent/request` shapes call config only) |

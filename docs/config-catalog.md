@@ -128,7 +128,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:38`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:37`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -578,7 +578,7 @@ Source: [`packages/subagent/subagent-acp/src/index.ts:30`](../packages/subagent/
 
 ## `@deepseek-ai/dsh-subagent-fork`
 
-Requires: `subagents` · `agents`
+Requires: `subagents`
 
 ```ts config-catalog
 /** Config: the registry name to register the provider under. */
@@ -625,7 +625,7 @@ Source: [`packages/support/subagent-mock/src/index.ts:84`](../packages/support/s
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
-Requires: `subagents` · `agents`
+Requires: `subagents`
 
 ```ts config-catalog
 /** Config: the registry name to register the provider under. */
@@ -684,7 +684,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:220`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:264`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -831,9 +831,9 @@ Requires: `systemPrompt`
 export interface Config {
   /**
    * The presentation mode. `'native'` (the default) contributes every
-   * registered tool as a wire function definition — byte-for-byte today's
-   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
-   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * visible end capability as a native wire function definition. Under
+   * `'code'` this registry contributes exactly ONE wire tool,
+   * `run_code`, plus the generated `tools:sdk` prompt section declaring every other tool as a
    * TypeScript API the program calls. `'both'` contributes every native
    * definition AND `run_code` + the SDK section. Non-native modes require a
    * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
@@ -850,7 +850,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:338`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:402`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
