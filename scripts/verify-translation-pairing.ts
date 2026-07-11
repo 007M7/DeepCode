@@ -55,8 +55,8 @@ const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
 const writeMode = process.argv.includes('--write')
 
-/** Scope of the bilingual contract: the root README and the docs tree. */
-const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml']
+/** Scope of the bilingual contract: the root README, the docs tree, and the Python SDK tree. */
+const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml', 'python/**/*.md', 'python/**/*.i18n.yaml']
 
 /** The enforcement frontier and the never-paired set (docs/i18n/README.md § Scope). */
 interface Manifest {

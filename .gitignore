@@ -19,3 +19,5 @@ tmp/
 .DS_Store
 .idea
 mise.toml
+python/**/__pycache__/
+python/**/.pytest_cache/
