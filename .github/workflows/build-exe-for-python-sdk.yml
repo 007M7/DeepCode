@@ -1,0 +1,200 @@
+name: Build single-exe
+
+# Single-file executable (single-exe) builds of the DeepSeek Harness SDK
+# runtime. The build pipeline and target platforms are specified in
+# docs/rfc/implemented/architecture/2026-07-10-single-exe-sdk-runtime.md: each target is
+# built natively on a runner of its own platform (no cross-compilation) by
+# scripts/build-exe-for-python-sdk.ts, which deploys the dsh-jsonrpc-agent-pkg closure manifest
+# closure with @yao-pkg/pkg into dist-exe/.
+#
+# Each build leg uploads two artifacts:
+#   - dsh-jsonrpc-agent-pkg-<target> — the bare single-file exe, for
+#     consumers that want just the binary.
+#   - deepseek-harness-python-<target> — the whole python/ directory as a
+#     tar.gz with that exe already embedded (the build script syncs it into
+#     the Python runtime package): unpack and both packages pip install
+#     as-is, the checked-in default runtime/cordis.yml is editable in
+#     place, and the embedded exe also runs directly.
+#
+# workflow_dispatch ONLY — deliberately not triggered by push/pull_request:
+# the exe is a release-style deliverable, and the build (full pnpm build +
+# pnpm deploy + pkg across a 3-platform matrix, ~100MB per artifact) is far
+# too expensive to run as a per-commit CI signal. Dispatch it from the
+# Actions tab when artifacts are needed. There is no `ref` input on purpose:
+# actions/checkout already checks out the branch/tag the run was dispatched
+# on.
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: >-
+          Comma-separated pkg targets to build. Any subset of:
+          node24-linux-x64, node24-linux-arm64, node24-macos-arm64.
+        type: string
+        required: false
+        default: node24-linux-x64,node24-linux-arm64,node24-macos-arm64
+
+# Manual runs on the same ref supersede each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the jobs only read the repo; artifact upload needs no
+# extra scope.
+permissions:
+  contents: read
+
+jobs:
+  # Turn the `targets` input into the build matrix. The `matrix` context is
+  # not available in a job-level `if:` (jobs.<job_id>.if only sees
+  # github/needs/vars/inputs), so target selection happens here instead of
+  # skipping matrix legs; an unknown target name fails the whole run loudly
+  # instead of being silently ignored.
+  plan:
+    name: plan targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Compute matrix from targets input
+        id: plan
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+          matrix='[]'
+          IFS=',' read -r -a targets <<< "$TARGETS"
+          for raw in "${targets[@]}"; do
+            t="$(echo "$raw" | xargs)" # trim surrounding whitespace
+            [ -z "$t" ] && continue
+            # Native builds only — each target maps to a runner of its own
+            # platform: linux-arm64 uses GitHub's hosted arm64 label
+            # ubuntu-24.04-arm (there is no ubuntu-latest-arm), macos-arm64
+            # uses macos-latest (Apple Silicon since macos-14).
+            case "$t" in
+              node24-linux-x64)   runner=ubuntu-latest ;;
+              node24-linux-arm64) runner=ubuntu-24.04-arm ;;
+              node24-macos-arm64) runner=macos-latest ;;
+              *)
+                echo "::error::Unknown target '$t'. Supported: node24-linux-x64, node24-linux-arm64, node24-macos-arm64."
+                exit 1
+                ;;
+            esac
+            matrix="$(jq -c --arg target "$t" --arg runner "$runner" '. + [{target: $target, runner: $runner}]' <<< "$matrix")"
+          done
+          if [ "$matrix" = '[]' ]; then
+            echo "::error::The targets input selected nothing to build."
+            exit 1
+          fi
+          echo "Matrix: $matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      # Unlike ci.yml (x64-only), this matrix spans two Linux architectures
+      # that share runner.os, so runner.arch is part of the key.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-
+
+      # The first run per target has pkg-fetch download yao-pkg's patched
+      # Node binary into ~/.pkg-cache; cache it so later runs skip the
+      # download. The target string pins Node major + platform + arch;
+      # pnpm-lock.yaml rolls the key when @yao-pkg/pkg (and with it the
+      # pinned patched-binary version) is bumped, with restore-keys still
+      # seeding from the previous cache.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.pkg-cache
+          key: pkg-fetch-${{ matrix.target }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pkg-fetch-${{ matrix.target }}-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      # The script runs the whole pipeline itself (pnpm run build → pnpm
+      # deploy --prod → pkg) and writes its output to dist-exe/ by default.
+      - name: Build single-exe
+        run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dsh-jsonrpc-agent-pkg-${{ matrix.target }}
+          path: dist-exe/
+          if-no-files-found: error
+
+      # After the build step, python/ is already in its complete
+      # distributable shape — the script synced this leg's exe into
+      # python/sdk-runtime/src/deepseek_harness_runtime/runtime/ next to the
+      # checked-in default cordis.yml — so packing is all that is left.
+      # Everything goes under one top-level deepseek-harness-python/
+      # directory so unpacking never scatters files. Shipping a tar (rather
+      # than uploading the tree bare) preserves the exe's executable bit —
+      # tar keeps file modes; upload-artifact's zip does not.
+      #
+      # Excluded: runtime/node/ (dev-only node-mode carrier, ~140MB) plus
+      # __pycache__ / .pytest_cache / .venv / node_modules anywhere (install
+      # or test leftovers); uv.lock stays in.
+      #
+      # Portability: GNU tar (ubuntu) and bsdtar (macos) both accept
+      # `tar -czf out.tar.gz --exclude=… -C <parent> <dir>` and both treat
+      # an excluded directory as pruned (no descent). The top-level rename
+      # is done by copying into a temp dir first — GNU --transform / BSD -s
+      # are single-implementation flags.
+      - name: Pack Python SDK bundle
+        id: pack
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          platform_arch="${TARGET#*-}" # node24-macos-arm64 -> macos-arm64
+          exe="python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-${platform_arch}"
+          if [ ! -x "$exe" ]; then
+            echo "::error::$exe missing or not executable — the build step did not sync this leg's exe into the Python runtime package; refusing to pack a half-empty bundle."
+            exit 1
+          fi
+          staging="$(mktemp -d)"
+          cp -R python "$staging/deepseek-harness-python"
+          bundle="deepseek-harness-python-${platform_arch}.tar.gz"
+          tar -czf "$bundle" \
+            --exclude='deepseek-harness-python/sdk-runtime/src/deepseek_harness_runtime/runtime/node' \
+            --exclude='__pycache__' \
+            --exclude='.pytest_cache' \
+            --exclude='.venv' \
+            --exclude='node_modules' \
+            -C "$staging" deepseek-harness-python
+          rm -rf "$staging"
+          ls -lh "$bundle"
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: deepseek-harness-python-${{ matrix.target }}
+          path: ${{ steps.pack.outputs.bundle }}
+          if-no-files-found: error
