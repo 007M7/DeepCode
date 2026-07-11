@@ -120,7 +120,11 @@ export class AgentLoop extends Service implements AgentFactory {
                 this.ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
               })
           })
-          return () => void fiber.dispose()
+          // Return the EXACT child-fiber disposer. Cordis moves a returned
+          // effect into this labeled owner's teardown tree by function
+          // identity; a wrapper would leave the child as a concurrent sibling
+          // and could discard its async quiescence promise.
+          return fiber.dispose
         }, `agentLoop.resume(${id})`)
       } else {
         this.create(id, options, cwd === undefined ? {} : { cwd })

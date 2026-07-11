@@ -24,6 +24,24 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 }
 
 describe('config-driven session id', () => {
+  it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const loopFiber = await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+    })
+
+    const resumeEffect = loopFiber.getEffects().find(effect => effect.label === 'agentLoop.resume(main)')
+    expect(resumeEffect?.children.map(child => child.label)).toEqual(['ctx.plugin()'])
+    expect(loopFiber.getEffects().filter(effect => effect.label === 'ctx.plugin()')).toEqual([])
+
+    await loopFiber.dispose()
+  })
+
   it('config-driven create uses a fresh ${id}-session-<uuid> per run (restart-safe)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-session-'))
     dirs.push(root)
