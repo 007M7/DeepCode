@@ -7,6 +7,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
 /** Identifies one background task within an executor (generated `bash-N`). */
 export type BashTaskId = Branded<'BashTaskId'>
@@ -38,6 +39,48 @@ export type OwnerToken = Branded<'OwnerToken'>
  */
 export function OwnerToken(id: string): OwnerToken {
   return id as OwnerToken
+}
+
+/**
+ * Sandbox facts for one foreground run — present on {@link BashRunResult} iff
+ * a sandboxing executor ran the command (an unsandboxed executor reports no
+ * `sandbox` field at all). Reported independently of `exitCode`/`signal`
+ * (orthogonal outcomes), so a caller can tell "the command failed on its own"
+ * from "the sandbox blocked a file operation". The mode/enforcement
+ * vocabulary lives on the `@deepseek-ai/dsh-sandbox` seam; this shape is the
+ * bash seam's result-fact carrier for it.
+ */
+export interface BashSandboxInfo {
+  /** The mode the command actually ran under. */
+  mode: SandboxMode
+  /**
+   * True when the executor classifies this run's failure as the sandbox
+   * denying a file operation. The classification is CONSERVATIVE (a failed
+   * exit whose stderr carries a filesystem-permission signature) and reads
+   * the COLLECTED stderr — the bounded in-memory tail per
+   * {@link CollectedOutput} semantics, so a signature that survives only in a
+   * spill file is missed toward `denied: false`. A plain command failure
+   * keeps `denied: false` even under a sandboxed mode.
+   */
+  denied: boolean
+  /**
+   * How completely the runner enforced `mode`'s file effects — see
+   * {@link SandboxEnforcement}. Absent exactly when `mode` is
+   * `danger-full-access`: nothing is confined, so there is no enforcement to
+   * report.
+   */
+  enforcement?: SandboxEnforcement
+  /**
+   * True when the executor classifies this failure as the SANDBOX RUNNER
+   * itself failing (missing binary, refused profile, fail-closed refusal
+   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
+   * task failure, and it outranks `denied` (a runner's own error text can
+   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
+   * foreground run surfaces the same condition as the thrown
+   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
+   * channel; a settled task's facts are its only channel).
+   */
+  runnerFailed?: boolean
 }
 
 /**
@@ -81,6 +124,20 @@ export interface BashExecRequest {
    * ownerless background start (a non-agent caller).
    */
   owner?: OwnerToken | undefined
+  /**
+   * Explicit per-call sandbox-policy input, overriding the executor's
+   * configured default mode for THIS call. Never a silent default: a
+   * consumer sets it only from an explicit policy source — an
+   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
+   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
+   * session's standing override folded from its own `bash/sandbox-mode`
+   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
+   * choice). A sandboxing executor confines THIS call under the given mode;
+   * a non-sandboxing executor carries the field and confines nothing (the
+   * tool layer stamps neither escalation nor overrides without a sandboxing
+   * executor — see {@link BashExecutor.sandboxMode}).
+   */
+  sandboxMode?: SandboxMode | undefined
 }
 
 /**
@@ -122,6 +179,16 @@ export interface BashExecSpec {
    * task. `start()` stores it; `run()` (foreground) ignores it.
    */
   owner: OwnerToken | undefined
+  /**
+   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
+   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
+   * stamps the effective mode (the request's explicit override, else its
+   * configured default) so `run()`/`start()` read the spec, never the config;
+   * a non-sandboxing executor carries the request value through verbatim and
+   * ignores it (`undefined` under such an executor means what its README says:
+   * unconfined execution).
+   */
+  sandboxMode: SandboxMode | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
@@ -148,6 +215,12 @@ export interface BashRunResult {
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
+  /**
+   * Sandbox facts, present iff a sandboxing executor ran the command — an
+   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
+   * {@link BashSandboxInfo} for the `denied` classification semantics.
+   */
+  sandbox?: BashSandboxInfo
 }
 
 /** Lifecycle of a background task. */
@@ -164,6 +237,16 @@ export interface BashTask {
   signal: NodeJS.Signals | null
   /** Resolves when the underlying process closes (never rejects). */
   readonly done: Promise<void>
+  /**
+   * Sandbox facts for this task's execution, stamped by a sandboxing executor
+   * once the task settles and BEFORE completion listeners are notified — an
+   * `onTaskDone` consumer and a `done` awaiter both see it. Denial
+   * classification runs against the settled task's collected stderr, so the
+   * field cannot exist earlier: absent while the task is running and under an
+   * executor that does not sandbox. See {@link BashSandboxInfo} for the
+   * `denied` semantics.
+   */
+  sandbox?: BashSandboxInfo
 }
 
 /** One incremental {@link BashExecutor.readOutput} read. */

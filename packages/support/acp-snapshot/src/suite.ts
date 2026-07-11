@@ -99,6 +99,15 @@ export interface Scenario {
    */
   pinsHeader?: boolean
   /**
+   * How many `request/header-delta` events this PINNING scenario's fixture
+   * legitimately carries (default 0). A recorded mid-run header change — a
+   * config-option switch rewriting a prompt section — is part of the pinned
+   * surface, committed verbatim like the header itself; any OTHER count
+   * still fails, so fixture rot stays caught. Meaningless off the pin (the
+   * live uniformity guard keeps non-pinning scenarios delta-free).
+   */
+  expectedHeaderDeltas?: number
+  /**
    * Which header-composition class this scenario belongs to. Scenarios that
    * boot the same config compose the same header; each class has exactly one
    * {@link pinsHeader} scenario, and the uniformity guard compares every
@@ -511,17 +520,19 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every pinning fixture carries exactly one request/header and no deltas', async () => {
+    it('every pinning fixture carries exactly one request/header and its declared deltas', async () => {
       // The live uniformity guard runs only in NON-pinning scenarios, so a
       // class made of just its pinning scenario would otherwise accept a
-      // re-recorded pin with several headers or a mid-run header-delta —
-      // shapes the pin design cannot represent. Assert the committed pins
-      // directly.
+      // re-recorded pin with several headers or an undeclared mid-run
+      // header-delta — shapes the pin design cannot represent. Assert the
+      // committed pins directly; a scenario whose arc legitimately rewrites
+      // a prompt section declares the exact count via expectedHeaderDeltas.
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))
         expect(headers.length, `${scenario.name}: a pinning fixture must carry exactly one request/header`).toBe(1)
-        expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry no request/header-delta`).toBe(0)
+        expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry exactly its declared request/header-deltas`)
+          .toBe(scenario.expectedHeaderDeltas ?? 0)
       }
     })
 

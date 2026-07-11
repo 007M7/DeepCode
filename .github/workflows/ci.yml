@@ -82,6 +82,20 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
+      # The snapshot lane REPLAYS the sandbox example's recorded scenarios,
+      # re-executing their bash calls under a real runner. ubuntu-latest has
+      # no bubblewrap preinstalled and no built Landlock launcher, so without
+      # this the confined executions fail closed (SANDBOX_UNAVAILABLE). Same
+      # install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04 AppArmor
+      # userns knob).
+      - name: Install bubblewrap (unrestrict userns)
+        if: matrix.lane == 'snapshot'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+            || echo "apparmor userns knob absent — the functional probe decides"
+
       - uses: actions/cache@v4
         if: matrix.lane == 'lint'
         with:
