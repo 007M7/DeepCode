@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent-core",
-  "description": "The providerless/executor-less/UI-less agent spine as one Cordis bundle plugin (timer + llm + sessions + system-prompt + tools + agents + invariants + tool-bash + agent-loop)",
+  "description": "The default executor-less/UI-less agent spine as one Cordis bundle plugin (timer + llm + sessions + system-prompt + tools + skills + agents + tasks + invariants + tool-bash + tool-skill + tool-tasks + agent-loop)",
   "version": "0.0.1",
   "private": true,
   "type": "module",
