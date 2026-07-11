@@ -40,10 +40,14 @@ Every request carries the shared attribution header from dsh-llm's `attributionH
 
 pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time dependencies. They are lazy-loaded — only the openai SDK actually loads for this adapter — but they do land in `node_modules`. Accepted for a package whose purpose is design verification.
 
-## Limitations
-
-Same MVP contract as llm-deepseek: `tool_choice` is not mapped.
-
 ## Testing
 
 Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK happily talks to any base URL). Real-API coverage in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across all exposed reasoning levels (off/high/xhigh), the thinking+tools round trip, and a cross-adapter structural-equivalence check against llm-deepseek.
+
+## Known Limitations and Deferred Work
+
+- **`tool_choice` is not mapped** — same MVP contract as llm-deepseek.
+- **In-history `system`-role messages fold into `user`-role wire messages** — pi-ai exposes a single `systemPrompt` slot, diverging from the hand-rolled twin's `role: 'system'` passthrough.
+- **`LlmError.status` is never set** — pi-ai reports failures as in-stream events with no HTTP status, so error codes are regex-classified from the error text.
+- **`buildModel` hardcodes descriptor metadata** — `contextWindow: 128000`, `maxTokens: 64000`, zero cost, identically for every registered model name; not configurable.
+- **pi-ai's built-in retries are disabled (`maxRetries: 0`)** — failures surface immediately; retry policy belongs to `llm/stream` listeners.

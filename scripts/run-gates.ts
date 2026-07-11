@@ -274,6 +274,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    pnpmScript('readme-limitations', 'verify-readme-limitations', { label: 'readme limitations' }),
   ]
 }
 

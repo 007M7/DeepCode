@@ -30,3 +30,9 @@ The tool writes only the session event; it does not render. UIs subscribe to `se
 ## Export shape
 
 A function/namespace plugin: it exports `name` / `inject` / `apply` and NO default. A stray `export default` would collapse the module via the Loader's `unwrapExports` and drop `inject` (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Known Limitations and Deferred Work
+
+- **Single-owner scope only** — the list belongs to the one calling agent session; subagent/shared/swarm scopes are a deliberate cut (see § Single owner), and a non-agent caller is rejected.
+- **The item shape is deliberately minimal** — `content` plus three-state `status`; no id, priority, or active-form fields, and the ACP bridge synthesizes the `priority` ACP requires.
+- **Whole-list replacement is the only operation** — no partial updates, no read-back tool; the model must resend the entire list each call.

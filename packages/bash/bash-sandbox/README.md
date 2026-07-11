@@ -38,3 +38,10 @@ The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landloc
 |---|---|---|
 | System prompt, indirectly | By advertising a confining `sandboxMode`, this backend makes `dsh-tool-bash` state the calling session's effective mode and expose escalation fields. The backend itself adds no prose. | Small fixed per-request cost through the consumer, plus a retained notice when the session mode changes. |
 | Bash tool result, indirectly | The model sees ordinary bounded command output plus denial markers, the mode used, and sandbox-unavailable failures shaped by `dsh-tool-bash`; runner details stay internal. | Zero additional tokens on an unremarkable allowed run beyond ordinary output. Denial or failure adds a small conditional marker or error retained until compaction. |
+
+## Known Limitations and Deferred Work
+
+- **Confinement covers file effects only** — network access and process visibility are unchanged, so the modes are not a general-purpose security sandbox.
+- **Denials are inferred from failed-command stderr** — backend signatures make the inference portable, but a matching application error can be classified as a denial and a denial omitted from the retained tail can be missed.
+- **A background runner failure has no immediate error channel** — it is recorded on the settled task and surfaces when the caller polls with `bash_output`.
+- **`danger-full-access` deliberately bypasses `ctx.sandbox`** — it is an explicit unconfined mode, not a wider sandbox profile.

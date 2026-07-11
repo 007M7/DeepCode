@@ -23,3 +23,9 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 ## Vocabulary
 
 `CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables. `CodeRunResult` reports the completion `value?`, the ordered `logs` (`CodeLogEntry`: `console`/`stdout`/`stderr` source, console `level`, capped text), and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
+
+## Known Limitations and Deferred Work
+
+- **`run()` is one-shot** — `logs` arrive only on the resolved `CodeRunResult`; the seam exposes no streaming-log or progress surface for a live program's output.
+- **A persistent REPL-style kernel is recorded future work** — the no-state-between-runs contract stands until a persistent-kernel backend brings its own logging story ([Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md)).
+- **Only the worker-thread backend ships** — `'process'`/`'container'` are declared well-known `isolation` values with no implementation; a hard security boundary awaits a container backend.

@@ -76,3 +76,11 @@ The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-subpr
 ## Plugin export shape
 
 Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Known Limitations and Deferred Work
+
+- **A fresh process per run** — persistent-process pooling is a future optimization ([the seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)).
+- **No start-time capability enforcement** — an out-of-process child cannot honor the parent's `outputSchema`/`depthLimit`/`toolFilter`/`persona`, so the provider advertises none and `request.parent` is ignored.
+- **Only `agent_message_chunk` text is collected** — the child's tool-call activity, thought chunks, and plan updates are not surfaced to the parent.
+- **Permission prompts are auto-answered** (`permission: allow | reject`) — no human is surfaced a child's `session/request_permission` in this cut.
+- **No snapshot-tier replay coverage** (`TODO(acp-subagent-replay)`) — an ACP child is its own process with its own replay shape, deferred.

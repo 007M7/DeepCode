@@ -24,3 +24,8 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `spawn`). |
+
+## Known Limitations and Deferred Work
+
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
+- **Fresh means no parent transcript** — the child inherits cwd, lineage, model, and explicitly configured persona/tool restrictions, but none of the parent's conversation; use the fork provider when completed-turn context is required.

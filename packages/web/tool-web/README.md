@@ -41,3 +41,9 @@ Each tool is registered independently; a product that wants only one disables th
 Tool registration follows product **enablement**, not backend availability. A tool stays visible even when its selected provider is missing, misconfigured, ambiguous, or temporarily unavailable; the seam resolves the provider at execution time and execution fails with a structured `WebError` (e.g. `WEB_PROVIDER_UNAVAILABLE`, `WEB_PROVIDER_AMBIGUOUS`), which `ToolRegistry.execute()` turns into an error tool result the model can read and hooks/UI can route on. This keeps the model schema stable without making plugin load order, credential state, or HMR timing part of the model-facing contract. To remove a web tool entirely, disable it here in config.
 
 The tool never calls a provider's `status()` and never enumerates providers — its only execution path is `ctx.web.search()` / `ctx.web.fetch()`, and provider unavailability reaches it as the structured `WebError` codes selection throws at execution time. Provider selection stays entirely inside the seam, with one owner.
+
+## Known Limitations and Deferred Work
+
+- **`htmlToMarkdown` is a minimal regex converter, not an HTML parser** — it strips script/style/noscript, keeps headings/bullets/links, and decodes about a dozen named entities; tables, images, and nested formatting are lost.
+- **The model-facing surface is minimal by design, with promotions deferred** — `max_results` stays a config bound (not a model argument), and `web_fetch` takes only `url` (no `format`/`prompt`/LLM-summarization mode); both are named later steps in [the seam RFC](../../../docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md).
+- **No web-specific permission policy** — both tools execute without requesting `ctx.approval`; a deployment that needs confirmation must add a `tools/pre-execute` policy, and the package does not define persistent URL/domain grants.

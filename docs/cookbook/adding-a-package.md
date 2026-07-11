@@ -13,7 +13,10 @@ packages/<group>/<pkg>/
                    # you use Config, + ../../<group>/<dep> for each dsh dep)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
-  README.md        # contract plus the required Model Experience table
+  README.md        # service API, events, extension points, design notes,
+                   # + the required Model Experience table
+                   # + the gated "Known Limitations and Deferred Work" section
+                   # (or a whitelist entry in scripts/verify-readme-limitations.ts)
 ```
 
 Fill the canonical [Model Experience table](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and the exact indirect path. Every package participates, including type-only libraries and backend seams.

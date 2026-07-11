@@ -18,3 +18,10 @@ Answerers today: the ACP bridge ([`@deepseek-ai/dsh-acp`](../../ui/acp/)) forwar
 |---|---|---|
 | System prompt and policy notice | Each agent request carries a source-owned approval-policy marker. Under `never`, it also states that approval-requiring actions are rejected and sandbox escalation must not be requested. A policy change injects at most one attributed notice before the next step. | Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history. |
 | Tool outcome | `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context. | Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result. |
+
+## Known Limitations and Deferred Work
+
+- **Requests are valid only inside an open turn** — an idle or between-turn caller throws before auditing; a durable out-of-turn approval workflow is deferred.
+- **Only one-shot grants exist** — the outcome vocabulary has `allowed-once` but no `allow-always`, remembered rule, revocation, or grant store; session policy is only `ask` / `never`.
+- **The request carries no tool arguments** — a UI must correlate `callId` with an already rendered tool call, and a call-less request cannot be presented by the shipped ACP answerer.
+- **No built-in answerer** — headless or incompletely composed deployments resolve `unavailable` and fail closed; the service itself never prompts a human.

@@ -25,3 +25,8 @@ The tool calls `ctx.userInteraction.ask()` and returns JSON text shaped as `{ "a
 ## Role
 
 This is the consumer package for the user-interaction seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
+
+## Known Limitations and Deferred Work
+
+- **A pending question blocks the tool call until the human answers** — the tool declares no `timeout-policy` budget; cancellation rides the turn's `exec.signal` only.
+- **Answers return as JSON text** — the seam's structured `AskUserQuestionAnswer` is serialized into the tool result rather than carried as typed content blocks.

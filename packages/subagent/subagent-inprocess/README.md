@@ -44,3 +44,8 @@ Delegation depth rides on a merge-extensible `AgentOptions.subagentDepth` field 
 ### `SubagentDepthError`
 
 Thrown by `startInProcessRun` when a spawn would exceed the request's `maxDepth` cap; carries `attemptedDepth` and `maxDepth`.
+
+## Known Limitations and Deferred Work
+
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
+- **Structured capture accepts the `defineTool` schema subset only** — unsupported JSON Schema constructs fail before the child is created; a provider needing a broader schema vocabulary requires a different runtime.

@@ -57,8 +57,11 @@ The matcher subject is the tool name (`PreToolUse`/`PostToolUse`), the session s
 
 Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }` source. `agent.inject()` defaults a missing source to `{ kind: 'user' }`, which would mislabel plugin context as a user prompt — so the bridge always names itself.
 
-## Deferred (faithful-but-degraded)
+## Known Limitations and Deferred Work
 
 - **`updatedInput` (tool-input rewrite)** is logged + warned, **not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)).
 - **`systemMessage`** (a hook's user-facing warning) is logged + warned, **not surfaced** — there is no user-message channel on these seams yet (only model-facing `additionalContext`). The shared merge collects it; the bridge does not yet render it.
 - **Stop loop-guard.** CC breaks an infinite force-continue with `stop_hook_active` (true once a Stop hook has fired this run) plus a max-consecutive cap; both are deferred (`TODO(stop-loop-guard)`). Today `stop_hook_active` is always `false`, so a Stop hook that unconditionally blocks would force-continue every step — a hook author must self-limit until the guard lands.
+- **`{"continue": false}` is recorded, not enforced** — the merge computes the `stop`/`stopReason` outcome and the `hook/result` event records decision `stop`, but the run is not halted (`TODO(hook-continue-false)`).
+- **`SessionStart` cannot gate the first turn** — `agent/session-start` is a synchronous emit, so a hook's injected context lands best-effort before turn 1 (`TODO(session-start-gating)`).
+- **Hook config is process-level** — one `configPath` parsed at load for the whole process; per-session discovery of a project-local config is deferred (`TODO(per-session-hook-config)`).

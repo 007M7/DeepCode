@@ -34,3 +34,10 @@ interface Config {
 ## Write path
 
 Like the JSONL backend, the plugin also installs the `session/event` → buffer → `session/flush` drain: it snapshots each event when buffered (the live `session.events` object is mutable), persists a fork's seed once on `session/created`, keeps a per-session write cursor so a resumed session never re-appends stored events, and seeds existing live sessions on apply (HMR does not replay `session/created`). Dispose awaits every in-flight init + final drain and then closes the database, so no write lands after teardown.
+
+## Known Limitations and Deferred Work
+
+- **Raw `node:sqlite`, pending a cordis database service** — the backend holds a `DatabaseSync` directly; if a `cordis/db` / `@cordisjs` SQL driver is adopted, the storage driver routes through it (the `SessionPersistence` contract would not change) — a marked TODO.
+- **`DatabaseSync` is synchronous** — every append transaction blocks the event loop for its duration; acceptable for local stores, a throughput ceiling for busy multi-session servers.
+- **Only the current `SCHEMA_VERSION` opens** — a database written by any other build is rejected rather than migrated (unreleased software; no persisted user data to preserve).
+- **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).

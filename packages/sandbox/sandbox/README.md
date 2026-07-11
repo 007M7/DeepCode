@@ -15,3 +15,10 @@ Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | None directly | This seam registers no prompt, schema, or message. A consumer may expose configured mode, enforcement, denial, or `SANDBOX_UNAVAILABLE` facts in its own guidance or result. | Zero direct tokens. Confinement changes model-visible text only through the consuming capability. |
+
+## Known Limitations and Deferred Work
+
+- **File effects are the whole policy vocabulary** — the seam expresses no network, process, syscall, device, or credential restrictions.
+- **Same-world confinement only** — containers, microVMs, and remote execution require replacing capability implementations rather than adding a provider here.
+- **Denial reporting is a stderr dialect** — the seam returns backend signatures instead of a typed runtime denial channel, so consumers that need classification must infer it from the child process's output.
+- **One provider per context** — composing different sandbox mechanisms simultaneously requires a provider-level ladder or separate Cordis contexts; callers choose policy per call, not backend identity.

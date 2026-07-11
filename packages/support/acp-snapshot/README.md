@@ -46,3 +46,8 @@ Constraints: `suite.ts` imports vitest, so the package is importable only inside
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | None in production | The test harness records, normalizes, scrubs, and compares request headers and ACP transcripts but does not alter the agent's assembled context. Replay scenarios obtain assistant chunks from `dsh-llm-replay`; record mode uses the real composition. | Zero production tokens. Replay spends no provider tokens, while record mode pays the composition's ordinary model cost; golden scrubbing changes files only, never the live request. |
+
+## Known Limitations and Deferred Work
+
+- **Session harvest is JSONL-only** — `runScenario` collects persisted `.jsonl` logs, so an example composed over the SQLite persistence backend has no snapshot path.
+- **The subprocess boots the unbuilt tsx/Loader path only** — the built-bin artifact is guarded by the separate `built-bin` e2e smokes, never by this tier.

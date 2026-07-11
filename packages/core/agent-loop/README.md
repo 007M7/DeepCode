@@ -43,7 +43,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 
@@ -100,7 +100,7 @@ Error containment: a throwing plugin ends the **turn**, never the loop. A malfor
 
 Cancellation: `agent.cancel()` is the single public stop primitive — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt. (The loop still aborts its own per-step `AbortController` directly on disposal and from `cancel()`; that controller is loop-internal, not a public verb.)
 
-### What is NOT here
+### What belongs to plugins
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
@@ -109,3 +109,11 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
 - UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)
+
+## Known Limitations and Deferred Work
+
+- **Tool calls within a step execute sequentially** — parallel execution waits on concurrency-safety metadata in the tool contract (see `dsh-tools`).
+- **No resume-or-create policy on the config path** — config-driven `create()` starts a fresh `${id}-session-<uuid>` every run (`TODO(demo)`), and a config `resumeSessionId` whose resume fails logs a warning and creates no agent.
+- **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
+- **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.
+- **`runLoop`/`Inbox`/`InboxMessage` stay exported with no outside consumer** — [removal is proposed](../../../docs/rfc/proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md).

@@ -19,3 +19,9 @@ Bare plugin specifiers in a config (`@deepseek-ai/dsh-*`) resolve through the co
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | None directly | Boot and environment helpers load the configured plugin tree but register no prompt, schema, or message of their own. `.env`, loader diagnostics, and config-path selection are process concerns, not model context. | Zero direct tokens. The selected configuration indirectly determines which other packages contribute context. |
+
+## Known Limitations and Deferred Work
+
+- **Bare package specifiers depend on Loader internals** — production bins need `node --expose-internals`; an in-process caller without it must use resolvable relative/file specifiers or tsx path mapping.
+- **Snapshot replay swapping is basename-specific** — only a config ending in `cordis.yml` or `cordis.yaml` maps to the sibling `cordis.snapshot.yml`; custom config names require caller-managed selection.
+- **Environment loading is cwd-scoped and optional** — the helper loads one `.env` file and warns on failure; it does not search parents, merge profiles, or validate required variables.

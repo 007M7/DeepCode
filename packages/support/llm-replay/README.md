@@ -49,3 +49,8 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 ## Plugin export shape
 
 Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Known Limitations and Deferred Work
+
+- **First-call-order script binding assumes sequential delegation** — a cut that runs sibling subagents concurrently (or a compaction summarize call landing mid-run) would bind live sessions to recorded scripts non-deterministically; a stronger keying is deferred until such a scenario exists (`XXX(concurrent-subagents)`).
+- **Only chunk-producing calls are derivable** — a pure pre-chunk throw or a cancel/hang scenario needs the `replay.override.json` sidecar; the override replaces the PRIMARY session's script only.

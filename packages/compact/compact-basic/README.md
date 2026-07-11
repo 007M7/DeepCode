@@ -63,3 +63,11 @@ export function apply(ctx: Context): void {
 ```
 
 Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it compacts automatically under token pressure; a consumer (a future `/compact` tool) can also call `ctx.compact.compactIfNeeded(...)` or `ctx.compact.compactRegion(...)` directly.
+
+## Known Limitations and Deferred Work
+
+- **Token estimation is the chars/`charsPerToken` heuristic** — a marked TODO schedules replacing it with an exact count (a real tokenizer, or provider `usage` fed back) so thresholds track the model's actual budget.
+- **`estimatePressure()` does not count the request's `tools` field** — pressure is underestimated by the size of the serialized tool schemas the request also carries.
+- **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
+- **Summarization failure fails closed with full, over-budget history** — including truncation at the summarization `maxTokens`, which hidden reasoning tokens can consume; the auto path logs a warning and proceeds.
+- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).

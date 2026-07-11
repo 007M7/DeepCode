@@ -41,3 +41,10 @@ It reuses `$DEEPSEEK_API_KEY` (no new secret) but **not** `$DEEPSEEK_BASE_URL`: 
 ## Mapping
 
 DeepSeek returns no provider-generated answer surface this provider trusts as `content`, so `content` is omitted. `sources[]` is built from the `web_search_result` items inside `web_search_tool_result` blocks: `url` ← `url`, `title` ← `title`, `publishedAt` ← `page_age`. The per-source `snippet` lives separately in a `text` block's `citations[]` (a `cited_text` keyed by `url`), so the provider joins the two — a result with no citation excerpt simply has no `snippet`. Results are deduped by `url` (a `maxUses > 1` request can surface the same URL across searches). DeepSeek's `web_search` has no result-count knob (only `maxUses`), so `maxResults` is enforced by the seam (truncating `sources[]` and setting `truncated`). Provider failures surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`.
+
+## Known Limitations and Deferred Work
+
+- **One search costs a full Messages model turn** — latency plus generated tokens, with up to `maxUses` server-side searches; DeepSeek exposes no dedicated retrieval endpoint.
+- **Over-returned sources still cost tokens** — with no result-count knob on the wire, `maxResults` is enforced only post-hoc by seam truncation.
+- **Uncited results carry no `snippet`** — a source gains one only when a `text` block citation (`cited_text`) matches its URL.
+- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (e.g. `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.
