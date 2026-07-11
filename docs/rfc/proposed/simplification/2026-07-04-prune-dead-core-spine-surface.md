@@ -1,32 +1,49 @@
-# RFC: Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`
+# RFC: Prune dead public and result surface
 
 Status: proposed
 
 ## Problem
 
-Three pieces of public spine surface share one defect class: their only possible role is to be ignored, or their trigger is unreachable.
+Several package-root exports, result fields, and convenience methods have no production consumer. They survive because tests import internals through public entry points or because a type anticipated a caller that never arrived. Each item is small in isolation, but together they enlarge the SDK contract, generated catalogs, documentation, and regression matrix without enabling a shipped path.
 
-1. **`SurfaceManager.invalidate()`** (`packages/core/session/src/surface.ts`). Its documented trigger — "the log has been replaced wholesale (e.g. after Session seed)" — is structurally unreachable: seeding happens inside the `Session` constructor, `_surface` is created lazily on first access, and the log reference is never reassigned afterward, so no constructed `SurfaceManager` ever observes a wholesale replacement. Sole caller: its own unit test. A rollback primitive protecting a scenario the implementation cannot produce.
-2. **The `runLoop`, `Inbox`, and `InboxMessage` exports** (`packages/core/agent-loop/src/index.ts`). `runLoop` has no importer outside the package — the only callers are the package's own internals (the agent constructs its loop with it), so the public re-export has zero consumers; `Inbox`/`InboxMessage` likewise reach outside code only through the package's own inbox spec (switchable to the source module). The exports contradict the package's own docs — the inbox module doc says the public surface is `Agent.send()`/`Agent.steer()` — and the [architecture dependency rule](../../../architecture.md): nothing programs against `dsh-agent-loop`; a replacement loop is a different bundle built on `dsh-agent`, not a consumer of this package's internals. `ReactLoopAgent` stays exported (cross-package tests construct it by package name).
-3. **`ToolExecutionResult.callId`** (`packages/core/tools/src/index.ts`; the input `ToolExecution.callId` stays). Zero consumers read it. A `tools/execute` wrapper may construct or replace a result, but the registry rejects any `callId` that differs from the immutable execution identity and rebuilds later outcomes from protected snapshots; `tools/post-execute` receives that same execution beside the result, and the observe-only `tools/result` notification receives both as immutable values. The loop independently correlates with its model call's `call.id`, while ACP correlates through the session event's `data.callId`. The result field is therefore a compulsory copy of information already present at every extension point, plus validation and regression tests whose only job is to prove the copy cannot disagree.
+The production corpus is `packages/*/*/src`, example sources/config, and runtime scripts; tests, package READMEs, generated catalogs, and RFC prose are evidence of publication but not consumers. Exact-symbol searches produce the following inventory:
+
+| Surface | Production evidence | Simplification |
+| --- | --- | --- |
+| `SurfaceManager.invalidate()` | Only its unit test calls it; seeding completes before the lazily-created manager exists and the session never replaces its log reference. | Delete it and its impossible wholesale-replacement contract. |
+| `ToolExecutionResult.callId` | Every hook already receives the immutable `ToolExecution`; the loop and ACP correlate through the call/session event. No consumer reads the duplicate result field. | Remove the field, copy/mismatch guards, and tests that prove the duplicate cannot disagree. |
+| `ReactLoopAgent` root export | Outside-package named imports are tests; production programs against `Agent` and creates/resumes through `ctx.agents`. | Return/interface-type `Agent` and make the concrete loop class package-internal; keep the deliberate synchronous config-only `AgentLoop.create()` path. |
+| `workflow-workerthread` protocol/runtime/session re-exports and named `WorkerWorkflowEngine` | Every package-name consumer uses the default engine; the workflow RFC already defines the worker wire protocol as private. | Keep the default plugin class/config contract; drop the duplicate named class export and keep protocol modules source-private. |
+| `code-runtime-worker` protocol/bootstrap re-exports | Outside-package production/e2e consumers use `WorkerCodeRuntime` and config, not `BootstrapPort`, `PatchableStream`, or worker message/boot types. | Keep the runtime class/config contract and make its wire/bootstrap vocabulary source-private. |
+| `providerWording` and `completedTurnPrefix` root exports | Each has one same-package production caller; only the balanced-prefix helper has a same-package white-box test. | Make them source-private and test provider behavior. |
+| `depthOf`, `SubagentDepthError`, `SENSITIVE_ENV_PATTERN`, `waitForExit`, and `exitsWithin` root exports | Production subagent backends consume the in-process runner and subprocess construction/disposal helpers, not these enforcement/test internals. | Keep depth/environment/exit behavior but make the helpers and error/regex source-private; test through spawn and disposal. |
+| `PersistenceCoordinator.inits`, backend `inits` accessors, `seedCoversPrefix`, and `assertSerializable` | The accessors exist for white-box tests; the helpers have no outside production importer. | Observe initialization through `session/flush` and internalize the helpers. Keep both backends, `SessionHeader`, and SQLite's version contract. |
+| `LlmService.models()` | Tests/docs only; production resolves a configured adapter directly. | Delete the convenience while keeping both LLM adapters. |
+| `LlmError.status` and replay status | Adapters/replay populate it, but production branches on stable error code/message and never reads raw status. | Remove the unread field and replay plumbing while preserving error classification. |
+| `BlockAssembler.push()` return value | Both production callers ignore the returned completed block. | Return `void`; keep the deliberately public `blocks()`/`message()` contract. |
+| `compactRegion`'s separate `session` argument | The sole production caller passes the same object already present as `agent.session`; the API permits an incoherent pair. | Use `agent.session` as the one source of truth. |
+| `CompactionResult.startSeq`, `summarySeq`, `endSeq`, and `summary` | The production consumer reads only shadowed range/seq/token accounting; the durable log owns summary and event identity. | Remove the four result echoes while keeping both shared transcript renderers. |
+| `BasicCompactService` estimation/summarization visibility | No outside production caller invokes the five methods; the implemented RFC names only `estimateContentTokens()` and `summarize()` as subclass hooks. | Make those two `protected` and the three orchestration-only estimators private. |
+| `CodeLogEntry.source`/`level` and `RunCodeMeta.dispatches` | Every production consumer maps logs to text; no presenter/model path reads the other fields or the persisted dispatch count. | Make code-runtime logs strings (or text-only entries) and remove result-meta dispatch plumbing; keep the local counter that mints deterministic dispatch ids. |
+| `ToolNotFoundError.toolName`, `SystemPrompt.config`, and `BashTask.command` | Each stored public value has no production reader. | Drop the unread field while retaining error messages, resolved configuration behavior, and task lifecycle. |
+
+The earlier version of this RFC also named `runLoop`, `Inbox`, and `InboxMessage`; the agent-scope branch has already made those package-internal, so they are no longer proposed work.
 
 ## Proposal
 
-Delete the method and its test; delete the three export lines and their `packages/core/agent-loop/README.md` rows, pointing the inbox spec at the source module; drop the result field from the type, the registry's construction sites (deny, dispatch, `toolErrorResult`, post-execute snapshots), its around-wrapper mismatch validation, the loop's ignore-comment, and the tests that prove the duplicate id cannot matter. The result's consumed `additionalContext` ferry and the execution object's authoritative `callId` stay untouched. Update the `ToolExecutionResult` paste in [tools.md](../../../core-data-structures/tools.md) (and its `scripts/type-equiv.manifest.json` row) and the result-shape row in `packages/core/tools/README.md`; for the `invalidate()` removal, amend the [session-surface RFC](../../implemented/architecture/2026-06-18-session-surface.md)'s full-rebuild-after-wholesale-replacement sentence per [implemented/AGENTS.md](../../implemented/AGENTS.md).
-
-Sequencing: the surface-cache work (tool-pairing balance caching) neither uses nor touches `invalidate`, so that removal can land after or alongside it mechanically. The full execution pipeline carries the immutable execution object through pre-policy, guards, around-dispatch wrappers, post-policy, and final result observation; nothing needs the result to repeat its id.
+Remove or demote every row as one bounded coordinated public-surface cleanup. Update package READMEs, JSDoc, generated API/event catalogs, type-equivalence records, exports maps where needed, and tests so they exercise the owning public seam instead of preserving test-only entry points. Do not collapse any capability seam, LLM adapter, persistence backend, or lifecycle quiescence contract.
 
 ## Alternatives considered
 
-### Why not keep them?
-
-A future consumer that swaps a session's log in place would want a reset primitive — it re-adds `invalidate` with itself. A replacement-loop author might want to reuse the inbox or the driver — the architecture already answers that a replacement loop is a different bundle. An isolated result-logging listener might want self-contained correlation on the result — the execution object is in scope at every listener, and a field that exists only to be ignored is worse than absent: it invites exactly the orphaned-pairing bug the loop comment warns about.
+**Keep test conveniences and self-contained results public.** Public helpers can make white-box tests convenient, self-contained result fields can look ergonomic, and future embedders might want the concrete loop or enumeration methods. Those benefits are hypothetical; today they make every implementation and document explain states that no shipped caller can observe. A real consumer can introduce the smallest contract it needs, with its ownership and failure semantics known.
 
 ## Acceptance criteria
 
-- `invalidate()` and the result `callId` appear only in this RFC; `runLoop`/`Inbox`/`InboxMessage` remain package-internal only — no re-export from the package index and no outside-package importer; the agent-loop README lists only the consumed public surface; the inbox spec imports the source module.
-- The complete tool-pipeline contract tests pass with the shrunk result type; the around-wrapper mismatch test, mutation-guard id assertions, and proves-ignored loop test disappear with the duplicate field.
+- Exact-symbol searches show no removed surface outside this RFC and any implemented-RFC amendments.
+- Every surface listed in this RFC is absent or demoted as specified; deliberately retained extension/test contracts outside the inventory are unchanged.
+- Tool execution, compaction, both LLM adapters, both persistence backends, workflow isolation, and agent creation/resume retain their shipped behavior.
+- Typecheck, coverage, snapshots, doc-sync, module-graph verification, build, and hygiene pass.
 
 ## Risks
 
-All three are compile-visible removals with no runtime behavior change on any shipped path.
+Most removals are compile-visible but runtime-neutral. The compaction argument cleanup deliberately forbids a session/context mismatch that no caller uses; the remaining changes can require external pre-release embedders to import less or adjust result shapes. The repository is unreleased, so carrying unsupported surface is the larger foundation cost.

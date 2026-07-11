@@ -362,6 +362,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
+  // TODO(derive-acp-session-id): derive an event's id from agent.session and
+  // verify sessions.get(id)?.agent === agent; then this reverse map disappears.
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
   // The two stay in lockstep: a record is added to `sessions` and the agent to
