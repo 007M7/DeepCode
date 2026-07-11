@@ -273,6 +273,12 @@ describe('formatSystemPromptSnapshot', () => {
       { keepStart: 1, keepEnd: 0, insert: ['new', 'lines'] },
     ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\nnew\nlines\n')
   })
+
+  it('does not double the newline of a delta insert with a trailing blank line', () => {
+    expect(formatSystemPromptSnapshot('prompt\n', [
+      { keepStart: 2, keepEnd: 1, insert: ['tail', ''] },
+    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=2, keepEnd=1 -->\n\ntail\n')
+  })
 })
 
 describe('headerDeltaCount', () => {
