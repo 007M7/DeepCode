@@ -223,9 +223,7 @@ dispatchScoped(subject, scopeKey, event, arguments):
       skip listener
 ```
 
-The real helpers fuse values that must agree: `agentEvents(context, agent)` supplies the same agent as subject, scope key, and first event argument; session storage captures its carrier once at `enter()`.
-
-`agentEvents(context, agent)` creates the carrier and injects that same agent as the first event argument. `assembleContextFor(agent)` similarly sets both the agent-facing field and the scope selector. The session store captures its carrier when a session enters because later appends and flushes may occur where the original agent context is no longer available.
+The real helpers fuse values that must agree. `agentEvents(context, agent)` uses the same agent as the subject, scope key, and first event argument. `assembleContextFor(agent)` similarly sets both the agent-facing field and the scope selector. The session store captures its carrier when a session enters because later appends and flushes may occur where the original agent context is no longer available.
 
 ### The carrier behaves like the subject but has distinct identity
 
