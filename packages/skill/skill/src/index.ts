@@ -177,31 +177,46 @@ export class SkillService extends Service {
    * Register a skill provider synchronously during the provider plugin's
    * `apply()`. Throws if another provider already owns the same provider name,
    * including the reserved runtime provider name. Providers that need remote
-   * initialization do that work inside `list()` after registration. Effect-
-   * scoped and HMR-safe: disposing the caller's fiber unregisters the provider
-   * and invalidates cached catalogs.
+   * initialization do that work inside `list()` after registration. The name
+   * and callback identities are snapshotted at registration, so later
+   * replacement of those fields cannot change the registry key, dispatch
+   * callbacks, or HMR cleanup identity. Bound callbacks retain the original
+   * provider object as their receiver, so provider-owned mutable state remains
+   * live. Effect-scoped and HMR-safe: disposing the caller's fiber unregisters
+   * the provider and invalidates cached catalogs.
    * @param provider - the provider to register by `provider.name`.
-   * @returns a disposer that unregisters this provider.
+   * @returns the exact Cordis effect disposer that unregisters this provider;
+   *   composite effects may yield it directly to preserve teardown ordering.
    */
-  registerProvider(provider: SkillProvider): () => void {
+  registerProvider(provider: SkillProvider): () => Promise<void> | void {
+    // Snapshot the registration contract before entering the effect. The
+    // callback binding preserves the historical method receiver while making
+    // replacement of `provider.list`/`provider.get` after registration inert.
+    // In particular, cleanup must never re-read caller-owned `provider.name`:
+    // an HMR host may mutate or reuse that object before its old fiber unloads.
+    const snapshot: SkillProvider = Object.freeze({
+      name: provider.name,
+      list: provider.list.bind(provider),
+      get: provider.get.bind(provider),
+    })
     const dispose = this.ctx.effect(function* (this: SkillService) {
-      if (provider.name === RUNTIME_PROVIDER) {
+      if (snapshot.name === RUNTIME_PROVIDER) {
         throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
       }
-      if (this.providers.has(provider.name)) {
-        throw new Error(`a skill provider named "${provider.name}" is already registered`)
+      if (this.providers.has(snapshot.name)) {
+        throw new Error(`a skill provider named "${snapshot.name}" is already registered`)
       }
-      this.providers.set(provider.name, { provider, order: this.nextProviderOrder })
+      this.providers.set(snapshot.name, { provider: snapshot, order: this.nextProviderOrder })
       this.nextProviderOrder += 1
       this.invalidateCache()
       yield () => {
-        this.providers.delete(provider.name)
+        this.providers.delete(snapshot.name)
         this.invalidateCache()
-        this.ctx.emit('skill/provider-removed', provider.name)
+        this.ctx.emit('skill/provider-removed', snapshot.name)
       }
-      this.ctx.emit('skill/provider-added', provider)
+      this.ctx.emit('skill/provider-added', snapshot)
     }.bind(this), 'skills.registerProvider()')
-    return () => void dispose()
+    return dispose
   }
 
   /**
@@ -210,9 +225,11 @@ export class SkillService extends Service {
    * registrations are first-wins: a duplicate logs a warning and gets a no-op
    * disposer so it cannot remove the active contribution.
    * @param skill - the complete skill definition to expose for discovery.
-   * @returns a disposer that removes this runtime contribution and invalidates caches.
+   * @returns the exact Cordis effect disposer that removes this runtime
+   *   contribution and invalidates caches; composite effects may yield it
+   *   directly to preserve teardown ordering.
    */
-  register(skill: SkillRegistration): () => void {
+  register(skill: SkillRegistration): () => Promise<void> | void {
     const normalized = normalizeRuntimeSkill(skill)
     const existing = this.runtime.get(normalized.name)
     if (existing !== undefined) {
@@ -229,7 +246,7 @@ export class SkillService extends Service {
         this.invalidateCache()
       }
     }.bind(this), 'skills.register()')
-    return () => void dispose()
+    return dispose
   }
 
   /**

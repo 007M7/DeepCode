@@ -103,8 +103,66 @@ describe('SkillService registry', () => {
       },
     })).toThrow('reserved')
 
-    disposeMemory()
+    await disposeMemory()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
+  })
+
+  it('snapshots a provider registration so caller mutation cannot corrupt HMR cleanup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const candidate: SkillCandidate = {
+      name: 'stable-skill',
+      description: 'Stable skill',
+      provider: 'stable-provider',
+      source: 'test',
+      rank: 1,
+      locator: 'original',
+    }
+    const originalList = vi.fn(() => Promise.resolve([candidate]))
+    const originalGet = vi.fn((listed: SkillCandidate) => Promise.resolve<SkillDefinition>({
+      ...listed,
+      content: 'Original body.',
+    }))
+    const provider: SkillProvider = {
+      name: 'stable-provider',
+      list: originalList,
+      get: originalGet,
+    }
+    const added: SkillProvider[] = []
+    const removed: string[] = []
+    ctx.on('skill/provider-added', (registered) => { added.push(registered) })
+    ctx.on('skill/provider-removed', (name) => { removed.push(name) })
+    const owner = await ctx.plugin({
+      name: 'mutable-provider-owner',
+      inject: ['skills'],
+      apply(pluginCtx: Context) {
+        pluginCtx.skills.registerProvider(provider)
+      },
+    })
+
+    provider.name = 'mutated-provider'
+    const replacementList = vi.fn(() => Promise.resolve([]))
+    const replacementGet = vi.fn(() => Promise.resolve(undefined))
+    provider.list = replacementList
+    provider.get = replacementGet
+
+    expect(added).toHaveLength(1)
+    expect(added[0]).not.toBe(provider)
+    expect(added[0]?.name).toBe('stable-provider')
+    expect(Object.isFrozen(added[0])).toBe(true)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['stable-skill'])
+    expect((await ctx.skills.get('stable-skill'))?.content).toBe('Original body.')
+    expect(originalList).toHaveBeenCalledOnce()
+    expect(originalGet).toHaveBeenCalledOnce()
+    expect(replacementList).not.toHaveBeenCalled()
+    expect(replacementGet).not.toHaveBeenCalled()
+
+    await owner.dispose()
+    expect(removed).toEqual(['stable-provider'])
+    expect(await ctx.skills.list()).toEqual([])
+    const replacement = new MemoryProvider([])
+    Object.defineProperty(replacement, 'name', { value: 'stable-provider' })
+    expect(() => ctx.skills.registerProvider(replacement)).not.toThrow()
   })
 
   it('validates provider candidates and invalid registry caps', async () => {
@@ -196,7 +254,7 @@ describe('SkillService registry', () => {
       path: 'memory://runtime-skill',
       metadata: { owner: 'tests' },
     })
-    disposeRuntime()
+    await disposeRuntime()
     await ctx.skills.list({ cwd: '/tmp/first-cache-key' })
     await ctx.skills.list({ cwd: '/tmp/second-cache-key' })
 
@@ -245,7 +303,7 @@ describe('SkillService registry', () => {
 
     const pending = ctx.skills.list()
     await started
-    dispose()
+    await dispose()
     release?.()
 
     expect(await pending).toEqual([])
@@ -336,9 +394,9 @@ describe('SkillService registry', () => {
 
     const disposeFirst = ctx.skills.register({ name: 'same-skill', description: 'First', source: 'runtime', content: 'first' })
     const disposeSecond = ctx.skills.register({ name: 'same-skill', description: 'Second', source: 'runtime', content: 'second' })
-    disposeSecond()
+    await disposeSecond()
     expect((await ctx.skills.get('same-skill'))?.description).toBe('First')
-    disposeFirst()
+    await disposeFirst()
     expect(await ctx.skills.get('same-skill')).toBeUndefined()
   })
 })

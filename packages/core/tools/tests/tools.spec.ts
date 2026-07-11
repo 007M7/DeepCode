@@ -229,6 +229,66 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
 
+  it.each([
+    {
+      name: 'non-object decision',
+      replacement: null,
+      message: 'tools/pre-execute must return a PreToolDecision object',
+    },
+    {
+      name: 'unknown decision kind',
+      replacement: { kind: 'permit' },
+      message: 'tools/pre-execute must return an allow, deny, or ask decision',
+    },
+    {
+      name: 'allow decision carrying extra fields',
+      replacement: { kind: 'allow', reason: 'smuggled' },
+      message: 'tools/pre-execute allow decision must contain only kind',
+    },
+    {
+      name: 'deny decision without a reason',
+      replacement: { kind: 'deny' },
+      message: 'tools/pre-execute deny decision must contain only kind and a string reason',
+    },
+    {
+      name: 'deny decision with a non-string reason',
+      replacement: { kind: 'deny', reason: 42 },
+      message: 'tools/pre-execute deny decision must contain only kind and a string reason',
+    },
+    {
+      name: 'ask decision with a non-string reason',
+      replacement: { kind: 'ask', reason: true },
+      message: 'tools/pre-execute ask decision must contain only kind and an optional string reason',
+    },
+    {
+      name: 'ask decision carrying extra fields',
+      replacement: { kind: 'ask', cache: true },
+      message: 'tools/pre-execute ask decision must contain only kind and an optional string reason',
+    },
+  ])('fails closed on a malformed tools/pre-execute $name', async ({ replacement, message }) => {
+    const ctx = await setup()
+    let bodyCalls = 0
+    const observed: ToolExecutionResult[] = []
+    ctx.tools.register({
+      ...echoTool,
+      async execute() {
+        bodyCalls += 1
+        return []
+      },
+    })
+    ctx.on('tools/pre-execute', async () => replacement as unknown as PreToolDecision)
+    ctx.on('tools/result', (_exec, result) => { observed.push(result) })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('malformed-pre'), name: 'echo', arguments: {},
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: `Error: ${message}` })
+    expect(bodyCalls).toBe(0)
+    expect(observed).toEqual([result])
+  })
+
   it('rejects a JavaScript guard that returns an async/non-string decision', async () => {
     const ctx = await setup()
     let bodyCalls = 0

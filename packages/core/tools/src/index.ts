@@ -91,6 +91,9 @@ declare module 'cordis' {
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
      * {@link PreToolDecision}); `ask` is serviced by the `ctx.approval` seam
      * when one is mounted, and degrades to deny otherwise.
+     * The returned union is validated as an exact runtime shape before approval
+     * or guards run; a malformed JavaScript/casted decision fails closed as an
+     * `isError` result and the tool body never runs.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a
      * listener registered through `agent.ctx` fires only for that agent's
      * calls, while a plain plugin listener fires for every call (including
@@ -908,6 +911,8 @@ export class ToolRegistry extends Service {
    * {@link HarnessError} surfaces its `{ name, code }` on the result. Before
    * the final observe-only notification, the authoritative outcome must survive
    * a lossless JSON round trip; an invalid outcome is normalized to an error.
+   * A malformed runtime/casted `tools/pre-execute` decision likewise normalizes
+   * to an error before approval, guards, or the tool body.
    * Caller-owned arguments must survive lossless-JSON validation before and
    * after cloning; a violation normalizes to an error before policy or dispatch.
    * @param exec - the single-use call input; its identity is snapshotted and
@@ -1002,10 +1007,10 @@ export class ToolRegistry extends Service {
     // carrier keys dispatch by exec.agent, so an `agent.ctx` listener gates only
     // its own agent's calls (agent-less calls are subject-less).
     const carrier = scopeTarget(this, exec.agent)
-    const gate = await this.ctx.waterfall(
+    const gate = this.snapshotPreDecision(await this.ctx.waterfall(
       carrier, 'tools/pre-execute', exec,
       () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
-    )
+    ))
     const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
     const denialReason = decision.kind === 'allow'
       ? this.guardReason(exec)
@@ -1053,6 +1058,41 @@ export class ToolRegistry extends Service {
     ))
 
     return await this.postExecute(exec, result)
+  }
+
+  /** Validate and detach the extensible gate's decision before any grant can dispatch. */
+  private snapshotPreDecision(value: unknown): PreToolDecision {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new TypeError('tools/pre-execute must return a PreToolDecision object')
+    }
+    const decision = value as { kind?: unknown; reason?: unknown }
+    const keys = Reflect.ownKeys(decision)
+    const hasExactKeys = (...expected: string[]): boolean =>
+      keys.length === expected.length && expected.every(key => Object.hasOwn(decision, key))
+    switch (decision.kind) {
+      case 'allow':
+        if (!hasExactKeys('kind')) {
+          throw new TypeError('tools/pre-execute allow decision must contain only kind')
+        }
+        return { kind: 'allow' }
+      case 'deny': {
+        const reason = decision.reason
+        if (!hasExactKeys('kind', 'reason') || typeof reason !== 'string') {
+          throw new TypeError('tools/pre-execute deny decision must contain only kind and a string reason')
+        }
+        return { kind: 'deny', reason }
+      }
+      case 'ask': {
+        const reason = decision.reason
+        if (!(hasExactKeys('kind') || hasExactKeys('kind', 'reason'))
+          || (reason !== undefined && typeof reason !== 'string')) {
+          throw new TypeError('tools/pre-execute ask decision must contain only kind and an optional string reason')
+        }
+        return { kind: 'ask', ...reason !== undefined ? { reason } : {} }
+      }
+      default:
+        throw new TypeError('tools/pre-execute must return an allow, deny, or ask decision')
+    }
   }
 
   /** Notify final-result observers without giving them a mutation/error channel into the outcome. */

@@ -169,8 +169,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'skills',
     summary: 'Registry of skill providers.',
     methods: [
-      'registerProvider(provider: SkillProvider): () => void',
-      'register(skill: SkillRegistration): () => void',
+      'registerProvider(provider: SkillProvider): () => Promise<void> | void',
+      'register(skill: SkillRegistration): () => Promise<void> | void',
       'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
       'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
     ],

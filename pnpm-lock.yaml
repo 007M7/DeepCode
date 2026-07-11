@@ -822,6 +822,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:^
+        version: link:../../core/scope
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../skill

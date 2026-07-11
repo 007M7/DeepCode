@@ -227,8 +227,8 @@ Source: [`packages/core/session/src/index.ts:427`](../../packages/core/session/s
 Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
-registerProvider(provider: SkillProvider): () => void
-register(skill: SkillRegistration): () => void
+registerProvider(provider: SkillProvider): () => Promise<void> | void
+register(skill: SkillRegistration): () => Promise<void> | void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
