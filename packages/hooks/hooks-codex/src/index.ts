@@ -1,17 +1,6 @@
 /**
- * `dsh-hooks-codex` — a bridge plugin that runs a user's existing Codex
- * `hooks.json` on the harness's canonical interception seams. The CODEX DIALECT
- * half of the hooks subsystem.
- *
- * Codex's hook protocol is a deliberate SUBSET of Claude Code's: five hook points
- * (`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop` — no
- * subagent/notification/compaction), regex-only matchers, snake_case stdin
- * payloads with `turn_id`/`model` extras and NO trailing newline, no env vars and
- * no command substitution, and a block-only decision model (allow/ask are not
- * honored — a hook can only block, never pre-approve). The dialect-agnostic
- * primitives come from `@deepseek-ai/dsh-hook-protocol`; this bridge owns the
- * Codex-specific payloads + matcher mode + decision mapping.
- *
+ * `dsh-hooks-codex` — a bridge plugin that runs a user's existing Codex `hooks.json` on the
+ * harness's canonical interception seams. The CODEX DIALECT half of the hooks subsystem.
  * @module @deepseek-ai/dsh-hooks-codex
  */
 
@@ -112,9 +101,9 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
-    // Run the hook in the agent's session workspace (the `session/new` cwd), not
-    // the executor default (the server launch dir) — a hook reading a relative
-    // file or `pwd` must see the user's project tree. Absent for a no-agent run.
+    // Run the hook in the agent's session workspace (the `session/new` cwd), not the executor
+    // default (the server launch dir) — a hook reading a relative file or `pwd` must see the
+    // user's project tree.
     const workdir = opts.agent?.session.header.cwd
     for (const group of groups) {
       // Codex matches with PURE regex (no literal fast path).
@@ -137,16 +126,8 @@ export function apply(ctx: Context, config: Config): void {
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
         }, () => performance.now())
-        // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN
-        // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
-        // `output.stdout` but only sets `additionalContext` from a JSON
-        // `hookSpecificOutput`, so fold plain stdout in here and let the shared
-        // merge + contextFrom path carry it. Gated exactly like the codec's own
-        // structured-stdout parse: only on a clean `exitCode === 0` (a non-zero
-        // exit is an error, not context — an `echo x; exit 2` must not inject
-        // `x`), only when stdout is non-JSON (`!startsWith('{')` — a structured
-        // hook's raw JSON is never dumped as prose), and never clobbering an
-        // explicit additionalContext from a JSON block.
+        // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN (non-JSON) stdout as
+        // additionalContext.
         if (opts.plainStdoutAsContext === true && output.exitCode === 0
           && output.additionalContext === undefined
           && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
@@ -164,11 +145,7 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
-  // TODO(hook-continue-false): the merge computes `merged.stop`/`stopReason` from
-  // a hook's `continue:false`, but no seam below honors it — there is no
-  // "hard-halt the whole agent" primitive on the interception seams yet. Deferred
-  // with the loop-guard work; until then a `continue:false` hook keeps its
-  // per-point effect and the halt request is recorded in `hook/result`, not acted on.
+  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
   function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -176,25 +153,14 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
-  /**
-   * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
-   * call sites) with a downstream listener's optional one, so folding our
-   * additionalContext onto a delegated decision drops neither. The merged block
-   * carries a single `source` — this bridge's — because a `HookContext` holds one
-   * `MessageSource` and the seam cannot represent mixed provenance; the rendered
-   * `context/message` only distinguishes by `source.kind` ('plugin'), so a
-   * downstream plugin's text is still correctly framed as plugin context.
-   */
+  /** Merge hook context while retaining this bridge's plugin-level source. */
   function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
     if (!theirs) return ours
     return { content: [...ours.content, ...theirs.content], source: ours.source }
   }
 
-  // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
-  // TODO(session-start-gating): a synchronous emit + detached `.then`, so the
-  // injected context is BEST-EFFORT — not guaranteed before the first turn reaches
-  // the model (a slow hook can miss the first request). Gating is a deferred
-  // loop-level change; the contract is "injected as soon as the hook resolves".
+  // SessionStart injects plain stdout when its detached hook resolves.
+  // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
   ctx.on('agent/session-start', (agent, source) => {
     detached.track(runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {

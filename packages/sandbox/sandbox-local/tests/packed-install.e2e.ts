@@ -6,32 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-/**
- * KEYLESS publish-path rehearsal for this package's own distribution: the
- * provider must work from its PACKED tarball plus its REGISTRY launcher
- * dependency, not the git checkout. `pnpm pack` produces the EXACT bytes
- * `pnpm publish` would upload; this suite packs the workspace closure
- * (`dsh-sandbox-local` + its `@deepseek-ai` peers), installs the tarballs
- * into a throwaway consumer OUTSIDE the repo — npm resolving the
- * `node-addon-landlock-run` dependency (and its os/cpu-selected platform
- * package) from the public registry, the real consumer path — and drives
- * the INSTALLED packages under plain `node`: no tsx, no tsconfig paths, no
- * workspace resolution, so a `files`-list omission, a broken launcher
- * dependency, or a mode-stripped binary fails here instead of at the first
- * real install.
- *
- * World-proofs: the registry-installed launcher carries this host's ELF
- * architecture and IS executable (a tarball that loses the mode bit would
- * otherwise masquerade as a non-enforcing kernel — the fail-closed branch
- * below must never absorb that), and the installed provider confines a real
- * process THROUGH it (bwrap forced off) — or fails closed when the running
- * kernel does not enforce Landlock, which is itself the installed
- * fail-closed contract. Byte provenance of the launcher is the
- * `node-addon-landlock-run` repository's own release-pipeline concern.
- *
- * Self-skips off Linux or when the built `lib/` is absent (run
- * `pnpm run build` first — CI's landlock legs do).
- */
+/** Keyless packed-tarball smoke in an external plain-Node consumer. */
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
@@ -84,11 +59,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
       tarballs.push(lines[lines.length - 1] as string)
     }
 
-    // A real consumer: plain ESM project, tarballs installed by npm — the
-    // peer ranges (^0.0.1) resolve to the tarball versions, cordis pins to
-    // the peer range's rc, and `node-addon-landlock-run` (with its
-    // os/cpu-selected platform package, an OPTIONAL dependency of the entry
-    // — so no `--omit=optional` here) comes from the public registry.
+    // Install packed tarballs in a plain ESM consumer, including optional platform dependencies.
     writeFileSync(join(consumerDir, 'package.json'), JSON.stringify({ name: 'dsh-packed-consumer', private: true, type: 'module' }))
     const install = spawnSync('npm', ['install', '--no-audit', '--no-fund', ...tarballs, 'cordis@4.0.0-rc.6'], {
       cwd: consumerDir,

@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file is the contract for every Markdown files in the repo: each tier's job, the writing rules, and the word budgets that `verify-doc-budgets` enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This file defines each Markdown tier, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for audits; rationale lives in the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
 
 ## The tier taxonomy: one home per fact
 
@@ -24,18 +24,19 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 
 ## Writing rules
 
-- **Document the current state — never the process or history that produced it.** Prose describes what the code IS and why, as if it had always been so: no "previously/now/no longer/used to/renamed/moved here", and never name a change unit the reader cannot see — a PR, commit, or stack position — in comments, JSDoc, or test names; name the mechanism instead. A genuinely clarifying contrast is framed against the live alternative as a standing fact, not against the past. The change story belongs in the commit message, the PR description, or an RFC.
+- **Document current state, not change history.** Avoid "previously/now/no longer", PRs, commits, and stack positions in durable prose; name the live mechanism. Put change stories in commits, PRs, RFCs, or postmortems.
 - **A decision worth re-litigating gets an RFC in the same PR.** The test: would a maintainer six months out ask "why was it done this way?" and find no answer in the code? If yes, write one ([when to write one](rfc/README.md)); mechanical or self-evident changes need none.
 - **One physical line per paragraph** (`verify-md-wrap`): the editor soft-wraps; hard breaks make a one-word edit re-diff the whole paragraph. Prose only — code blocks, tables, and list structure stay; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
 - **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
+- **Comments and JSDoc are contracts, not reasoning transcripts.** Keep only non-obvious behavior, constraints, and rationale at the closest public seam. Do not narrate the implementation, explain each test step, preserve review analysis, or restate what the code already says; delete instead of paraphrasing an obvious comment.
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
 
 ## Wordcount Budgets
 
-Every PR has a lesson it wants to append, and without pressure nothing leaves. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) stores the allowed word-count ceiling for each budgeted standing doc; `pnpm run verify-doc-budgets` fails when a doc exceeds its ceiling or a budgeted file is missing.
+[scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) sets standing-doc ceilings; `pnpm run verify-doc-budgets` rejects excess or missing files.
 
 When the gate goes red:
 
@@ -54,12 +55,13 @@ Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standar
 - A war story told inline where a one-line rule plus a postmortem/RFC link would do.
 - Implementation-status annotations in prose or diagrams ("implemented!", "future: …"). Status rots; the repo layout and package manifests carry it.
 - Hand-restating a generated catalog or JSDoc: event tables, tool arg tables, method signatures. Link instead.
+- Reasoning transcripts: step-by-step implementation narration, proof of obvious branches, test walkthroughs, or rejected local alternatives. Keep the resulting contract or durable rationale; delete the path used to derive it.
 - Paragraph walls: one paragraph carrying several rules and parenthetical asides. Split it, or demote the detail to the linked home.
 - Emphasis inflation: bold, CAPS, or "critically" everywhere means nothing stands out. Reserve emphasis for the clause that changes behavior.
 - Spec-speak in `implemented/` RFCs: "should", migration plans, acceptance checklists. An implemented RFC describes what is, per [rfc/implemented/AGENTS.md](rfc/implemented/AGENTS.md).
 
 ## Cross-reference with machine-checkable links, never free prose
 
-When one doc refers to another doc, an RFC, a package README, or any file in the repo, link it with a relative Markdown link to the actual path — never bare prose or a number ("see RFC 005"), which is uncheckable and rots on rename. `pnpm run verify-md-links` (part of `doc-sync`; see [the cross-link lint RFC](rfc/implemented/process/2026-06-18-markdown-cross-link-lint.md)) fails when a relative target does not exist, so a rename that orphans a link is caught before review. This is also why RFC files carry dates and topics instead of stable numbers: they survive moves between lifecycle and class folders without dangling references.
+Link repository references with relative Markdown paths, never bare filenames or RFC numbers. `verify-md-links` catches missing targets; the [cross-link RFC](rfc/implemented/process/2026-06-18-markdown-cross-link-lint.md) owns the rationale.
 
 The gate checks file existence, not `#anchor` validity — verify anchors yourself when linking to one.

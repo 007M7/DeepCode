@@ -302,12 +302,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
-    // The markers prove the hook PROCESSES ran, not that the detached `.then`
-    // continuations did (`touch` lands before the process exits). Dispose drains
-    // them, so the no-context arm of the SubagentStart continuation — covered
-    // only here — executes before this file's coverage snapshot instead of
-    // racing it (the arm went uncovered on a loaded CI runner and failed the
-    // per-file 100% branch gate).
+    // The markers prove the hook PROCESSES ran, not that the detached `.then` continuations did
+    // (`touch` lands before the process exits).
     await hooks.dispose()
   })
 
@@ -317,10 +313,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
     const slowHook = join(dir, 'slow.sh')
-    // Record the hook shell's PID and touch the marker FIRST so the test can
-    // tell "the hook is genuinely mid-run", then sleep far past the suite
-    // timeout. Dispose must KILL the process (the tracker's abort signal), not
-    // await its exit or its 10-minute default hook timeout.
+    // Record the hook shell's PID and touch the marker FIRST so the test can tell "the hook is
+    // genuinely mid-run", then sleep far past the suite timeout.
     writeFileSync(slowHook, `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     chmodSync(slowHook, 0o755)
     writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: {
@@ -334,11 +328,9 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()
-    // Quiescence, not just promptness: the drain resolves only after the run
-    // settled, and the run settles only after the killed process was reaped —
-    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
-    // throws ESRCH). An untracked fire-and-forget regression would leave the
-    // process alive (or unreaped) and fail this deterministically.
+    // Quiescence, not just promptness: the drain resolves only after the run settled, and the
+    // run settles only after the killed process was reaped — so by the time dispose returns,
+    // the PID must be GONE (kill(pid, 0) throws ESRCH).
     expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.
@@ -367,11 +359,8 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
-    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it
-    // would veto the prompt (0 model requests) and log a hook/invoked. Build the
-    // ctx WITHOUT the harness's own bridge mount so this is the ONLY mount, then
-    // dispose it — a leaked listener fails the test (a no-op `true` hook would
-    // pass even leaked, so it proved nothing).
+    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it would veto the
+    // prompt (0 model requests) and log a hook/invoked.
     const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = new Context()
@@ -393,10 +382,7 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {
-    // Postmortem 0001 guard: this plugin HAS `inject = ['bash']`, so a stray
-    // `export default apply` would collapse the module via `unwrapExports`
-    // (`exports.default ?? exports`), DROP `inject`, and crash at load with
-    // "cannot get property … without inject". Guard the shape directly.
+    // Loader must retain this namespace's injection metadata.
     expect('default' in HooksClaude).toBe(false)
     expect(HooksClaude.name).toBe('hooks-claude')
     expect(HooksClaude.inject).toEqual(['bash'])

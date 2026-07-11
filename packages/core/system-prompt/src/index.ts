@@ -1,15 +1,6 @@
 /**
- * System prompt assembly registry. Plugins contribute ordered text sections,
- * tool schema providers, named prompt variables, and authoritative named
- * protections; `assemble(context)` collates them through a waterfall that
- * runs once per step, restores protected contributions, and `renderPrompt`
- * interpolates `{{variable}}` references into the final text.
- *
- * The harness-owned prompt openers live here too: this plugin registers the
- * static `harness:identity` section (order −100) and the deployment's
- * `deployment:persona` section (order 0, from its `persona` config), so they
- * exist for every agent regardless of which loop plugin drives it.
- *
+ * System prompt assembly registry.
+ * Scope-filtered dispatch: keyed to `context.scope`.
  * @module @deepseek-ai/dsh-system-prompt
  */
 
@@ -26,20 +17,14 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall around prompt assembly — mutate or extend the
-     * {@link PromptAssembly} (sections + tools + variables) before it is
-     * rendered. Bound to the {@link SystemPrompt} service; call `next()` to
-     * delegate.
-     * @param assembly - the assembly built from the registered sections, tool
-     *   providers, and variable providers; listeners may mutate it or return a
-     *   replacement.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
-     * by `context.scope` — a listener registered through `agent.ctx` fires only
-     * for that agent's assemblies; a plain plugin listener fires for every
-     * assembly (scope-less ones included, dispatched subject-less).
-     * @param context - the per-assembly {@link AssembleContext} the caller
-     *   passed to {@link SystemPrompt.assemble} (e.g. which agent the prompt
-     *   is for), so a listener can filter or extend per agent.
+     * Waterfall around prompt assembly — mutate or extend the {@link PromptAssembly}
+     * (sections + tools + variables) before it is rendered.
+     *
+     * @param assembly - the assembly built from the registered sections, tool providers,
+     *   and variable providers; listeners may mutate it or return a replacement.
+     * @param context - the per-assembly {@link AssembleContext} the caller passed to {@link
+     *   SystemPrompt.assemble} (e.g. which agent the prompt is for), so a listener can
+     *   filter or extend per agent.
      * @mode waterfall
      */
     'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
@@ -124,17 +109,6 @@ export interface ToolProviderResult {
 
 /**
  * Canonical prompt contributions that survive the assembly waterfall.
- *
- * Protection is declarative by contribution name rather than an ordered
- * callback: after every `system-prompt/assemble` listener has finished, the
- * service restores each protected name to the exact presence and definition
- * produced by its registries before the waterfall. Restored entries keep
- * canonical order with one another and anchor before their first surviving
- * later unprotected canonical neighbor (or at the end); the service does not
- * undo a listener's reordering of unprotected entries. A name absent from that
- * canonical assembly is removed from the result. This makes mode-dependent
- * absence protectable too (for example, a native tool that intentionally stays
- * off the wire in Code Mode).
  */
 export interface PromptProtection {
   /** Section names whose canonical registry output is authoritative. */
@@ -145,19 +119,6 @@ export interface PromptProtection {
 
 /**
  * The assembled prompt.
- *
- * Tool schemas are part of the assembly by design: "what the model is told it
- * can do" is one coherent thing managed here, even though adapters transmit
- * `tools` as a separate wire field rather than prompt text. They arrive in
- * the canonical model-facing order (see {@link Config.toolOrder}).
- *
- * `variables` carries every registered prompt variable resolved against this
- * assembly's context — key present means registered, `undefined` value means
- * "no value for this assembly" (referencing it renders an error). Section
- * texts are resolved but NOT yet interpolated; {@link renderPrompt} applies
- * the variables, so waterfall listeners can still add sections or variables.
- *
- * Merge-extensible: plugins can declare extra fields on this interface.
  */
 export interface PromptAssembly {
   sections: AssembledSection[]
@@ -202,20 +163,9 @@ function validateToolOrder(toolOrder: string[] | undefined): string[] | undefine
 }
 
 /**
- * Order collected tool schemas by the validated policy: with no configured
- * list, plain lexicographic name order; with one, listed names take their
- * listed position and every unlisted tool lands at the
- * {@link TOOL_ORDER_REST} rest entry in lexicographic name order. A listed
- * name outside `knownNames` — the providers' PRE-restriction name universe —
- * throws: misconfiguration fails loud, and each assembly is the earliest
- * moment the registered tool set exists to check against (tool plugins
- * register after the service constructs, so load time is too early); the
- * assembly rejects, failing the caller's turn before any model request. A
- * listed name that is KNOWN but not collected (a tool restricted away for
- * this assembly's scope) is a normal absence: its position simply
- * contributes nothing — `toolOrder` stays compatible with per-agent
- * `restrict()` masks. Never drops a collected tool, and both sorts are
- * stable, so tools sharing a name keep their collection order.
+ * Order collected tool schemas by the validated policy: with no configured list, plain
+ * lexicographic name order; with one, listed names take their listed position and every
+ * unlisted tool lands at the {@link TOOL_ORDER_REST} rest entry in lexicographic name order.
  */
 function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined, knownNames: ReadonlySet<string>): ToolSchema[] {
   const reserved = tools.find(tool => tool.name === TOOL_ORDER_REST)
@@ -240,10 +190,7 @@ function restoreProtected<T extends { name: string }>(
   const restored = result.filter(entry => !protectedNames.has(entry.name))
   for (const [index, entry] of canonical.entries()) {
     if (!protectedNames.has(entry.name)) continue
-    // Protected entries are inserted in canonical order. Anchor each one
-    // before the first later UNPROTECTED canonical neighbor that survived the
-    // waterfall; if none survived, it belongs at the end. Looking only at
-    // unprotected neighbors avoids reversing adjacent protected entries.
+    // Protected entries are inserted in canonical order.
     const following = new Set(
       canonical.slice(index + 1)
         .filter(candidate => !protectedNames.has(candidate.name))
@@ -263,58 +210,23 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
-   * The deployment's persona — the ONE deployment-authored fragment of the
-   * system prompt, rendered as the order-0 `deployment:persona` section
-   * (after the harness identity, before all tool guidance). Every agent in
-   * the context shares it by default; a per-agent persona is a SCOPED section
-   * of the same name registered through that agent's `agent.ctx` (it shadows
-   * this one for that agent — the subagent seam's `persona` request field does
-   * exactly that). Template, not free-form text:
-   * every complete `{{…}}` group is interpreted strictly against the
-   * registered prompt variables (the shipped agent loop registers `{{model}}`
-   * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
-   * yet (a deliberate deferral; see the prompt-variables RFC). Defaults to
-   * `''` — the empty section is dropped at render, so a persona-less
-   * deployment opens with the harness identity alone.
+   * The deployment's persona — the one deployment-authored fragment of the system prompt,
+   * rendered as the order-0 `deployment:persona` section (after the harness identity, before
+   * all tool guidance).
    */
   persona?: string
   /**
-   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
-   * tools take their listed position, and tools absent from the list are
-   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
-   * lexicographic name order. A configured list must contain the rest entry
-   * exactly once, no duplicate names, and no name without a registered tool —
-   * a misconfigured order blocks work instead of silently reaching a model
-   * request: shape violations throw at load, and an unregistered name rejects
-   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
-   * not be a collected tool name; such a provider output also rejects the
-   * assembly. The single assembly-time validation rejects either failure
-   * before any model request — the earliest moment the registered tool set
-   * exists to check against, since tool plugins register after this service
-   * constructs. When omitted, tools are ordered lexicographically by name.
-   * Applied to the tools
-   * {@link SystemPrompt.assemble} collects, BEFORE the
-   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
-   * canonicalizes what the registry contributed (registration order is a
-   * plugin-load artifact); a waterfall listener that mutates the tool list
-   * owns the determinism of what it emits. Rationale (and why not per-plugin
-   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed tools take their
+   * listed position, and tools absent from the list are inserted at the {@link
+   * TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in lexicographic name order.
    */
   toolOrder?: string[]
 }
 
 /**
- * Renders the text part of an assembly: interpolates `{{variable}}`
- * references in each section from `assembly.variables`, drops empty sections,
- * and joins the rest with blank lines.
+ * Renders the text part of an assembly: interpolates `{{variable}}` references in each section
+ * from `assembly.variables`, drops empty sections, and joins the rest with blank lines.
  *
- * Strict by design (fail loud beats shipping a malformed prompt): a reference
- * to an unregistered variable, to a registered variable with no value for
- * this assembly, a complete `{{…}}` group that is not a well-formed variable
- * name (e.g. `{{ model }}`), or a `{{` that does not open a complete group
- * while a `}}` still follows (e.g. `{{{model}}}`, `{{a{b}}`) all throw. A
- * lone `{{` with no `}}` anywhere after it is ordinary prose and passes
- * through verbatim. Substituted values are never re-scanned.
  * @param assembly - the assembly to render (typically the awaited result of
  *   {@link SystemPrompt.assemble}); only `sections` and `variables` are read.
  * @returns the full system prompt text; `''` when every section renders empty
@@ -379,12 +291,9 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
     persona: z.string().default(''),
-    // A schemastery array defaults to [] when omitted, but an omitted
-    // toolOrder must stay absent ("lexicographic order"), not become an
-    // explicitly-configured empty list (which is invalid — it lacks the
-    // rest entry). Forcing the default to undefined keeps the key out of the
-    // validated config; the cast is needed because .default() expects the
-    // array type.
+    // A schemastery array defaults to [] when omitted, but an omitted toolOrder must stay
+    // absent ("lexicographic order"), not become an explicitly-configured empty list (which is
+    // invalid — it lacks the rest entry).
     toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   })
 
@@ -402,12 +311,7 @@ export class SystemPrompt extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'systemPrompt')
     this.toolOrder = validateToolOrder(config.toolOrder)
-    // The harness-owned openers. They live HERE (not on the loop plugin) so a
-    // deployment that swaps in a different loop keeps them: the identity is a
-    // harness fact stated ahead of everything, and the persona is the
-    // deployment's config, one section of the full prompt, never the whole.
-    // An empty persona still RESERVES the section name (one owner — a plugin
-    // re-registering it throws); renderPrompt drops the empty text.
+    // The harness-owned openers.
     this.section({
       name: 'harness:identity',
       order: -100,
@@ -423,22 +327,8 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Contribute a text section to the system prompt. Order is determined by
-   * `section.order` (ascending). The layer is decided by the CALLING context
-   * (`@deepseek-ai/dsh-scope`): a plain plugin context contributes globally; a
-   * scoped context (`agent.ctx`) contributes to that scope alone — and a
-   * scoped section SHADOWS a same-named global section for that scope's
-   * assemblies (most-specific-wins; this is how a per-agent persona overrides
-   * `deployment:persona`) unless that global name is protected: global
-   * protection reserves its section name against scoped shadows so the
-   * registration owner—not a later scope—defines the canonical value. The
-   * registry snapshots `name`, `order`, and `text` before checking/storing, so
-   * later caller-object mutation cannot rename a contribution. Throws
-   * if the SAME layer already has the name (a
-   * duplicate would silently double prompt text — e.g. a double-loaded tool
-   * plugin; the global-duplicate message names `agent.ctx` as the per-agent
-   * alternative). Removed when the calling fiber is disposed. Emits
-   * `system-prompt/change` on register/unregister.
+   * Contribute a text section to the system prompt.
+   *
    * @param section - the section to contribute (name, order, text or provider).
    * @returns the disposer that removes the section. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -481,26 +371,15 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.section()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // Return the exact Cordis disposer so generator effects preserve teardown nesting.
     return dispose
   }
 
   /**
-   * Contribute a tool-schema provider, evaluated at each assembly call with
-   * that assembly's {@link AssembleContext} (so it reflects the live registry
-   * state AND the assembly's scope — see {@link ToolProviderResult} for the
-   * `schemas`/`knownNames` split). The layer is decided by the calling
-   * context: a scoped provider (registered through `agent.ctx`) is consulted
-   * only for that scope's assemblies. Removed when the calling fiber is
-   * disposed. A provider must not return a schema named
-   * {@link TOOL_ORDER_REST}; that name is reserved for
-   * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
-   * `system-prompt/change`.
+   * Contribute a tool-schema provider, evaluated at each assembly call with that assembly's
+   * {@link AssembleContext} (so it reflects the live registry state AND the assembly's scope —
+   * see {@link ToolProviderResult} for the `schemas`/`knownNames` split).
+   *
    * @param provider - evaluated at every {@link assemble} for fresh schemas.
    * @returns the disposer that removes the provider. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -527,27 +406,13 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.tools()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // Return the exact Cordis disposer so generator effects preserve teardown nesting.
     return dispose
   }
 
   /**
-   * Contribute a named prompt variable, referenced from section text as
-   * `{{name}}`. The provider is evaluated at each assembly with that
-   * assembly's {@link AssembleContext}; returning `undefined` means "no value
-   * for this assembly" (a section referencing it then fails to render — a
-   * deployment must not claim facts it does not have). The layer is decided
-   * by the calling context: a scoped variable (registered through
-   * `agent.ctx`) resolves only for that scope's assemblies and SHADOWS a
-   * same-named global variable there. Throws on a name that does not match
-   * `[a-z][a-z0-9_]*` (it could never be referenced) or one already
-   * registered in the SAME layer. Removed when the calling fiber is disposed;
-   * emits `system-prompt/change` on register/unregister.
+   * Contribute a named prompt variable, referenced from section text as `{{name}}`.
+   *
    * @param name - the reference name (matches `[a-z][a-z0-9_]*`).
    * @param provider - evaluated at every {@link assemble} for the value.
    * @returns the disposer that removes the variable. The exact
@@ -581,29 +446,13 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.variable()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // Return the exact Cordis disposer so generator effects preserve teardown nesting.
     return dispose
   }
 
   /**
    * Protect named section/tool contributions from the assembly waterfall.
-   * The layer is decided by the calling context: a global protection applies
-   * to every assembly, while one registered through `agent.ctx` applies only
-   * to that agent's scope. The name's canonical registry/provider output is
-   * restored AFTER the whole waterfall, so listener registration order cannot
-   * strip, replace, duplicate, or fabricate it. Canonical absence is restored
-   * too: if the protected name is intentionally absent for an assembly, a
-   * listener-injected entry with that name is removed. The input arrays are
-   * snapshotted; an empty protection throws because it cannot affect output.
-   * Removed with the calling fiber and emits `system-prompt/change` on
-   * registration/unregistration. A global section protection also reserves the
-   * name against scoped section shadows; registering protection when such a
-   * shadow already exists fails loudly instead of protecting the wrong owner.
+   *
    * @param protection - section and/or tool names whose canonical presence and definitions are authoritative.
    * @returns the exact Cordis effect disposer that removes the protection.
    */
@@ -658,41 +507,16 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Assemble the current prompt for one caller: the global layer merged with
-   * {@link AssembleContext.scope}'s layer (scoped sections/variables SHADOW
-   * same-named global ones — most-specific-wins) — section texts resolved
-   * against `context` and sorted by order across the union, tools collected
-   * from the global providers plus the scope's and put in the canonical
-   * model-facing order ({@link Config.toolOrder}, or lexicographic name order
-   * when unconfigured — provider registration order is a plugin-load artifact
-   * and never reaches the assembly; a configured order naming a tool outside
-   * the providers' `knownNames` universe rejects the assembly, while a known
-   * name restricted away for this scope is a normal absence), and every
-   * visible variable resolved against `context` into `assembly.variables`.
-   * Tool schemas are deep-cloned because adapters and request waterfalls may
-   * mutate schema objects. Runs through the `system-prompt/assemble`
-   * waterfall, giving listeners the opportunity to mutate or replace the
-   * assembly, then restores every visible {@link PromptProtection} from the
-   * pre-waterfall canonical assembly. Like the sections' `order` sort, tool
-   * canonicalization happens on the initial assembly; unprotected listener
-   * output owns its own determinism. Await the result before reading the
-   * assembly values — waterfall listeners may be async.
-   * Interpolation happens later, in {@link renderPrompt}.
-   * @param context - what this assembly is for (defaults to an empty context;
-   *   see {@link AssembleContext}).
+   * Assemble global contributions with one scope, then run the assembly waterfall and protection.
+   * @param context - assembly subject and scope; defaults to an empty context.
    * @returns the assembly after the waterfall has run.
    */
-  // async so the misconfigured-toolOrder throw in orderTools surfaces as a
-  // rejection: a Promise-returning method must not throw synchronously
-  // (`assemble().catch(...)` would miss it).
+  // Async ensures validation failures are promise rejections.
   async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
     const scope = context.scope
-    // Protection is a registry input too: snapshot which names are protected
-    // at assembly start. Registrations that land while an async waterfall is
-    // in flight affect the NEXT assembly, matching the other registries.
+    // Registrations arriving mid-assembly affect the next assembly.
     const protectedNames = this.protectedNames(scope)
-    // Variables: global layer first, then the scope's layer OVERWRITES
-    // same-named entries (shadowing — a per-agent value wins for that agent).
+    // Scoped variables shadow global names.
     const variables: Record<string, string | undefined> = {}
     for (const [name, provider] of this.variableProviders) {
       variables[name] = provider(context)
@@ -701,21 +525,13 @@ export class SystemPrompt extends Service {
     for (const [name, provider] of scopedVariables ?? []) {
       variables[name] = provider(context)
     }
-    // Sections: merge by name, scoped REPLACING same-named global entries
-    // (most-specific-wins — the per-agent persona mechanism), then sort by
-    // order across the union. Registration order within a layer is preserved
-    // for equal orders (stable sort).
+    // Scoped sections shadow global names before the stable order sort.
     const sectionByName = new Map<string, PromptSection>()
     for (const section of this.sections) sectionByName.set(section.name, section)
     for (const section of (scope === undefined ? [] : this.scopedSections.get(scope)) ?? []) {
       sectionByName.set(section.name, section)
     }
-    // Tools: consult the global providers plus the scope's, each with this
-    // assembly's context. `schemas` are what the model may see (already
-    // post-restriction, per provider); `knownNames` (defaulting to the
-    // schemas' names) form the pre-restriction universe `toolOrder` is
-    // validated against, so a restricted-away tool is a normal absence while
-    // a config typo still fails every assembly loudly.
+    // `knownNames` validates order before per-scope restrictions hide schemas.
     const providers = [
       ...this.toolProviders,
       ...(scope === undefined ? [] : this.scopedToolProviders.get(scope)) ?? [],

@@ -1,17 +1,5 @@
 /**
- * Per-session sandbox-mode override: the session log as the store. A runtime
- * switch (an ACP `session/set_config_option`, a test scenario) is recorded as
- * one `bash/sandbox-mode` event on the session it applies to;
- * `effective = fold(events) ?? the executor's configured default`, so an
- * override survives restart by replay, two sessions can never see each
- * other's state, and there is no external config store. The event is
- * log-only (the `approval/*` precedent): the model learns the mode from the
- * prompt section and the boundary notices in `@deepseek-ai/dsh-tool-bash`,
- * never from the event itself. EXECUTION honors the fold in the tool layer —
- * it stamps the effective mode onto each call's `BashExecRequest.sandboxMode`
- * (weakest-precedence: an escalation grant for the call outranks it) — the
- * executor itself stays a config-fixed default plus per-call overrides.
- *
+ * Per-session sandbox-mode override: the session log as the store.
  * @module dsh-bash/session-mode
  */
 

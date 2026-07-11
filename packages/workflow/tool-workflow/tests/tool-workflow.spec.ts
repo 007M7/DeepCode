@@ -224,13 +224,10 @@ describe('dsh-tool-workflow', () => {
 
   describe('composition with the REAL worker-thread engine (the mock above must stay honest)', () => {
     it('an abort releases the tool even when the script parks on a promise no hook owns', async () => {
-      // Regression for the review-found turn wedge: the tool awaits
-      // run.result BEFORE its disposing finally, the registry and the loop
-      // await the tool — so if cancellation could not settle result (a script
-      // parked on `await new Promise(() => {})`), an aborted turn stayed
-      // wedged forever. The seam now guarantees result settles within the
-      // grace of cancel(); this drives that guarantee through the real
-      // registry + real tool + real engine.
+      // Regression for the review-found turn wedge: the tool awaits run.result before its
+      // disposing finally, the registry and the loop await the tool — so if cancellation could
+      // not settle result (a script parked on `await new Promise(() => {})`), an aborted turn
+      // stayed wedged forever.
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRegistry)

@@ -80,11 +80,10 @@ describe('SubagentService', () => {
   })
 
   it('contains a throwing provider-removed listener: later mirrors still hear it, teardown completes', async () => {
-    // provider-removed fires inside the registration's DISPOSER, so a
-    // propagating listener would disrupt the backend's teardown; and cordis
-    // emit halts on the first throw, so an uncontained one would starve every
-    // mirror registered after it (a stale model-facing tool). Both are
-    // prevented by per-listener containment.
+    // provider-removed fires inside the registration's DISPOSER, so a propagating listener
+    // would disrupt the backend's teardown; and cordis emit halts on the first throw, so an
+    // uncontained one would starve every mirror registered after it (a stale model-facing
+    // tool).
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     const warnings: string[] = []
@@ -429,11 +428,8 @@ describe('SubagentService', () => {
   })
 
   it('observe-only: a subagent/end listener mutating lastAssistantMessage cannot corrupt the caller\'s result', async () => {
-    // The subagent/end emit fires from a detached `.then` registered before
-    // start() returns — i.e. BEFORE the caller's own `await run.result`
-    // continuation. If the event shared the result.output reference, a mutating
-    // listener would change the SubagentResult the caller consumes. The service
-    // deep-clones output onto the event, so the listener mutates only its copy.
+    // The subagent/end emit fires from a detached `.then` registered before start() returns —
+    // i.e.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider(
@@ -484,11 +480,7 @@ describe('SubagentService', () => {
   })
 
   it('contains a structuredClone failure: emits subagent/end without lastAssistantMessage (no unhandled rejection)', async () => {
-    // The clone runs inside onFulfilled, OUTSIDE emitLifecycle's per-listener
-    // containment. An uncloneable output (here a content block carrying a
-    // function) would otherwise throw and become an unhandled rejection on the
-    // detached `.then`. The handler must instead log and emit the event WITHOUT
-    // lastAssistantMessage, still carrying the real stopReason.
+    // The clone runs inside onFulfilled, outside emitLifecycle's per-listener containment.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     const warn = vi.fn(); ctx.logger.warn = warn as never
@@ -552,9 +544,7 @@ describe('SubagentService', () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider('contain'))
-    // Two listeners; the FIRST throws. Per-listener containment means the second
-    // must STILL run (a single try/catch around ctx.emit would let the first
-    // throw halt the dispatch and starve the second — the round-2 regression).
+    // Two listeners; the FIRST throws.
     const second = vi.fn()
     ctx.on('subagent/start', () => { throw new Error('bad start listener') })
     ctx.on('subagent/start', second)

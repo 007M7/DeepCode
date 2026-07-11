@@ -10,22 +10,10 @@ import { launcherPath } from 'node-addon-landlock-run'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * KEYLESS Landlock integration proof for the BACKEND: the REAL npm-distributed
- * `landlock-run` launcher (`node-addon-landlock-run`) confining REAL processes through `confine()` + a direct
- * spawn of the returned argv, with the bwrap rung forced off so the ladder
- * lands on the launcher. Verifies the WORLD (files exist or don't), not the
- * wrapper argv alone; the through-`ctx.bash` consumer proof lives with
- * `@deepseek-ai/dsh-bash-sandbox`.
- *
- * Self-skips when the running kernel does not enforce Landlock (or this
- * platform has no launcher package — the probe cannot pass then). The
- * binary itself arrives with `pnpm install`, so absence is not a checkout
- * state.
- *
- * Workspaces live under the HOME directory on purpose: `workspace-write`
- * grants the host `/tmp` wholesale (the documented Landlock-profile
- * difference), so only a workspace OUTSIDE `/tmp` proves the workspace-root
- * grant itself.
+ * Keyless Landlock integration proof for the backend: the real npm-distributed `landlock-run`
+ * launcher (`node-addon-landlock-run`) confining real processes through `confine()` + a direct
+ * spawn of the returned argv, with the bwrap rung forced off so the ladder lands on the
+ * launcher.
  */
 
 const probe = spawnSync(launcherPath(), ['--probe'], { timeout: 5_000, encoding: 'utf8' })

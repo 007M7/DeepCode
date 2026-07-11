@@ -209,12 +209,8 @@ describe('scopeTarget dispatch filtering', () => {
   })
 
   it('is transparent for subjects with native #private fields: methods and getters through the carrier reach the real object', () => {
-    // The ds-review-bot regression: cordis hands the carrier to listeners as
-    // `this` (typed Scoped<Agent>), so subject method calls through it are a
-    // supported shape. A proxy that delegates with the PROXY as receiver
-    // (cordis withProps) throws TypeError on any native #private the method
-    // or getter touches; the carrier must delegate with the BASE as receiver
-    // and bind retrieved methods to it.
+    // The ds-review-bot regression: cordis hands the carrier to listeners as `this` (typed
+    // Scoped<Agent>), so subject method calls through it are a supported shape.
     class Subject {
       #count = 0
       bump(): number { return ++this.#count }
@@ -252,11 +248,9 @@ describe('scopeTarget dispatch filtering', () => {
   })
 
   it('honors the get invariant even when an overlay key collides with a frozen own prop of the base', () => {
-    // Pathological but engine-enforced: a base whose own [Context.filter] is
-    // a non-configurable, non-writable data prop pins what any proxy over it
-    // may report for that key. The carrier must yield the base's value (an
-    // overlay there would be a runtime TypeError from the engine, not a
-    // filtering choice). Such a base forgoes scope filtering by construction.
+    // Pathological but engine-enforced: a base whose own [Context.filter] is a
+    // non-configurable, non-writable data prop pins what any proxy over it may report for that
+    // key.
     const pinnedFilter = (): boolean => true
     const base = {}
     Object.defineProperty(base, Context.filter, { value: pinnedFilter, writable: false, configurable: false })

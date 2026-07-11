@@ -485,11 +485,7 @@ describe('ToolRegistry', () => {
   })
 
   it('a post-execute listener cannot mutate any nested part of the dispatched result', async () => {
-    // The decision is the ONLY sanctioned channel to change the outcome. A
-    // listener that reaches in and mutates the passed result reference (flipping
-    // isError, rewriting callId, attaching a bogus error) must NOT affect what
-    // execute() returns — the registry snapshots the authoritative fields before
-    // the waterfall and rebuilds from the snapshot + decision.
+    // The decision is the only sanctioned channel to change the outcome.
     const ctx = await setup()
     ctx.tools.register(echoTool)
     ctx.on('tools/execute', async (_exec, next) => {
@@ -972,16 +968,9 @@ describe('ToolRegistry', () => {
   })
 
   it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
-    // The registry-disposer convention (set by agents.register): the returned
-    // function IS the cordis effect disposer, so a composite (generator)
-    // effect that yields it has the unregistration run at that yield's LIFO
-    // position on owner unload. A wrapper would leave the inner effect
-    // disposing as a CONCURRENT SIBLING of the composite; the async probe
-    // below (disposed first, LIFO) yields the event loop exactly like the
-    // agent factory's stop-and-drain link, and a sibling unregistration fires
-    // in that window — the probe would observe the tool already gone. Pins
-    // the convention for the whole register-method family (system-prompt
-    // registrars, registerProvider, setFactory share the same return).
+    // The registry-disposer convention (set by agents.register): the returned function IS the
+    // cordis effect disposer, so a composite (generator) effect that yields it has the
+    // unregistration run at that yield's LIFO position on owner unload.
     const ctx = await setup()
     const order: string[] = []
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -1681,10 +1670,9 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       presentCall: args => ({ card: 'generic', title: args.path }),
       presentResult: (args, result) => ({ card: 'generic', title: args.path, content: result.content }),
     })
-    // Unlike execute (which throws ToolArgsError on a mismatch), the display
-    // methods soft-validate and fall back to undefined so a UI never crashes
-    // replaying an old/foreign log entry. The ToolDefinition methods take
-    // `unknown`, so malformed shapes pass without a cast.
+    // Unlike execute (which throws ToolArgsError on a mismatch), the display methods
+    // soft-validate and fall back to undefined so a UI never crashes replaying an old/foreign
+    // log entry.
     expect(tool.presentCall?.({})).toBeUndefined()
     expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
   })

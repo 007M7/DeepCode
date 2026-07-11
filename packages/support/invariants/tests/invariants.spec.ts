@@ -317,12 +317,7 @@ describe('dev-freeze', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // A caller hands in a SHALLOW-frozen block whose nested array is still
-    // mutable. deepFreeze must descend into the already-frozen object and
-    // freeze the descendant, not short-circuit on the frozen container —
-    // otherwise dev-mode misses exactly the history mutation the dev-invariants RFC catches.
-    // `append` snapshots `data`, so the freeze applies to the LOGGED clone, not
-    // the caller's input — read the event back and assert on its data.
+    // deepFreeze must traverse a shallow-frozen event clone and freeze its nested data.
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
     const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
     const event = session.append('user/message', { content: [block], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -335,12 +330,8 @@ describe('dev-freeze', () => {
   it('terminates on a cyclic event datum (WeakSet guard)', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    // The deep-freeze WeakSet guard must terminate on a self-referential
-    // structure rather than recursing forever. Session.append now rejects
-    // non-serializable (incl. cyclic) data at the source, so drive the freeze
-    // handler directly via hand-built session/events — exactly the shape the
-    // invariants listener receives. Open a turn first (seq 0) so the cyclic
-    // user/message (seq 1) satisfies the turn-enclosure invariant.
+    // The deep-freeze WeakSet guard must terminate on a self-referential structure rather than
+    // recursing forever.
     ctx.emit(scopeTarget(session, undefined), 'session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
     const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
     cyclic['self'] = cyclic
@@ -507,9 +498,8 @@ describe('surface invariants', () => {
   })
 
   it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
-    // The unknown-seq check fires when a ref passes the "earlier" test but is
-    // not in knownSeqs — only possible with a gap in seqs. We create a gap by
-    // directly manipulating the private log array to skip a seq.
+    // The unknown-seq check fires when a ref passes the "earlier" test but is not in knownSeqs
+    // — only possible with a gap in seqs.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -523,9 +513,7 @@ describe('surface invariants', () => {
       time: Date.now(),
       data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
     })
-    // Now the log has seqs 0, 1, 3 (gap at 2). Append at what session believes
-    // is seq 3 (log.length). Reference seq 2: passes earlier (2 < 3) but not
-    // in knownSeqs ({0, 1, 3} — gap at 2).
+    // Now the log has seqs 0, 1, 3 (gap at 2).
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
     }).toThrow(/unknown seq 2/)
@@ -617,10 +605,8 @@ describe('surface invariants', () => {
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
-    // Replace node 2 (position 0) with seq 4 — surface becomes [4, 3], so the
-    // head seq (4) is numerically GREATER than the tail seq (3): the surface is
-    // not seq-ordered. A replace spanning start=4 (pos 0) … end=3 (pos 1) is
-    // valid positionally and must be accepted even though start seq > end seq.
+    // Replace node 2 (position 0) with seq 4 — surface becomes [4, 3], so the head seq (4) is
+    // numerically GREATER than the tail seq (3): the surface is not seq-ordered.
     session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 4, end: 3 }, sourceEventSeqs: [4, 3] }) // seq 5
@@ -769,12 +755,9 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
 describe('request cross-check ordering (prepend)', () => {
   it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
-    // The replay adapter returns its chunks WITHOUT calling next(), which
-    // would silence a later-registered check — snapshot compositions load
-    // replay before the app bundle that loads invariants. The check prepends,
-    // so it fires ahead of append-registered listeners regardless of load
-    // order. (Prepend orders it against APPENDED listeners only; correctness
-    // rests on the seq-bounded rebuild, not on listener timing.)
+    // The replay adapter returns its chunks WITHOUT calling next(), which would silence a
+    // later-registered check — snapshot compositions load replay before the app bundle that
+    // loads invariants.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()

@@ -1,36 +1,8 @@
 /**
- * Generate (and verify) the tool-schema catalog in docs/tool-catalog.md.
- *
- * The catalog is the MODEL-FACING TOOL reference: every tool a shipped plugin
- * contributes to `ctx.tools`, with the exact `name` / `description` / JSON-Schema
- * `parameters` the model receives via the system-prompt assembly. It complements
- * the cordis events/services catalog (the wiring a plugin author works against)
- * and the core-data-structures catalog (the vocabulary those signatures move):
- * this page is the TOOLS the agent is offered.
- *
- *   `tsx scripts/gen-tool-catalog.ts`          → write the catalog
- *   `tsx scripts/gen-tool-catalog.ts --check`  → exit 1 if the committed file
- *                                                 is stale (CI / pre-push gate)
- *
- * Why this generator BOOTS PLUGINS instead of parsing source (unlike its AST
- * sibling `gen-cordis-catalog.ts`): a tool's schema is not statically knowable.
- * `tool-todo` writes `enum: [...STATUSES]` (a runtime spread), descriptions are
- * built by string concatenation, `tool-subagent`'s tool name is `config.toolName`,
- * and an MCP plugin can register RAW JSON Schema without `defineTool` at all. The
- * faithful source of truth is therefore the SHIPPED schema: mount each tool
- * plugin on a real cordis Context and read `ctx.tools.schemas()` — exactly the
- * `ToolSchema[]` the model is sent. See
- * docs/rfc/implemented/process/2026-07-02-tool-schema-catalog.md.
- *
- * Booting sacrifices the AST pass's structural "nothing can be silently omitted"
- * property (there is no source declaration to enumerate), so a COMPLETENESS GUARD
- * restores it: the generator globs every `tool-*` package under `packages/` and
- * hard-errors if any such package is absent from the boot manifest below. A new
- * tool package fails the generator — and thus the freshness gate — until it is
- * registered here, mirroring how a new event appears in the cordis regenerate.
- *
- * Schema blocks use a plain ` ```json ` fence: doc-typecheck only extracts `ts*`
- * fences, so no BlockKind wiring is needed there.
+ * Generate `docs/tool-catalog.md` from schemas collected by booting each tool
+ * plugin. Runtime registration is the source of truth for computed schemas;
+ * the manifest is checked against every on-disk `tool-*` package. `--check`
+ * verifies the committed artifact.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -63,19 +35,7 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
 
-/**
- * One tool-plugin package to boot. `mount` is a per-entry recipe (async): it
- * plugs the injected seams the plugin's `apply` reads (an executor for
- * `ctx.bash`, a provider for `ctx.subagents`) BEFORE the tool plugin itself.
- * `SystemPrompt` + `ToolRegistry` are mounted for every entry by the caller
- * (`ToolRegistry` injects `systemPrompt`), so `mount` only handles the extras.
- *
- * The recipe is irreducible policy — WHICH seams a given tool needs and with
- * WHAT config is not derivable from the package layout — so it stays a hand-
- * maintained closure. The `dir` field is what the completeness guard matches
- * against the on-disk `tool-*` package glob, so a NEW tool package cannot be
- * silently omitted (see the module doc).
- */
+/** Tool package plus the non-default dependencies needed to boot it. */
 interface ToolPackage {
   /** The npm package name, used as the catalog section heading. */
   pkg: string
@@ -174,9 +134,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
     writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
     async mount(ctx) {
-      // The tool injects `fs`; boot the local backend to satisfy it. The schemas
-      // do not depend on the policy plugin (an event gate that changes behavior,
-      // not tool shape), so the bare provider is enough to harvest them.
+      // The tool injects `fs`; boot the local backend to satisfy it.
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(ToolFs)
     },
@@ -249,10 +207,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
-      // The tools inject `web`; boot the seam plus one search and one fetch
-      // provider so both `web_search` and `web_fetch` register. The schemas do
-      // not depend on which provider backs the seam (or on it being available),
-      // so any registered provider is enough to harvest them.
+      // The tools inject `web`; boot the seam plus one search and one fetch provider so both
+      // `web_search` and `web_fetch` register.
       await ctx.plugin(WebService)
       await ctx.plugin(WebSearchExa)
       await ctx.plugin(WebFetchLocal)

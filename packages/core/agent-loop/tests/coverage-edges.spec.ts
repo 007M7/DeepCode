@@ -37,11 +37,7 @@ function send(agent: ReactLoopAgent, text: string) {
 
 describe('turn boundary listener throws (handled in-turn, loop survives)', () => {
   it('a pre-push turn/start failure (non-serializable source) is rethrown to the runLoop backstop', async () => {
-    // A non-serializable message source makes the turn/start append throw BEFORE
-    // the event is pushed (Session.append validates before push), so turn/start
-    // never enters the log. runTurn sees no logged turn/start and rethrows; the
-    // runLoop backstop reports via agent/error (step 0) + the logger and the
-    // driver survives. This is the ONLY path that reaches the backstop.
+    // Pre-append validation reports through agent/error without corrupting the log.
     const adapter = new MockAdapter([textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })

@@ -1,21 +1,5 @@
 /**
  * Generate (and verify) the relationship-diagram docs.
- *
- * This is the relationship layer above the existing catalogs:
- * - module-graph.md answers "which packages depend on which packages?"
- * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog.md answers "which tools does the model see?"
- * - generated relationship diagrams answer "how do those pieces fit together?"
- *
- * Generated pages discover the enumerable facts from source. Hybrid pages use
- * discovered inventory plus small manifests for policy that source cannot infer
- * (for example, whether a package is an implementation or consumer in a seam).
- * Curated pages are still emitted here so the graph docs are one regenerated unit,
- * but their diagrams intentionally explain flow and ownership rather than
- * pretending to enumerate every source edge.
- *
- *   `tsx scripts/gen-doc-graphs.ts`          -> write generated diagram docs
- *   `tsx scripts/gen-doc-graphs.ts --check`  -> exit 1 if any file is stale
  */
 
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -597,13 +581,10 @@ function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.Sourc
   }
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
-  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
-  // dispatcher (`events` from `agentEvents(ctx, agent)`), an agent's setup
-  // context (`childCtx`), the agent's own context handle (`this.loopCtx`), and
-  // the session store's captured dispatch context (`emitCtx`). Conventional
-  // receiver names, pinned by the fused-dispatch convention; a rename here
-  // must update this list (the producer/consumer matrix silently losing a
-  // dispatcher or listener is the failure mode this list exists to prevent).
+  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused dispatcher (`events`
+  // from `agentEvents(ctx, agent)`), an agent's setup context (`childCtx`), the agent's own
+  // context handle (`this.loopCtx`), and the session store's captured dispatch context
+  // (`emitCtx`).
   return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
@@ -650,13 +631,9 @@ function renderEventRelations(pkgs: Pkg[]): string {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
-  // Completeness guard: every DECLARED event must have at least one dispatcher
-  // edge — a zero-dispatcher row is either dead vocabulary or (the observed
-  // failure mode) a dispatch spelling the AST scan does not recognize, silently
-  // dropping the producer from the matrix. Fail the generation loud instead:
-  // teach the scan the new spelling, add a DYNAMIC_EVENT_DISPATCHERS override,
-  // or remove the dead event. Zero LISTENERS is deliberately legal — an event
-  // dispatched for out-of-repo plugins is an ordinary extension point.
+  // Completeness guard: every DECLARED event must have at least one dispatcher edge — a
+  // zero-dispatcher row is either dead vocabulary or (the observed failure mode) a dispatch
+  // spelling the AST scan does not recognize, silently dropping the producer from the matrix.
   const undispatched = [...events]
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)

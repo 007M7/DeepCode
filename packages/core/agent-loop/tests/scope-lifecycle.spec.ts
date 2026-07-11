@@ -364,11 +364,9 @@ describe('agent scope lifecycle', () => {
   })
 
   it('a listener may drive the agent through its declared `this` (the carrier is method-transparent)', async () => {
-    // ds-review-bot regression: agent/* listeners are typed
-    // `this: Scoped<Agent>`, and ReactLoopAgent's send/steer/cancel read the
-    // native-private #carrier — a proxy-receiver carrier made
-    // `this.send(...)` throw TypeError. The carrier binds methods to the real
-    // agent, so driving through the event `this` is a working supported shape.
+    // ds-review-bot regression: agent/* listeners are typed `this: Scoped<Agent>`, and
+    // ReactLoopAgent's send/steer/cancel read the native-private #carrier — a proxy-receiver
+    // carrier made `this.send(...)` throw TypeError.
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -403,11 +401,9 @@ describe('agent scope lifecycle', () => {
       order.push(`session-still-stored=${ctx.sessions.get(SessionId('o1-s')) !== undefined}`)
     })
 
-    // Open a turn so the drain has real work: the loop must finish it BEFORE
-    // the registry entry goes away (the agent/disposed contract: "its fiber
-    // and any in-flight turn have been torn down"). Wait for the turn to be
-    // OPEN in the log — a dispose landing in the pre-step window would drop
-    // the queued prompt without ever opening a turn.
+    // Open a turn so the drain has real work: the loop must finish it before the registry entry
+    // goes away (the agent/disposed contract: "its fiber and any in-flight turn have been torn
+    // down").
     const turnOpen = new Promise<void>((resolve) => {
       const off = ctx.on('session/event', (_s, event) => {
         if (event.type === 'turn/start') { off(); resolve() }

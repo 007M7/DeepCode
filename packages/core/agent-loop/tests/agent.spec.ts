@@ -140,10 +140,8 @@ describe('ReactLoopAgent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
+    // Non-serializable injected content makes Session.append throw after turn/start was
+    // recorded.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
@@ -159,10 +157,7 @@ describe('ReactLoopAgent', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    // A session/event listener that throws on the synthetic turn/end. Append
-    // pushes before notifying, so turn/end is in the log (turn balanced) but the
-    // throw must NOT skip the durability checkpoint — the flush decision is made
-    // from the log, not a flag set after the (throwing) append.
+    // A session/event listener that throws on the synthetic turn/end.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }
@@ -202,10 +197,8 @@ describe('ReactLoopAgent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // A non-serializable source makes the turn/start append throw BEFORE the
-    // event is pushed (Session.append validates before push), so NO turn opens.
-    // The finally's isTurnOpen() guard sees no open turn and appends nothing —
-    // the log stays empty, not left with a dangling turn/start.
+    // A non-serializable source makes the turn/start append throw before the event is pushed
+    // (Session.append validates before push), so NO turn opens.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
     }).toThrow(/non-JSON-serializable/)
@@ -326,10 +319,9 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
-    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
-    // while running (not the fast path), then the disposer settles it and chains
-    // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
-    // internal driver disposer keeps the emit synchronous.
+    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter while running (not
+    // the fast path), then the disposer settles it and chains `done` (loop exit), not an eager
+    // resolve.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -355,11 +347,9 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
-    // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
-    // disposing the OWNING fiber runs the agent's listener disposers, which would
-    // have dropped a ctx.on-based waiter before the 'disposed' transition and
-    // hung the promise. With internal waiters, the fiber disposer still settles
-    // it. Regression for the round-3 whenIdle finding.
+    // The waiter is internal agent state, not an effect-scoped ctx.on listener: disposing the
+    // OWNING fiber runs the agent's listener disposers, which would have dropped a ctx.on-based
+    // waiter before the 'disposed' transition and hung the promise.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent
@@ -377,10 +367,8 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() on a disposed agent awaits the loop exit (done), not just the status flip', async () => {
-    // The disposer emits agent/status('disposed') BEFORE the driver loop
-    // unwinds, so whenIdle() must chain `done` (true quiescence) on the
-    // disposed path. Dispose a running agent, then assert whenIdle() resolves
-    // only after `done` — i.e. the loop has actually exited.
+    // The disposer emits agent/status('disposed') before the driver loop unwinds, so whenIdle()
+    // must chain `done` (true quiescence) on the disposed path.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent

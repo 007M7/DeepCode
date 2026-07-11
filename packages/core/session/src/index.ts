@@ -3,6 +3,7 @@
  * the derived LLM message history. Persistence is a plugin concern (subscribe
  * to `session/event`, drain on `session/flush`).
  *
+ * Scope-filtered dispatch: keyed to the session's captured owner.
  * @module @deepseek-ai/dsh-session
  */
 
@@ -35,44 +36,24 @@ declare module 'cordis' {
   interface Events {
     /**
      * A session was created in the store.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Dispatch uses the session's captured owner scope.
      * @param session - the session just entered and announced.
      * @mode emit
      */
     'session/created'(this: Scoped<Session>, session: Session): void
     /**
-     * An event was appended to a session log (sync, fire-and-forget). This is
-     * the per-append feed a UI or invariant plugin tails.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * An event was appended to a session log (sync, fire-and-forget).
+     *
+     * Scope-filtered dispatch: keyed to the session's captured owner.
      * @param session - the session whose log grew.
      * @param event - the appended event, exactly as recorded.
      * @mode emit
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited durability checkpoint. The agent loop awaits
-     * `ctx.sessions.flush(session)` at every turn end; persistence
-     * plugins (JSONL, SQLite) drain their write-behind buffers here and on
-     * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
-     * and the caller waits for all of them, but none can veto. Dispatch it
-     * through {@link SessionStore.flush} — the store owns the carrier — never
-     * via a raw `ctx.parallel`.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Awaited durability checkpoint.
+     *
+     * Scope-filtered dispatch: keyed to the session's captured owner.
      * @param session - the session whose buffered events must reach durable storage.
      * @mode parallel
      */
@@ -137,13 +118,7 @@ export class Session {
 
   constructor(public readonly id: SessionId, seed?: SessionEvent[], header?: SessionHeader) {
     if (seed) {
-      // Validate the seed to the SAME invariants `append` enforces, so a
-      // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
-      // live log that no persistence backend could store: each event's `data`
-      // must be JSON-serializable, and `seq` must be contiguous from 0 (the
-      // `seq = log.length` contract the whole system relies on). Without this,
-      // a bad seed would surface only later as a backend rejection or a silent
-      // divergence between the live log and disk.
+      // Validate seed JSON and contiguous sequence numbers just as append would.
       seed.forEach((event, index) => {
         if (event.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${event.seq} (expected ${index}); seed must be contiguous from 0`)
@@ -151,25 +126,13 @@ export class Session {
         if (!isJsonValue(event.data)) {
           throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
         }
-        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
-        // the sole source of derived history, so a marker-less message event
-        // would load fine yet vanish from deriveMessages(). `append` enforces
-        // this at compile time via its typed overload; a seed arrives as raw
-        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
-        // runtime here rather than silently resuming with empty history.
+        // Seed events bypass append's overloads, so enforce surface markers at runtime.
         if (isSurfaceEligibleType(event.type)
           && (event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) {
           throw new Error(`seed event "${event.type}" (seq ${event.seq}) is surface-eligible but carries no surfaceOp marker`)
         }
       })
-      // Deep-clone each seed event, NOT just the array: the seed events and
-      // their `data` are still owned by the caller (or the source session of a
-      // fork), so keeping the references would let a post-create mutation of the
-      // original rewrite this session's durable log — or reintroduce a
-      // non-JSON-serializable value AFTER the validation above. Snapshotting at
-      // the boundary makes `session.events` independent and keeps it equal to
-      // what was validated. Serializability is guaranteed by the check above, so
-      // structuredClone can never hit a non-cloneable value here.
+      // Clone seed events so callers cannot mutate the durable log after validation.
       this.log = seed.map(event => structuredClone(event))
     }
     this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
@@ -189,29 +152,14 @@ export class Session {
   }
 
   /**
-   * Append one typed event to the log and synchronously notify observers via
-   * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
-   * asynchronously.
+   * Append one typed event to the log and synchronously notify observers via `onAppend`. The
+   * hot path never blocks on I/O — persistence plugins buffer asynchronously.
    *
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
-   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the surface linked list; `sourceEventSeqs` records provenance (the seq
-   *   numbers of events this one derives from). REQUIRED for
-   *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
-   *   rejected by the compiler for non-surface types like `turn/start` or
-   *   `assistant/chunk`.
-   * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
-   *   `data` that entered the log, so reading `event.data` back sees the logged
-   *   value, never the caller's still-mutable input.
-   * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
-   *   symbol, undefined, non-finite number, circular ref, or an exotic object
-   *   like Map/Set/Date). The event log is the durable source of truth, so this
-   *   invariant is enforced at the source — a bad event never enters the log,
-   *   keeping `session.events` always equal to what a backend can persist. The
-   *   throw surfaces at the buggy caller's append site, not asynchronously in a
-   *   backend flush.
+   * @param opts - required surface placement and optional provenance for message-producing events.
+   * @returns the event with assigned sequence, time, and snapshotted data.
+   * @throws if data is not losslessly JSON-serializable or surface placement is missing.
    */
   append<T extends SessionEventType>(
     type: T,
@@ -222,36 +170,12 @@ export class Session {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
     const surfaceOpts: SurfaceIntent | undefined = opts[0]
-    // Surface-eligible events MUST carry a surfaceOp marker — the surface is the
-    // sole source of derived history, so a marker-less message event would be
-    // logged yet vanish from deriveMessages(). The typed `opts` overload makes
-    // the marker mandatory only when `T` is a SPECIFIC SurfaceEventType literal;
-    // when `T` widens to the SessionEventType union (a caller iterating raw
-    // events: `for (const e of log) append(e.type, e.data)`), the conditional
-    // rest collapses to optional and the compiler stops enforcing it. Re-check
-    // at runtime so that loophole can't silently drop history.
+    // Recheck the conditional overload when `T` has widened to the full union.
     if (isSurfaceEligibleType(type) && surfaceOpts?.surfaceOp === undefined) {
       throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
     }
-    // Snapshot `data` into the log, NOT the caller's reference: the validation
-    // above proves it is JSON-serializable AT THIS MOMENT, but the caller still
-    // owns the object and could mutate it afterwards (before a persistence
-    // flush, or permanently in the in-memory history) — making `session.events`
-    // diverge from the value that passed validation, or reintroducing a
-    // non-serializable value. Cloning here keeps the log equal to what was
-    // validated. structuredClone is safe because serializability was just
-    // checked. The returned event carries the SAME snapshot, so a caller reading
-    // back `event.data` sees the logged value, not its own mutable input.
-    //
-    // Surface metadata is snapshot separately: sourceEventSeqs (number[] —
-    // primitives, so array spread is a complete copy) and surfaceOp (a string
-    // primitive, or cloned if it's a replace object).
-    // Build the event shape with conditional surface fields via spreading.
-    // The result is cast through `unknown` because the conditional spreads
-    // produce an intersection type that the assignability checker can't
-    // narrow to a specific discriminated-union member when T is generic.
-    // This is a safe internal boundary: data was validated above, and
-    // surface metadata was snapshot from primitive/clone-safe values.
+    // Snapshot caller-owned data and metadata before they enter durable history.
+    // The generic conditional spreads require an internal union-boundary cast.
     const event = {
       type,
       seq: this.log.length,
@@ -300,22 +224,9 @@ export class Session {
   private derivedGeneration = 0
 
   /**
-   * Derive the LLM message history by walking the session surface — the linked
-   * list of message-producing events maintained by `surfaceOp` markers. The
-   * surface is the single source of derived history: every message-producing
-   * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
-   * turn boundary) is correctly absent, and a compaction `replace` deletes the
-   * shadowed nodes from the derivation. The projection rules are
-   * {@link deriveEventMessage}, folded per node.
+   * Derive the LLM message history by walking the session surface — the linked list of
+   * message-producing events maintained by `surfaceOp` markers.
    *
-   * CACHED: each surface node is projected exactly once, when first seen — a
-   * call costs O(new nodes), and a surface rewrite (a `replace`;
-   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
-   * a fresh snapshot per call (later appends never grow an array a caller
-   * already holds); the `Message` objects in it are SHARED and **deep-frozen**
-   * — cloned once off the log at projection time, so consumers can never
-   * mutate logged data, and mutation attempts throw instead of silently
-   * diverging replay from history.
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
@@ -341,15 +252,10 @@ export class Session {
   }
 
   /**
-   * Project a single event into the LLM message it derives to, or null when
-   * it produces none — a non-surface event (chunk, boundary, log-only record)
-   * or an empty-content assistant/message (which exists only to host usage).
-   * The per-node pure function {@link deriveMessages} folds over the surface;
-   * an external reconstructor (or the dev invariant) folds the same function
-   * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability RFC). The returned `content` is
-   * deep-cloned off the logged event: the log is append-only by contract, so
-   * no live reference to logged data leaves this boundary.
+   * Project a single event into the LLM message it derives to, or null when it produces none —
+   * a non-surface event (chunk, boundary, log-only record) or an empty-content
+   * assistant/message (which exists only to host usage).
+   *
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */
@@ -441,31 +347,15 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Create a session owned by the calling fiber: disposing that fiber stops
-   * event notification and removes the session from the store. `options.seed`
-   * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`,
-   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
-   * fills `version`/`id`/`createdAt`).
-   *
-   * For an agent whose session must be torn down IN ORDER with its loop (so the
-   * loop's final flush is captured before `onAppend` detaches), do NOT use this
-   * — fold the session lifecycle into the agent's own effect via
-   * {@link prepare} + {@link enter} + {@link announce} (see `dsh-agent-loop`'s
-   * `startOwned`).
-   *
+   * Create, enter, and announce a session owned by the calling fiber.
    * @param id - the session id; omitted, the store mints `session-<n>`.
-   * @param options - seed events and/or creation metadata for the header.
+   * @param options - optional seed and header metadata.
    * @returns the live session, already entered and announced.
-   * @throws if a session with `id` already exists, or if `meta.cwd` is a
-   *   non-absolute path (storage backends key directories off it).
+   * @throws if the id exists or cwd is not absolute.
    */
   create(id?: SessionId, options?: CreateSessionOptions): Session {
     const session = this.prepare(id, options)
-    // Single effect owned by the calling fiber. Yield the detach BEFORE
-    // announcing so a throwing `session/created` listener rolls the attach back
-    // (the generator effect disposes already-yielded disposers on a throw)
-    // instead of leaking the store entry + onAppend.
+    // Yield detach before announcement so listener failure rolls back entry.
     this.ctx.effect(function* (this: SessionStore) {
       yield this.enter(session)
       this.announce(session)
@@ -474,13 +364,8 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Build a session WITHOUT entering it into the store — validate the id/cwd and
-   * construct the {@link Session} (with its immutable {@link SessionHeader}).
-   * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
-   * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
-   * effect so a fiber unload tears the session + agent down as a single ORDERED
-   * chain rather than as racing sibling effects — which would detach `onAppend`
-   * before the loop's closing `session/flush`, dropping the closing events.
+   * Build a session WITHOUT entering it into the store — validate the id/cwd and construct the
+   * {@link Session} (with its immutable {@link SessionHeader}).
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
    * @param options - seed events and/or creation metadata for the header.
@@ -507,20 +392,8 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Enter a {@link prepare}d session into the store: wire `onAppend` →
-   * `session/event` and add it to the store. Returns the DETACH disposer
-   * (`onAppend = undefined` + store removal). Does NOT emit `session/created` —
-   * the caller yields this disposer inside its effect and THEN calls
-   * {@link announce}, so a throwing `session/created` listener rolls the attach
-   * back instead of leaking it.
-   *
-   * Re-checks the id for a duplicate: `prepare` and `enter` are public
-   * cross-package primitives and a caller may interleave arbitrary work (or
-   * another create) between them, so a stale prepared session must NOT overwrite
-   * a live store entry of the same id — its detach disposer would later delete
-   * the REAL session. The {@link create} convenience and the agent factory call
-   * the two back-to-back so they never trip this, but the public seam cannot
-   * assume that.
+   * Enter a {@link prepare}d session into the store: wire `onAppend` → `session/event` and
+   * add it to the store.
    *
    * @param session - a {@link prepare}d session not yet in the store.
    * @returns the detach disposer (`onAppend = undefined` + store removal).
@@ -528,11 +401,10 @@ export class SessionStore extends Service {
    */
   enter(session: Session): () => void {
     if (this.store.has(session.id)) throw new Error(`session "${session.id}" already exists`)
-    // The carrier is decided HERE, once, from the ENTERING context's scope tag
-    // (`this.ctx` is the caller's context — the tracker mechanism): every
-    // session/created|event|flush dispatch for this session uses it, so the
-    // session's whole event feed is scope-filtered consistently. The base is
-    // the session itself (scoped listeners' `this` is the session).
+    // The carrier is decided HERE, once, from the ENTERING context's scope tag (`this.ctx` is
+    // the caller's context — the tracker mechanism): every session/created|event|flush dispatch
+    // for this session uses it, so the session's whole event feed is scope-filtered
+    // consistently.
     const carrier = scopeTarget(session, scopeOf(this.ctx))
     this.carriers.set(session, carrier)
     const emitCtx = this.ctx
@@ -604,14 +476,12 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Create a live child session from a turn-enclosed prefix of a live source.
-   * `boundary` is an inclusive source event seq; omitted means the source's
-   * current last event. A non-empty selected slice must end at `turn/end`.
+   * Create a live child session from a turn-enclosed prefix of a live source. `boundary` is
+   * an inclusive source event seq; omitted means the source's current last event.
    *
    * @param source - Live source session object or id.
-   * @param boundary - Inclusive source event seq to fork through; omitted means
-   *   the source's current last event, and omitted on an empty source forks an
-   *   empty child.
+   * @param boundary - Inclusive source event seq to fork through; omitted means the
+   *   source's current last event, and omitted on an empty source forks an empty child.
    * @param childSessionId - Optional child session id; omitted delegates to
    *   `SessionStore`'s id policy.
    * @returns The created live child session.

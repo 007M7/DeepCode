@@ -1,15 +1,5 @@
 /**
- * Negative-path tests for the export-surface JSDoc gate
- * (`scripts/verify-export-jsdoc.ts`).
- *
- * The gate's positive half runs against the real tree in CI (`pnpm run
- * verify-export-jsdoc`, part of doc-sync). What that run cannot prove is that
- * the walk REJECTS an undocumented surface the way it promises to — and that
- * every deliberate exemption (heritage members, plugin-protocol slots,
- * constructors, overload implementations, augmentation bodies, re-exports)
- * actually holds. These tests drive `collectExportJsdocViolations()` against
- * synthetic fixture packages, mirroring the gen-cordis-catalog negative
- * tests.
+ * Negative-path tests for the export-surface JSDoc gate (`scripts/verify-export-jsdoc.ts`).
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'

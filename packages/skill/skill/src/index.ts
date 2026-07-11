@@ -174,26 +174,14 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a skill provider synchronously during the provider plugin's
-   * `apply()`. Throws if another provider already owns the same provider name,
-   * including the reserved runtime provider name. Providers that need remote
-   * initialization do that work inside `list()` after registration. The name
-   * and callback identities are snapshotted at registration, so later
-   * replacement of those fields cannot change the registry key, dispatch
-   * callbacks, or HMR cleanup identity. Bound callbacks retain the original
-   * provider object as their receiver, so provider-owned mutable state remains
-   * live. Effect-scoped and HMR-safe: disposing the caller's fiber unregisters
-   * the provider and invalidates cached catalogs.
+   * Register a skill provider synchronously during the provider plugin's `apply()`.
+   *
    * @param provider - the provider to register by `provider.name`.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
   registerProvider(provider: SkillProvider): () => Promise<void> | void {
-    // Snapshot the registration contract before entering the effect. The
-    // callback binding preserves the historical method receiver while making
-    // replacement of `provider.list`/`provider.get` after registration inert.
-    // In particular, cleanup must never re-read caller-owned `provider.name`:
-    // an HMR host may mutate or reuse that object before its old fiber unloads.
+    // Snapshot the registration contract before entering the effect.
     const snapshot: SkillProvider = Object.freeze({
       name: provider.name,
       list: provider.list.bind(provider),

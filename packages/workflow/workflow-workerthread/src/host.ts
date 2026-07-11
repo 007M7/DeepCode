@@ -1,40 +1,7 @@
 /**
- * The host half of one worker-engine run: spawn the Worker, bridge its child
- * RPC onto `ctx.subagents`, fan its observer messages into the engine's
- * events, and own cancellation, the settle-within-grace guarantee, and child
- * cleanup. The worker's lifetime IS the run's lifetime: `dispose()` always
- * ends with `worker.terminate()`, so no thread outlives its run.
- *
- * The run's `result` promise settles exactly once, from whichever of these
- * lands first: the worker's `result` message (a host-side cancellation in
- * flight overrides a non-cancelled report — the seam-visible result had not
- * settled when cancellation was requested), an unexpected worker death
- * (`error`/`messageerror`/premature `exit` → `stopReason: 'error'`, or
- * `'cancelled'` when a cancel was in flight), or the post-cancel grace timer
- * (a script that never settles is force-settled `cancelled` and its worker
- * terminated — the real kill an in-process engine could not perform).
- *
- * Children live in a host-side registry (callId → run) as soon as the provider
- * accepts them, so cancellation reaches even a pre-publication attempt. The
- * host observes `result` immediately but acknowledges the child to the worker
- * only after `started` fulfills; readiness failure is a start error and the
- * host disposes the attempt because the worker never received a handle. The
- * worker drives disposal by RPC on the graceful path, `dispose()` host-drives
- * every registered child's disposal immediately (a wedged worker can relay no
- * dispose RPC, and child teardown must overlap the grace, not start after it),
- * and the registry lets the host abort and dispose every survivor when the
- * worker dies or is terminated mid-flight. The three
- * paths share ONE disposal per child (memoized by callId; the seam's
- * dispose() is idempotent anyway, the memo keeps the bookkeeping and the
- * containment warn single). Lifecycle pairing is host-guaranteed the same
- * way: every forwarded `agent-start` lives in a ledger, and a start the
- * dead or terminated worker never paired is closed by a synthesized
- * `agent-end` (outcome `'cancelled'`) before the run settles. On a
- * termination path `agentsStarted` reports the
- * HOST-observed count (accepted `child-start` messages) — `agent()` calls
- * still queued worker-side for a concurrency slot are unknowable then; the
- * worker's own count rides the result message on every graceful path.
- *
+ * The host half of one worker-engine run: spawn the Worker, bridge its child RPC onto
+ * `ctx.subagents`, fan its observer messages into the engine's events, and own cancellation,
+ * the settle-within-grace guarantee, and child cleanup.
  * @module @deepseek-ai/dsh-workflow-workerthread/host
  */
 
@@ -54,25 +21,7 @@ import type { ChildResult, ChildStartRequest, WorkerInit } from './types.ts'
 
 /**
  * Resolve the worker entry and spawn options for the current runtime shape.
- * Unbuilt (tsx demos, vitest — `import.meta.url` points into `src/`), the
- * entry is the TypeScript sibling and the worker needs the tsx loader
- * registered explicitly: a worker thread inherits no transform pipeline from
- * vitest (vite transforms in-process, not via a node loader), and passing
- * execArgv explicitly also shields the worker from any loader flags the
- * parent was started with. Built (`lib/index.js`), the entry is the sibling
- * bundle the package tsdown config emits and no loader is needed (execArgv
- * pinned empty — hermetic, like the environment).
  *
- * Both shapes spawn with an EMPTY environment (`env: {}`): the documented vm
- * escape reaches `process`, and the harness's ambient credentials
- * (`DEEPSEEK_API_KEY` et al.) must not ride along — the same stance as
- * `dsh-code-runtime-worker`, stronger than the scrubbed env the
- * defensive-patterns rule requires for spawned commands (a shell needs PATH;
- * this worker needs nothing). Sole exception: the unbuilt shape forwards
- * `TSX_TSCONFIG_PATH` when the parent carries it (loader plumbing the paths
- * map depends on outside the repo cwd, not a secret). This closes the
- * AMBIENT channel only — an escapee still holds process-wide privileges
- * like fs access (the README's trust premise stands).
  * @param init - the run payload, passed as `workerData`.
  * @returns the entry URL and the Worker options to spawn it with.
  */
@@ -81,13 +30,8 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOpti
   if (!import.meta.url.endsWith('.ts')) {
     return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init, env: {}, execArgv: [] } }
   }
-  // Lazy tsx resolution: only the unbuilt shape needs it, so the built
-  // bundle never requires tsx to be installed. TSX_TSCONFIG_PATH is the one
-  // variable forwarded through the scrub: tsx finds a tsconfig by searching
-  // UP from the worker's cwd, and a parent running with its cwd outside the
-  // repo (the ACP snapshot harness pins the tsconfig through this exact
-  // variable) would otherwise lose the dsh-* paths map and resolve workspace
-  // imports to unbuilt lib/ bundles. Loader plumbing, not a secret.
+  // Lazy tsx resolution: only the unbuilt shape needs it, so the built bundle never requires
+  // tsx to be installed.
   return {
     entry: new URL('./worker.ts', import.meta.url),
     options: {
@@ -161,34 +105,19 @@ export class WorkerRun implements WorkflowRun {
   }
 
   /**
-   * Cancel the run: the worker is told (its hooks start throwing and the
-   * script dies at its next await), every host-side child is cancelled NOW on
-   * BOTH seam channels — the shared request signal aborts and each registered
-   * child's explicit `cancel()` is called (the seam leaves a provider free to
-   * honor either, and a worker wedged in a synchronous spin could not relay
-   * its own per-child cancel RPCs until far too late) — and the grace timer
-   * arms: a run still unsettled `disposeGraceMs` later force-settles
-   * `cancelled` and its worker is TERMINATED. Idempotent; the first reason
-   * wins.
+   * Cancel the worker and host-owned children, then arm forced settlement.
    * @param reason - human-readable cause (default `'workflow cancelled'`).
    */
   cancel(reason?: string): void {
-    // A settled run has nothing left to cancel: without this guard the
-    // ordinary consumer path (await result, then dispose -> cancel) would arm
-    // a grace timer nothing ever clears, pinning the run and its Worker
-    // closure until the grace expires - a bounded leak per completed run.
+    // Do not arm a grace timer after settlement.
     if (this.settled || this.cancelReason !== undefined) return
     this.cancelReason = reason ?? 'workflow cancelled'
     this.post(HostToWorkerType.Cancel, { reason: this.cancelReason })
     this.controller.abort(this.cancelReason)
-    // The explicit channel is driven host-side, not left to the worker: a
-    // provider honoring only run.cancel() must not wait on a wedged worker's
-    // ChildCancel relay (those later RPCs land as idempotent no-ops).
+    // Host-side cancellation still reaches children when the worker is wedged.
     for (const run of this.children.values()) run.cancel(this.cancelReason)
     this.graceTimer = setTimeout(() => {
-      // The worker may no longer speak (it is about to be terminated): pair
-      // every stranded start before the run settles, so ends precede
-      // workflow/end.
+      // Pair stranded child starts before terminal workflow events.
       this.endStrandedAgents()
       this.settleResult(this.cancelledResult(this.hostStarted))
       void this.worker.terminate()
@@ -198,18 +127,8 @@ export class WorkerRun implements WorkflowRun {
   }
 
   /**
-   * Cancel + bounded settle + termination. Host-drives every registered
-   * child's disposal IMMEDIATELY — a wedged worker can relay no dispose RPC,
-   * and deferring child teardown to the post-terminate reap would spend the
-   * whole grace waiting for a quiescence that cannot start, then return with
-   * the disposals still in flight — so child disposal overlaps the same
-   * grace the worker gets to settle (the worker's own dispose RPCs join the
-   * shared per-child disposal). Waits (at most the grace) for the result and
-   * child quiescence, then terminates the worker unconditionally — the
-   * thread never outlives its run — and reaps whatever children remain
-   * (their disposal is contained, not awaited past the grace, the same
-   * abandonment the seam documents for a slow-disposing child). Idempotent;
-   * safe on every path.
+   * Cancel + bounded settle + termination.
+   *
    * @returns resolves when the run's resources are released or abandoned.
    */
   dispose(): Promise<void> {
@@ -313,12 +232,7 @@ export class WorkerRun implements WorkflowRun {
     this.children.set(callId, run)
     const childId = run.id
 
-    // Observe settlement IMMEDIATELY, before readiness. A provider may reject
-    // result and started in the same turn; delaying this handler would make the
-    // result transiently unhandled. Buffer a forwarding closure so the worker
-    // still sees ChildStarted before ChildSettled/ChildFailed. Snapshot a
-    // resolved result now: a provider mutating its resolved object while
-    // publication is pending must not change what crosses the worker boundary.
+    // Observe settlement IMMEDIATELY, before readiness.
     const forwardResult = run.result.then<() => void, () => void>(
       (result) => {
         try {
@@ -339,12 +253,7 @@ export class WorkerRun implements WorkflowRun {
       },
     )
 
-    // The provider owns the publication boundary. Only acknowledge the child
-    // after it is real, then flush any result that settled unusually early. A
-    // readiness rejection is a START failure, not AGENT_RESULT: the worker
-    // never receives a handle, so the host must also dispose the registered
-    // attempt. A concurrent host disposal may already have removed it; the
-    // identity guard preserves the one-disposal memo in that race.
+    // The provider owns the publication boundary.
     void run.started.then(
       () => {
         this.post(HostToWorkerType.ChildStarted, { callId, childId })
@@ -370,13 +279,9 @@ export class WorkerRun implements WorkflowRun {
   }
 
   /**
-   * Start (or join) one registered child's disposal; the registry entry
-   * leaves when it settles. Memoized per callId: the worker's dispose RPC,
-   * the dispose() host drive, and the reap can all land on the same child —
-   * the child's `dispose()` runs once and every caller awaits that one
-   * settlement. A rejection is contained (the subagent seam's dispose() is
-   * not supposed to reject, but a backend that does anyway must not break
-   * quiescence): logged, and the child still leaves the registry.
+   * Start (or join) one registered child's disposal; the registry entry leaves when it
+   * settles.
+   *
    * @param callId - the child's registry key.
    * @param run - the registered child (the caller looked it up).
    * @returns resolves when the disposal settled either way; never rejects.

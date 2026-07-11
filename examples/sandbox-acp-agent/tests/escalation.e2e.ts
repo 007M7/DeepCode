@@ -18,21 +18,6 @@ import {
 
 /**
  * examples/sandbox-acp-agent end to end.
- *
- * Keyless smoke: boot the REAL `cordis.yml` through the `dsh-acp-agent` bin as
- * an ACP subprocess and drive initialize + session/new — the real-Loader-path
- * guard (postmortem 0001) for THIS tree's export shapes, which now include the
- * sandbox executor AND the approval service. No prompt is sent, so neither the
- * model nor a sandbox runner is ever exercised.
- *
- * With-key escalation flow (self-skips without DEEPSEEK_API_KEY or a usable
- * platform runner): a scripted ACP client plays the human. The real model is
- * denied under `read-only`, escalates with `sandbox_permissions` +
- * `justification`, the bridge prompts THIS client over
- * `session/request_permission`, the client answers `allow-once`, and the
- * retried write must land ON DISK (world-verified). The session cwd is a temp
- * dir under the platform temp area, which `workspace-write` grants — so either
- * escalation target the model picks can land the write.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
@@ -42,10 +27,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-// A usable confining runner, probed the same way the executor suites do:
-// bwrap on Linux, Seatbelt's sandbox-exec on macOS. Without one the strict
-// attempt would fail closed (SANDBOX_UNAVAILABLE) instead of producing the
-// denial this flow starts from.
+// A usable confining runner, probed the same way the executor suites do: bwrap on Linux,
+// Seatbelt's sandbox-exec on macOS.
 const hasBwrap = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--', 'true'], {
   timeout: 5_000,
   stdio: 'ignore',
@@ -121,9 +104,8 @@ describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () 
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-smoke-'))
     spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
     const { client } = spawned
-    // A dummy key boots the adapter; no prompt is ever sent, so no model call
-    // and no sandbox runner probe happen. This drives the fiber tree the same
-    // way an editor would, which is what catches a broken export/inject shape.
+    // A dummy key boots the adapter; no prompt is ever sent, so no model call and no sandbox
+    // runner probe happen.
     const init = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     expect(init.protocolVersion).toBe(PROTOCOL_VERSION)
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })

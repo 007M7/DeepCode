@@ -17,21 +17,8 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * With-key e2e: the Claude Code hook bridge running against the REAL acp-agent
- * subprocess and the REAL model. The example `cordis.yml` loads `dsh-hooks-claude`
- * with a PROCESS-LEVEL `configPath` of `./hooks.json`, resolved once at load
- * against the ACP server's launch cwd (NOT per-session); this test sets that
- * launch cwd to the temp workspace and writes a `hooks.json` there with a
- * PreToolUse hook that BLOCKS every bash command, then asks the live model to
- * write a file — and verifies the WORLD (the file never appears on disk),
- * proving the hook actually intercepted execution rather than the agent merely
- * claiming it couldn't. (The hook itself then runs in the session cwd.)
- * Key-gated; owns and disposes its subprocess.
- *
- * A keyless companion lives in acp.e2e.ts (stdout purity + session/new); the
- * full hook-fires-end-to-end transcript is the keyless `hook-cc-promptsubmit-block`
- * snapshot scenario. This one closes the "green plumbing, broken product" gap:
- * only a real model deciding to call bash exercises the PreToolUse seam live.
+ * With-key e2e: the Claude Code hook bridge running against the real acp-agent subprocess and
+ * the real model.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
@@ -89,9 +76,7 @@ afterEach(async () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook blocks bash (real model)', () => {
   it('denies every bash command, so the requested file is never written (verified on disk)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-hooks-e2e-'))
-    // A PreToolUse hook that blocks EVERY tool (exit 2, no matcher = match-all).
-    // The session cwd is `workdir`, and the bridge resolves `./hooks.json` from
-    // the process cwd (the launch dir = workdir), so this is the config it loads.
+    // A PreToolUse hook that blocks every tool (exit 2, no matcher = match-all).
     await writeFile(join(workdir, 'hooks.json'), JSON.stringify({
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo "bash blocked by policy" >&2; exit 2' }] }] },
     }))

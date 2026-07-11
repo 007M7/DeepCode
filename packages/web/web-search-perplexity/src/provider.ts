@@ -1,15 +1,6 @@
 /**
- * `PerplexitySearchProvider`: a `WebSearchProvider` backed by the Perplexity
- * search API (an OpenAI-compatible `POST /chat/completions`). Maps the generated
- * answer (`choices[0].message.content`) into `content`, and prefers the
- * structured `search_results[]` for `sources[]`, falling back to the URL-only
- * `citations[]` when `search_results` is absent.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter. The OpenAI-compatible request shape
- * is a provider-private detail and does NOT make this provider depend on
- * `ctx.llm`.
- *
+ * `PerplexitySearchProvider`: a `WebSearchProvider` backed by the Perplexity search API (an
+ * OpenAI-compatible `POST /chat/completions`).
  * @module @deepseek-ai/dsh-web-search-perplexity/provider
  */
 

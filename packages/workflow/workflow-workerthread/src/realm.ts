@@ -1,32 +1,6 @@
 /**
- * The engine's value boundary: copy script-realm values into plain JSON data
- * — loud about everything JSON cannot carry — and render thrown script
- * values to failure text. The script runs in a vm context INSIDE the worker
- * thread, so "host" here means the worker-side JavaScript around that
- * context; everything that later crosses the thread boundary is JSON by this
- * walk, which is what makes the postMessage hop total.
- *
- * TRUST PREMISE (everything in this module hangs on it): workflow scripts are
- * MODEL-WRITTEN, the same trust level as the model's existing bash access, so
- * this boundary guards against BUGGY scripts, not hostile ones. It rejects
- * loud what JSON would silently mangle — functions, symbols, bigints,
- * non-finite numbers, nested `undefined`, cycles, sparse arrays, exotic
- * prototypes — because accepted-then-ignored is this repo's banned failure
- * mode. It does NOT defend against adversarial values: the walk reads
- * properties ordinarily (a getter runs, and whatever it returns is what
- * crosses), {@link renderThrown} reads `stack`/`message`/`String()` directly,
- * and a proxy is walked through its traps. A hostile script gains nothing
- * worth defending here — the vm context inside the worker is escapable by
- * construction, so hostile-value containment would be cost without a threat
- * model (what the worker thread DOES buy is that a spin occupies the
- * worker's loop, not the host's, and termination is real).
- *
- * The host→realm direction needs no machinery at all: hooks hand the script
- * plain values of the worker realm, prototypes included — the script is
- * trusted. One consequence is documented in the engine README: an error
- * thrown by a hook is built OUTSIDE the script's vm context, so an in-script
- * `instanceof Error` check is false; read `name`/`code`/`message` instead.
- *
+ * The engine's value boundary: copy script-realm values into plain JSON data — loud about
+ * everything JSON cannot carry — and render thrown script values to failure text.
  * @module @deepseek-ai/dsh-workflow-workerthread/realm
  */
 
@@ -75,13 +49,7 @@ function hasPlainPrototype(value: object): boolean {
 
 /**
  * Copy `value` (typically from the vm realm) into plain host JSON data.
- * Throws {@link MaterializeError} naming the offending path for anything JSON
- * cannot carry losslessly. Properties are read ordinarily — a getter runs and
- * its RESULT is materialized; a read that throws surfaces as a
- * {@link MaterializeError} carrying the rendered failure. `undefined` is
- * accepted only at the ROOT (a script with no `return` value) — the caller
- * decides what it means; an `undefined` nested INSIDE a container is a
- * violation.
+ *
  * @param value - the realm value to materialize.
  * @param root - the path label for the root value (error messages).
  * @returns the host-realm copy (plain objects/arrays/scalars only).

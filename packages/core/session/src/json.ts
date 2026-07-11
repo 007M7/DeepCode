@@ -1,15 +1,5 @@
 /**
  * JSON-serializability validation for session event data.
- *
- * The session event log is the durable source of truth (the event-sourcing / session-persistence RFCs): every
- * `event.data` must round-trip losslessly through JSON so any persistence
- * backend can store and reload it byte-identically. This invariant belongs to
- * the log itself — `Session.append` enforces it at the source, so a
- * non-serializable event never enters `session.events` and the live log can
- * never diverge from what a backend can persist. Backends re-use the same
- * predicate to validate their own `append(events)` entry point (replay/fork
- * paths that do not go through a live `Session`).
- *
  * @module @deepseek-ai/dsh-session/json
  */
 
@@ -24,22 +14,9 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /**
- * Whether `value` is losslessly JSON-serializable: only `null`, finite numbers,
- * booleans, strings, plain arrays, and plain objects of such values. Rejects
- * `BigInt`, function, symbol, `undefined`, non-finite numbers (`NaN`/`Infinity`,
- * which `JSON.stringify` turns into `null`), and exotic objects (`Map`/`Set`/
- * `Date`/class instances) — anything `JSON.stringify` would drop, throw on, or
- * convert lossily. Sparse arrays are rejected too: a hole serializes to `null`,
- * so `[1, , 3]` would not round-trip. Detects circular references (which would
- * throw) and reports them as non-serializable rather than propagating the throw.
+ * Whether `value` is losslessly JSON-serializable: only `null`, finite numbers, booleans,
+ * strings, plain arrays, and plain objects of such values.
  *
- * Scope — matches `JSON.stringify` exactly: only an object's OWN ENUMERABLE
- * STRING-keyed properties are inspected (`Object.values`). Symbol-keyed and
- * non-enumerable properties are NOT examined, because `JSON.stringify` likewise
- * drops them — they never reach the durable form, so a non-serializable value
- * hiding under a symbol/non-enumerable key cannot make the round-trip lossy.
- * Getters are invoked during the check (again as `JSON.stringify` would), so the
- * contract is for plain data records, not objects with side-effecting accessors.
  * @param value - the candidate event data to test.
  * @param seen - objects on the current descent path, for circular-reference
  *   detection; the recursion threads it — callers omit it.

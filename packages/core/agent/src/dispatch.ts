@@ -1,13 +1,5 @@
 /**
- * Fused scope-carrier dispatch for agent-subject events, plus the assembly
- * context builder. The ONE sanctioned spelling for dispatching `agent/*`
- * events: `agentEvents(ctx, agent).waterfall('agent/request', …)` builds the
- * scope carrier ({@link scopeTarget} keyed by the agent) AND injects the
- * subject as the first event argument in one move, so the correct dispatch is
- * also the shortest — a dispatch site cannot pass a carrier keyed to one
- * agent while naming another as the subject, which is the invariant the
- * dev-mode scoped-dispatch check asserts at runtime.
- *
+ * Fused scope-carrier dispatch for agent-subject events, plus the assembly context builder.
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
@@ -89,11 +81,7 @@ export interface AgentEventDispatch {
  */
 export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   const carrier: Scoped<Agent> = scopeTarget(agent, agent)
-  // The ordinary dispatch methods forward through Cordis' variadic mixins. The
-  // fused (carrier, name, agent, ...rest) tuple is provably a valid argument
-  // list for the matching thisArg overload, but TypeScript cannot relate the
-  // generic Tail<K> spread back to that overload's conditional parameter
-  // tuple — hence one contained, shape-preserving cast per method.
+  // The ordinary dispatch methods forward through Cordis' variadic mixins.
   return {
     emit(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
@@ -108,10 +96,8 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
     strictSerial(name, ...rest) {
       return (async (): Promise<unknown> => {
         // EventsService.dispatch applies the carrier filter and emits the same
-        // internal/dispatch instrumentation as ctx.serial, then mutates `args`
-        // down to the actual listener parameters. Invoke those callbacks in order
-        // ourselves so every non-undefined value reaches the caller's validator;
-        // Cordis serial would discard null/false before validation could see them.
+        // internal/dispatch instrumentation as ctx.serial, then mutates `args` down to the
+        // actual listener parameters.
         const args: unknown[] = [carrier, name, agent, ...rest]
         const callbacks = ctx.events.dispatch('serial', args)
         for (const callback of callbacks) {

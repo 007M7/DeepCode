@@ -1,23 +1,5 @@
 /**
  * Exhaustiveness helper for switches over core unions.
- *
- * # When to use which pattern
- *
- * **Closed unions** (every variant is known at compile time in the consuming
- * code — e.g. `StreamChunk` inside the assembler, `FiberState`-like enums):
- * end the switch with `default: assertNever(value)`. Adding a variant then
- * fails compilation at every switch that must handle it — the error appears
- * exactly where work is needed.
- *
- * **Merge-extensible unions** (plugins add variants via declaration merging —
- * `SessionEventMap`, `ContentBlockMap`, `MessageSourceMap`, …): do NOT use
- * assertNever. From the core's view the union is open; plugin-added variants
- * are valid values the core has never heard of. Handle the known cases and
- * fall through intentionally, with a comment saying the switch is
- * deliberately non-exhaustive (see `Session.deriveMessages`). The lint rule
- * `switch-exhaustiveness-check` enforces that the choice is explicit either
- * way.
- *
  * @module @deepseek-ai/dsh-llm/never
  */
 

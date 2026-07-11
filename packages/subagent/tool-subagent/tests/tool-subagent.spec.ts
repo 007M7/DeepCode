@@ -370,12 +370,9 @@ describe('dsh-tool-subagent', () => {
 
     const controller = new AbortController()
     const pending = callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
-    // Abort AFTER the tool body has had a chance to register its abort listener
-    // (ctx.tools.execute now awaits the tools/pre-execute waterfall before the
-    // body runs, so the listener is not registered synchronously). A few
-    // microtask turns let execute() reach `addEventListener('abort')`, so this
-    // exercises the LIVE onAbort bridge — distinct from the already-aborted
-    // sync path the next test covers.
+    // Abort after the tool body has had a chance to register its abort listener
+    // (ctx.tools.execute now awaits the tools/pre-execute waterfall before the body runs, so
+    // the listener is not registered synchronously).
     await Promise.resolve()
     await Promise.resolve()
     controller.abort()
@@ -385,11 +382,9 @@ describe('dsh-tool-subagent', () => {
   })
 
   it('cancels the run when the tool signal is ALREADY aborted before execute (no missed abort)', async () => {
-    // `addEventListener('abort')` does not fire for a signal already aborted
-    // before the listener is added, so a step cancelled before the tool ran
-    // would never reach the child unless the bridge re-checks `signal.aborted`.
-    // A provider that leans only on the abort EVENT (this spy never inspects
-    // request.signal) proves the bridge itself must cancel.
+    // `addEventListener('abort')` does not fire for a signal already aborted before the
+    // listener is added, so a step cancelled before the tool ran would never reach the child
+    // unless the bridge re-checks `signal.aborted`.
     const cancelled = vi.fn()
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -442,10 +437,7 @@ describe('dsh-tool-subagent', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/Config/apply', () => {
-    // Postmortem 0001 guard: this plugin HAS `inject = ['tools','subagents']`, so
-    // a stray `export default apply` would collapse the module via
-    // `unwrapExports` (`exports.default ?? exports`), DROP `inject`, and crash at
-    // load with "cannot get property … without inject". Guard the shape directly.
+    // Loader must retain this namespace's injection metadata.
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent')
     expect(tool.inject).toEqual(['tools', 'subagents'])

@@ -1,14 +1,6 @@
 /**
- * The model-facing `read` tool: inspect a UTF-8 text file and return
- * line-numbered content with pagination guidance. The tool is the executor — it
- * stats and reads through `ctx.fs` directly, builds the line window
- * ({@link module:@deepseek-ai/dsh-tool-fs/read-render}), and emits `fs/observed`
- * so a policy plugin (`@deepseek-ai/dsh-fs-policy`) can record the read. With
- * no policy plugin the emit is simply unheard. This module owns the
- * model-facing schema, argument validation, and the read I/O; the rendering
- * (windowing + formatting) lives in `read-render.ts` and the
- * freshness/observation policy is not its concern.
- *
+ * The model-facing `read` tool: inspect a UTF-8 text file and return line-numbered content
+ * with pagination guidance.
  * @module @deepseek-ai/dsh-tool-fs/src/read
  */
 
@@ -98,9 +90,6 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
 
       // One stat: type check + size routing + the version recorded as observed.
-      // A writer racing between this stat and the read can at worst make a LATER
-      // guarded edit spuriously FS_STALE_VERSION (fail-closed: re-read; editText
-      // re-checks the version in its lock).
       const info = await ctx.fs.stat(target, exec.signal)
       if (!info) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
       if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
@@ -128,12 +117,9 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       ctx.emit('fs/observed', target, info.version, exec)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
-    // Pure display: a generic card titled by the file with the read window
-    // appended (`Read foo.txt (5 - 8)`), `read` kind (icon), and a follow-along
-    // location whose line is the read's offset (defaulting to 1). The window is
-    // derived from the RAW args (offset/limit as the model passed them), NOT the
-    // tool's defaulted 1/configured limit, so an unbounded read shows a bare
-    // title (and the presenter stays a pure function of args, config-free).
+    // Pure display: a generic card titled by the file with the read window appended (`Read
+    // foo.txt (5 - 8)`), `read` kind (icon), and a follow-along location whose line is the
+    // read's offset (defaulting to 1).
     presentCall(args): GenericCallView {
       const { offset, limit } = args
       const window = limit !== undefined && limit > 0

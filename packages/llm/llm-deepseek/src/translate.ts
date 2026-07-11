@@ -1,16 +1,5 @@
 /**
  * Translate DeepSeek wire chunks into the harness `StreamChunk` protocol.
- *
- * A small state machine over the SSE payload stream:
- * - `delta.content` / `delta.reasoning_content` / `delta.tool_calls[i]` each
- *   own one harness block (index allocated on first sight). The first
- *   thinking-mode chunk carries `reasoning_content: ""` — that must NOT open
- *   a reasoning block.
- * - `finish_reason` and `usage` are DEFERRED: emitted only at the `[DONE]`
- *   sentinel, so the wire's two usage shapes (attached to the finish chunk,
- *   or a trailing usage-only chunk) both work and nothing ever follows
- *   `finish`. Last usage wins.
- *
  * @module dsh-llm-deepseek/translate
  */
 

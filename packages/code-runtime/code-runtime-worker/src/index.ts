@@ -1,14 +1,7 @@
 /**
- * Worker-thread implementation of the code-execution seam: one fresh Node
- * worker per run, executing the model's TypeScript after a host-side
- * type-strip, with bindings bridged over the message port. Containment, not
- * a security boundary (bash-equivalent trust — see the Code Mode RFC's
- * trust-posture section): the worker gets an EMPTY environment, a heap cap,
- * and two independent budgets — `computeMs` metered on the worker's
- * measured event-loop busy time (a hot loop cannot hide behind a pending
- * binding call) and a never-pausing `maxWallMs` ceiling — all funneling
- * into `worker.terminate()`, which ends hot synchronous loops too.
- *
+ * Worker-thread implementation of the code-execution seam: one fresh Node worker per run,
+ * executing the model's TypeScript after a host-side type-strip, with bindings bridged over
+ * the message port.
  * @module @deepseek-ai/dsh-code-runtime-worker
  */
 
@@ -278,11 +271,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // Model code gets NO ambient environment — stronger than the scrubbed
       // env the defensive-patterns rule requires for spawned commands.
       env: {},
-      // Hermetic flags too: without this the worker inherits the host
-      // process's execArgv (a test runner's or tsx's loader hooks), which a
-      // bare isolate with an empty environment cannot satisfy. The entry
-      // needs nothing beyond native type stripping, on this repo's whole
-      // Node range.
+      // Hermetic flags too: without this the worker inherits the host process's execArgv (a
+      // test runner's or tsx's loader hooks), which a bare isolate with an empty environment
+      // cannot satisfy.
       execArgv: [],
       resourceLimits: { maxOldGenerationSizeMb: this.config.maxOldGenerationSizeMb },
       // Backstop capture: the bootstrap patches JS-level writes into its own
@@ -298,12 +289,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const logs: CodeLogEntry[] = []
       const strayLogs: CodeLogEntry[] = []
 
-      // ONE host-side ledger for everything that lands in `logs`/`strayLogs`,
-      // whatever the path: honest port entries, FORGED port entries (model
-      // code posting `log` messages directly, bypassing the worker-side
-      // LogBuffer), and stray pipe bytes. On the first overflow it emits the
-      // same in-band marker the worker's LogBuffer would and drops the rest,
-      // so the documented cap is one shared `maxLogBytes` however it is hit.
+      // one host-side ledger for everything that lands in `logs`/`strayLogs`, whatever the
+      // path: honest port entries, FORGED port entries (model code posting `log` messages
+      // directly, bypassing the worker-side LogBuffer), and stray pipe bytes.
       let logBudget = this.config.maxLogBytes
       let logsTruncated = false
       const admit = (entry: CodeLogEntry, sink: CodeLogEntry[]): void => {
@@ -327,11 +315,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
       worker.stdout.on('data', captureStray('stdout'))
       worker.stderr.on('data', captureStray('stderr'))
 
-      // Settlement: exactly one outcome wins; every path funnels through
-      // here, cleans up the timers/listeners, terminates the worker, and
-      // resolves only after the worker actually exited (quiescence). Logs
-      // streamed eagerly before the settlement are kept — a timed-out or
-      // killed program still shows the model what it printed.
+      // Settlement: exactly one outcome wins; every path funnels through here, cleans up the
+      // timers/listeners, terminates the worker, and resolves only after the worker actually
+      // exited (quiescence).
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
       const finish = (result: Omit<CodeRunResult, 'logs'>): void => {
@@ -349,11 +335,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
 
       const onDone = (message: WorkerToHost): void => {
         if (message.type !== 'done') return
-        // Re-cap the completion value HOST-side: the honest path already
-        // capped it in the worker (prepareValue there), but a forged done
-        // message bypasses the bootstrap entirely — without this, model code
-        // could flood the host past maxValueBytes. Honest values pass
-        // unchanged (see VALUE_RENDER_SLACK); the error text is bounded too.
+        // Re-cap the completion value HOST-side: the honest path already capped it in the
+        // worker (prepareValue there), but a forged done message bypasses the bootstrap
+        // entirely — without this, model code could flood the host past maxValueBytes.
         finish({
           ...prepareValue(message.value, this.config.maxValueBytes + VALUE_RENDER_SLACK),
           ...message.error ? { error: { kind: 'exception' as const, message: truncateUtf8Bytes(message.error.message, this.config.maxValueBytes) } } : {},

@@ -1,13 +1,6 @@
 /**
- * Meta validation: check the caller-provided {@link WorkflowMeta} DATA against
- * the shape contract and reject everything else loud, every violation named.
- * Meta arrives as plain JSON through the seam (the model-facing tool carries
- * it as a schema-validated object parameter) — the engine never evaluates
- * script text to obtain it, so no script-controlled code can run on the host
- * here (an evaluated meta literal could smuggle getters that spin the host
- * outside any vm timeout, the exact escape the worker thread exists to
- * prevent).
- *
+ * Meta validation: check the caller-provided {@link WorkflowMeta} DATA against the shape
+ * contract and reject everything else loud, every violation named.
  * @module @deepseek-ai/dsh-workflow-workerthread/meta
  */
 

@@ -1,19 +1,5 @@
 /**
  * JSONL durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-jsonl`).
- *
- * One append-only `.jsonl` event log per session (a header line then one
- * `SessionEvent` per line, verbatim including `assistant/chunk` so `seq` stays
- * contiguous), with lazy materialization (no file until the first `append`),
- * atomic first write, and load-time repair of a never-committed crash tail.
- *
- * The backend supplies ONLY the file-bytes storage primitives (the
- * {@link PersistenceBackend} hooks below); all the write-path orchestration
- * (the `session/event` → buffer → `session/flush` drain, per-session
- * serialization, write cursors, fork-seed persistence, HMR live-adoption,
- * crash-repair sequencing, dispose quiescence) lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
- *
  * @module @deepseek-ai/dsh-session-persistence-jsonl
  */
 
@@ -80,10 +66,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Resolve the configured root to an ABSOLUTE path ONCE, here. A relative root
-    // would otherwise re-resolve against `process.cwd()` at every later
-    // readdir/open — so if any plugin or test changed cwd between create, append,
-    // and load, one session's files could split across directories.
+    // Resolve the configured root to an ABSOLUTE path ONCE, here.
     this.root = resolve(config.root)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
@@ -102,11 +85,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
-  // `list` is BOTH the public service method and the PersistenceBackend hook —
-  // one method, the bucket walk below. The coordinator adds no orchestration for
-  // listing (no per-id serialization, no cursor), so it would just call back into
-  // this same method; routing it through the coordinator would recurse. Defined
-  // once, in the "PersistenceBackend hooks" section.
+  // `list` is BOTH the public service method and the PersistenceBackend hook — one method, the
+  // bucket walk below.
 
   /**
    * The per-session init promises, exposed for white-box tests that await a
@@ -201,10 +181,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     await mkdir(dir, { recursive: true, mode: 0o700 })
     await this.syncDir(this.root)
     const finalPath = logPath(this.root, meta.cwd, meta.id)
-    // Never rename over an existing committed log: materialize is the FIRST write
-    // of a session the backend believes is new. A file here means a different
-    // session shares this id on disk — reject loudly. (createCore already guards
-    // the create path, so this is unreachable-in-practice TOCTOU defense.)
+    // Never rename over an existing committed log: materialize is the FIRST write of a session
+    // the backend believes is new.
     /* v8 ignore next 3 -- createCore guards collisions before materialize; this is a TOCTOU backstop */
     if (await this.exists(finalPath)) {
       throw new Error(`refusing to materialize "${meta.id}": a log already exists on disk (load/resume it instead)`)
@@ -229,10 +207,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       await link(tmp, finalPath)
       linked = true
     } finally {
-      // If link FAILED, the temp is the only reference and must be removed before
-      // the original error propagates. If it SUCCEEDED, defer temp cleanup to
-      // AFTER the publish is durable (below) so a temp-rm failure can never reject
-      // a session whose log already published.
+      // If link failed, the temp is the only reference and must be removed before the original
+      // error propagates.
       /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
       if (!linked) await rm(tmp, { force: true })
     }
@@ -240,9 +216,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     // entry survives a power loss: the new link is not crash-durable until the
     // parent directory's metadata is synced.
     await this.syncDir(dir)
-    // Best-effort temp cleanup: the log is already published and durable, so a
-    // failure to remove the (now-redundant) temp hard link must NOT reject the
-    // append. Swallow only the rm failure; nothing else of consequence runs here.
+    // Best-effort temp cleanup: the log is already published and durable, so a failure to
+    // remove the (now-redundant) temp hard link must not reject the append.
     try {
       await rm(tmp, { force: true })
     } catch {
@@ -351,9 +326,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       const entries = await readdir(this.root, { withFileTypes: true })
       return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
     } catch (error) {
-      // ENOENT = the root has not been created yet → genuinely no sessions. Any
-      // other error (EACCES, ENOTDIR, transient I/O) must NOT be reported as "no
-      // sessions" — a durable backend cannot silently pretend state is absent.
+      // ENOENT = the root has not been created yet → genuinely no sessions.
       if (isENOENT(error)) return []
       throw error
     }

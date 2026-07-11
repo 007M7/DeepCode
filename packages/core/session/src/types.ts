@@ -14,19 +14,9 @@ export function SessionId(id: string): SessionId {
 }
 
 /**
- * The on-disk session format version, stamped into every newly-written
- * {@link SessionHeader} and enforced by every persistence backend on load. The
- * single source of truth for the version — write sites and the load-time check
- * all read it.
- *
- * It is **`0`** deliberately: while the harness is unreleased the on-disk format
- * is **unstable / pre-release, with no compatibility implied**. Breaking changes
- * to the persisted {@link SessionEventMap} shape (folding fields onto an event,
- * removing a variant, …) happen freely and do NOT bump this — v0 absorbs all
- * pre-release churn, and a backend simply REJECTS any log not at v0 (there is no
- * migration; no persisted user data exists to preserve). A real, monotonically
- * bumped version policy begins at the first tagged release, when a specific
- * format boundary becomes worth distinguishing.
+ * The on-disk session format version, stamped into every newly-written {@link SessionHeader}
+ * and enforced by every persistence backend on load. The single source of truth for the
+ * version — write sites and the load-time check all read it.
  */
 export const SESSION_FORMAT_VERSION = 0
 
@@ -55,13 +45,8 @@ export interface SessionHeader {
   /** The session this one was forked from (seed lineage), if any. */
   parentSession?: SessionId
   /**
-   * How many leading events were INHERITED via a seed rather than produced by
-   * this session — the seed boundary. Set when a fork seeds a child with a
-   * prefix of the parent's log (= the seeded prefix length); absent/0 means the
-   * session produced all its own events. Persisted so a reload reconstructs the
-   * boundary instead of re-deriving it from the full stored log, and so a replay
-   * harness can skip the inherited prefix when deriving the child's OWN script
-   * (the seeded events are the parent's, not this child's model calls).
+   * How many leading events were INHERITED via a seed rather than produced by this session —
+   * the seed boundary.
    */
   seedLength?: number
 }
@@ -110,21 +95,7 @@ export interface TurnTriggerMap {
 export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 
 /**
- * Why a turn ended.
- * Merge-extensible sum type.
- *
- * `max-tokens` mirrors the model-call `FinishReasonMap` variant (DeepSeek's
- * `length`): the turn ended because a step hit the output-token ceiling, not
- * because the model chose to stop. The agent-loop surfaces it via the rule
- * "any `max-tokens` step in the turn makes the turn end `max-tokens`" (a
- * continuation plugin can run further steps after one, but the cut-short fact
- * still wins). It is distinct from `completed` so a consumer (e.g. the ACP
- * bridge mapping to `StopReason: 'max_tokens'`) can tell a clean stop from a
- * truncated one. The next variants to add — when an adapter/loop first emits
- * them — are `refusal` and `max_turn_requests` (both named by the ACP RFC as ACP
- * stop reasons); no current adapter produces a `refusal` finish (unknown
- * DeepSeek finish reasons collapse to `error`), so it is deliberately omitted
- * until one does.
+ * Why a turn ended. Merge-extensible sum type.
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
@@ -149,14 +120,8 @@ export interface TurnEndReasonMap {
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
-   * The turn never ended on its own: the process crashed mid-turn and a
-   * persistence backend later closed the orphaned (open) turn on reload so the
-   * log stays balanced. SYNTHESIZED by the backend's crash-recovery repair — no
-   * loop ever emits this. Its events are real (they were durably appended before
-   * the crash) and are PRESERVED, not discarded: a single turn can be huge in a
-   * long-horizon task (many steps, large tool output), so truncating it would
-   * lose real work. The marker records that the turn was cut short, not that the
-   * model completed it. See the session-persistence RFC.
+   * The turn never ended on its own: the process crashed mid-turn and a persistence backend
+   * later closed the orphaned (open) turn on reload so the log stays balanced.
    */
   interrupted: { kind: 'interrupted' }
 }
@@ -253,24 +218,10 @@ export interface ToolsDelta {
 }
 
 /**
- * The session event vocabulary — the append-only source of truth for an
- * agent's whole interaction history. The LLM message history is *derived*
- * from this log; nothing else is authoritative. Replay = re-derive from the
- * same events; trace/telemetry = subscribe to the log.
- *
- * Merge-extensible: plugins declare extra event types via declaration merging
- * (e.g. the compaction plugin adds `'compact/start'`, `'compact/summary'`,
- * `'compact/end'`).
- *
- * Durability contract (what a persistence backend relies on): the durable log
- * persists every event verbatim, INCLUDING `assistant/chunk` — `seq` must stay
- * contiguous (`seq = log.length`), so chunks cannot be filtered out of the
- * canonical log. All `event.data` must be JSON-serializable — `Session.append`
- * (and the seed path in the constructor) enforces this at the source (throwing
- * on non-serializable data), so a bad event never enters the log and
- * `session.events` always equals what a backend can persist. Adding a new event
- * type that carries non-serializable data, or that breaks the turn/step nesting
- * the invariants plugin checks, is a breaking change to the on-disk format.
+ * The session event vocabulary — the append-only source of truth for an agent's whole
+ * interaction history. The LLM message history is *derived* from this log; nothing else is
+ * authoritative. Replay = re-derive from the same events; trace/telemetry = subscribe to the
+ * log.
  */
 export interface SessionEventMap {
   /**
@@ -293,14 +244,8 @@ export interface SessionEventMap {
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
-   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable
-   * record of a blocked prompt and why. Appended in place of the `user/message`
-   * the prompt would have become, so the block survives replay even in a MIXED
-   * batch where another queued prompt is allowed (there the turn does not end
-   * `rejected`, so the boundary reason alone would not preserve it). `content`
-   * is the original prompt the listener rejected; `reason` is the veto text
-   * ({@link PromptDecision} `block.reason`). NOT a {@link SurfaceEventType}: a
-   * blocked prompt produces no LLM message and never reaches `deriveMessages()`.
+   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable record of a blocked
+   * prompt and why.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
@@ -337,47 +282,24 @@ export interface SessionEventMap {
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   /**
-   * The agent's whole todo list, carried as a full snapshot and replaced
-   * wholesale on each write — the current list is the most recent `todo/write`
-   * (last-write-wins on replay, no fold). Appended by an owning agent via
-   * `session.append('todo/write', { todos })`.
-   *
-   * NOT a {@link SurfaceEventType}: it produces no LLM message and never reaches
-   * `deriveMessages()`, so it carries no `surfaceOp` and stays off the surface —
-   * it is durable, replayable UI state, distinct from the conversation history.
-   * It is a `SessionEventMap` member riding the existing `session/event` emit,
-   * not a first-class Cordis `interface Events` notification, so it has no
-   * cordis-catalog row.
+   * The agent's whole todo list, carried as a full snapshot and replaced wholesale on each
+   * write — the current list is the most recent `todo/write` (last-write-wins on replay, no
+   * fold). Appended by an owning agent via `session.append('todo/write', { todos })`.
    */
   'todo/write': { todos: TodoItem[] }
   /**
-   * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
-   * with the {@link RequestHeaderReason} it was recorded whole. Appended by
-   * the loop inside the step, before dispatch, on a loop instance's first
-   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
-   * round-trip guard (`'fallback'`); always records what the request actually
-   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
-   * the latest snapshot and applies the deltas after it. NOT a
-   * {@link SurfaceEventType}: it produces no LLM message — it is the request
-   * envelope, logged so every request is a pure function of the session log
-   * (the reconstructability RFC).
+   * Full snapshot of the {@link EpochHeader} the NEXT request is built under, with the {@link
+   * RequestHeaderReason} it was recorded whole.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Amendment to the folded {@link EpochHeader}: at least one of a
-   * {@link SystemDelta}, a {@link ToolsDelta}, a whole replacement
-   * {@link LlmCallConfig} (four scalars — not worth diffing), or a whole
-   * replacement session prefix (`messagePrefix` — small advisory content,
-   * replaced whole; an EMPTY array encodes the transition to "none",
-   * mirroring the canonical form's absent field — the loop never produces
-   * one in practice: the prefix is composed once per instance and anchored
-   * by that instance's snapshot, so this arm exists for codec totality).
-   * Appended by the
-   * loop inside the step, before dispatch, when the header for this request
-   * differs from the fold of the log so far; the writer verifies
-   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
-   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
-   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   * Amendment to the folded {@link EpochHeader}: at least one of a {@link SystemDelta}, a
+   * {@link ToolsDelta}, a whole replacement {@link LlmCallConfig} (four scalars — not worth
+   * diffing), or a whole replacement session prefix (`messagePrefix` — small advisory content,
+   * replaced whole; an EMPTY array encodes the transition to "none", mirroring the canonical
+   * form's absent field — the loop never produces one in practice: the prefix is composed once
+   * per instance and anchored by that instance's snapshot, so this arm exists for codec
+   * totality).
    */
   'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }

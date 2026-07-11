@@ -16,18 +16,8 @@ type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
 interface MemoryConfig { store?: MemoryStore }
 
 /**
- * A trivial in-memory {@link SessionPersistence} that composes a
- * {@link PersistenceCoordinator} over a dependency-free `Map`-backed
- * {@link PersistenceBackend}. It is BOTH the coordinator's reference vehicle
- * (the simplest possible storage — a `Map<id, {meta, events}>` with no torn
- * tails, so `tornMarker` is always undefined) and the cover for the abstract
- * base's constructor + service registration. The real durable backends are
- * `@deepseek-ai/dsh-session-persistence-jsonl` / `-sqlite`.
- *
- * The store can be supplied via config so two backend instances share one Map —
- * the in-RAM analogue of two backends over the same file/db, which the
- * coordinator orchestration suite's HMR/reload tests need (a fresh instance with
- * an empty in-memory states map adopting an already-materialized session).
+ * A trivial in-memory {@link SessionPersistence} that composes a {@link
+ * PersistenceCoordinator} over a dependency-free `Map`-backed {@link PersistenceBackend}.
  */
 class MemoryPersistence extends SessionPersistence implements PersistenceBackend<never> {
   static inject = ['sessions']
@@ -123,11 +113,6 @@ runPersistenceContract('memory', async () => {
 })
 
 // Run the shared coordinator orchestration suite against the in-memory backend.
-// A per-fixture Map is the shared "storage", so two mounted instances see the
-// same materialized sessions (HMR/reload). `corruptTail` is OMITTED: a Map store
-// writes atomically in RAM and has no torn tails, so the suite's torn-tail test
-// self-skips (and asserts the omission). The real torn-tail repair branch is
-// covered by the jsonl/sqlite fixtures, which CAN inject one.
 runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
   const store: MemoryStore = new Map()
   return {

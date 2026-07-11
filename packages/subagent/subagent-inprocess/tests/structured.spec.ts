@@ -236,11 +236,7 @@ describe('in-process structured output', () => {
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     let wrapperInstalled = false
-    // Register this observer only after start() returns. The child session-start
-    // boundary is after its unpublished setup attached structured output but
-    // before the loop can run; install a prepended wrapper there. It awaits the
-    // explicit downstream stop above, then overwrites that result with continue.
-    // The later terminal checkpoint still wins.
+    // Register this observer only after start() returns.
     ctx.on('agent/session-start', (child) => {
       if (child.id !== run.id) return
       wrapperInstalled = true
@@ -263,10 +259,7 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    // The downstream ordinary policy says stop. A wrapper registered after
-    // start() delegates to that stop, then queues steering; ordinary folding
-    // would turn the stop back into continue. The terminal checkpoint runs
-    // afterwards and discards that steering.
+    // The downstream ordinary policy says stop.
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {

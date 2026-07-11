@@ -1,13 +1,5 @@
 /**
- * Tests for the fs-policy PLUGIN: it registers no service, only the
- * three `fs/*` listeners. We dispatch those events directly (the unbound
- * waterfalls the tool would dispatch, and the `fs/observed` emit) and assert the
- * decisions: createIfAbsent vs replaceIfVersion, FS_NOT_OBSERVED for an unread
- * edit, observed-state-as-prior-observation (read/write/edit all record),
- * multi-owner isolation, single-slot first-wins, and disposal/HMR release.
- *
- * No `ctx.fs` provider is needed — the plugin does no filesystem I/O; it only
- * decides intents and records versions on its own WeakMap.
+ * Tests for the fs-policy plugin: it registers no service, only the three `fs/*` listeners.
  */
 
 import { describe, expect, it } from 'vitest'

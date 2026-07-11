@@ -1,11 +1,5 @@
 /**
- * The worker-thread entry the engine spawns: bootstrap ./session.ts on the
- * real `parentPort`. Deliberately a single statement — every piece of logic
- * lives in `runWorkerSession`, which the unit suite drives in-process over a
- * `MessageChannel` (code inside a real Worker is invisible to main-process
- * coverage); loading this module on the main thread throws via
- * `requireParentPort`, which is how the suite covers the file itself.
- *
+ * The worker-thread entry the engine spawns: bootstrap ./session.ts on the real `parentPort`.
  * @module @deepseek-ai/dsh-workflow-workerthread/worker
  */
 

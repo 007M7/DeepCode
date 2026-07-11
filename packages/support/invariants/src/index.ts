@@ -1,21 +1,7 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts the harness event
- * contract at runtime, and (optionally) freezes logged session-event data so
- * any code that mutates history throws instead of corrupting silently.
- *
- * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, and `agent/status`. It is **off in production**: enable it
- * in tests and the demos, where a contract violation should be a loud failure,
- * not a subtle one. It doubles as executable documentation of the event
- * taxonomy: the assertions below ARE the contract.
- *
- * Why runtime assertions instead of compile-time deep-readonly types? See
- * the dev-invariants RFC. Briefly: a `DeepReadonly<SessionEvent>` is high type-noise across
- * every log consumer and a plugin casts straight through it; a dev-mode freeze
- * + assertions catch real corruption at zero production cost and zero type
- * noise. The always-on half of that defense (cloning derived messages) lives
- * in dsh-session; this package is the dev-mode tripwire.
- *
+ * Dev-mode invariants: a pure-listener plugin that asserts the harness event contract at
+ * runtime, and (optionally) freezes logged session-event data so any code that mutates history
+ * throws instead of corrupting silently.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -133,10 +119,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
   // surface-eligible event types. The compiler enforces this at append()
   // call sites; this runtime check catches casts and persisted data.
   const SURFACE_TYPES = new Set<string>(['user/message', 'assistant/message', 'tool/result', 'context/message', 'steering/message'])
-  // Cast to surface-eligible event type so we can access surfaceOp and
-  // sourceEventSeqs (optional on SessionEvent, mandatory on SurfaceEvent).
-  // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
-  // CHECK whether surface metadata is present, not assume it.
+  // Cast to surface-eligible event type so we can access surfaceOp and sourceEventSeqs
+  // (optional on SessionEvent, mandatory on SurfaceEvent).
   const se = event as SessionEvent<SurfaceEventType>
   if (!SURFACE_TYPES.has(event.type)) {
     if (se.sourceEventSeqs !== undefined) {
@@ -196,10 +180,9 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     }
   }
 
-  // Boundary/step-scoped events have explicit cases; every OTHER event type —
-  // including plugin-added (merge-extensible) SessionEventMap keys — is caught
-  // by the `default` and must be turn-enclosed (the turn-enclosure RFC). No assertNever: an
-  // unknown variant is valid, not a compile error.
+  // Boundary/step-scoped events have explicit cases; every OTHER event type — including
+  // plugin-added (merge-extensible) SessionEventMap keys — is caught by the `default` and must
+  // be turn-enclosed (the turn-enclosure RFC).
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -264,25 +247,15 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     }
     case 'tool/result': {
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step)
-      // A result needs a prior matching call in the same step. (The converse
-      // does NOT hold: a call may have no result — a throwing tool-execution
-      // pipeline step ends the turn with no tool/result, which is legal.)
+      // A result needs a prior matching call in the same step.
       const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
       if (!trace.pendingCalls.delete(event.data.callId) && !syntheticInterrupted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
       break
     }
-    // Turn-enclosure (the turn-enclosure RFC): EVERY session event not handled by a boundary
-    // case above must sit inside an open turn. The durable session log uses the
-    // turn as its commit/replay boundary (the JSONL backend treats anything
-    // after the last turn/end as a crash tail), so a bare event between turns is
-    // silently dropped on reload. The loop records queued user messages after
-    // turn/start, and an idle agent.inject() wraps its context/message in a
-    // one-shot turn. A `default`
-    // (not an enumerated list) is deliberate: SessionEventMap is
-    // merge-extensible, so a PLUGIN-added event type appended while idle must
-    // also fail here rather than fall through and be dropped on resume.
+    // Turn-enclosure (the turn-enclosure RFC): every session event not handled by a boundary
+    // case above must sit inside an open turn.
     default: {
       if (trace.openTurn === null) {
         throw new InvariantError(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)
@@ -370,19 +343,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     lastStatus.set(agent, status)
   })
 
-  // --- Scoped-dispatch invariants (the agent-scoping seam) ---------------
-  //
-  // Every scope-filtered event family must dispatch with a scope carrier
-  // (scopeTarget) whose key IS the subject the event's arguments name —
-  // a dispatch without one silently reverts that event to global delivery
-  // (agent-scoped listeners over-hear foreign agents), and a mis-keyed one
-  // delivers to the wrong agent's listeners. `internal/dispatch` fires
-  // synchronously before listener delivery, so a violation throws at the
-  // dispatching call site. The table maps each family to how its subject is
-  // read from the event arguments; `null` = the subject is not recoverable
-  // from the arguments (session events key by the OWNING agent; subagent
-  // lifecycle events key by the delegating parent), so only carrier
-  // PRESENCE is asserted there.
+  // Scope-filtered events must carry a scopeTarget keyed to their subject.
   const scopedSubject: Record<string, ((args: unknown[]) => unknown) | null> = {
     'agent/created': args => args[0],
     'agent/disposed': args => args[0],
@@ -435,20 +396,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }, { global: true })
 
-  // --- Setup-drives invariant ---------------------------------------------
-  //
-  // CreateAgentOptions.setup COMPOSES the agent's scoped world; it must not
-  // DRIVE the agent. ReactLoopAgent rejects every driving verb structurally
-  // until rollback-covered publication reaches the session-start boundary; this event-level invariant remains the
-  // cross-implementation backstop for alternate Agent implementations and raw
-  // session writes. A turn/start appended before agent/session-start is a
-  // creation-time misuse, reported at the appending call site. Sessions of
-  // agents that exist BEFORE this plugin applies are marked started (their
-  // ordering is unknowable after the fact — never a false positive on HMR).
-  // `agents` is read via ctx.get (a strict, optional store lookup) rather
-  // than injected: the invariants plugin must load in harnesses that carry
-  // no agent registry at all (bare session tests), where this check simply
-  // never trips.
+  // --- Setup-drives invariant CreateAgentOptions.setup COMPOSES the agent's scoped world; it
+  // must not DRIVE the agent.
   const sessionStarted = new WeakSet<Session>()
   for (const agent of ctx.get('agents')?.list() ?? []) sessionStarted.add(agent.session)
   ctx.on('agent/session-start', (agent) => { sessionStarted.add(agent.session) })
@@ -462,31 +411,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '(send/steer/inject belong after creation returns)')
   })
 
-  // Request-reconstruction cross-check (the reconstructability RFC): a
-  // loop-built request — frozen envelope + live sessionId is the marker; a
-  // hand-built one-shot (compaction summarize) is unfrozen and skipped — must
-  // be EXACTLY what the session log reconstructs:
-  //
-  // - messages: the folded header's session prefix (messagePrefix — the
-  //   `agent/session-prefix` product, logged on the header because no
-  //   session event carries it) followed by the
-  //   derivation over the log prefix strictly before the in-flight step's
-  //   `step/start` (the reconstruction boundary). The derivation is compared
-  //   against a FRESH Session built over that prefix — the same projection
-  //   code with zero shared state, so the live cache under test cannot vouch
-  //   for itself. Boundary-correct by construction: content appended after
-  //   the boundary (an `agent/request`-window inject) is legitimately absent
-  //   from this request, and a current-surface comparison would false-fire.
-  // - header: every non-content field must equal the fold of the log's
-  //   `request/header*` events — the loop logs the header event BEFORE
-  //   dispatch, so the fold already covers this request.
-  //
-  // Registered with `prepend: true` so a short-circuiting llm/stream listener
-  // (the replay adapter returns its chunks without calling next()) cannot
-  // silence the check by registering first. Prepend beats APPEND-registered
-  // listeners only — two prepended listeners have no defined mutual order
-  // (cordis unshift) — which is fine: correctness rests on the seq-bounded
-  // fold below, never on listener timing.
+  // Frozen loop requests must equal reconstruction from the header and pre-step log prefix.
   ctx.on('llm/stream', (options: GenerateOptions, next) => {
     if (options.sessionId === undefined || !Object.isFrozen(options)) return next()
     // GenerateOptions types sessionId as Branded<'SessionId'>, which IS
@@ -498,9 +423,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
 
     const events = session.events
-    // seq === index (checked above), so the last step/start's seq bounds the
-    // prefix directly. The in-flight step's step/start is necessarily the
-    // last one: the loop cannot open another step while this call streams.
+    // seq === index (checked above), so the last step/start's seq bounds the prefix directly.
     let boundary = -1
     for (let i = events.length - 1; i >= 0; i -= 1) {
       if (events[i]?.type === 'step/start') {
@@ -516,12 +439,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       throw new InvariantError('a loop-built request with no request/header event in its session log')
     }
     const rebuilt = new Session(SessionId(`${String(session.id)}-invariant-rebuild`), structuredClone(events.slice(0, boundary)))
-    // The reconstruction equation: the folded header's session prefix, then
-    // the boundary derivation — the loop
-    // logs the header event BEFORE dispatch, so the fold already covers this
-    // request's prefix. JSON equality is sound here: both sides are
-    // structuredClones produced by the same projection/build code path, so key
-    // insertion order matches when the values do.
+    // The reconstruction equation: the folded header's session prefix, then the boundary
+    // derivation — the loop logs the header event before dispatch, so the fold already covers
+    // this request's prefix.
     const expected = [...header.messagePrefix ?? [], ...rebuilt.deriveMessages()]
     if (JSON.stringify(options.messages) !== JSON.stringify(expected)) {
       throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)

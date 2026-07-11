@@ -1,24 +1,5 @@
 /**
- * The out-of-process ACP subagent run driver. Spawns a child agent as a
- * subprocess, speaks the Agent Client Protocol (ACP) to it over stdio as the
- * CLIENT, drives one session to completion, and shapes the result into a
- * {@link SubagentResult}. The mirror image of the server-side bridge in
- * `@deepseek-ai/dsh-acp` (which is the ACP *agent* side): here we are the ACP
- * *client*, so we CALL `initialize`/`newSession`/`prompt`/`cancel` and we
- * IMPLEMENT the `Client` callbacks (`sessionUpdate`, `requestPermission`).
- *
- * One subprocess per run (fresh-process-per-run): `start` spawns, runs exactly
- * one ACP session, and `dispose` kills the subprocess and awaits its exit.
- * Persistent-process pooling is a future optimization (see the RFC).
- *
- * TODO(acp-subagent-replay): snapshot-tier coverage of an ACP child is a
- * distinct replay shape — each child is its own PROCESS with its own
- * single-agent replay (the child boots under `DSH_SNAPSHOT=replay` with its own
- * sessions-root + fixture), unlike the in-process per-session keying in
- * `dsh-llm-replay`. Deferred to a follow-up; keyless coverage here is via a
- * scripted mock ACP server subprocess, and the with-key e2e drives the real
- * `acp-agent` example. See the ACP-subagent-backend RFC.
- *
+ * The out-of-process ACP subagent run driver.
  * @module @deepseek-ai/dsh-subagent-acp/run
  */
 
@@ -96,16 +77,9 @@ export interface AcpRunSpec {
 }
 
 /**
- * Default grace for the child's EOF-driven quiesce on dispose (the
- * `disposeEofGraceMs` config) — the window for it to flush persistence and tear
- * down its OWN nested subprocesses (which may run their own `SIGTERM`→`SIGKILL`
- * escalation) before the parent escalates to a signal. Deliberately LARGER than
- * {@link DEFAULT_DISPOSE_GRACE_MS}: a cooperative child whose teardown is itself
- * waiting on a signal-trapping grandchild (e.g. a bash subprocess in its own ~3s
- * SIGTERM→SIGKILL grace) plus a final flush needs MORE than a single
- * signal-grace of headroom, or the parent's SIGTERM cuts it off exactly as it
- * reaches its own SIGKILL+flush. The child is an arbitrary ACP agent, so this is
- * a standalone generous default, NOT derived from any child's internals.
+ * Default grace for the child's EOF-driven quiesce on dispose (the `disposeEofGraceMs` config)
+ * — the window for it to flush persistence and tear down its own nested subprocesses (which
+ * may run their own `SIGTERM`→`SIGKILL` escalation) before the parent escalates to a signal.
  */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
@@ -176,13 +150,6 @@ function toError(value: unknown): Error {
 /**
  * Start an out-of-process ACP child for `request` and return a {@link SubagentRun}.
  *
- * Spawns the configured command, wraps its stdio in an ACP `ClientSideConnection`,
- * and drives one session: `initialize` → `newSession` → `prompt`. The accumulated
- * `agent_message_chunk` text is the result output; the prompt's terminal
- * `StopReason` maps to the stop reason. `result` never REJECTS on a child-level
- * failure (a spawn/transport/RPC error resolves with `stopReason: 'error'`), per
- * the seam contract. `cancel()` sends `session/cancel`; `dispose()` kills the
- * subprocess and awaits its exit (quiescent teardown).
  * @param request - the start request; the driver consumes `prompt` and `signal`
  * (an already-aborted signal yields an inert `aborted` run with no spawn).
  * @param spec - the resolved spawn spec: command/args/cwd, env, permission
@@ -227,12 +194,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
 
   // Accumulate the child's streamed assistant text — the SubagentResult output.
   const output: string[] = []
-  // `cancelled` records that a cancel was requested (signal or cancel()), so a
-  // run torn down before the prompt resolves settles `aborted` rather than the
-  // generic error mapping. Held on a mutable object so the async closures that
-  // set it (the abort listener) and the IIFE that reads it don't fight TS's
-  // control-flow narrowing of a bare `let` (which would type the catch-time read
-  // as always-`false`).
+  // `cancelled` records that a cancel was requested (signal or cancel()), so a run torn down
+  // before the prompt resolves settles `aborted` rather than the generic error mapping.
   const flags = { cancelled: false }
 
   const makeClient = (_agent: AcpAgent): Client => ({
@@ -268,27 +231,14 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   )
 
   let sessionId: string | undefined
-  // Resolves when a cancel is requested, so `result` can settle `aborted` even
-  // if the child never cooperates with `session/cancel` (it ignores the notify,
-  // or the prompt wedges). The result path races this against the ACP drive: the
-  // FIRST to settle wins, so `cancel()` always honors the contract (`result`
-  // settles `aborted`) without waiting on a non-cooperative child. `dispose`
-  // still kills the process and reaps it; this only unblocks `result`. The
-  // executor runs synchronously, so `signalCancelSettled` is assigned before the
-  // Promise constructor returns (the `!` asserts the definite assignment).
+  // Resolves when a cancel is requested, so `result` can settle `aborted` even if the child
+  // never cooperates with `session/cancel` (it ignores the notify, or the prompt wedges).
   let signalCancelSettled!: () => void
   const cancelSettled = new Promise<void>((resolve) => { signalCancelSettled = resolve })
   const requestCancel = (): void => {
     flags.cancelled = true
     signalCancelSettled()
-    // Best-effort: tell the child to cancel the in-flight turn. Swallows a
-    // rejection — the session may not exist yet, or the pipe may be gone; the
-    // dispose path kills the process regardless. If the session has NOT been
-    // created yet (cancel raced ahead of `newSession`), the `cancelled` flag
-    // alone carries it: the result path re-checks the flag after each await and
-    // settles `aborted` without running the prompt. The `.catch` swallow is
-    // defensive for a narrow transport race (child gone mid-send) — v8-ignored
-    // because dispose kills the process regardless, so it can't be hit in tests.
+    // Best-effort: tell the child to cancel the in-flight turn.
     /* v8 ignore next */
     if (sessionId !== undefined) void conn.cancel({ sessionId }).catch(() => { /* child gone / no session */ })
   }
@@ -303,12 +253,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     return text.length > 0 ? [{ type: 'text', text }] : []
   }
 
-  // A provider is "started" only once the remote child has completed ACP
-  // initialization and published a session. SubagentService gates its
-  // `subagent/start` notification on this boundary, just as the in-process
-  // provider gates it on local Agent publication. Failure or cancellation
-  // before this point rejects readiness and therefore produces no paired
-  // lifecycle events for a child that never became live.
+  // A provider is "started" only once the remote child has completed ACP initialization and
+  // published a session.
   const started: Promise<void> = Promise.race([
     (async (): Promise<void> => {
       await conn.initialize({
@@ -327,20 +273,13 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
     try {
-      // Readiness is the initialize → newSession phase above. Awaiting the SAME
-      // promise immediately observes its rejection even without the service,
-      // and guarantees the prompt phase never starts before the provider can
-      // truthfully announce a live child.
+      // Readiness is the initialize → newSession phase above.
       await started
 
-      // Race two post-start outcomes, first to settle wins:
-      //  - prompt: the normal remote turn;
-      //  - cancelSettled: a cancel was requested — settle `aborted` immediately
-      //    rather than waiting on a child that may ignore `session/cancel` or
-      //    wedge the prompt (the `cancel()` contract: `result` settles `aborted`).
-      // A spawn error can only precede readiness and is already one arm of
-      // `started`; after `newSession` succeeds, transport/process failure rejects
-      // the in-flight prompt RPC through the connection.
+      // Race two post-start outcomes, first to settle wins: - prompt: the normal remote turn; -
+      // cancelSettled: a cancel was requested — settle `aborted` immediately rather than
+      // waiting on a child that may ignore `session/cancel` or wedge the prompt (the `cancel()`
+      // contract: `result` settles `aborted`).
       const prompt = async (): Promise<SubagentResult> => {
         // `started` cannot fulfill without assigning the session id; the cast
         // records that local invariant without an unreachable defensive arm.
@@ -353,12 +292,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       ])
     } catch (error: unknown) {
       if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
-      // The seam contract: result resolves (never rejects) on a child-level
-      // failure. A cancellation is recognized by the flag above even when it
-      // wins during readiness; every other rejection is a genuine child-level
-      // error — initialize/newSession/prompt transport/RPC failure or ENOENT.
-      // Flatten to `error` and surface the original via onError so a real fault
-      // is preserved rather than silently lost.
+      // The seam contract: result resolves (never rejects) on a child-level failure.
       try {
         spec.onError?.(toError(error), 'error')
       } catch {
@@ -379,15 +313,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     },
     async dispose(): Promise<void> {
       request.signal?.removeEventListener('abort', onAbort)
-      // Quiescent teardown via the shared ladder (stdin EOF → SIGTERM →
-      // SIGKILL, awaiting the actual exit). For THIS child the EOF tier is the
-      // one that matters: our acp-agent has NO SIGTERM handler in a normal
-      // session — it tears down via the server bridge's connection-close path
-      // (conn.closed → per-agent dispose → final session/flush), driven by the
-      // stdin EOF, NOT by a signal — and a prompt response can resolve from a
-      // turn/end BEFORE that post-turn flush lands, so the child still has
-      // durable work owed when dispose runs (hence the wide EOF grace; see
-      // DEFAULT_DISPOSE_EOF_GRACE_MS).
+      // Quiescent teardown via the shared ladder (stdin EOF → SIGTERM → SIGKILL, awaiting the
+      // actual exit).
       await disposeChildProcess(child, {
         disposeEofGraceMs: spec.disposeEofGraceMs,
         disposeGraceMs: spec.disposeGraceMs,

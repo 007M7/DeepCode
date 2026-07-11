@@ -1,21 +1,6 @@
 /**
- * The model-facing `todo_write` tool: the agent's whole task list, replaced
- * wholesale on each call. Every call appends a `todo/write` event (the full
- * list snapshot) to the calling agent's session log via
- * `exec.agent.session.append('todo/write', { todos })`; the current list is the
- * most recent such event (last-write-wins on replay). UIs render off
- * `session/event`: the stdio UI prints the checklist, the ACP bridge maps it to
- * a `plan` sessionUpdate.
- *
- * Single owner: the list belongs to the ONE agent session that called the tool.
- * There is no subagent/shared/swarm scope — a non-agent caller (no
- * `exec.agent`) has nowhere to write the list and is rejected.
- *
- * Plugin export shape: named exports, NO default. The cordis Loader's
- * `unwrapExports` does `exports.default ?? exports`, so a stray default would
- * collapse the module to the bare `apply` and drop `inject`, crashing at load
- * (see docs/postmortem/0001).
- *
+ * The model-facing `todo_write` tool: the agent's whole task list, replaced wholesale on each
+ * call.
  * @module @deepseek-ai/dsh-tool-todo
  */
 
@@ -42,20 +27,8 @@ const DESCRIPTION =
   + '(not started), `in_progress` (being worked on now), `completed` (finished).'
 
 /**
- * Validate the value constraints the SchemaSpec can't express and build the
- * canonical {@link TodoItem}[].
- *
- * `defineTool` already validates type/required/enum before `execute` runs (a
- * bad `status` is rejected by the registry's `validateArgs`, never reaching
- * here), so `status` is guaranteed to be one of the three enum literals. But
- * `InferArgs` maps an `enum` string prop to plain `string`, so the compiler sees
- * `args.todos` as `{ content: string; status: string }[]`; the
- * `status as TodoItem['status']` narrowing records that registry guarantee
- * rather than re-checking it (an unreachable re-check would be dead code the
- * coverage gate would flag). What remains is the
- * value rules the DSL has no vocabulary for: non-empty unique content (stored
- * trimmed, so the persisted value matches the dedupe/length key), and at most
- * one `in_progress` task.
+ * Validate the value constraints the SchemaSpec can't express and build the canonical {@link
+ * TodoItem}[].
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []

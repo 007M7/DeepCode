@@ -21,21 +21,9 @@ function fakeParent(): Agent {
 vi.setConfig({ testTimeout: 30_000 })
 
 /**
- * `vi.waitFor` with a contention-proof default timeout: the 1s default
- * flaked repeatedly on the CI coverage lane, where worker-thread cold start
- * (CPU-bound — a fresh thread compiles the runtime) competes with three
- * sibling vitest workers for CPU. The 10s default is for exactly those
- * races — waiting for a worker to start, run its first script line, or
- * deliver an async child-registration message to the host. It is NOT for a
- * wait that asserts the HOST reacted PROMPTLY to something that already
- * happened (a settled result, an observed worker death): those keep an
- * explicit tight override below, or the generous default would silently
- * accept a multi-second regression in host-side reap latency as passing
- * (proven by injecting a 6s delay into one such reap and watching the
- * un-overridden version of this helper still pass in ~6s).
- * @param assertion - retried until it stops throwing or the timeout elapses.
- * @param timeout - override for a wait that must stay deliberately tight.
- * @returns resolves when the assertion passes.
+ * `vi.waitFor` with a contention-proof default timeout: the 1s default flaked repeatedly on
+ * the CI coverage lane, where worker-thread cold start (CPU-bound — a fresh thread compiles
+ * the runtime) competes with three sibling vitest workers for CPU.
  */
 function waitFor(assertion: () => void, timeout = 10_000): Promise<void> {
   return vi.waitFor(assertion, { timeout, interval: 50 })
@@ -534,11 +522,9 @@ describe('dsh-workflow-workerthread', () => {
 
     it('a child-start racing the host cancel is refused: no child starts after cancellation', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
-      // Cancel from INSIDE the log listener: the worker has already posted
-      // its child-start (queued right behind the log message), so the host
-      // processes it with cancelReason set — the refusal arm no real-world
-      // timing can hit reliably. (The closure runs only after `handle` below
-      // is initialized — the listener fires on the worker's first message.)
+      // Cancel from inside the log listener: the worker has already posted its child-start
+      // (queued right behind the log message), so the host processes it with cancelReason set —
+      // the refusal arm no real-world timing can hit reliably.
       ctx.on('workflow/log', () => { handle.cancel('cancelled from the log listener') })
       const handle = ctx.workflows.start({ ...scripted("log('mark')\nreturn await agent('late')"), parent })
       const result = await handle.result
@@ -553,12 +539,9 @@ describe('dsh-workflow-workerthread', () => {
       ctx.on('workflow/log', (_info, message) => { narration.push(message) })
       ctx.on('workflow/phase', (_info, title) => { narration.push(`phase:${title}`) })
       const handle = ctx.workflows.start({
-        // The sync spin keeps the worker's loop busy so the cancel message
-        // cannot be processed before the script settles `completed` — the
-        // worker posts a completed result that must LOSE to the in-flight
-        // host cancellation. The trailing narration exercises host-side
-        // suppression: posted pre-cancel-processing worker-side, arriving
-        // post-cancel host-side.
+        // The sync spin keeps the worker's loop busy so the cancel message cannot be processed
+        // before the script settles `completed` — the worker posts a completed result that must
+        // LOSE to the in-flight host cancellation.
         ...scripted(`
           log('started')
           const end = Date.now() + 1000
@@ -694,11 +677,8 @@ describe('dsh-workflow-workerthread', () => {
       })
       const result = await handle.result
       expect(result.stopReason).toBe('completed')
-      // BEFORE dispose(): the settlement itself must have aborted the signal —
-      // without it this child would stay live until dispose's terminate. This
-      // is a HOST-PROMPTNESS claim, not a cold-start race — a tight explicit
-      // bound (unlike the file default) so a multi-second reap regression
-      // cannot pass by outlasting the wait.
+      // before dispose(): the settlement itself must have aborted the signal — without it this
+      // child would stay live until dispose's terminate.
       await waitFor(() => { expect(aborted).toEqual(['workflow settled']) }, 1000)
       await handle.dispose()
     })
@@ -730,13 +710,10 @@ describe('dsh-workflow-workerthread', () => {
       // reach this child, the assertion below would time out first.
       await ctx.plugin(WorkerWorkflowEngine, { provider: 'cancel-only', maxConcurrentAgents: 2, disposeGraceMs: 30_000 })
       const handle = ctx.workflows.start({
-        // The stray child's start RPC reaches the host, then the script wedges
-        // its own worker in a synchronous spin: the worker cannot process the
-        // Cancel message, so it can relay NO ChildCancel RPC — only the host's
-        // own children loop can deliver the explicit cancel in time. The
-        // microtask yields let the agent() continuation POST its child-start
-        // before the spin seizes the worker's loop (the posted message needs
-        // no further worker-loop turns to reach the host).
+        // The stray child's start RPC reaches the host, then the script wedges its own worker
+        // in a synchronous spin: the worker cannot process the Cancel message, so it can relay
+        // NO ChildCancel RPC — only the host's own children loop can deliver the explicit
+        // cancel in time.
         ...scripted(`
           agent('wedged child')
           for (let i = 0; i < 20; i++) await null
@@ -762,11 +739,7 @@ describe('dsh-workflow-workerthread', () => {
         config: { provider: 'stub', maxConcurrentAgents: 8, disposeGraceMs: 400 },
       })
       const handle = ctx.workflows.start({
-        // Same shape as the wedged-cancel test above: the child's start RPC
-        // reaches the host, then the script seizes its worker's loop, so the
-        // worker can relay NO dispose RPC — the host's own dispose() drive is
-        // the only thing that can start (and finish) this child's disposal
-        // before the grace runs out.
+        // A wedged worker leaves host disposal as the only path to child quiescence.
         ...scripted(`
           agent('wedged child')
           for (let i = 0; i < 20; i++) await null
@@ -967,10 +940,9 @@ describe('dsh-workflow-workerthread', () => {
       })
       ctx.on('workflow/end', () => { order.push('run-end') })
       const handle = ctx.workflows.start({
-        // Same choreography as the force-settle pairing test, but the worker
-        // DIES (the documented vm escape) instead of being terminated: the
-        // exit path must close slow's pair from the ledger too. The escaped
-        // setTimeout lets the already-posted messages flush before the kill.
+        // Same choreography as the force-settle pairing test, but the worker DIES (the
+        // documented vm escape) instead of being terminated: the exit path must close slow's
+        // pair from the ledger too.
         ...scripted(`
           const p = agent('slow')
           await agent('fast')

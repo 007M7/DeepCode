@@ -1,11 +1,5 @@
 /**
- * Pure translation between harness vocabulary and ACP wire types. No I/O, no
- * Cordis context — every function here is total and unit-testable in isolation.
- * Keeping the mapping pure is deliberate: the SDK rejects an unknown
- * `stopReason`, so the {@link turnEndToStopReason} total function (with its
- * exhaustive test over every `TurnEndReason` kind) is the guard that a turn
- * always settles to a legal wire value.
- *
+ * Pure translation between harness vocabulary and ACP wire types.
  * @module @deepseek-ai/dsh-acp/codec
  */
 
@@ -16,29 +10,6 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
 /**
  * Map a harness {@link TurnEndReason} to the ACP `StopReason` wire enum.
  *
- * The mapping is total over the kinds the loop actually produces today
- * (`completed`/`aborted`/`error`/`disposed`/`max-tokens`/`rejected`).
- * `TurnEndReason` is
- * merge-extensible, so an unknown future kind falls through to `end_turn` —
- * the safest default (the turn DID end; we just lack a more specific wire
- * reason) — rather than throwing into the SDK, which would reject an unknown
- * `stopReason` and break the prompt RPC. When a new kind gains a dedicated ACP
- * reason (e.g. a future `refusal` → `refusal`), add an explicit case here.
- *
- * - `completed` → `end_turn` (the model chose to stop)
- * - `max-tokens` → `max_tokens` (cut off at the output-token ceiling)
- * - `aborted`   → `cancelled` (a step abort or a queue-aware `agent.cancel()`, e.g. from `session/cancel`)
- * - `error`     → `end_turn` (defensive fallback only: the bridge REJECTS the
- *                 `session/prompt` RPC on an error turn BEFORE calling this, so
- *                 a client sees a JSON-RPC error, not a stop reason — see
- *                 `rejectPrompt` in index.ts. This case keeps the function total
- *                 for any non-bridge caller / property test.)
- * - `disposed`  → `cancelled` (the agent was torn down mid-turn — closest to a
- *                 cancellation from the client's perspective)
- * - `rejected`  → `cancelled` (the prompt was blocked by an `agent/prompt-submit`
- *                 hook before any step ran — ACP has no "rejected" reason, and a
- *                 blocked prompt is, from the client's view, the prompt not being
- *                 carried out; `cancelled` is the closest legal wire reason)
  * @param reason - the harness turn-end reason to translate.
  * @returns the legal ACP wire value per the mapping above.
  */
@@ -56,10 +27,9 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
       return 'cancelled'
     case 'error':
       return 'end_turn'
-    // Merge-extensible: an unknown future TurnEndReason kind still has to
-    // produce a legal wire value (the SDK rejects unknown stopReason), so
-    // default to end_turn rather than assertNever. Add an explicit case when a
-    // new kind gains a dedicated ACP reason.
+    // Merge-extensible: an unknown future TurnEndReason kind still has to produce a legal wire
+    // value (the SDK rejects unknown stopReason), so default to end_turn rather than
+    // assertNever.
     default:
       return 'end_turn'
   }

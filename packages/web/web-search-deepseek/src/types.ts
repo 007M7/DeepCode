@@ -1,16 +1,6 @@
 /**
- * Wire types for DeepSeek's Anthropic-compatible Messages API
- * (`POST {baseURL}/messages`) with the native `web_search_20250305` server tool
- * enabled. Types only — no runtime code.
- *
- * DeepSeek returns structured content blocks: `web_search_tool_result` blocks
- * carry the citeable `web_search_result` items (`url`/`title`/`page_age`), while
- * the snippet/excerpt for a URL lives separately in a `text` block's
- * `citations[]` (a `cited_text` keyed by `url`). The provider joins the two.
- *
- * The Anthropic wire shape is a provider-private detail; it does not make this
- * provider depend on `ctx.llm`.
- *
+ * Wire types for DeepSeek's Anthropic-compatible Messages API (`POST {baseURL}/messages`) with
+ * the native `web_search_20250305` server tool enabled.
  * @module @deepseek-ai/dsh-web-search-deepseek/types
  */
 

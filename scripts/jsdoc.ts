@@ -1,14 +1,9 @@
 /**
- * Shared JSDoc parsing and completeness-check helpers for the documentation
- * gates: the cordis catalog generator (`scripts/gen-cordis-catalog.ts` — the
- * events + `ctx.<key>` service surface), the plugin config catalog generator
- * (`scripts/gen-config-catalog.ts`, which renders the parsed prose), and the
- * export-surface gate (`scripts/verify-export-jsdoc.ts` — every module-level
- * export). One home for the mechanics so "documented" means the same thing on
- * every gated surface: description prose ends at the first block tag; every
- * checkable parameter needs a non-empty `@param`; a non-void ANNOTATED return
- * needs a non-empty `@returns`; a stale `@param` naming no real parameter
- * errors.
+ * Shared JSDoc parsing and completeness-check helpers for the documentation gates: the cordis
+ * catalog generator (`scripts/gen-cordis-catalog.ts` — the events + `ctx.<key>` service
+ * surface), the plugin config catalog generator (`scripts/gen-config-catalog.ts`, which
+ * renders the parsed prose), and the export-surface gate (`scripts/verify-export-jsdoc.ts` —
+ * every module-level export).
  */
 
 import ts from 'typescript'
@@ -30,14 +25,8 @@ export function rawJsDoc(text: string, node: ts.Node): string {
 export type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
 
 /**
- * Parse a raw JSDoc block into description prose + the `@mode` tag (when
- * present). Output obeys the repo's markdown conventions so the generated
- * catalog passes verify-md-wrap: each prose paragraph collapses to ONE physical
- * line, and a `-` bullet list is preserved with each item on its own single
- * line (continuation lines folded in). `{@link Foo}` unwraps to `Foo`.
- * Description prose ends at the FIRST block tag (standard JSDoc semantics):
- * tag lines and their continuation lines are never prose, so `@param` /
- * `@returns` blocks are invisible to the rendered catalog.
+ * Parse a raw JSDoc block into description prose + the `@mode` tag (when present).
+ *
  * @param raw - the raw comment text including the JSDoc delimiters.
  * @returns the collapsed description prose plus the parsed `@mode` (or null).
  */
@@ -91,13 +80,9 @@ export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
 }
 
 /**
- * Parse the block tags of a raw JSDoc comment for the completeness checks:
- * every `@param name — description` entry plus the `@returns` description.
- * Standard JSDoc block-tag semantics — a tag's description runs across
- * continuation lines until the next tag or a blank line, and the `-`/`—`
- * separator after a param name is optional. `[name]` optional-brackets unwrap
- * to `name`. Rendering never sees these: parseJsDoc stops prose at the first
- * block tag.
+ * Parse the block tags of a raw JSDoc comment for the completeness checks: every `@param name
+ * — description` entry plus the `@returns` description.
+ *
  * @param raw - the raw comment text including the JSDoc delimiters.
  * @returns the `@param` name→description map plus the `@returns` description
  * (null when the tag is absent, '' when present but empty).
@@ -134,17 +119,13 @@ export function parseTags(raw: string): { params: Map<string, string>; returns: 
 }
 
 /**
- * Check the `@param` half of the completeness contract for one function-like
- * declaration: every checkable parameter carries a non-empty `@param`, and no
- * `@param` is stale. A binding-pattern parameter is a violation (it has no name
- * for `@param` to match); an exempt parameter may be documented but its absence
- * is never checked. Violations append to `violations` in place.
+ * Check that required parameter tags exist and no stale tag remains.
  * @param where - the offender label violations open with, e.g. `event 'x' (file:1)`.
- * @param surface - the surface noun for the binding-pattern message ("event", "service", "export").
+ * @param surface - surface noun used in diagnostics.
  * @param parameters - the declaration's parameter list.
  * @param tags - the parsed `@param` name→description map from parseTags.
- * @param sf - the source file (for rendering a binding pattern's text).
- * @param isExempt - which parameters need no `@param` (e.g. `this`, a waterfall's trailing `next`).
+ * @param sf - source file used to render binding patterns.
+ * @param isExempt - parameters that need no tag.
  * @param violations - the aggregate list violations append to.
  */
 export function checkParams(
@@ -174,11 +155,10 @@ export function checkParams(
 }
 
 /**
- * Check the `@returns` half of the completeness contract: a non-`void` /
- * `Promise<void>` return needs a non-empty `@returns`, and the return type must
- * be ANNOTATED — a pure-AST walk cannot classify an inferred return. On a void
- * declaration `@returns` stays optional (resolution timing can be worth
- * documenting), never required. Violations append to `violations` in place.
+ * Check the `@returns` half of the completeness contract: a non-`void` / `Promise<void>`
+ * return needs a non-empty `@returns`, and the return type must be ANNOTATED — a pure-AST
+ * walk cannot classify an inferred return.
+ *
  * @param where - the offender label violations open with.
  * @param typeNode - the declared return type annotation, or undefined when inferred.
  * @param returns - the parsed `@returns` description from parseTags (null when absent).

@@ -1,12 +1,5 @@
 /**
- * Property-based tests for the agent loop's inbox/turn scheduling (the
- * property-testing RFC). Deterministic by construction: schedules are driven
- * through the `agent/status` settle signal (no wall-clock sleeps), so a flake
- * is a finding, not timing noise.
- *
- * Invariants: every sent message appears exactly once in the log (none lost);
- * turn numbers strictly increase; status transitions follow the legal machine
- * idle→running→idle (and →disposed at teardown).
+ * Property-based tests for the agent loop's inbox/turn scheduling (the property-testing RFC).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -146,10 +139,8 @@ describe('agent loop scheduling properties', () => {
         const ctx = await harness()
         try {
           const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
-          // Capture an idle waiter before EACH send; the last one is guaranteed
-          // to resolve because the final send always triggers (or joins) a turn
-          // that ends idle. Awaiting an already-resolved waiter is a no-op, so a
-          // trailing settle step can't cause a hang.
+          // Capture an idle waiter before EACH send; the last one is guaranteed to resolve
+          // because the final send always triggers (or joins) a turn that ends idle.
           let lastIdle: Promise<void> | undefined
           for (const step of steps) {
             const idle = nextIdle(ctx, agent)

@@ -1,19 +1,8 @@
 /**
- * Shared source of truth for the RFC index: the tree walker (structure rules)
- * and the README table renderer. `gen-rfc-index.ts` writes the generated
- * regions; `verify-rfc-classification.ts` checks structure and asserts the
- * committed regions are fresh. Pure module — no side effects on import.
- *
- * The layout contract ([the classification RFC](../docs/rfc/implemented/process/2026-06-20-rfc-classification.md)):
- * every RFC lives at `docs/rfc/{lifecycle}/{class}/yyyy-mm-dd-topic.md`, the
- * folder IS the label, and both sets are CLOSED — extending either means
- * amending this module AND the README's Classification prose.
- *
- * The index (`docs/rfc/INDEX.md`) is GENERATED in full: per-lifecycle sections
- * whose rows are derived from each RFC's path (lifecycle/class), H1 (title,
- * with an optional `RFC: ` prefix stripped), and filename date, sorted by date
- * then filename. The curated prose lives in README.md, which carries no index
- * rows at all.
+ * Shared source of truth for the RFC index: the tree walker (structure rules) and the README
+ * table renderer. `gen-rfc-index.ts` writes the generated regions;
+ * `verify-rfc-classification.ts` checks structure and asserts the committed regions are fresh.
+ * Pure module — no side effects on import.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'

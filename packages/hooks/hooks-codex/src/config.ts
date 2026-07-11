@@ -1,11 +1,5 @@
 /**
- * Parse a Codex `hooks.json` into the shared {@link MatcherGroup} shape. Codex's
- * config format is a SUBSET of Claude Code's: the same event-name → matcher-group
- * structure and the same `{ type: 'command', command, timeout?/timeoutSec? }`
- * hook shape, but only five events and NO command-string substitution (Codex sets
- * no hook env vars and does not expand `${…}`). Non-command hooks (and Codex's
- * `async: true` commands) are parsed-and-skipped with a warning.
- *
+ * Parse a Codex `hooks.json` into the shared {@link MatcherGroup} shape.
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
 

@@ -412,10 +412,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   })
 
   it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
-    // Lifecycle 1: run a turn, then inject context while idle. The idle inject
-    // wraps its context/message in a one-shot turn AND checkpoints it (the turn-enclosure RFC)
-    // — without an explicit flush or clean dispose, the notice must still reach
-    // disk, since a crash before the next turn would otherwise lose it.
+    // Lifecycle 1: run a turn, then inject context while idle.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
@@ -437,10 +434,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   })
 
   it('an idle inject() survives persist + resume (turn-enclosed, not dropped as crash tail)', async () => {
-    // Lifecycle 1: run a turn, then inject context while idle. The idle inject
-    // wraps its context/message in a one-shot turn so it is turn-enclosed —
-    // otherwise scanLog would treat the trailing context as a crash tail and
-    // drop it on reload (the bug this guards).
+    // Lifecycle 1: run a turn, then inject context while idle.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent

@@ -1,17 +1,8 @@
 /**
- * Append helpers for the log-only `hook/*` session events — the durable record
- * that a hook ran and what it decided. Thin wrappers over `session.append` so a
- * bridge does not hand-build the payloads (and so the `turn`-enclosure +
- * invoked/result pairing stay consistent across both bridges).
- *
- * `hook/*` events are log-only (not {@link SurfaceEventType}), so they carry no
- * `surfaceOp` and append with no surface intent — but, like every event, they
- * must sit inside an OPEN turn (the invariants oracle rejects an un-enclosed
- * event). The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/
- * `Stop`) fire inside the loop's open turn by construction; `SessionStart` is the
- * exception (its injected `context/message` is the durable evidence instead), so
- * a bridge does NOT write `hook/*` for session-start — see the hooks RFC.
- *
+ * Append helpers for the log-only `hook/*` session events — the durable record that a hook ran
+ * and what it decided. Thin wrappers over `session.append` so a bridge does not hand-build the
+ * payloads (and so the `turn`-enclosure + invoked/result pairing stay consistent across both
+ * bridges).
  * @module @deepseek-ai/dsh-hook-protocol/events
  */
 

@@ -1,11 +1,5 @@
 /**
- * Minimal, dependency-free HTML→markdown-ish text conversion for `web_fetch`
- * presentation. This is intentionally NOT a full HTML parser: it strips
- * script/style/noscript, drops tags, decodes the common named/numeric entities,
- * and collapses whitespace into a readable plain-text approximation with a few
- * markdown affordances (headings, list bullets, links). A heavier converter can
- * replace this without touching the seam or the tool schema.
- *
+ * Minimal, dependency-free HTML→markdown-ish text conversion for `web_fetch` presentation.
  * @module @deepseek-ai/dsh-tool-web/html
  */
 

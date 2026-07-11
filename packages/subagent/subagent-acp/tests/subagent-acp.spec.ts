@@ -188,9 +188,8 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('dispose escalates SIGTERM → SIGKILL for a child that traps SIGTERM (bounded quiescence)', async () => {
-    // The child traps SIGTERM and keeps its event loop alive, so a graceful
-    // term alone would hang dispose forever. With a short grace, dispose must
-    // escalate to SIGKILL and return once the process is actually gone.
+    // The child traps SIGTERM and keeps its event loop alive, so a graceful term alone would
+    // hang dispose forever.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-trap-'))
     const ready = join(tmp, 'trap-armed')
     try {
@@ -224,15 +223,8 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('dispose gives the child an EOF window that outlasts the SIGTERM grace (graceful flush)', async () => {
-    // The real acp-agent flushes ASYNCHRONOUSLY on stdin EOF (its bridge tears
-    // down on connection close, NOT on a signal) — and it has no SIGTERM handler.
-    // Its EOF teardown can itself await a signal-trapping grandchild (a bash
-    // subprocess in its own SIGTERM→SIGKILL grace) plus a flush, so the EOF window
-    // must be a SEPARATE, WIDER grace than the SIGTERM tier — not the same value.
-    // The mock models a flush that takes LONGER than the SIGTERM grace but well
-    // under the EOF grace: it lands only because tier 1 waits eofGraceMs, not
-    // graceMs. (If dispose reused the small SIGTERM grace for the EOF wait — the
-    // round-2 bug — SIGTERM would fire mid-flush and the marker would be missing.)
+    // The real acp-agent flushes ASYNCHRONOUSLY on stdin EOF (its bridge tears down on
+    // connection close, not on a signal) — and it has no SIGTERM handler.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-eof-'))
     const ready = join(tmp, 'ready')
     const flushed = join(tmp, 'flushed')
@@ -242,10 +234,7 @@ describe('dsh-subagent-acp', () => {
         args: ['--import', tsxLoader, mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        // MOCK_HANG so the prompt never resolves on its own — we tear down a live
-        // child. The flush beat (400ms) outlasts the 50ms SIGTERM grace but fits
-        // the 2000ms EOF grace; the marker lands iff the EOF tier honored its own
-        // wider grace.
+        // MOCK_HANG so the prompt never resolves on its own — we tear down a live child.
         env: {
           MOCK_HANG: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready,
           MOCK_FLUSH_ON_EOF: flushed, MOCK_FLUSH_DELAY_MS: '400', TSX_TSCONFIG_PATH: repoTsconfig,
@@ -267,12 +256,9 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
-    // A child that keeps its loop alive past stdin EOF (so the graceful window
-    // times out) but exits cooperatively on SIGTERM must die on the SIGTERM tier
-    // — dispose returns there, never reaching the SIGKILL tier. The child touches
-    // a SIGTERM marker from its signal handler: SIGKILL is uncatchable, so if
-    // dispose had skipped the middle rung (EOF→SIGKILL) the handler would never
-    // run and the marker would be absent — making this a GENUINE middle-tier guard.
+    // A child that keeps its loop alive past stdin EOF (so the graceful window times out) but
+    // exits cooperatively on SIGTERM must die on the SIGTERM tier — dispose returns there,
+    // never reaching the SIGKILL tier.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-ignore-eof-'))
     const ready = join(tmp, 'ready')
     const sigterm = join(tmp, 'sigterm')
@@ -307,9 +293,6 @@ describe('dsh-subagent-acp', () => {
 
   it('honors a cancel that races AHEAD of newSession (no session id yet) without running the prompt', async () => {
     // Gate the child at newSession: it signals `ready` and blocks until `go`.
-    // We cancel WHILE newSession is pending (sessionId still undefined, so the
-    // backend cannot send session/cancel) — the `cancelled` flag alone must
-    // settle the run aborted after newSession resolves, never issuing the prompt.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-early-'))
     const ready = join(tmp, 'ready')
     const go = join(tmp, 'go')
@@ -457,10 +440,9 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('reports a flattened child failure through onError (preserved, not silently lost)', async () => {
-    // The seam forbids `result` rejecting, so a child-level failure is flattened
-    // to a stop reason — onError must still surface the original error so a real
-    // fault is logged, not swallowed. A nonexistent command triggers the spawn
-    // failure path; the spy records the error + the chosen stop reason.
+    // The seam forbids `result` rejecting, so a child-level failure is flattened to a stop
+    // reason — onError must still surface the original error so a real fault is logged, not
+    // swallowed.
     const errors: { message: string; stopReason: string }[] = []
     const run = startAcpRun(
       { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
@@ -506,10 +488,8 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('settles aborted when the child crashes (tears the pipe) AFTER a cancel', async () => {
-    // The child hangs, we cancel, and instead of answering the child exits hard
-    // — the pending prompt RPC rejects. With a cancel already requested, the
-    // backend's catch path must settle `aborted` (the failure is the cancel
-    // surfacing as a torn pipe), not `error`.
+    // The child hangs, we cancel, and instead of answering the child exits hard — the pending
+    // prompt RPC rejects.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-crash-'))
     const ready = join(tmp, 'ready')
     try {
@@ -526,10 +506,7 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('settles aborted on cancel even when the child IGNORES session/cancel (non-cooperative)', async () => {
-    // The contract: run.cancel() → result settles `aborted`. A child that hangs
-    // its prompt AND ignores session/cancel must not wedge the parent — the
-    // backend's own cancel-settle path resolves `aborted` without the child's
-    // cooperation, and dispose() still reaps the process.
+    // The contract: run.cancel() → result settles `aborted`.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-ignorecancel-'))
     const ready = join(tmp, 'ready')
     try {

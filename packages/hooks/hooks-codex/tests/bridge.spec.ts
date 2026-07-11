@@ -143,10 +143,8 @@ describe('hooks-codex bridge', () => {
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
     const dir = configDir()
-    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose, it
-    // would veto the prompt (0 model requests) and log a hook/invoked. After a
-    // clean dispose the turn must proceed untouched — this fails loudly on a leak
-    // (a no-op `true` hook would pass even with a leaked listener).
+    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose, it would veto the
+    // prompt (0 model requests) and log a hook/invoked.
     const deny = script(dir, 'deny.sh', '#!/usr/bin/env bash\nexit 2\n')
     writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: deny }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
@@ -172,10 +170,8 @@ describe('hooks-codex bridge', () => {
     const dir = configDir()
     const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
-    // Record the hook shell's PID and touch the marker FIRST so the test can
-    // tell "the hook is genuinely mid-run", then sleep far past the suite
-    // timeout. Dispose must KILL the process (the tracker's abort signal wired
-    // through this bridge's runPoint), not await its exit.
+    // Record the hook shell's PID and touch the marker FIRST so the test can tell "the hook is
+    // genuinely mid-run", then sleep far past the suite timeout.
     const slow = script(dir, 'slow.sh', `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     writeHooks(dir, { SessionStart: [{ hooks: [{ type: 'command', command: slow }] }] })
     const ctx = new Context()
@@ -194,11 +190,9 @@ describe('hooks-codex bridge', () => {
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await fiber.dispose()
-    // Quiescence, not just promptness: the drain resolves only after the run
-    // settled, and the run settles only after the killed process was reaped —
-    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
-    // throws ESRCH). An untracked fire-and-forget regression would leave the
-    // process alive (or unreaped) and fail this deterministically.
+    // Quiescence, not just promptness: the drain resolves only after the run settled, and the
+    // run settles only after the killed process was reaped — so by the time dispose returns,
+    // the PID must be GONE (kill(pid, 0) throws ESRCH).
     expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.

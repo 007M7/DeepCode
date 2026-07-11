@@ -261,13 +261,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step\'s `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`.',
+    summary: 'Awaited checkpoint for surface mutation before `step/start` snapshots request history.',
   },
   {
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    summary: 'Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it.',
+    summary: 'Waterfall: decide what happens to one drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it.',
   },
   {
     name: 'agent/queued',
@@ -285,7 +285,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
-    summary: 'Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider\'s system slot) on every request this loop instance sends.',
+    summary: 'Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the entire derived history (directly after the provider\'s system slot) on every request this loop instance sends.',
   },
   {
     name: 'agent/session-start',
@@ -429,19 +429,19 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
+    summary: 'Waterfall after a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
-    summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+    summary: 'Waterfall before a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
   },
   {
     name: 'tools/result',
     mode: 'parallel',
     signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<void> | void',
-    summary: 'Awaited notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
+    summary: 'Awaited notification of the authoritative final tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
   },
   {
     name: 'workflow/agent-end',

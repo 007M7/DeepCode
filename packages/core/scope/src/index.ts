@@ -1,24 +1,7 @@
 /**
- * Scoped-context primitive: mint a Cordis context that TAGS everything
- * registered through it with an opaque {@link ScopeKey}, and dispatch events so
- * listeners registered through such a context fire only for their key's
- * subject. Scope-aware registries (`ctx.tools`, `ctx.systemPrompt`) read the
- * tag via {@link scopeOf} to file a registration in the right layer; the agent
- * loop is the one scope MINTER today (one scope per live agent, key = the
- * `Agent` object — see `Agent.ctx` in `@deepseek-ai/dsh-agent`), but the
- * mechanism is key-agnostic by design so packages below the agent layer
- * (`dsh-session`, `dsh-system-prompt`) can depend on it without a dependency
- * cycle.
- *
- * Ownership and visibility derive from ONE fact — which context a registration
- * went through: the scope's fiber owns the disposal (a `ctx.effect()`/
- * `ctx.on()`/registry call through the scoped context unwinds on
- * {@link Scope.dispose}, because Cordis routes a service method's `this.ctx`
- * to the ACCESSING context), and the tag decides who sees it. Splitting those
- * two — an explicit `{ scope }` registration parameter — would let a caller
- * express "visible to X, disposed with Y", which is almost always a bug; the
- * scoped context makes it unrepresentable.
- *
+ * Scoped-context primitive: mint a Cordis context that TAGS everything registered through it
+ * with an opaque {@link ScopeKey}, and dispatch events so listeners registered through such a
+ * context fire only for their key's subject.
  * @module @deepseek-ai/dsh-scope
  */
 
@@ -113,18 +96,6 @@ function scope(): void {}
 /**
  * Mint a registration scope for `key` under `ctx`.
  *
- * Mounts a runtime fiber (`ctx.plugin`) and tags a child of its context with
- * `key`. The fiber is usable synchronously — Cordis activates it on a
- * microtask, but effect collection is uid-gated (not state-gated) and service
- * resolution falls through the pending fiber to the MINTING plugin's
- * dependency surface, so a caller may register through {@link Scope.ctx} the
- * moment this returns.
- *
- * Service resolution through the scoped context flows through the minting
- * plugin's dependency chain (the fiber walk), regardless of what the eventual
- * holder's own fiber injected — handing out the scoped context hands out that
- * capability; see `Agent.ctx` in `@deepseek-ai/dsh-agent` for the harness's
- * contract.
  * @param ctx - the context to mount the scope under; its fiber must be active
  *   (a disposing owner throws Cordis's INACTIVE_EFFECT), and its plugin's
  *   `inject` surface is what the scoped context resolves services against.
@@ -172,38 +143,11 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
 }
 
 /**
- * Build the dispatch carrier for a scope-filtered event: `base` overlaid with
- * a `Context.filter` that admits a listener iff
- *
- * - its registering context is UNTAGGED (a context-global listener — the
- *   compatibility default: plain plugin listeners see every subject), or
- * - its tag IS `key` (a scoped listener seeing exactly its own subject),
- *
- * AND `base`'s own filter (a Cordis `Service`'s isolation check) also admits
- * it. Dispatching with `key === undefined` — a subject-less dispatch, e.g. a
- * tool call with no calling agent or a bare (agent-less) session's events —
- * admits only untagged listeners: a scoped listener never fires for someone
- * else's (or nobody's) subject. Listeners registered `{ global: true }`
- * bypass all filtering (Cordis semantics).
- *
- * Use it as the `thisArg` of the dispatch:
- * `ctx.waterfall(scopeTarget(this, exec.agent), 'tools/pre-execute', …)`. The
- * carrier is a TRANSPARENT proxy over `base`: reads delegate with `base` as
- * the receiver and retrieved methods are bound to `base`, so a listener may
- * call subject methods through its `this` (`this.send(…)` on a
- * `Scoped<Agent>`) even when the subject uses native `#private` fields — a
- * bare proxy receiver would throw on those. Identity is still not
- * transparent: `this !== subject` and method identity varies per read; the
- * subject always travels in the event's arguments. The returned carrier is
- * branded {@link Scoped} and runtime-marked ({@link isScopeCarrier} /
- * {@link carrierKeyOf}) so both the type system and the dev invariants can
- * tell a carrier from a bare subject.
- * @param base - the object the event is dispatched on behalf of (the owning
- *   service, or the subject agent itself); its own `Context.filter` is
- *   preserved and composed.
- * @param key - the subject's scope key, or `undefined` for a subject-less
- *   dispatch.
- * @returns the carrier to pass as the dispatch `thisArg`.
+ * Build an event receiver admitting global listeners plus listeners tagged with `key`.
+ * The proxy preserves `base` filtering and binds subject methods to `base`.
+ * @param base - dispatch subject whose filter is preserved.
+ * @param key - subject scope, or `undefined` for global-only delivery.
+ * @returns branded receiver for the dispatch `thisArg`.
  */
 export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined): Scoped<T> {
   const baseFilter = (base as { [CordisContext.filter]?: (ctx: Context) => boolean })[CordisContext.filter]
@@ -216,39 +160,20 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
     [CordisContext.filter]: filter,
     [kCarrier]: { key },
   }
-  // A hand-rolled proxy, NOT cordis withProps: withProps delegates gets with
-  // the PROXY as receiver, so a getter on `base` runs with proxy `this` and a
-  // method call through the carrier gets a proxy receiver — either one throws
-  // on a native `#private` field of the subject (TypeError: private member
-  // not declared). Cordis hands the carrier to listeners as `this`, and the
-  // event declarations type it `Scoped<Agent>` — so subject method calls
-  // through it are a SUPPORTED shape and must reach the real object: gets
-  // delegate with `base` as receiver, functions come back bound to `base`,
-  // and sets land on `base` directly.
+  // Bind through the real subject so native private fields remain accessible.
   return new Proxy(base, {
     get(target, prop) {
-      // Proxy get invariants pin what this trap may report for a
-      // non-configurable OWN property of the base: a non-writable data prop
-      // must be reported AS-IS (neither overlaid nor bound), a getterless
-      // accessor as undefined — checked FIRST so even an overlay key
-      // colliding with a frozen own prop of a (pathological) base yields the
-      // base's value instead of an engine TypeError. Such a base forgoes
-      // scope filtering; no production base freezes these keys.
+      // Non-configurable own properties must be reported unchanged.
       const own = Reflect.getOwnPropertyDescriptor(target, prop)
       const pinned = own !== undefined && own.configurable === false
         && own.get === undefined && own.writable !== true
-      // hasOwn, not `in`: the overlay literal inherits Object.prototype, so
-      // `in` would claim `toString`/`constructor` and shadow the subject's.
+      // `in` would let Object.prototype shadow subject properties.
       if (!pinned && Object.hasOwn(overlay, prop)) return overlay[prop]
       const value: unknown = Reflect.get(target, prop, target)
       if (typeof value !== 'function' || pinned) return value
-      // `constructor` is looked up, never invoked as a subject method — keep
-      // the real one (withProps special-cases it the same way), so
-      // `carrier.constructor` still identifies the subject's class.
+      // Preserve class identity.
       if (prop === 'constructor') return value
-      // `Function.prototype.bind` types as `any`; the value is structurally
-      // T[prop] and the trap's contract is untyped (`any`), so unknown is the
-      // honest safe return.
+      // `bind` is typed as `any`; keep the trap boundary `unknown`.
       return value.bind(target) as unknown
     },
     set(target, prop, value) {
@@ -312,14 +237,9 @@ export interface ScopeHost {
 }
 
 /**
- * Mount a scope-minting host plugin that injects `services`, THE sanctioned
- * way to mint scopes in tests (production scopes are minted by the agent
- * loop). Exists because the naive spelling fails confusingly twice over:
- * a plugin with no `inject` mints scopes whose service reads throw Cordis's
- * cryptic `cannot get property … without inject`, and a plugin whose inject
- * can never be satisfied RESOLVES its fiber await without ever running the
- * callback — a silent no-op host. This helper fails LOUD instead: when the
- * callback did not run, it names the absent services and disposes the host.
+ * Mount a scope-minting host plugin that injects `services`, THE sanctioned way to mint scopes
+ * in tests (production scopes are minted by the agent loop).
+ *
  * @param ctx - the context to mount the host under.
  * @param services - the service names scopes minted through this host reach
  *   (the host plugin's `inject` list).
@@ -349,9 +269,7 @@ export async function scopeHost(ctx: Context, services: string[]): Promise<Scope
   const scopes = new Set<Scope>()
   let disposing: Promise<void> | undefined
   const dispose = async (): Promise<void> => {
-    // Start every boundary before awaiting any one of them. A child whose raw
-    // disposer already ran is still followed through Scope.dispose(); a child
-    // the host unload claims first is followed through the same fiber inertia.
+    // Start every boundary before awaiting any one of them.
     const tasks = [quiesceFiber(fiber), ...[...scopes].map(scope => scope.dispose())]
     const results = await Promise.allSettled(tasks)
     scopes.clear()

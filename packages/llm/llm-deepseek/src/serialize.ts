@@ -1,17 +1,6 @@
 /**
- * Serialize harness vocabulary (`GenerateOptions`, `Message[]`) into the
- * DeepSeek chat-completions request body.
- *
- * Block-type mapping (core types handled explicitly; merge-extensible unions
- * mean plugin-added block types exist — they are skipped, never errors):
- *
- * - user `text` → string content (joined)
- * - assistant `text` → `content`; `reasoning` → `reasoning_content`, but
- *   ONLY on assistant messages that carry tool calls (the official passback
- *   rule for thinking mode — required there, ignored elsewhere, so we save
- *   the tokens elsewhere); `tool-call` → `tool_calls[]`
- * - `tool-result` → its own `{role: 'tool'}` message (text flattened)
- *
+ * Serialize harness vocabulary (`GenerateOptions`, `Message[]`) into the DeepSeek
+ * chat-completions request body.
  * @module dsh-llm-deepseek/serialize
  */
 

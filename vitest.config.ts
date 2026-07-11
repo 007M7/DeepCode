@@ -3,20 +3,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   // Vite ≥8 warns that this plugin can be replaced by the native (experimental)
-  // `resolve.tsconfigPaths: true`. It cannot — keep the plugin. Tests run
-  // unbuilt (see AGENTS.md): bare workspace names like `cordis` or
-  // `@deepseek-ai/dsh-llm` must resolve to src/, and that mapping comes from
-  // the root tsconfig.json paths map. The native option is a bare boolean:
-  // for each
-  // importing file it discovers the NEAREST tsconfig.json and applies that
-  // file's own `paths`. Every workspace under packages/* and vendor/* has its
-  // own tsconfig.json without `paths`, so native resolution maps nothing,
-  // falls through to package.json exports (lib/, absent until `pnpm run build`),
-  // and every test file fails to import (verified on vite 8.0.16 /
-  // vitest 4.1.8). Making it work would mean copying the paths map into all
-  // 15 workspace tsconfigs — including vendor/* ones, which are pinned
-  // upstream copies (vendor/README.md). The plugin's `projects` option
-  // instead applies the one root map to every importer.
+  // `resolve.tsconfigPaths: true`.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
     include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
@@ -26,16 +13,7 @@ export default defineConfig({
       // executable code; vendor/ and examples/ are out of scope (examples are
       // exercised by the demo smoke test instead).
       include: ['packages/*/*/src/**/*.ts'],
-      // Types-only files carry no executable code. `bin.ts` files are
-      // self-executing CLI entrypoints (a top-level `await main()`): a spec
-      // can't import one without booting it, so they are driven by the keyless
-      // Loader-path smoke (a real subprocess) instead of the in-process unit
-      // suite — the same reason `examples/start.ts` sat out of coverage scope.
-      // `worker.ts` files are the same class as bin.ts: self-executing
-      // worker-thread entrypoints that only ever run inside a spawned isolate
-      // the v8 provider cannot observe. They stay thin glue over in-process-
-      // tested logic (bootstrap.ts) and are pinned by real-worker integration
-      // tests.
+      // Self-executing bins and workers are covered by subprocess tests outside v8 collection.
       exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts'],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.

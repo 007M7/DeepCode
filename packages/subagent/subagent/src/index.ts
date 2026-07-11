@@ -1,34 +1,8 @@
 /**
- * The subagent seam (`ctx.subagents`): a named-provider registry plus a
- * capability-validating `start` surface. A subagent is an agent delegating
- * work to another agent; a {@link SubagentProvider} is one transport for
- * running that child (in-process spawn/fork, ACP to another process, and —
- * later — A2A, the Codex app-server, the Claude Code Agent SDK).
- *
- * Unlike the bash seam (one executor per context, second load throws), MULTIPLE
- * providers coexist here: each registers under a unique name and a caller picks
- * one by name. The shape mirrors the LLM adapter registry
- * (`LlmService.registerAdapter`), not the single-service bash executor.
- *
- * This package is the INTERFACE third of the capability seam. Implementations
- * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
- * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
- *
- * Scope (first cut): the consumer collects synchronously — it starts a run and
- * awaits {@link SubagentRun.result}. Steering ({@link SubagentRun.sendMessage})
- * is part of the contract but intentionally unused; background / poll / spill
- * semantics are deferred to a future redesign that unifies long-running-tool
- * handling across subagents and bash.
- *
- * The `subagent/start` / `subagent/end` lifecycle events carry an OBSERVE-ONLY
- * payload; `subagent/end` additionally carries the child's `lastAssistantMessage`
- * — see `docs/rfc/implemented/feature/2026-06-30-subagent-observe-enrich.md`.
- * FIXME(subagent-continuation): a control-flow `subagent/end` (an awaited
- * waterfall returning a stop/continue decision, like the other interception
- * seams) would require reshaping this emit into a waterfall, awaiting listeners
- * before settling, and a `resume` capability on the in-process provider — part
- * of the deferred background/steering redesign, NOT this observe-only cut.
- *
+ * The subagent seam (`ctx.subagents`): a named-provider registry plus a capability-validating
+ * `start` surface. A subagent is an agent delegating work to another agent; a {@link
+ * SubagentProvider} is one transport for running that child (in-process spawn/fork, ACP to
+ * another process, and — later — A2A, the Codex app-server, the Claude Code Agent SDK).
  * @module @deepseek-ai/dsh-subagent
  */
 
@@ -85,16 +59,10 @@ declare module 'cordis' {
      */
     'subagent/provider-removed'(name: string): void
     /**
-     * A subagent run started — emitted only after {@link SubagentRun.started}
-     * fulfills, when the provider has established a live child. For an
-     * in-process provider, `ctx.agents.get(info.id)` is therefore guaranteed to
-     * resolve during this notification. A readiness rejection emits neither
-     * lifecycle event; every emitted start is paired with
-     * {@link Events['subagent/end']}.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
-     * by the DELEGATING PARENT — a listener registered through the parent's
-     * `agent.ctx` observes only its own delegations; a plain plugin listener
-     * observes every run.
+     * A subagent run started — emitted only after {@link SubagentRun.started} fulfills, when
+     * the provider has established a live child.
+     *
+     * Scope-filtered dispatch: keyed to the delegating parent.
      * @param info - which provider started which child agent.
      * @mode emit
      */
@@ -104,10 +72,8 @@ declare module 'cordis' {
      * resolves (any stop reason) or rejects (reported as `error`). Paired with
      * {@link Events['subagent/start']}; a run whose readiness rejected emits
      * neither event.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
-     * by the DELEGATING PARENT — a listener registered through the parent's
-     * `agent.ctx` observes only its own delegations; a plain plugin listener
-     * observes every run.
+     * Dispatch is scoped to the delegating parent.
+     * Scope-filtered dispatch: keyed to the delegating parent.
      * @param info - the run identity plus stop reason and final output.
      * @mode emit
      */
@@ -165,16 +131,8 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Register a provider under its `provider.name`. Throws {@link SubagentError}
-   * (`DUPLICATE_PROVIDER`) if the name is already taken. The registry snapshots
-   * the name, static descriptors, and `start` callback identity at acceptance;
-   * later caller mutation cannot change lookup, capability validation, consumer
-   * wording, dispatch, or HMR cleanup. The callback remains bound to the
-   * original provider object, so provider-owned mutable state stays live.
-   * Effect-scoped: disposed with the calling fiber (HMR-safe). Emits
-   * `subagent/provider-added` after the registration and
-   * `subagent/provider-removed` on unregistration, so consumers can mirror
-   * provider lifecycle instead of assuming load order.
+   * Register a provider under its `provider.name`.
+   *
    * @param provider - the provider; its `name` is the registry key.
    * @returns the disposer that unregisters the provider. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -182,10 +140,6 @@ export class SubagentService extends Service {
    */
   registerProvider(provider: SubagentProvider): () => Promise<void> | void {
     // Snapshot the accepted registration contract before entering the effect.
-    // Cleanup must never re-read caller-owned `provider.name`: an HMR host may
-    // mutate or reuse the provider object before its old fiber unloads. Binding
-    // preserves the provider method's receiver while making replacement of the
-    // public callback field after registration inert.
     const capabilities: SubagentCapabilities = Object.freeze({
       outputSchema: provider.capabilities.outputSchema,
       depthLimit: provider.capabilities.depthLimit,
@@ -203,24 +157,16 @@ export class SubagentService extends Service {
         throw new SubagentError(`a subagent provider named "${snapshot.name}" is already registered`, 'DUPLICATE_PROVIDER')
       }
       this.providers.set(snapshot.name, snapshot)
-      // Yield the rollback BEFORE emitting `subagent/provider-added`: a
-      // throwing added-listener then unregisters the provider (and announces
-      // the removal) instead of leaking it into the registry. The removal
-      // announcement itself is contained PER LISTENER ({@link emitLifecycle}):
-      // it runs inside this disposer, where a propagating subscriber would
-      // disrupt the backend fiber's teardown and starve later mirrors.
+      // Yield the rollback before emitting `subagent/provider-added`: a throwing added-listener
+      // then unregisters the provider (and announces the removal) instead of leaking it into
+      // the registry.
       yield () => {
         this.providers.delete(snapshot.name)
         this.emitLifecycle('subagent/provider-removed', snapshot.name)
       }
       this.ctx.emit('subagent/provider-added', snapshot)
     }.bind(this), 'subagents.registerProvider()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // Return the exact Cordis disposer so generator effects preserve teardown nesting.
     return dispose
   }
 
@@ -243,13 +189,8 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Start a subagent run on the named provider. Resolves the provider (throws
-   * `NO_PROVIDER` if absent), validates every requested START-TIME capability
-   * against {@link SubagentProvider.capabilities} (throws `UNSUPPORTED_CAPABILITY`
-   * for the first unmet one — fail loud, before any child is created), then
-   * delegates to {@link SubagentProvider.start}, then emits `subagent/start` /
-   * `subagent/end` only after the run's readiness boundary fulfills. A provider
-   * that fails before establishing a child emits neither event.
+   * Start a subagent run on the named provider.
+   *
    * @param name - the provider to run on.
    * @param request - the child's prompt, capabilities, and options.
    * @returns the live run (its `result` resolves when the child settles).
@@ -266,10 +207,7 @@ export class SubagentService extends Service {
     this.assertCapabilities(provider, request)
     if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
 
-    // Detach every data field before crossing into a provider. Parent/signal
-    // are live identity capabilities and stay exact; the mutable request record
-    // and its arrays/objects are never retained, so every backend (including an
-    // async out-of-process one) observes the request accepted at start.
+    // Detach every data field before crossing into a provider.
     const accepted: SubagentStartRequest = {
       prompt: structuredClone(request.prompt),
       parent,
@@ -282,11 +220,7 @@ export class SubagentService extends Service {
     }
     const run = provider.start(accepted)
 
-    // Observe result settlement IMMEDIATELY, before waiting on readiness. A
-    // provider may fail both promises in the same turn; deferring the rejection
-    // handler until `started` fulfilled would leave `result` transiently
-    // unhandled. The settled event is buffered until start has been announced,
-    // preserving start → end order even for an already-settled scripted run.
+    // Observe result settlement IMMEDIATELY, before waiting on readiness.
     let readiness: 'pending' | 'started' | 'failed' = 'pending'
     let pendingEnd: SubagentRunEndInfo | undefined
     const deliverEnd = (info: SubagentRunEndInfo): void => {
@@ -298,10 +232,7 @@ export class SubagentService extends Service {
     }
     void run.result.then(
       (result) => {
-        // Snapshot before the caller's own `await run.result` continuation. Even
-        // when readiness is still pending, buffering the clone rather than the
-        // caller-owned result keeps the eventual observe-only event immutable
-        // with respect to consumer mutation.
+        // Snapshot before the caller's own `await run.result` continuation.
         let lastAssistantMessage: SubagentResult['output'] | undefined
         try {
           lastAssistantMessage = structuredClone(result.output)
@@ -318,12 +249,7 @@ export class SubagentService extends Service {
       () => { deliverEnd({ provider: name, id: run.id, stopReason: 'error' }) },
     )
 
-    // Readiness is the publication boundary owned by the provider. For
-    // in-process runs, fulfillment means the agent registry already contains
-    // `run.id`; for ACP it means the remote session exists. Emit start with
-    // per-listener containment, then flush an outcome that settled unusually
-    // early. A readiness rejection is handled here and deliberately emits no
-    // false start/end pair; the result path above remains independently handled.
+    // Readiness is the publication boundary owned by the provider.
     void run.started.then(
       () => {
         readiness = 'started'
@@ -343,24 +269,10 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Emit a `subagent/*` lifecycle event with PER-LISTENER containment: dispatch
-   * each subscriber individually and log (never propagate) a thrown one, so one
-   * bad subscriber can neither strand the already-live run, surface as an
-   * unhandled rejection on the detached settle hook, NOR starve the listeners
-   * registered after it. A single try/catch around `ctx.emit` would not do the
-   * last part — cordis `emit` runs listeners in a `.map(cb => cb())` that halts
-   * on the first throw — so this resolves the listener callbacks via
-   * `ctx.events.dispatch` and contains each call, the same guarantee
-   * `BashExecutor.notifyTaskDone` gives its own listener set.
-   *
-   * `subagent/provider-removed` routes through here too: it fires inside the
-   * provider registration's DISPOSER, where a propagating listener would
-   * disrupt the backend fiber's teardown (dispose must reach quiescence) and a
-   * starved later listener would leave a mirror consumer (`dsh-tool-subagent`)
-   * holding a tool for a provider that no longer exists. `subagent/provider-added`
-   * deliberately does NOT: it fires at registration time, where a throwing
-   * listener unwinds the yielded rollback — the same fail-loud register-time
-   * semantics as the system-prompt registries.
+   * Emit a `subagent/*` lifecycle event with PER-LISTENER containment: dispatch each
+   * subscriber individually and log (never propagate) a thrown one, so one bad subscriber can
+   * neither strand the already-live run, surface as an unhandled rejection on the detached
+   * settle hook, NOR starve the listeners registered after it.
    */
   private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo, parent: Agent): void
   private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo, parent: Agent): void
@@ -370,10 +282,9 @@ export class SubagentService extends Service {
     info: SubagentRunInfo | SubagentRunEndInfo | string,
     parent?: Agent,
   ): void {
-    // Run lifecycle events dispatch in the DELEGATING PARENT's scope (a
-    // parent-scoped listener observes only its own delegations); the
-    // provider-removed registry notification stays unfiltered. The carrier is
-    // args[0] of the dispatch call, exactly as cordis' own emit spells it.
+    // Run lifecycle events dispatch in the DELEGATING PARENT's scope (a parent-scoped listener
+    // observes only its own delegations); the provider-removed registry notification stays
+    // unfiltered.
     const dispatchArgs: unknown[] = parent === undefined
       ? [name, info]
       : [scopeTarget(this, parent), name, info]

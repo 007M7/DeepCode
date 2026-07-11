@@ -42,17 +42,8 @@ export interface Config {
     /** Optional workspace cwd for the config-created fresh session. */
     cwd?: string
     /**
-     * If set, the config agent RESUMES this persisted session id instead of
-     * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
-     * cordis.yml (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`), so a
-     * demo can continue a prior conversation without code changes. Requires a
-     * `dsh-session-persistence` backend; the resume is deferred until that
-     * service is available (via `ctx.inject`) and the loaded session's events
-     * seed the live session so history continues.
-     *
-     * The schema accepts a plain string at runtime (cordis.yml values are
-     * untyped); the brand is compile-time only — the config format is the
-     * boundary where an id enters, so the TYPE declares the brand here.
+     * If set, the config agent RESUMES this persisted session id instead of starting a fresh
+     * `${id}-session-<uuid>`.
      */
     resumeSessionId?: SessionId
   })[]
@@ -75,11 +66,9 @@ export class AgentLoop extends Service implements AgentFactory {
   private pendingAgentIds = new Set<AgentId>()
   private pendingSessionIds = new Set<SessionId>()
 
-  // The schema validates plain strings (cordis.yml config values are untyped at
-  // runtime); the {@link Config} TYPE declares the branded `id`/`resumeSessionId`
-  // because the config format is the boundary where an id enters. The brand is a
-  // zero-cost compile-time cast, so the runtime schema stays string-based and we
-  // assert the branded view once here — the single schema boundary.
+  // The schema validates plain strings (cordis.yml config values are untyped at runtime); the
+  // {@link Config} TYPE declares the branded `id`/`resumeSessionId` because the config format
+  // is the boundary where an id enters.
   static Config = z.object({
     agents: z.array(z.object({
       id: z.string().required(),
@@ -94,25 +83,12 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
-    // The prompt variables the shipped loop provides, registered once. The
-    // sections themselves (`harness:identity`, `deployment:persona`) belong to
-    // dsh-system-prompt — they must survive a swapped loop plugin — but
-    // `{{model}}`/`{{cwd}}` are runtime facts of the agents THIS loop drives:
-    // it assembles with `{ agent }` each step (loop.ts), and the variables
-    // project the agent's configured model and its session workspace from that
-    // context. A provider returns undefined when the fact is absent
-    // (renderPrompt then rejects a persona that claims it — fail loud).
+    // The prompt variables the shipped loop provides, registered once.
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
     for (const { id, cwd, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId !== undefined && resumeSessionId !== '') {
-        // Resume a prior session instead of starting fresh. resume() needs
-        // `ctx.sessionPersistence`, which may load AFTER this plugin (cordis.yml
-        // lists the backend later). `ctx.inject(['sessionPersistence'], cb)`
-        // runs `cb` with a child ctx once the service exists; the child reads
-        // the persistence and hands it to resumeWith (which uses this.ctx — the
-        // parent — for sessions/registry, all in AgentLoop's static inject). A
-        // failed resume is contained + logged: startup must not crash.
+        // Wait for a late persistence service before resuming the configured session.
         ctx.effect(() => {
           const fiber = this.ctx.inject(['sessionPersistence'], (childCtx: Context) => {
             void this.resumeWith(childCtx.sessionPersistence, { agentId: id, resumeSessionId, agentOptions: options })
@@ -120,10 +96,7 @@ export class AgentLoop extends Service implements AgentFactory {
                 this.ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
               })
           })
-          // Return the EXACT child-fiber disposer. Cordis moves a returned
-          // effect into this labeled owner's teardown tree by function
-          // identity; a wrapper would leave the child as a concurrent sibling
-          // and could discard its async quiescence promise.
+          // Return the exact child-fiber disposer.
           return fiber.dispose
         }, `agentLoop.resume(${id})`)
       } else {
@@ -133,54 +106,32 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   /**
-   * Config-driven create: an agent on a FRESH, non-colliding session id per run
-   * (`${id}-session-<uuid>`). Used for `cordis.yml`-configured agents and as
-   * the shared core for the programmatic factory {@link createAgent}.
-   *
-   * Why a per-run id, not a fixed `${id}-session`: once a durable persistence
-   * backend is loaded, a fixed id collides on the second run — the backend
-   * refuses to re-create an id whose log already exists on disk (the SessionId
-   * is the identity). A fresh id means each run is a new session.
-   *
-   * TODO(demo): each run starting a brand-new session is fine for demos but is
-   * NOT real conversation continuity. A production config-driven agent needs a
-   * deliberate resume-or-create policy (resume the prior session if one exists,
-   * else start fresh) or an explicit caller-chosen session id — revisit when the
-   * UI/ACP path owns session selection.
-   * @param id - the agent id; also seeds the generated session id.
-   * @param options - loop options (model, limits, …); defaults applied per option.
-   * @param meta - optional session metadata for the fresh session.
-   * @returns the running agent, owned by the calling fiber (no handle).
+   * Create a config-driven agent with a unique session id for this run.
+   * @param id - agent id and generated-session prefix.
+   * @param options - loop options.
+   * @param meta - optional fresh-session metadata.
+   * @returns running agent owned by the calling fiber.
    */
+  // TODO(demo): define a production resume-or-create policy for config-driven agents.
   create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
-    // Config/programmatic path: prepare the session and let start() fold its
-    // lifecycle into the agent's composite effect (so a fiber unload tears the
-    // session + agent down as one ordered chain, capturing the loop's closing
-    // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
+    // The calling fiber owns the prepared session and agent lifecycle.
     const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta })
     const { agent } = this.start(id, options, session, 'startup')
     return agent
   }
 
   /**
-   * Programmatic factory create ({@link AgentFactory}): an agent on a
-   * caller-supplied `sessionId` (NOT `${id}-session`), with optional session
-   * metadata (validated `cwd`, lineage) and an optional `seed` event prefix. The
-   * ACP bridge uses this so the client-generated session id becomes the
-   * live/persisted session id; the in-process FORK subagent backend passes a
-   * `seed` (a balanced completed-turn prefix of the parent's log) so the child
-   * starts with the parent's context. Returns an {@link AgentHandle} the owner
-   * disposes to tear down exactly this agent.
+   * Programmatic factory create ({@link AgentFactory}): an agent on a caller-supplied
+   * `sessionId` (not `${id}-session`), with optional session metadata (validated `cwd`,
+   * lineage) and an optional `seed` event prefix.
+   *
    * @param options - agent id, caller-supplied session id, optional seed/meta,
    *   and agent options.
    * @returns the handle whose dispose tears down exactly this agent.
    */
   async createAgent(options: CreateAgentOptions): Promise<AgentHandle> {
     // Snapshot every caller-owned field before the first async setup boundary.
-    // The callback itself is an identity capability; all data fields are
-    // detached so caller mutation cannot drift a reserved/published identity or
-    // the options the accepted agent observes.
     const agentId = options.agentId
     const sessionId = options.sessionId
     const setup = options.setup
@@ -201,35 +152,17 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   /**
-   * Resume an agent on a persisted session ({@link AgentFactory}). Loads the
-   * session log + metadata via `ctx.sessionPersistence`, reconstructs the live
-   * session with the loaded events (so `lastTurnNumber`/`deriveMessages`
-   * continue), and starts a fresh agent on it. The live session id is the
-   * resumed id, NOT `${agentId}-session`.
+   * Resume an agent on a persisted session ({@link AgentFactory}). Loads the session log +
+   * metadata via `ctx.sessionPersistence`, reconstructs the live session with the loaded
+   * events (so `lastTurnNumber`/`deriveMessages` continue), and starts a fresh agent on it.
+   * The live session id is the resumed id, not `${agentId}-session`.
    *
-   * Requires `ctx.sessionPersistence`; rejects with a clear error if it is not
-   * configured. NOT hard-injected (that would make non-persistent demos pend
-   * forever) — callers that need resume (ACP) inject `sessionPersistence`, so
-   * by the time this runs the service exists.
    * @param options - the persisted session id to reload, plus agent id/options.
    * @returns the handle for the agent resumed on the reconstructed session.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
-    // Read the service through `ctx.get('sessionPersistence')` — a direct
-    // global-store lookup keyed by the isolate symbol — NOT
-    // `this.ctx.sessionPersistence`. AgentLoop deliberately does NOT inject
-    // `sessionPersistence` (injecting it would pend non-persistent demos
-    // forever). The `ctx.<name>` property proxy resolves a service by an
-    // ancestor-only walk of the current fiber's parent chain; from AgentLoop's
-    // own fiber (which lacks the inject) that walk never reaches the sibling
-    // backend fiber and throws "cannot get property … without inject". Worse,
-    // when the call arrives via a traceable shadow (e.g. the ACP bridge child
-    // fiber → `ctx.agents.resume()` → `this.factory.resume()`), the walk starts
-    // at the shadow's origin fiber and fails the same way. `ctx.get(name)`
-    // sidesteps the fiber walk entirely (a store lookup by the global isolate
-    // key), so resume works from any caller fiber. It is strict by default: a
-    // backend that is not ACTIVE (absent, or mid-teardown) reads as undefined
-    // and we reject below, rather than handing back an unusable handle.
+    // Read the service through `ctx.get('sessionPersistence')` — a direct global-store lookup
+    // keyed by the isolate symbol — not `this.ctx.sessionPersistence`.
     const persistence = this.ctx.get('sessionPersistence')
     if (persistence === undefined) {
       throw new Error('cannot resume: session persistence is not configured (load a dsh-session-persistence backend)')
@@ -257,13 +190,7 @@ export class AgentLoop extends Service implements AgentFactory {
     const { promise: ownerDisposed, resolve: markOwnerDisposed } = Promise.withResolvers<void>()
     const { promise: transactionSettled, resolve: markTransactionSettled } = Promise.withResolvers<void>()
     let observingOwner = true
-    // Resume must observe its caller from BEFORE persistence I/O begins. The
-    // full agent lifecycle does not exist until load returns, so without this
-    // sentinel a never-settling backend outlives owner disposal and holds both
-    // public identities forever. `this.ctx.effect` retains the traceable caller
-    // ownership used by startOwned's lifecycle effect. Install it before even
-    // reserving the ids: an inactive owner cannot leak a reservation if effect
-    // registration fails.
+    // Resume must observe its caller from before persistence I/O begins.
     const disposeLoadSentinel = this.ctx.effect(() => () => {
       if (!observingOwner) return
       markOwnerDisposed()
@@ -306,11 +233,8 @@ export class AgentLoop extends Service implements AgentFactory {
       }
     } finally {
       try {
-        // Manual handoff/removal must not return transactionSettled: awaiting
-        // that promise from inside this transaction would deadlock it. If the
-        // owner already triggered cleanup, this idempotent second disposal is a
-        // no-op and the owner's first cleanup remains parked on the shared
-        // settlement promise.
+        // Manual handoff/removal must not return transactionSettled: awaiting that promise from
+        // inside this transaction would deadlock it.
         observingOwner = false
         await disposeLoadSentinel()
       } finally {
@@ -360,11 +284,9 @@ export class AgentLoop extends Service implements AgentFactory {
     publish: (source: SessionStartSource) => void
     disposeAgent: () => Promise<void>
   } {
-    // When creation is invoked through an agent scope (subagents), the owner
-    // agent's disposed status flips synchronously at handle teardown—earlier
-    // than Cordis reaches nested scope effects. Include that signal in the
-    // pre-publication liveness check so a same-turn parent dispose cannot race
-    // an already-fulfilled setup promise into briefly publishing a child.
+    // When creation is invoked through an agent scope (subagents), the owner agent's disposed
+    // status flips synchronously at handle teardown—earlier than Cordis reaches nested scope
+    // effects.
     const ownerAgent = this.ctx.agent
     const ownerFiber = this.ctx.fiber
     const driver = prepareReactLoopAgent(this.ctx, id, options, session)
@@ -458,22 +380,7 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   /**
-   * Build an {@link AgentHandle} for a PREPARED session + a fresh agent. The
-   * handle's `dispose()` runs the composite effect's disposer (see
-   * {@link start}) — which stops the loop, awaits its exit and outstanding
-   * idle-injection flushes, unregisters the agent, and detaches the session, in
-   * that order.
-   * The same composite effect is what a fiber unload disposes, so both teardown
-   * triggers honor the ordering identically.
-   *
-   * `dispose()` is MEMOIZED: the underlying cordis effect disposer is
-   * single-shot (a second call returns immediately because the effect's epoch is
-   * already cleared, NOT awaiting the in-flight teardown), so concurrent/repeated
-   * `dispose()` calls would otherwise resolve before the first call's
-   * loop + flush quiescence boundary completed. Memoizing the promise makes
-   * every caller observe that SAME boundary, honoring the
-   * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
-   * helper).
+   * Build an {@link AgentHandle} for a PREPARED session + a fresh agent.
    */
   private async startOwned(
     id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
@@ -491,11 +398,8 @@ export class AgentLoop extends Service implements AgentFactory {
           throw new Error(`agent "${id}" setup aborted: owner disposed during setup`)
         }),
       ])
-      // Cordis begins a fiber unload synchronously but invokes nested effect
-      // disposers from its next microtask. Give that already-started unload one
-      // checkpoint to deactivate this lifecycle before publication; otherwise
-      // an immediately fulfilled setup continuation can outrun its owner's
-      // same-turn dispose and briefly publish an already-doomed child.
+      // Cordis begins a fiber unload synchronously but invokes nested effect disposers from its
+      // next microtask.
       await Promise.resolve()
       if (!lifecycle.active()) {
         throw new Error(`agent "${id}" setup aborted: owner disposed during setup`)

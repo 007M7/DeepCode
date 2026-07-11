@@ -70,9 +70,8 @@ describe('Inbox', () => {
     r1()
     await p1
 
-    // Now enqueue: the first waiter's wakeup (which was overwritten) won't
-    // fire, and the second waiter's wakeup was cleared by cancel.
-    // The enqueue calls wakeup?.() but wakeup was cleared — no crash, no hang.
+    // Now enqueue: the first waiter's wakeup (which was overwritten) won't fire, and the second
+    // waiter's wakeup was cleared by cancel.
     inbox.enqueue({ content: [{ type: 'text', text: 'hey' }], source: { kind: 'user' } })
     // The overwrite path + finally cleanup are exercised
   })

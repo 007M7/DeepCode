@@ -1,19 +1,7 @@
 /**
- * The model-facing web tool suite (`web_search`, `web_fetch`) over the `ctx.web`
- * seam. This root plugin registers the tools the product has ENABLED, composing
- * the per-tool registration helpers (`applyWebSearchTool`, `applyWebFetchTool`).
- *
- * The package owns model-facing concerns only — tool names, JSON schemas,
- * argument validation, prompt sections, result-cap constants, result formatting,
- * HTML→markdown presentation. All web access goes through `ctx.web`; this
- * package never imports a concrete provider package.
- *
- * Tool registration follows product/app ENABLEMENT, not backend availability: a
- * tool stays visible even when its selected provider is missing/misconfigured,
- * and execution fails with a structured `WebError` (resolved by the seam at call
- * time). That keeps the model schema stable without making plugin load order,
- * credential state, or HMR timing part of the model-facing contract.
- *
+ * The model-facing web tool suite (`web_search`, `web_fetch`) over the `ctx.web` seam. This
+ * root plugin registers the tools the product has ENABLED, composing the per-tool registration
+ * helpers (`applyWebSearchTool`, `applyWebFetchTool`).
  * @module @deepseek-ai/dsh-tool-web
  */
 

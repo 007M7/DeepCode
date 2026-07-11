@@ -1,17 +1,7 @@
 /**
- * The shared in-process subagent run driver: run a child as a child
- * {@link Agent} on the SAME cordis context (`ctx.agents`) — the cheapest
- * transport, reusing the agent factory's quiescent {@link AgentHandle}
- * teardown. The concrete in-process backends are thin shells over this driver,
- * differing ONLY in the `seed` they pass (a fresh child vs. a child seeded with
- * a prefix of the parent's log); everything downstream — drive the child, read
- * its final output, map the stop reason, dispose — is identical and lives here.
- *
- * This package declares no provider and performs no import-time registration;
- * it is a library the backend packages depend on, so neither backend needs to
- * know about the other. Each accepted run does install one provider-owned
- * effect for structured-concurrency cleanup.
- *
+ * The shared in-process subagent run driver: run a child as a child {@link Agent} on the same
+ * cordis context (`ctx.agents`) — the cheapest transport, reusing the agent factory's
+ * quiescent {@link AgentHandle} teardown.
  * @module @deepseek-ai/dsh-subagent-inprocess
  */
 
@@ -75,9 +65,8 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
       return 'max-tokens'
     case 'aborted':
       return 'aborted'
-    // `disposed` (torn down mid-turn) and `interrupted` (crash-closed) both mean
-    // the turn did not finish cleanly; surface them as a generic failure rather
-    // than a clean completion. A missing reason (no turn ran) is also an error.
+    // `disposed` (torn down mid-turn) and `interrupted` (crash-closed) both mean the turn did
+    // not finish cleanly; surface them as a generic failure rather than a clean completion.
     case 'error':
     case 'disposed':
     case 'interrupted':
@@ -104,16 +93,6 @@ async function quiesceFiber(fiber: Fiber): Promise<void> {
 /**
  * Start an in-process child agent for `request` and return a {@link SubagentRun}.
  *
- * Drives the child as a one-shot: `send(prompt)` then `whenIdle()` (the ordering
- * matters — `send` enqueues synchronously, so `whenIdle` observes the queued
- * work and resolves only on the child's `running → idle` transition, never
- * before the turn starts). The final `assistant/message` is the result output,
- * the matching `turn/end.reason` the stop reason. `dispose()` delegates to the
- * factory's {@link AgentHandle.dispose} (stop loop → await quiescence → remove
- * session); `cancel()` cancels the child's in-flight turn.
- *
- * Throws {@link SubagentDepthError} before creating anything when the child's
- * depth (parent depth + 1) would exceed `request.maxDepth`.
  * @param ctx - the provider context that owns the live run as a second
  *   structured-concurrency boundary alongside the parent agent.
  * @param request - the start request (prompt, parent, signal, per-child options).
@@ -137,22 +116,11 @@ export function startInProcessRun(
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
-  // Assert, then snapshot, the schema subset BEFORE any child exists (the
-  // service has already capability-gated; this rejects a schema outside the
-  // enforced subset loud). Assertion comes FIRST so a hostile value fails as
-  // OutputSchemaError, never as structuredClone's raw DataCloneError — the
-  // asserted subset is plain JSON data, which always clones. The snapshot is
-  // load-bearing: the caller keeps its reference, so attaching the ORIGINAL
-  // would let a post-start() mutation drift the enforced schema away from the
-  // asserted one — the clone (taken synchronously with the assertion, no
-  // interleaving possible) pins assertion, the model-visible parameters, and
-  // validateStructuredValue to one isolation-immutable value.
+  // Assert, then snapshot, the schema subset before any child exists (the service has already
+  // capability-gated; this rejects a schema outside the enforced subset loud).
   if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
   const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
-  // The accepted request owns a value snapshot, not the caller's mutable
-  // content array. Validate the same lossless-JSON contract Session.append
-  // enforces before any child exists, then detach it synchronously so mutation
-  // during async creation cannot change what is logged or sent to the model.
+  // The accepted request owns a value snapshot, not the caller's mutable content array.
   if (!isJsonValue(request.prompt)) {
     throw new TypeError('subagent prompt must be losslessly JSON-serializable')
   }
@@ -168,24 +136,15 @@ export function startInProcessRun(
   // SEEDED parent's last assistant message as its result.
   const seedLength = options.seed?.length ?? 0
   const parentHeader = parent.session.header
-  // Inherit the parent's model by default (a child with no model cannot run);
-  // an explicit `request.agentOptions.model` overrides it. The deployment
-  // persona needs no inheritance (a context-wide section both render); a
-  // per-child `request.persona` becomes a SCOPED section of the same name in
-  // the setup below, shadowing the deployment's for this child alone.
+  // Inherit the parent's model by default (a child with no model cannot run); an explicit
+  // `request.agentOptions.model` overrides it.
   const agentOptions: AgentOptions = structuredClone({
     ...parent.options.model !== undefined ? { model: parent.options.model } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
   })
 
-  // The child's scoped world, composed in the factory's unpublished setup
-  // window. The factory awaits it before inserting or announcing the child, so
-  // a throw/rejection exposes neither id and every first assembly sees it:
-  //  - persona: a scoped `deployment:persona` section shadowing the global one;
-  //  - toolFilter: a scoped restrict() masking the global tool surface
-  //    (loud unknown-name validation lives in the registry);
-  //  - outputSchema: the structured runtime, attached as scoped registrations.
+  // The child's scoped world, composed in the factory's unpublished setup window.
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
     if (persona !== undefined) {
@@ -199,15 +158,8 @@ export function startInProcessRun(
     }
   }
 
-  // Bridge the request's abort signal to the child (the consumer also bridges
-  // its own exec.signal, but a backend-level bridge keeps the contract local).
-  // Install it after provider ownership succeeds but BEFORE awaiting creation,
-  // so an inactive provider cannot leave an orphaned listener and abort/dispose
-  // during async setup is still recorded and applied the moment a child exists.
-  // `cancelled` records that a cancel was requested at all, so the pre-turn
-  // cancel window — where the child clears the queued prompt before any
-  // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
-  // rather than falling through to the no-turn `error` mapping.
+  // Bridge the request's abort signal to the child (the consumer also bridges its own
+  // exec.signal, but a backend-level bridge keeps the contract local).
   let cancelled = false
   // An accessor, not an inline read: `cancelled` mutates from closures (the
   // abort listener, run.cancel), which control-flow narrowing cannot see — an
@@ -223,13 +175,7 @@ export function startInProcessRun(
   }
   const onAbort = (): void => { requestCancel('subagent cancelled') }
 
-  // One run-owned Cordis fiber is the common ownership node. Install the
-  // provider effect FIRST: a start racing an already-unloading provider fails
-  // before it can mint anything under the parent. The owner fiber is then
-  // nested under the parent scope, and the provider/run handle both dispose
-  // this exact fiber. AgentFactory binds its lifecycle to `ownerCtx`, so any of
-  // the three owners moves the fiber out of ACTIVE synchronously and setup
-  // cannot publish afterward.
+  // One run-owned Cordis fiber is the common ownership node.
   let ownerCtx: Context | undefined
   function subagentRunOwner(inner: Context): void { ownerCtx = inner }
   let ownerFiber: (Fiber & PromiseLike<Fiber>) | undefined
@@ -264,12 +210,7 @@ export function startInProcessRun(
     if (ownerCtx === undefined) {
       throw new Error('subagent run owner became inactive before child creation')
     }
-    // Invoke the factory THROUGH the parent scope. Cordis binds the factory's
-    // lifecycle effect to the accessing context, so parent ownership exists
-    // before persistence/setup and publication—not as a fallible link added
-    // after the child is already visible. A disposed parent therefore rejects
-    // before any session/agent notification, and disposal during async setup
-    // wins the unpublished transaction.
+    // Invoke the factory THROUGH the parent scope.
     const created = await ownerCtx.agents.create({
       agentId: childId,
       sessionId: SessionId(randomUUID()),
@@ -289,12 +230,7 @@ export function startInProcessRun(
     return created.agent
   })()
 
-  // Provider readiness is a distinct lifecycle boundary from accepting the
-  // request. It resolves only after the factory has published the child and
-  // returned its handle, so SubagentService can emit `subagent/start` while
-  // `ctx.agents.get(childId)` is guaranteed to resolve. The result path awaits
-  // THIS SAME promise immediately, which also observes a readiness rejection
-  // when the driver is invoked directly rather than through SubagentService.
+  // Provider readiness is a distinct lifecycle boundary from accepting the request.
   const started: Promise<void> = creation.then(() => undefined)
 
   const result: Promise<SubagentResult> = (async () => {
@@ -356,22 +292,10 @@ export function startInProcessRun(
 }
 
 /**
- * Read a settled child's terminal result from its session log, scoped to the
- * child's OWN events (everything at or after `seedLength` — fork seeds the
- * parent's completed-turn prefix, so a child that produced no message of its
- * own must NOT return the seeded parent's last assistant message). The output
- * is the child's last `assistant/message` content (deep-cloned — the log is
- * frozen); the stop reason is the child's last `turn/end` reason mapped to a
- * {@link SubagentStopReason}. When `cancelled` is set but no `turn/end` was
- * logged (a cancel landed in the pre-turn window, before any turn ran), the
- * run settles `aborted` per the {@link SubagentRun.cancel} contract rather than
- * the generic no-turn `error`.
- *
- * A structured run (`structured` present) additionally reports the captured
- * value on {@link SubagentResult.structured}. A structured child that finished
- * CLEANLY without ever capturing (the nudges ran out) settles `error` — a clean
- * finish without the demanded structured result is a failure, not a success
- * with a missing field; a non-`completed` reason keeps its own honest mapping.
+ * Read a settled child's terminal result from its session log, scoped to the child's own
+ * events (everything at or after `seedLength` — fork seeds the parent's completed-turn prefix,
+ * so a child that produced no message of its own must not return the seeded parent's last
+ * assistant message).
  */
 function readResult(
   child: Agent,

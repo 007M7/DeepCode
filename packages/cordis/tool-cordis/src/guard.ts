@@ -1,50 +1,9 @@
 /**
- * The registration boundary between sandboxed mount code and the real runtime:
- * SchemaSpec normalization + validation with teaching errors, the
- * marker-guarded `harness.defineTool` / `harness.registerTool` pair, the
- * SANDBOX CONTEXT FAÇADE a mounted plugin's `apply` receives in place of the
- * real `ctx`, and the plugin-shape helpers the mount lifecycle narrows sandbox
+ * The registration boundary between sandboxed mount code and the real runtime: SchemaSpec
+ * normalization + validation with teaching errors, the marker-guarded `harness.defineTool` /
+ * `harness.registerTool` pair, the SANDBOX CONTEXT FAÇADE a mounted plugin's `apply` receives
+ * in place of the real `ctx`, and the plugin-shape helpers the mount lifecycle narrows sandbox
  * return values with.
- *
- * The façade is a WHITELIST, not a pass-through proxy. Mount code needs to do
- * exactly four things — register a tool, listen to an event, provide a service,
- * call an injected service (timers included) — so the façade exposes only those
- * verbs and the injected services, each object-valued service individually
- * wrapped (a primitive provided value passes through as-is — see
- * {@link sandboxContext}). Every framework plumbing member (`root`, `parent`, `scope`, `fiber`, `reflect`, `registry`,
- * `events`, `extend`, `isolate`, `intercept`, `plugin`, `set`, `mixin`, …) is
- * DENIED with a teaching error rather than passed through. This closes an
- * entire escape class at once: a pass-through proxy that only special-cased
- * `ctx.tools` still handed back the raw context through `ctx.root`,
- * `ctx.extend()`, or a service instance's `.ctx`, and mount code could then
- * `ctx.root.tools.register({…})` to bypass the marker check and host-realm
- * normalization — a raw vm-realm result then errors a real agent turn at the
- * session-log plainness check. The whitelist has no such hole: there is no
- * context-valued member to reach, and any injected-service method that returns
- * a `Context` is rejected (harness services never do — see {@link denyContext}).
- *
- * Two realm facts drive the tool path. Objects built inside the vm carry the vm
- * realm's `Object.prototype`, and the session log's append-time plainness check
- * (`dsh-session`'s `isJsonValue`, a prototype-identity comparison) rejects
- * foreign-realm data — so every dynamic tool's `execute` return is JSON
- * round-tripped into the host realm and shape-checked against the two
- * `ToolExecuteReturn` forms before it reaches the registry (the registry
- * trusts the shape blindly — it spreads `result.content`, so an unvalidated
- * `{ content: 'ok' }` would enter the session log as `['o','k']` and silently
- * corrupt the next model request), and the schema itself is rebuilt as fresh
- * host-realm objects. And a malformed tool
- * schema must fail at REGISTRATION, not when a later request assembles it — so
- * dynamic tool registration accepts only definitions produced by the sandbox's
- * `harness.defineTool`, which normalizes `parameters` up front.
- *
- * Normalize, don't lecture, where the input has exactly one meaning: models
- * write the JSON-Schema dialect by strong prior (the `{ type: 'object',
- * properties, required: […] }` wrapper, `type: 'integer'`, `required: false`),
- * and each rejection costs a model turn — so those convert to the SchemaSpec
- * DSL silently, and only genuinely meaningless input (an unknown type, a
- * non-boolean `required`) is rejected, with the error enumerating the valid
- * vocabulary.
- *
  * @module @deepseek-ai/dsh-tool-cordis/guard
  */
 
@@ -195,14 +154,11 @@ function assertExecuteReturn(value: unknown): ToolExecuteReturn {
 }
 
 /**
- * The `harness.defineTool` handed into the sandbox: the real DSL, with
- * `parameters` normalized into a fresh host-realm SchemaSpec (JSON-Schema
- * wrapper unwrapped, `integer` mapped, `required: false` dropped) and the
- * tool's `execute` return normalized into the host realm via a JSON round-trip
- * (see the module doc). The round-trip projects the return onto exactly what
- * the log would durably store, and {@link assertExecuteReturn} then vets that
- * projection — so a non-JSON-serializable OR wrong-shape return surfaces as
- * that one call's teaching error instead of poisoning the turn.
+ * The `harness.defineTool` handed into the sandbox: the real DSL, with `parameters` normalized
+ * into a fresh host-realm SchemaSpec (JSON-Schema wrapper unwrapped, `integer` mapped,
+ * `required: false` dropped) and the tool's `execute` return normalized into the host realm
+ * via a JSON round-trip (see the module doc).
+ *
  * @param options - the standard `defineTool` options; `parameters` may be the SchemaSpec DSL or a JSON-Schema-style wrapper.
  * @returns the marker-tagged definition `harness.registerTool` (and the guarded `ctx.tools.register`) accepts.
  */
@@ -236,15 +192,9 @@ export function sandboxRegisterTool(ctx: Context, tool: unknown): () => Promise<
 }
 
 /**
- * The verbs a mounted plugin may reach through the sandbox `ctx` façade,
- * beyond its injected services. `on`/`once` observe events, `provide` exposes
- * a service to other mounts, and the timer helpers schedule work — each a
- * fiber effect that unwinds on unmount. Everything else on a real cordis `ctx`
- * is framework plumbing and is denied. Forwarded LAZILY: the timer helpers are
- * mixin accessors that throw `without inject` when read on a plugin that did
- * not inject `timer`, so the façade reads `ctx[verb]` only at call time — the
- * plugin that never touches a timer never trips that, and one that does gets
- * cordis's own inject error at the call site.
+ * The verbs a mounted plugin may reach through the sandbox `ctx` façade, beyond its injected
+ * services. `on`/`once` observe events, `provide` exposes a service to other mounts, and the
+ * timer helpers schedule work — each a fiber effect that unwinds on unmount.
  */
 const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setTimeout', 'setInterval', 'throttle', 'debounce'])
 
@@ -258,11 +208,7 @@ const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setT
  * name/description/parameters view as `schemas()`, and nothing invocable.
  */
 function sandboxTools(ctx: Context): Record<string, unknown> {
-  // Reads resolve through the MOUNT's own scope (`scopeOf(ctx)`), mirroring
-  // where the façade's `register` lands its writes (the calling context's
-  // layer): mount code always sees the tools its own world sees — the global
-  // view for today's global mounts, its agent's view if a mount ever runs
-  // under an agent scope.
+  // Resolve reads and writes through the mount's own scope.
   return {
     register: (tool: unknown): (() => Promise<void> | void) => sandboxRegisterTool(ctx, tool),
     schemas: () => ctx.tools.schemas(scopeOf(ctx)),
@@ -320,15 +266,7 @@ function declaredInjects(ctx: Context): Set<string> {
 }
 
 /**
- * The sandbox context façade handed to a mounted plugin's `apply` in place of
- * the real `ctx`. A whitelist (see the module doc): the registration/eventing
- * verbs, the timer helpers, a guarded `tools`, and injected services resolved
- * through a guarded `get` / property access. A service is reachable only if the
- * plugin DECLARED it in `inject` — an undeclared service is denied even when a
- * global provider exists, so cordis's activation/unload semantics (park the
- * mount when a declared provider goes away) actually bind. Every
- * framework-plumbing member is denied with a teaching error; there is no
- * context-valued member to reach.
+ * The sandbox context façade handed to a mounted plugin's `apply` in place of the real `ctx`.
  */
 function sandboxContext(ctx: Context): Context {
   const tools = sandboxTools(ctx)
@@ -348,16 +286,8 @@ function sandboxContext(ctx: Context): Context {
       + 'Framework internals (root, fiber, registry, extend, plugin, …) are withheld by design.',
     )
   }
-  // Read a service for either access path (property or `get`). `tools` is the
-  // façade's own surface. An UNDECLARED name is denied with the teaching
-  // error; a DECLARED one resolves to the guarded service. A declared inject
-  // is required in cordis (the fiber only activates once every declared
-  // service is live), so at `apply`/`execute` time `ctx.get(name)` is present
-  // for a declared name — no undefined case to handle here. `provide()`
-  // accepts ANY value though (cross-mount composition advertises
-  // `ctx.provide('name', value)`), so a primitive or null value passes
-  // through unwrapped: Proxy throws on a non-object target, and only an
-  // object can carry a method that hands back a Context.
+  // Read a service for either access path (property or `get`). `tools` is the façade's own
+  // surface.
   const readService = (name: string): unknown => {
     if (name === 'tools') return tools
     if (!declared.has(name)) return denyRead(name)
@@ -408,20 +338,11 @@ export function isPlugin(value: unknown): value is Plugin {
 }
 
 /**
- * Wrap a plugin so its `apply` receives the sandbox context façade instead of
- * the real `ctx` (see {@link sandboxContext} and the module doc). Both
- * function-form and object-form plugins go through the same wrap; the plugin's
- * own `inject` declaration is preserved (cordis reads it from the plugin
- * object, and pending/active gating happens on the real fiber before `apply`
- * runs), so cross-mount provide/inject works unmodified.
- *
- * `ctx.effect(customCleanup)` is deliberately absent from the façade for now —
- * `on` / `provide` / `tools.register` cover every mount seen so far, and each
- * is already a fiber effect. FIXME(sandbox-effect): expose a guarded `effect`
- * once a real mount needs a bespoke disposer.
+ * Wrap a plugin so `apply` receives the sandbox context while preserving injection metadata.
  * @param plugin - the plugin the mount code returned.
  * @returns an equivalent plugin whose `apply` sees the sandbox context façade.
  */
+// FIXME(sandbox-effect): expose guarded custom effects when a mount needs bespoke cleanup.
 export function guardedPlugin(plugin: Plugin): Plugin {
   if (typeof plugin === 'function') {
     const functionPlugin = plugin as (ctx: Context, config?: unknown) => unknown

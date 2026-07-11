@@ -1,13 +1,6 @@
 /**
- * A scripted {@link SubagentProvider} for testing the subagent seam WITHOUT a
- * model or a real child agent. Mirrors `@deepseek-ai/dsh-llm-replay`: it lets a
- * test drive the service and the model-facing tool through the REAL cordis
- * Loader / export path, exercising registration, capability validation, the
- * run lifecycle, and the structured-output branch deterministically.
- *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default —
- * a functional plugin (it only registers a provider; it is never injected).
- *
+ * A scripted {@link SubagentProvider} for testing the subagent seam WITHOUT a model or a real
+ * child agent.
  * @module @deepseek-ai/dsh-subagent-mock
  */
 

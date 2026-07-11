@@ -1,20 +1,7 @@
 /**
  * Tool render-intent vocabulary: the provider-neutral types a tool declares via
- * `ToolDefinition.presentCall`/`ToolDefinition.presentResult` to say
- * how ONE of its calls renders in a UI (an editor's tool-call card, a CLI log
- * line). A UI bridge switches on the `card` tag to map each intent to its own
- * wire shape, so a UI never special-cases tool names.
- *
- * This is the UI-facing surface of `dsh-tools`, kept separate from the registry
- * and execution core in `index.ts`: this module owns ONLY presentation
- * vocabulary and references none of the execution types, so the dependency runs
- * one way (`index.ts` imports these views for the `ToolDefinition` method
- * signatures). The opaque `meta` presentation channel is execution plumbing and
- * lives with the registry in `index.ts`, not here.
- *
- * See the render-intent-union RFC
- * (docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
- *
+ * `ToolDefinition.presentCall`/`ToolDefinition.presentResult` to say how one of its calls
+ * renders in a UI (an editor's tool-call card, a CLI log line).
  * @module @deepseek-ai/dsh-tools/src/presentation
  */
 
@@ -186,16 +173,8 @@ export interface TerminalResultView {
 }
 
 /**
- * A completed file mutation rendered as an inline diff card, the *result-time*
- * analogue of {@link DiffCallView}. Set by a tool whose `execute` applied a file
- * change (e.g. `write`, `edit`): `diffs` are the change to show — typically the
- * APPLIED hunks computed from the before/after content (one entry per hunk, each
- * with surrounding context lines), so the editor shows the real change in place;
- * a tool with no before-image (e.g. a file create) may instead give a whole-file
- * diff (`oldText: null`). A `tool_call_update`'s content REPLACES the call's
- * content in an editor, so a mutation tool returns this even when it duplicates
- * the call-time snippet — otherwise the model-facing result text would replace
- * (clobber) the pending diff card.
+ * A completed file mutation rendered as an inline diff card, the *result-time* analogue of
+ * {@link DiffCallView}.
  */
 export interface DiffResultView {
   card: 'diff'

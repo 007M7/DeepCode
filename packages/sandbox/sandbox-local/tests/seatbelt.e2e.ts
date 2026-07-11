@@ -9,20 +9,9 @@ import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider, seatbeltProfileArgs } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * KEYLESS Seatbelt integration proof for the BACKEND: the REAL macOS
- * `sandbox-exec` confining REAL processes through `confine()` + a direct
- * spawn of the returned argv, with the Linux rungs forced off so the ladder
- * lands on Seatbelt. Verifies the WORLD (files exist or don't) and that the
- * kernel's denial text matches the dialect the wrap advertises; the
- * through-`ctx.bash` consumer proof lives with `@deepseek-ai/dsh-bash-sandbox`.
- *
- * Self-skips wherever the functional probe fails — every non-macOS host, or
- * a macOS whose `sandbox-exec` refuses the profile.
- *
- * Workspaces for the workspace-write tests live under the HOME directory on
- * purpose: `workspace-write` grants `/tmp` and the per-user temp dir
- * wholesale (the documented Seatbelt-profile temp areas), so only a
- * workspace OUTSIDE both proves the workspace-root grant itself.
+ * Keyless Seatbelt integration proof for the backend: the real macOS `sandbox-exec` confining
+ * real processes through `confine()` + a direct spawn of the returned argv, with the Linux
+ * rungs forced off so the ladder lands on Seatbelt.
  */
 
 const probe = spawnSync('sandbox-exec', [...seatbeltProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

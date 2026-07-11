@@ -1,13 +1,6 @@
 /**
- * Parse a Claude Code hook config file into the shared {@link MatcherGroup}
- * shape, faithfully to CC's `hooks.json` / settings `hooks` key format.
- *
- * A CC config maps each event name to an array of matcher groups, each holding
- * an array of typed hooks. Only `type: 'command'` hooks run here; other types
- * (`prompt`/`agent`/`http`) are PARSED but skipped with a warning (faithful-but-
- * degraded — the same stance Codex takes). The `command` string undergoes
- * `${CLAUDE_PLUGIN_ROOT}` substitution at parse time so the runner sees a literal.
- *
+ * Parse a Claude Code hook config file into the shared {@link MatcherGroup} shape, faithfully
+ * to CC's `hooks.json` / settings `hooks` key format.
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 
@@ -57,13 +50,13 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 }
 
 /**
- * Parse a raw Claude Code config object (the value under the `hooks` key, or a
- * `hooks.json` whose top level IS that map) into runnable {@link MatcherGroup}s.
- * Non-command hooks and malformed entries are dropped (recorded in `skipped` /
- * silently ignored) rather than throwing — a bad hook config must not crash boot.
- * `vars` are substituted into every surviving `command`.
- * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare event map.
- * @param vars - substitution values applied to every surviving `command` (defaults to none).
+ * Parse a raw Claude Code config object (the value under the `hooks` key, or a `hooks.json`
+ * whose top level IS that map) into runnable {@link MatcherGroup}s.
+ *
+ * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
+ *   event map.
+ * @param vars - substitution values applied to every surviving `command` (defaults to
+ *   none).
  * @returns the runnable per-event groups plus the skipped non-command hooks.
  */
 export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): ParsedClaudeConfig {

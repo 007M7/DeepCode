@@ -1,11 +1,5 @@
 /**
- * Wire protocol between the host runtime and the worker bootstrap. Everything
- * crossing the message port is structured-clone-plain and versionless — both
- * ends ship in this package, always at the same version. The host treats
- * inbound traffic as HOSTILE (the worker runs model code, which can reach
- * `parentPort` via `import('node:worker_threads')` and forge any of these
- * shapes); the worker treats inbound traffic as trusted.
- *
+ * Wire protocol between the host runtime and the worker bootstrap.
  * @module @deepseek-ai/dsh-code-runtime-worker/src/protocol
  */
 

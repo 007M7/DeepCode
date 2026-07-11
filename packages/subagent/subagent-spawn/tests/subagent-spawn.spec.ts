@@ -148,11 +148,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('settles aborted (without running the child) when the request signal is ALREADY aborted', async () => {
-    // Regression: a signal aborted BEFORE the run starts never fires an `abort`
-    // event, so the listener can't catch it. The driver must check the
-    // already-aborted case up front and settle `aborted` without running the
-    // child — otherwise an already-cancelled request runs to `completed`. The
-    // empty script proves the child's model is never called.
+    // Regression: a signal aborted before the run starts never fires an `abort` event, so the
+    // listener can't catch it.
     const controller = new AbortController()
     controller.abort()
     const { ctx, parent } = await setup([])
@@ -164,12 +161,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('cancelling BEFORE the child turn starts settles aborted, not error', async () => {
-    // Regression: a cancel landing in the pre-turn window clears the queued
-    // prompt before any `turn/end` is logged. Deriving the stop reason from
-    // `turn/end` alone then mis-maps the no-turn case to `error`; the run must
-    // honor the cancel contract and settle `aborted`. The cancel is synchronous
-    // (same tick as start, before the loop's queued-wait continuation runs), so
-    // the turn is dropped and the empty script is never consumed.
+    // Regression: a cancel landing in the pre-turn window clears the queued prompt before any
+    // `turn/end` is logged.
     const { ctx, parent } = await setup([])
     const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
     run.cancel('early')
@@ -345,9 +338,7 @@ describe('dsh-subagent-spawn', () => {
       parent,
       outputSchema: { type: 'object', properties: { a: { type: 'number' } } },
     })
-    // Let the child's step start streaming, then unload the backend. The
-    // backend owns the child agent, so the unload tears the child down and
-    // the run settles — releasing its own runtime acquisition on the way out.
+    // Let the child's step start streaming, then unload the backend.
     await new Promise(resolve => setTimeout(resolve, 30))
     await fiber.dispose()
     const result = await run.result

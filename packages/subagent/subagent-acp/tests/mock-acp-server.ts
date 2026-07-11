@@ -1,44 +1,7 @@
 /**
- * A minimal mock ACP AGENT, run as a subprocess, for the keyless
- * `dsh-subagent-acp` tests. It speaks the agent side of ACP over stdio and is
- * fully scripted by environment variables — no model, no network:
- *
- * - `MOCK_TEXT`        — the assistant text it streams as one `agent_message_chunk`.
- * - `MOCK_STOP`        — the ACP `StopReason` it returns from `prompt`
- *                        (`end_turn` default, or `max_tokens`/`refusal`/…).
- * - `MOCK_HANG`        — if `1`, `prompt` never resolves on its own (it waits for
- *                        a `session/cancel`), to exercise the client's cancel path.
- * - `MOCK_IGNORE_CANCEL` — if `1` (with MOCK_HANG), the agent receives
- *                        `session/cancel` but NEVER resolves the pending prompt
- *                        and never exits — a non-cooperative child. The backend's
- *                        `result` must still settle `aborted` on its own and
- *                        `dispose()` must still kill the process.
- * - `MOCK_PERMISSION`  — if `1`, the agent calls `session/request_permission`
- *                        before answering, to exercise the client's auto-answer.
- * - `MOCK_READY_FILE`  — if set, the path the agent touches once its `prompt`
- *                        handler is in flight (it has streamed its chunk). A test
- *                        polls for this file to cancel on a CONDITION rather than
- *                        an arbitrary timeout (subprocess cold-start is variable).
- * - `MOCK_FLUSH_ON_EOF` — if set, on stdin EOF the agent takes an async beat
- *                         (MOCK_FLUSH_DELAY_MS, default 150) simulating the real
- *                         acp-agent's EOF-driven quiesce+flush, then touches this
- *                         path and exits ON ITS OWN — no signal. Stands in for a
- *                         child whose durable flush completes only if dispose
- *                         gives EOF a real window before escalating to SIGTERM.
- * - `MOCK_IGNORE_EOF`   — if `1`, keep the event loop alive past stdin EOF (a bare
- *                         timer) but install a SIGTERM handler that exits (and, if
- *                         MOCK_SIGTERM_FILE is set, touches it as an observable
- *                         proof the SIGTERM rung fired). The child ignores the
- *                         graceful EOF window yet dies cooperatively on SIGTERM —
- *                         exercising dispose's middle tier (exit during the SIGTERM
- *                         grace, before the SIGKILL escalation). Touches
- *                         MOCK_READY_FILE once armed.
- *
- * It is NOT a test spec (no `describe`/`it`) — it is spawned BY the specs as the
- * child process the ACP backend drives. Kept as a `.ts` run under tsx by the
- * spec (which passes its own tsconfig), mirroring how the snapshot harness boots
- * the real example.
- *
+ * A minimal mock ACP AGENT, run as a subprocess, for the keyless `dsh-subagent-acp` tests. It
+ * speaks the agent side of ACP over stdio and is fully scripted by environment variables — no
+ * model, no network.
  * @module @deepseek-ai/dsh-subagent-acp/tests/mock-acp-server
  */
 
@@ -157,11 +120,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
         process.exit(1)
       }
       if (IGNORE_CANCEL) {
-        // A NON-COOPERATIVE child: receive session/cancel but never resolve the
-        // pending prompt and never exit. The backend's `result` must still settle
-        // `aborted` on its own (the cancel-settle race), and `dispose()` must
-        // still kill the process — proving cancellation does not depend on the
-        // child cooperating.
+        // A NON-COOPERATIVE child: receive session/cancel but never resolve the pending prompt
+        // and never exit.
         return Promise.resolve()
       }
       resolveCancel?.('cancelled')
@@ -178,12 +138,9 @@ new AgentSideConnection(
   ),
 )
 
-// Under MOCK_TRAP_SIGTERM, ignore SIGTERM and keep stdin open so the process
-// neither quiesces on EOF nor dies on the graceful signal — exercising the
-// backend dispose path's SIGKILL escalation. Without this the process exits
-// normally on SIGTERM / stdin end. Touch READY_FILE once the trap is armed, so
-// a test waits for that CONDITION before disposing (the trap must be in place,
-// not merely the process spawned — otherwise SIGTERM hits the default handler).
+// Under MOCK_TRAP_SIGTERM, ignore SIGTERM and keep stdin open so the process neither quiesces
+// on EOF nor dies on the graceful signal — exercising the backend dispose path's SIGKILL
+// escalation.
 if (process.env.MOCK_TRAP_SIGTERM === '1') {
   process.on('SIGTERM', () => { /* trapped: refuse to exit on the graceful signal */ })
   // Keep the event loop alive (a bare timer) so nothing else lets it exit.
@@ -191,13 +148,9 @@ if (process.env.MOCK_TRAP_SIGTERM === '1') {
   if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'trap-armed')
 }
 
-// Under MOCK_FLUSH_ON_EOF, model the real acp-agent's EOF-driven quiesce: on
-// stdin 'end' (the dispose path's `child.stdin.end()`), take an ASYNC beat to
-// "flush", then touch the marker and exit ON OUR OWN — no signal involved. The
-// beat is MOCK_FLUSH_DELAY_MS (default 150). A dispose that sends SIGTERM before
-// the beat completes (no graceful window, or an EOF grace shorter than the
-// flush) default-terminates this process and the marker is missing; a dispose
-// that gives the EOF quiesce enough window first lets the flush land.
+// Under MOCK_FLUSH_ON_EOF, model the real acp-agent's EOF-driven quiesce: on stdin 'end' (the
+// dispose path's `child.stdin.end()`), take an ASYNC beat to "flush", then touch the marker and
+// exit ON OUR own — no signal involved.
 if (FLUSH_ON_EOF !== undefined) {
   const flushDelayMs = Number(process.env.MOCK_FLUSH_DELAY_MS ?? '150')
   process.stdin.on('end', () => {
@@ -208,14 +161,7 @@ if (FLUSH_ON_EOF !== undefined) {
   })
 }
 
-// Under MOCK_IGNORE_EOF, keep the loop alive past stdin EOF (so the graceful EOF
-// window times out) but INSTALL A SIGTERM HANDLER that records it and exits — the
-// child ignores the graceful EOF window yet dies cooperatively on SIGTERM,
-// exercising dispose's MIDDLE tier (exit during the SIGTERM grace, before the
-// SIGKILL escalation). When MOCK_SIGTERM_FILE is set the handler touches it, an
-// OBSERVABLE proof that the SIGTERM rung fired: if dispose skipped the middle
-// rung and jumped EOF→SIGKILL, SIGKILL is uncatchable so the handler never runs
-// and the marker is missing. Touch READY_FILE once armed (a test waits on it).
+// Ignore EOF but exit on SIGTERM to exercise the middle disposal tier.
 if (process.env.MOCK_IGNORE_EOF === '1') {
   const sigtermFile = process.env.MOCK_SIGTERM_FILE
   process.on('SIGTERM', () => {
@@ -225,4 +171,3 @@ if (process.env.MOCK_IGNORE_EOF === '1') {
   setInterval(() => { /* stay alive past EOF until SIGTERM */ }, 1000)
   if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'ignore-eof-armed')
 }
-

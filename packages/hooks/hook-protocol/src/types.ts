@@ -1,15 +1,7 @@
 /**
- * Dialect-neutral vocabulary for the Claude Code / Codex hook wire protocol,
- * plus the log-only `hook/*` session events. Types only — runtime helpers live
- * in the sibling modules (`matcher`, `codec`, `runner`, `merge`, `events`).
- *
- * This package is the SHARED CORE: the truly-identical primitives both the
- * `dsh-hooks-claude` and `dsh-hooks-codex` bridges build on. Each bridge owns
- * its own per-dialect stdin-payload construction and decision mapping on top of
- * these primitives — the divergences (which events exist, literal-vs-regex
- * matching, env/substitution, snake_case extras, allow/ask support) are the
- * BRIDGE's concern, not this lib's.
- *
+ * Dialect-neutral vocabulary for the Claude Code / Codex hook wire protocol, plus the log-only
+ * `hook/*` session events. Types only — runtime helpers live in the sibling modules
+ * (`matcher`, `codec`, `runner`, `merge`, `events`).
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
@@ -31,17 +23,7 @@ declare module '@deepseek-ai/dsh-session' {
       matcher?: string
       handlerId: string
     }
-    /**
-     * A hook command's outcome — log-only, paired with a prior `hook/invoked`
-     * (same `handlerId`). `decision` is the dialect-neutral outcome derived by
-     * `appendHookResult` (which owns the rule): the hook's parsed decision
-     * (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to
-     * halt via `continue:false`, else `'pass'`. `exitCode` is the process exit
-     * (absent if it never ran), `stderrSummary` the trimmed stderr truncated to
-     * the bridge's configured cap (the block reason source on exit 2),
-     * `durationMs` the wall-clock runtime (audit timing; snapshot replay
-     * normalizes it). `turn` matches the `hook/invoked`.
-     */
+    /** Log-only hook outcome paired to `hook/invoked` by `handlerId`. */
     'hook/result': {
       turn: number
       point: string

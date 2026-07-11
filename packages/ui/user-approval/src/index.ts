@@ -1,35 +1,9 @@
 /**
- * Approval seam: `ctx.approval` answers exactly one question — "may this
- * specific action proceed?" — by dispatching the `approval/request` waterfall
- * to whatever answerers the deployment composed (an ACP editor prompt, an
- * auto-decide policy, a scripted test listener) and returning a closed
- * {@link ApprovalOutcome}. With no answerer the waterfall falls through to the
- * built-in default `'unavailable'`: absence of a UI can never grant anything.
- *
- * The service is the MECHANISM (dispatch, cancellation, audit); answerers are
- * the POLICY. It serves both ask paths the sandbox RFC names — the
- * `tools/pre-execute` `ask` decision and the sandbox post-denial escalation —
- * so every asker shares one outcome
- * vocabulary and one audit trail. Grants are one-shot by design: an
- * `'allowed-once'` outcome authorizes the single action it was asked about,
- * never a class of future actions.
- *
- * Every request lands two log-only session events on the requesting agent's
- * log (`approval/asked` / `approval/decided`, paired by
- * {@link ApprovalRequestId}) — an audit trail, deliberately NOT part of the
- * model-visible transcript: the model only ever sees the tool result the
- * caller derives from the outcome.
- *
- * The seam also owns the per-session POLICY tier (the sandbox RFC § Per-session mode switching):
- * `effective = fold(the session's 'approval/policy' events, last one wins)
- * ?? config.policy` — the session log is the store, so an override survives
- * restart by replay. The service resolves `'never'` sessions to
- * `'rejected'` inside `request()` before dispatching any answerer (no
- * registration order, including a later `prepend`, can precede it); a prompt section states `'never'`
- * (and only `'never'` — an availability promise is unknowable without
- * asking); an `agent/pre-step` narrator explains a switch to the model in at
- * most one coalesced notice per step.
- *
+ * Approval seam: `ctx.approval` answers exactly one question — "may this specific action
+ * proceed?" — by dispatching the `approval/request` waterfall to whatever answerers the
+ * deployment composed (an ACP editor prompt, an auto-decide policy, a scripted test listener)
+ * and returning a closed {@link ApprovalOutcome}.
+ * Scope-filtered dispatch: keyed to `req.agent`.
  * @module @deepseek-ai/dsh-user-approval
  */
 
@@ -52,20 +26,7 @@ declare module 'cordis' {
   interface Events {
     /**
      * Waterfall asking the composed answerers to decide one approval request.
-     * Dispatched only from {@link ApprovalService.request} — callers go through
-     * the service (which owns cancellation and the audit events), never through
-     * `ctx.waterfall` directly. A listener that can answer for this request's
-     * agent returns an outcome WITHOUT calling `next()` (the decision slot is
-     * single-occupancy, first listener to answer wins); a listener that does
-     * not recognize the agent MUST call `next()` so another answerer — or the
-     * fail-closed default `'unavailable'` — gets the question. Throwing is
-     * contained by the service and yields `'unavailable'`.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a
-     * listener registered through `agent.ctx` receives only that agent's
-     * questions, while a plain-context listener receives every agent's.
-     * `req` is the service's shallow-frozen acceptance snapshot: later caller
-     * mutation cannot redirect the question, while the `agent` and `signal`
-     * identity capabilities remain exact.
+     *
      * @param req - the accepted decision (agent, tool identity, reason, signal).
      * @mode waterfall
      */
@@ -276,18 +237,9 @@ export interface Config {
 }
 
 /**
- * The `ctx.approval` service: dispatches {@link ApprovalRequest}s to the
- * `approval/request` waterfall and audits every ask/outcome pair to the
- * requesting agent's session log. Stateless between requests — grants are
- * returned to the caller, never stored here.
- *
- * Owns the policy tier too (`effective = fold(the session's 'approval/policy'
- * events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'`
- * before dispatching any interactive answerer, a per-agent prompt section
- * states a `'never'` policy (and only that one in prose — an `'ask'` promise
- * could overclaim an answerer that headless compositions do not have), and an
- * `agent/pre-step` narrator injects at most one coalesced notice when a
- * session's effective policy moved past what the model was last told.
+ * The `ctx.approval` service: dispatches {@link ApprovalRequest}s to the `approval/request`
+ * waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless
+ * between requests — grants are returned to the caller, never stored here.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -299,12 +251,10 @@ export class ApprovalService extends Service {
 
     const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent)
 
-    // Visibility layer 1, scoped on the prompt registry so headless
-    // compositions mount the seam without it: state the one deterministic
-    // policy per session. 'ask' renders only a source-owned state marker —
-    // stating "you will be asked" would overclaim in a composition with no
-    // answerer. The marker, not deployment-controlled prose, is what the
-    // restart narrator reads back from the logged request header.
+    // Visibility layer 1, scoped on the prompt registry so headless compositions mount the seam
+    // without it: state the one deterministic policy per session. 'ask' renders only a
+    // source-owned state marker — stating "you will be asked" would overclaim in a composition
+    // with no answerer.
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.section({
         name: 'approval:policy',
@@ -319,16 +269,10 @@ export class ApprovalService extends Service {
       })
     })
 
-    // Visibility layer 2: the boundary narrator. pre-step runs after prompt
-    // assembly but before the request history is derived, so the notice is
-    // seen by THIS step's request: idle-time flip-flops coalesce at the
-    // turn's first step (net-zero → nothing), and a mid-turn switch is
-    // narrated no later than the next step. What each session was last told
-    // is in-memory with a log-derived fallback (the folded header's system
-    // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header*` was a runtime
-    // switch by the user; otherwise the configured default moved under the
-    // session (operator/config).
+    // Visibility layer 2: the boundary narrator. pre-step runs after prompt assembly but before
+    // the request history is derived, so the notice is seen by this step's request: idle-time
+    // flip-flops coalesce at the turn's first step (net-zero → nothing), and a mid-turn switch
+    // is narrated no later than the next step.
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
     ctx.on('agent/pre-step', (agent) => {
       const session = agent.session
@@ -361,30 +305,13 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Ask the composed answerers to decide one request. Requires an open turn
-   * on the requesting agent's session — the audit pair below is turn-enclosed
-   * by contract (the turn is the log's commit/replay boundary; an idle append
-   * would be dropped as crash tail on reload) — and throws before appending
-   * anything when called idle; asking outside a turn is a deferred design.
-   * Within that precondition it always resolves to an outcome, never rejects:
-   * an aborted signal yields `'cancelled'`, a missing or throwing answerer
-   * yields `'unavailable'` (fail closed), and a rogue non-vocabulary return
-   * value is normalized to `'unavailable'`. The caller-owned request is
-   * synchronously snapshotted, so later mutation cannot split routing,
-   * dispatch payload, cancellation, or the audit pair across agents/sessions.
-   * Appends the
-   * `approval/asked`/`approval/decided` audit pair (log-only) around the
-   * decision regardless of outcome. A synchronous session observer failure
-   * after an audit event entered the append-only log is contained; the event
-   * is already authoritative, so the pair still completes and the request
-   * still resolves.
+   * Ask the composed answerers to decide one request.
+   *
    * @param req - the pending decision (agent, tool identity, reason, signal).
    * @returns the closed outcome; `'allowed-once'` is the only grant.
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
-    // Accept one immutable request shape before the first async boundary. The
-    // caller retains its record and may mutate it as soon as this async method
-    // returns; identity capabilities stay live, but the record is never reread.
+    // Accept one immutable request shape before the first async boundary.
     const agent = req.agent
     const toolName = req.toolName
     const callId = req.callId
@@ -422,11 +349,9 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Append one audit event while distinguishing a post-append observer throw
-   * from a failure that prevented the event entering the log. `Session.append`
-   * pushes first and then notifies synchronously, so log growth proves the
-   * event is already authoritative; that observer failure is reported and
-   * contained so it cannot reject the approval or suppress its matching event.
+   * Append one audit event while distinguishing a post-append observer throw from a failure
+   * that prevented the event entering the log.
+   *
    * @param session - the captured session receiving both audit events.
    * @param type - the audit event currently being appended.
    * @param id - the request id, used to identify the contained failure.
@@ -461,11 +386,7 @@ export class ApprovalService extends Service {
   /** Dispatch the waterfall, contained and raced against the accepted signal. */
   private async decide(req: Readonly<ApprovalRequest>): Promise<ApprovalOutcome> {
     if (req.signal?.aborted) return 'cancelled'
-    // The 'never' policy is decided HERE, before any dispatch: a listener
-    // registered with `prepend: true` after this service mounts would sit
-    // ahead of any gate LISTENER, so a listener-shaped gate cannot keep the
-    // documented promise that 'never' rejects deterministically regardless
-    // of registration order — only the service's own request path can.
+    // Enforce never before dispatch so listener order cannot bypass it.
     if (this.effectivePolicy(req.agent) === 'never') return 'rejected'
     // Enter the promise chain BEFORE dispatching: a listener that throws
     // SYNCHRONOUSLY (before its first await) must land in the same rejection

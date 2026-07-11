@@ -1,17 +1,4 @@
-/**
- * Real-load-path guard for @deepseek-ai/dsh-tool-web. `tool-web` is a NAMESPACE
- * plugin with `inject` — so a stray `export default apply` would make the cordis
- * Loader's `unwrapExports` (`exports.default ?? exports`) collapse the module to
- * the bare `apply` function, DROPPING `inject`. The plugin would then read
- * `ctx.web` without having injected it and throw `cannot get property … without
- * inject` the moment it loads (postmortem 0001).
- *
- * A hand-built `ctx.plugin({ apply, inject })` mount CANNOT catch that — it
- * bypasses `unwrapExports`. So this test unwraps the module through the REAL
- * `Loader.prototype.unwrapExports` and mounts the result over `ctx.web`,
- * exercising the exact path the Loader uses. Prove the guard bites: add
- * `export default apply` to `src/index.ts`, watch this go red, revert.
- */
+/** Real Loader-path coverage for the namespace plugin's export shape. */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
@@ -41,7 +28,6 @@ describe('dsh-tool-web real-load-path guard', () => {
 
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolWeb) as Parameters<Context['plugin']>[0]
-    // A collapsed export shape (dropped inject) would throw "without inject" here.
     const fiber = await ctx.plugin(unwrapped)
     expect(ctx.tools.schemas().map(s => s.name)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']))
     await fiber.dispose()

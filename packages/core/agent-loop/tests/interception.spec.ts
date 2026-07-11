@@ -117,14 +117,9 @@ describe('agent/prompt-submit', () => {
   })
 
   it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
-    // The merge of the interception seams with master's compaction seam pins one
-    // ordering: `agent/prompt-submit` runs (rewriting the prompt and injecting
-    // context) BEFORE the step loop, and `agent/pre-step` fires INSIDE the step
-    // before the single deriveMessages(). So a compaction listener on
-    // `agent/pre-step` must observe the surface AFTER the prompt rewrite/inject —
-    // otherwise it would measure/compact stale history. This cross-test proves
-    // the two seams compose in the right order (each is covered in isolation
-    // elsewhere; this asserts they see each other's effects on the same turn).
+    // The merge of the interception seams with master's compaction seam pins one ordering:
+    // `agent/prompt-submit` runs (rewriting the prompt and injecting context) before the step
+    // loop, and `agent/pre-step` fires inside the step before the single deriveMessages().
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -189,9 +184,7 @@ describe('agent/prompt-submit', () => {
   })
 
   it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
-    // Two prompts queued into ONE turn: block "secret", allow "safe". The turn is
-    // NOT rejected (a prompt was allowed), so without a durable prompt/blocked the
-    // vetoed prompt and its reason would vanish from the log entirely.
+    // Two prompts queued into one turn: block "secret", allow "safe".
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -618,11 +611,9 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
 })
 
 describe('worked example: a native hook plugin is just a cordis plugin on the seams', () => {
-  // The whole point of the interception taxonomy: a "native hook" needs no
-  // dsh-hook-protocol, no external command, no hook/* log — it is an ordinary
-  // cordis plugin subscribing to the canonical events and returning typed
-  // decisions. This proves all four seams compose end-to-end through the REAL
-  // loop, with NO hook/* SessionEvents involved (those belong to the bridge lib).
+  // The whole point of the interception taxonomy: a "native hook" needs no dsh-hook-protocol,
+  // no external command, no hook/* log — it is an ordinary cordis plugin subscribing to the
+  // canonical events and returning typed decisions.
   const NativeGuard = {
     name: 'native-guard',
     apply(ctx: Context) {

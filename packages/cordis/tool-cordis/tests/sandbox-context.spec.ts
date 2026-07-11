@@ -77,10 +77,7 @@ describe('sandbox context façade — escape surface is closed', () => {
 
   it('denies a service whose method returns a Context (the .ctx escape), registering nothing', async () => {
     // A cordis Service instance carries `.ctx` (a real Context), so
-    // `ctx.systemPrompt.ctx.root.tools.register(…)` would be a fresh unguarded
-    // handle. The service wrapper's return-value guard rejects any Context on
-    // the way back to sandbox code, so the escape never lands. (`systemPrompt`
-    // is in the setup harness, so the plugin activates and its apply runs.)
+    // `ctx.systemPrompt.ctx.root.tools.register(…)` would be a fresh unguarded handle.
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
@@ -104,10 +101,8 @@ describe('sandbox context façade — escape surface is closed', () => {
   })
 
   it('guards an async injected-service method: a host-realm Promise resolves through the guard', async () => {
-    // The return guard's Promise arm only fires for a HOST-realm Promise
-    // (a vm-realm one is not `instanceof` the host `Promise`). Provide a
-    // host-realm service from the test, then inject + await it from a mount:
-    // the resolved value is non-Context data and passes through.
+    // The return guard's Promise arm only fires for a HOST-realm Promise (a vm-realm one is not
+    // `instanceof` the host `Promise`).
     const ctx = await setup()
     ctx.plugin({
       name: 'host-async-svc',
@@ -194,11 +189,9 @@ describe('sandbox context façade — inject gate on services', () => {
   })
 
   it('a cross-mount consumer must declare the provider — the undeclared path is refused, not left as a zombie tool', async () => {
-    // The finding's scenario: a consumer registers a tool built on a provider's
-    // service WITHOUT declaring inject. cordis would then never park the
-    // consumer when the provider unmounts, leaving a tool that fails only at
-    // execution. The gate refuses the undeclared access up front, so the
-    // dependency is always visible to cordis.
+    // The finding's scenario: a consumer registers a tool built on a provider's service WITHOUT
+    // declaring inject. cordis would then never park the consumer when the provider unmounts,
+    // leaving a tool that fails only at execution.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: 'return { name: \'greeter-provider\', apply(ctx) { ctx.provide(\'greeter\', { greet: (n) => \'hi \' + n }) } }',
@@ -231,11 +224,9 @@ describe('sandbox context façade — inject gate on services', () => {
 
 describe('sandbox tools façade — get is a read-only schema view', () => {
   it('ctx.tools.get returns a schema, not the live ToolDefinition with execute', async () => {
-    // The finding: returning the raw ToolDefinition hands mount code the
-    // tool's execute function, letting it bypass ToolRegistry.execute (and its
-    // pre/post hooks). get now returns the same name/description/parameters
-    // view as schemas(), with no execute. Asserted via a self-made tool that
-    // reports the shape it saw — world-checked, not self-reported.
+    // The finding: returning the raw ToolDefinition hands mount code the tool's execute
+    // function, letting it bypass ToolRegistry.execute (and its pre/post hooks). get now
+    // returns the same name/description/parameters view as schemas(), with no execute.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `

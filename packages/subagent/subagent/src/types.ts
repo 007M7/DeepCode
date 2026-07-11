@@ -11,16 +11,10 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /**
- * Which START-TIME features a provider supports. Checked by the service
- * BEFORE delegating to {@link SubagentProvider.start}: a request that needs a
- * capability the chosen provider lacks is rejected with a typed error rather
- * than accepted-then-ignored (the "fail loud, no silent degradation" rule).
- *
- * Start-time features live here (a static descriptor) because they must be
- * checked before a run exists. RUNTIME features (steering, resume) are instead
- * modeled as OPTIONAL METHODS on {@link SubagentRun}: the method's presence IS
- * the capability, and TS narrowing is the discovery mechanism — a consumer
- * cannot call an absent method without narrowing first.
+ * Which START-TIME features a provider supports. Checked by the service before delegating to
+ * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
+ * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
+ * degradation" rule).
  */
 export interface SubagentCapabilities {
   /** Honor {@link SubagentStartRequest.outputSchema} (structured final output). */
