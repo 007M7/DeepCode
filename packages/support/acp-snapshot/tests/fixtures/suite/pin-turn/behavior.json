@@ -5,7 +5,8 @@
     "lines": [
       { "type": "session", "id": "{{SID}}", "createdAt": 100, "cwd": "{{CWD}}" },
       { "type": "request/header", "seq": 0, "time": 100, "data": { "header": { "config": { "model": "fake" }, "system": "SYS PROMPT", "tools": [{ "name": "t1", "description": "D1", "parameters": { "type": "object" } }] }, "reason": "initial" } },
-      { "type": "turn/start", "seq": 1, "time": 100, "data": { "turn": 1 } }
+      { "type": "request/header-delta", "seq": 1, "time": 100, "data": { "system": { "keepStart": 1, "keepEnd": 0, "insert": ["NEW PROMPT LINE"] } } },
+      { "type": "turn/start", "seq": 2, "time": 100, "data": { "turn": 1 } }
     ]
   }]
 }

@@ -31,6 +31,9 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
 // emits any output; 30s still detects a wedged process without confusing
 // bounded CI contention with a lifecycle failure.
 const PROCESS_TIMEOUT_MS = 30_000
+// Leave enough room for the process-owned timeout to report captured output
+// before Vitest aborts the test itself.
+const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
 
 let child: ChildProcessWithoutNullStreams | undefined
 let workdir: string | undefined
@@ -92,5 +95,5 @@ describe('code-mode overlay keyless smoke (real code-mode.cordis.yml via the Loa
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('code-mode agent ready.')
-  }, PROCESS_TIMEOUT_MS + 5_000)
+  }, TEST_TIMEOUT_MS)
 })
