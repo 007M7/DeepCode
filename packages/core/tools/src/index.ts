@@ -19,10 +19,13 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
+// Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
+// augmentation. The seam stays optional at runtime — see `serviceAsk`.
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
@@ -83,8 +86,8 @@ declare module 'cordis' {
      * or return a {@link PreToolDecision} without calling `next()` to
      * short-circuit. A `deny` skips dispatch and yields an `isError` result; the
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
-     * {@link PreToolDecision}); `ask` degrades to deny until the permission
-     * system lands (`FIXME(permissions)`).
+     * {@link PreToolDecision}); `ask` is serviced by the `ctx.approval` seam
+     * when one is mounted, and degrades to deny otherwise.
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
@@ -268,8 +271,9 @@ export interface ToolExecutionResult {
  *   would desync the UI from what RAN. That consistency redesign is its own
  *   `proposed` RFC; `TODO(pre-tool-input-rewrite)` anchors it at the call site.)
  * - `deny` skips dispatch; the loop records an `isError` result carrying `reason`.
- * - `ask` is the permission-prompt intent; until the permission system exists it
- *   degrades to `deny` (`FIXME(permissions)`).
+ * - `ask` is the permission-prompt intent: serviced as a one-shot decision by
+ *   the `ctx.approval` seam when one is mounted (`allowed-once` proceeds to
+ *   dispatch; every other outcome denies), degrading to `deny` when none is.
  */
 export type PreToolDecision =
   | { kind: 'allow' }
@@ -486,22 +490,17 @@ export class ToolRegistry extends Service {
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {
-      // --- Gate: tools/pre-execute. A deny (or an ask, which degrades to deny
-      // until the permission system lands) skips dispatch entirely. ---
-      const decision = await this.ctx.waterfall(
+      // --- Gate: tools/pre-execute. An `ask` resolves through the approval
+      // seam (or degrades) to allow/deny before the shared deny path. ---
+      const gate = await this.ctx.waterfall(
         this, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
+      const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
       if (decision.kind !== 'allow') {
-        // deny → isError. ask has no permission UI yet, so degrade to deny
-        // (FIXME(permissions)): a forthcoming permission system turns `ask` into
-        // a real prompt; today it is the conservative "not allowed".
-        const reason = decision.kind === 'deny'
-          ? decision.reason
-          : decision.reason ?? `tool "${exec.name}" requires approval (not yet supported)`
         const denied: ToolExecutionResult = {
           callId: exec.callId,
-          content: [{ type: 'text', text: `Error: ${reason}` }],
+          content: [{ type: 'text', text: `Error: ${decision.reason}` }],
           isError: true,
         }
         return await this.postExecute(exec, denied)
@@ -537,6 +536,44 @@ export class ToolRegistry extends Service {
       // Outer backstop: a throwing pre/post-execute listener (or the waterfall
       // machinery) becomes an isError result, never a turn failure.
       return toolErrorResult(exec.callId, error)
+    }
+  }
+
+  /**
+   * Resolve an `ask` decision to allow/deny through the approval seam. The
+   * seam is consumed opportunistically with `ctx.get('approval')` — a
+   * deployment that composes no ApprovalService keeps the historical degrade
+   * to deny, and an unmount mid-session degrades the same way on the next ask.
+   * An agent-less execution also degrades: without an agent there is no
+   * session to audit to and no UI to route to. Otherwise the outcome maps
+   * one-to-one — `allowed-once` proceeds; the three non-grants deny with
+   * distinct reasons so the model can tell a human "no" from an absent
+   * approval channel.
+   */
+  private async serviceAsk(
+    exec: ToolExecution,
+    ask: Extract<PreToolDecision, { kind: 'ask' }>,
+  ): Promise<Extract<PreToolDecision, { kind: 'allow' | 'deny' }>> {
+    const approval = this.ctx.get('approval')
+    if (approval === undefined) {
+      return { kind: 'deny', reason: ask.reason ?? `tool "${exec.name}" requires approval (not yet supported)` }
+    }
+    if (exec.agent === undefined) {
+      return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but the call has no agent to route it through` }
+    }
+    const outcome = await approval.request({
+      agent: exec.agent,
+      toolName: exec.name,
+      callId: exec.callId,
+      ...ask.reason !== undefined ? { reason: ask.reason } : {},
+      ...exec.signal !== undefined ? { signal: exec.signal } : {},
+    })
+    switch (outcome) {
+      case 'allowed-once': return { kind: 'allow' }
+      case 'rejected': return { kind: 'deny', reason: `the user rejected tool "${exec.name}"` }
+      case 'cancelled': return { kind: 'deny', reason: `approval for tool "${exec.name}" was cancelled` }
+      case 'unavailable': return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but no approval channel is available` }
+      default: return assertNever(outcome, 'ApprovalOutcome')
     }
   }
 

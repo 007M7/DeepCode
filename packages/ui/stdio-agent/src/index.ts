@@ -1,5 +1,5 @@
 /**
- * The stdio chat app: the providerless agent spine ({@link
+ * The stdio chat app: the default agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster a terminal
  * chat needs — a console logger, the readline UI (the in-package `stdio-chat`
  * module), JSONL session
@@ -59,7 +59,9 @@ export const name = 'stdio-agent'
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
+ * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
+ * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
+ * `welcome` is the UI banner.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
@@ -74,6 +76,8 @@ export interface Config {
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
+  skills?: agentCore.SkillConfig
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -94,6 +98,7 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
+  skills: agentCore.SkillConfigSchema,
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]),
 }) as unknown as z<Config>
@@ -114,9 +119,11 @@ export function apply(ctx: Context, config: Config): void {
     agents: [{
       id: AgentId('main'),
       model: config.model,
+      cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
     ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
+    ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

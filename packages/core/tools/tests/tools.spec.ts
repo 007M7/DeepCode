@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
@@ -158,7 +160,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
 
-  it('an ask decision degrades to deny until the permission system lands', async () => {
+  it('an ask decision degrades to deny when no approval seam is mounted', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
@@ -179,6 +181,107 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval (not yet supported)' })
+  })
+
+  describe('ask routing through ctx.approval', () => {
+    /**
+     * A minimal Agent stand-in — the approval seam reaches
+     * `agent.session.append` and folds `.events`; the seeded open turn
+     * satisfies request()'s enclosure precondition.
+     */
+    function fakeAgent(): Agent {
+      return {
+        session: { events: [{ type: 'turn/start' }], append: () => ({}) },
+      } as unknown as Agent
+    }
+
+    async function approvalSetup() {
+      const ctx = await setup()
+      await ctx.plugin(ApprovalService)
+      ctx.tools.register(echoTool)
+      return ctx
+    }
+
+    it('dispatches the tool when the answerer grants allowed-once, forwarding the ask fields', async () => {
+      const ctx = await approvalSetup()
+      const agent = fakeAgent()
+      const controller = new AbortController()
+      const seen: ApprovalRequest[] = []
+      ctx.on('approval/request', (req) => {
+        seen.push(req)
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> =>
+        ({ kind: 'ask', reason: 'hook wants a human' }))
+
+      const result = await ctx.tools.execute({
+        callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' }, agent, signal: controller.signal,
+      })
+
+      expect(result).toMatchObject({ isError: false, content: [{ type: 'text', text: 'hi' }] })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human' })
+      expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('denies with the user-rejection reason on rejected', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: the user rejected tool "echo"' })
+    })
+
+    it('denies with the cancellation reason on cancelled', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: approval for tool "echo" was cancelled' })
+    })
+
+    it('denies with the no-channel reason when the seam is mounted but nobody answers', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
+    })
+
+    it('denies an agent-less execution without asking — nothing to route or audit through', async () => {
+      const ctx = await approvalSetup()
+      let asked = false
+      ctx.on('approval/request', () => {
+        asked = true
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {} })
+      expect(asked).toBe(false)
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but the call has no agent to route it through' })
+    })
+
+    it('turns a rogue outcome from a NON-conforming approval stand-in into an isError result', async () => {
+      // ApprovalService normalizes rogue answers itself; this pins the
+      // registry's own exhaustiveness backstop by shadowing the service with a
+      // stand-in that violates the outcome contract.
+      const ctx = await setup()
+      ctx.tools.register(echoTool)
+      ctx.provide('approval', { request: () => Promise.resolve('yolo') } as unknown as ApprovalService)
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+      expect(text).toContain('unreachable')
+    })
   })
 
   it('a tools/post-execute listener can replace the result content (accept) ', async () => {

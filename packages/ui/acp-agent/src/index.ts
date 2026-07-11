@@ -1,5 +1,5 @@
 /**
- * The ACP server app: the providerless agent spine ({@link
+ * The ACP server app: the default agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster an ACP
  * server needs — JSONL session persistence and the {@link @deepseek-ai/dsh-acp}
  * bridge, and DELIBERATELY NOTHING that writes to stdout.
@@ -63,6 +63,8 @@ export interface Config {
   persistenceRoot?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
   workspaceContext?: agentCore.Config['workspaceContext']
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
+  skills?: agentCore.SkillConfig
 }
 
 export const Config: z<Config> = z.object({
@@ -75,6 +77,7 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]),
+  skills: agentCore.SkillConfigSchema,
 }) as unknown as z<Config>
 
 /**
@@ -90,6 +93,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
     ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
+    ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })

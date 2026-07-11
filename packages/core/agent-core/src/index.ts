@@ -1,12 +1,13 @@
 /**
- * The providerless, executor-less, UI-less agent spine as ONE bundle plugin.
+ * The default executor-less, UI-less agent spine as ONE bundle plugin.
  *
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
- * agent registry, the dev-mode invariants, the model-facing `bash` tool
- * schemas, workspace-context loading, and the concrete `agent-loop` — and
- * forwards the loop's `agents` list as its OWN config (default `[]`), so each
- * app supplies its own pre-created agents.
+ * skill registry plus local skill provider, the agent registry, the dev-mode
+ * invariants, the model-facing `bash` and `skill` tool schemas,
+ * workspace-context loading, and the concrete `agent-loop` — and forwards the
+ * loop's `agents` list as its OWN config (default `[]`), so each app supplies
+ * its own pre-created agents.
  *
  * It is deliberately NOT the whole app: the swappable choices stay OUTSIDE the
  * bundle, picked by whatever loads it.
@@ -19,6 +20,9 @@
  *    (a console logger, `hmr`) — these are the coupled "front-door cluster" the
  *    app packages ({@link @deepseek-ai/dsh-stdio-agent},
  *    {@link @deepseek-ai/dsh-acp-agent}) bake in, NOT the shared spine.
+ *  - additional SKILL PROVIDERS; the bundle ships the local filesystem provider
+ *    because local skills are default agent behavior, while embedded or remote
+ *    providers remain deployment choices.
  *
  * This is the interface/implementation/consumer seam at the composition level:
  * the bundle owns the shared spine, the leaf owns the backends, the app package
@@ -48,13 +52,26 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
+import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 
 export const name = 'agent-core'
+
+/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
+export interface SkillConfig {
+  /** Registry-level discovery cache settings. */
+  registry?: SkillRegistryConfig
+  /** Local filesystem skill provider settings. */
+  local?: SkillLocal.Config
+  /** Model-facing skill catalog and tool settings. */
+  tool?: toolSkill.Config
+}
 
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
@@ -62,12 +79,11 @@ export const name = 'agent-core'
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * and `workspaceContext` to the workspace-context plugin. Every field is
- * optional INPUT here because each owner's schema supplies the default (`[]` /
- * `''` / absent — lexicographic / `native` / loader defaults); the schema is
- * the INTERSECTION of the owners' own schemas (the registry and workspace
- * loader nested under their bundle keys), so validation and defaulting cannot
- * drift from them.
+ * `skills` to the skill registry/local provider/tool consumer, and
+ * `workspaceContext` to the workspace-context plugin. Every field is optional
+ * INPUT here because each owner's schema supplies the default; the schema is
+ * the INTERSECTION of the owners' own schemas (with child schemas nested under
+ * their bundle keys), so validation and defaulting can never drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -80,7 +96,16 @@ export interface Config {
   tools?: ToolsConfig
   /** Workspace-context loader controls; set `false` for hermetic prompts. */
   workspaceContext?: workspaceContext.Config | false
+  /** Skill registry, local provider, and model-facing consumer config. */
+  skills?: SkillConfig
 }
+
+/** The skill config schema exported for app packages that forward `skills`. */
+export const SkillConfigSchema: z<SkillConfig> = z.object({
+  registry: SkillService.Config,
+  local: SkillLocal.Config,
+  tool: toolSkill.Config,
+})
 
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
@@ -88,8 +113,9 @@ export const Config = z.intersect([
   SystemPrompt.Config,
   z.object({
     tools: ToolRegistry.Config,
+    skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]),
-  }) as unknown as z<Pick<Config, 'tools' | 'workspaceContext'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'skills' | 'workspaceContext'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -117,11 +143,16 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
+  ctx.plugin(SkillService, config.skills?.registry ?? {})
+  ctx.plugin(SkillLocal, config.skills?.local ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext ?? {})
   }
+  // Both plugins prepend session-prefix messages. Registration order is the
+  // rendered order, so workspace instructions must precede the skill catalog.
+  ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

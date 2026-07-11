@@ -633,9 +633,15 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   const manifests: { dir: string; pkg: string }[] = []
   for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).sort()) {
     const dir = manifestRel.slice(0, -'/package.json'.length)
-    const pkg = (JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string }).name
+    const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string; os?: string[]; cpu?: string[] }
+    const pkg = manifest.name
     if (!pkg) {
       violations.push(`${manifestRel} has no "name".`)
+      continue
+    }
+    if (manifest.os !== undefined && manifest.cpu !== undefined) {
+      // A per-platform native-binary package (npm os/cpu selection) ships no
+      // JavaScript at all — nothing to classify, no Config to catalog.
       continue
     }
     pkgDirByName.set(pkg, dir)

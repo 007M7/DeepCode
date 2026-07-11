@@ -56,7 +56,7 @@ export function apply(ctx: Context) {
 
 A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.cancel()`. Two harness-specific contracts make it correct: resolve each request exactly once off a settle signal (settle from the durable `turn/end` session event — the boundary is a session event, not an `agent/*` mirror — with `agent/status` as the fallback if a peer listener starved yours), and tear each agent down through its `AgentHandle.dispose()` (which stops the loop, `await`s its exit, and unregisters), not just `cancel()` — disposal must *reach* quiescence, not merely request it.
 
-`packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the deferred-permission-gate note.
+`packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the permission-prompt answerer it registers on the approval seam.
 
 ```ts
 import type { Context } from 'cordis'
@@ -100,7 +100,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
 | Built-in tools | `ctx.tools.register()`; schemas flow into the assembly automatically — the `dsh-tool-*` families (bash, fs, web, subagent, todo) are the shipped examples |
 | ToolSearch / progressive disclosure | filter tools at `system-prompt/assemble` (the assembly carries the schemas; the loop logs the result as the request header, so disclosure stays reconstructable) |
-| Tool sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or a sandboxing `BashExecutor` on the `dsh-bash` seam |
+| Subprocess sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or a sandboxing `BashExecutor` on the `dsh-bash` seam |
 | Permission system / AskUserQuestion | `tools/pre-execute` (deny/ask); register an ask tool |
 | Plan mode | `tools/pre-execute` (deny writes) + a mode prompt section via `ctx.systemPrompt.section()` or `agent.inject()` (model-visible ⟺ logged: `agent/request` shapes call config only) |
 | Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |

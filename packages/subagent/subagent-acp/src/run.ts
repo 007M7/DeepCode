@@ -89,6 +89,7 @@ export interface AcpRunSpec {
    * (the seam contract forbids `result` rejecting). The driver calls this with
    * the original error and the chosen stop reason so the fault is preserved
    * rather than silently lost; the provider wires it to `ctx.logger.warn`.
+   * A throw from the sink itself is contained — it cannot reject `result`.
    * Optional — omitted in a unit test that asserts the stop reason directly.
    */
   onError?: (error: Error, stopReason: SubagentStopReason) => void
@@ -336,7 +337,13 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // (initialize/newSession/prompt transport/RPC errors, or ENOENT), not a
       // local bug. Flatten to `error` and surface the original via onError so a
       // real fault is preserved rather than silently lost.
-      spec.onError?.(toError(error), 'error')
+      try {
+        spec.onError?.(toError(error), 'error')
+      } catch {
+        // Swallows only the caller-supplied sink's OWN throw: an unguarded
+        // sink exception would reject `result` and break the contract above.
+        // The child-level failure being reported still settles as `error`.
+      }
       return { output: collectOutput(), stopReason: 'error' }
     }
   })()

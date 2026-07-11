@@ -111,7 +111,7 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
     const child = spawn(process.execPath, ['--expose-internals', stdioBin, configArg], {
       cwd,
       // Mock model: never calls the network, so no key needed.
-      env: { ...process.env },
+      env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
