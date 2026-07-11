@@ -15,6 +15,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
+  skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
@@ -71,7 +72,7 @@ pnpm run hygiene
 out=$(printf 'echo ci smoke\n' | pnpm run demo:echo 2>&1)
 printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
-ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
+test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
 rm -rf .sessions
 pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```

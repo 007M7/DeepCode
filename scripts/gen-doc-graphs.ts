@@ -72,6 +72,7 @@ const GROUP_ORDER = [
   'bash',
   'sandbox',
   'fs',
+  'skill',
   'compact',
   'subagent',
   'web',
@@ -123,7 +124,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and execution waterfall',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
     note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
   },
   {
@@ -134,6 +135,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['stdio-agent', 'acp'],
     consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'skills',
+    pkg: 'skill',
+    title: 'Skill provider registry',
+    mode: 'seam',
+    implementations: ['skill-local'],
+    consumers: ['tool-skill'],
+    note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
   {
     key: 'agents',

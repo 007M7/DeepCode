@@ -335,12 +335,21 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../session
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-skill-local':
+        specifier: workspace:^
+        version: link:../../skill/skill-local
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../bash/tool-bash
+      '@deepseek-ai/dsh-tool-skill':
+        specifier: workspace:^
+        version: link:../../skill/tool-skill
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../tools
@@ -741,6 +750,60 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:^
         version: link:../session-persistence
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/skill/skill:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/skill/skill-local:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+      yaml:
+        specifier: ^2.4.2
+        version: 2.9.0
+    devDependencies:
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../../fs/fs
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../skill
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/skill/tool-skill:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../skill
+      '@deepseek-ai/dsh-skill-local':
+        specifier: workspace:^
+        version: link:../skill-local
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)

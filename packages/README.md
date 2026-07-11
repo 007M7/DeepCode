@@ -1,6 +1,6 @@
 # Packages
 
-Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin, declares its ctx key/events through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) (subtree) and the root [AGENTS.md](../AGENTS.md) § Conventions.
+Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis plugin: a default `Service` subclass or functional plugin declaring ctx keys/events through declaration merging and contributing through `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) and root [AGENTS.md](../AGENTS.md) § Conventions.
 
 ## Hierarchy
 
@@ -14,6 +14,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
+| [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |

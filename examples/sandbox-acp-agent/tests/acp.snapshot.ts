@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineAcpSnapshotSuite, type Scenario } from '@deepseek-ai/dsh-acp-snapshot'
+import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * Snapshot suite for the SANDBOXED composition (`../cordis.yml`, swapped to
@@ -55,6 +55,21 @@ const SCENARIOS: Scenario[] = [
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true },
 ]
 
+function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
+  switch (value) {
+    case undefined:
+    case '':
+    case 'replay':
+      return 'replay'
+    case 'record':
+      return 'record'
+    case 'refresh':
+      return 'refresh'
+    default:
+      throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
+  }
+}
+
 defineAcpSnapshotSuite({
   agent: {
     binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
@@ -63,5 +78,5 @@ defineAcpSnapshotSuite({
   },
   snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
   scenarios: SCENARIOS,
-  mode: process.env.DSH_SNAPSHOT === 'record' ? 'record' : 'replay',
+  mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
 })

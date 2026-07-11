@@ -212,6 +212,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }

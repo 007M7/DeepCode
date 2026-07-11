@@ -45,6 +45,7 @@
         "./packages/bash/*/src",
         "./packages/code-runtime/*/src",
         "./packages/fs/*/src",
+        "./packages/skill/*/src",
         "./packages/compact/*/src",
         "./packages/guard/*/src",
         "./packages/subagent/*/src",

@@ -16,12 +16,12 @@ The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loo
 The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
 
 ```ts cordis-catalog
-create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
+create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
 createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:68`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -218,6 +218,19 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 ```
 
 Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
+
+## `ctx.skills` — `SkillService`
+
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
+
+```ts cordis-catalog
+registerProvider(provider: SkillProvider): () => void
+register(skill: SkillRegistration): () => void
+async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+```
+
+Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

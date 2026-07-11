@@ -56,7 +56,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'agentLoop',
     summary: 'The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`.',
     methods: [
-      'create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent',
+      'create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
       'createAgent(options: CreateAgentOptions): AgentHandle',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
@@ -160,6 +160,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'get(id: SessionId): Session | undefined',
       'list(): Session[]',
       'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
+    ],
+  },
+  {
+    key: 'skills',
+    summary: 'Registry of skill providers.',
+    methods: [
+      'registerProvider(provider: SkillProvider): () => void',
+      'register(skill: SkillRegistration): () => void',
+      'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
+      'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
     ],
   },
   {
@@ -340,6 +350,18 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'parallel',
     signature: '\'session/flush\'(session: Session): Promise<void> | void',
     summary: 'Awaited durability checkpoint.',
+  },
+  {
+    name: 'skill/provider-added',
+    mode: 'emit',
+    signature: '\'skill/provider-added\'(provider: SkillProvider): void',
+    summary: 'A skill provider became resolvable in the `ctx.skills` registry.',
+  },
+  {
+    name: 'skill/provider-removed',
+    mode: 'emit',
+    signature: '\'skill/provider-removed\'(name: string): void',
+    summary: 'A skill provider left the registry because its plugin fiber was disposed.',
   },
   {
     name: 'subagent/end',
@@ -752,6 +774,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SkillCandidate',
+    declaration: 'export interface SkillCandidate extends SkillSummary {\n    rank: number;\n    locator: unknown;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'SkillDefinition',
+    declaration: 'export interface SkillDefinition extends SkillSummary {\n    content: string;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'SkillLookupOptions',
+    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n    signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'SkillProvider',
+    declaration: 'export interface SkillProvider {\n    name: string;\n    list(options: SkillLookupOptions): Promise<SkillCandidate[]>;\n    get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>;\n}',
+  },
+  {
+    name: 'SkillRegistration',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    provider?: string;\n};',
+  },
+  {
+    name: 'SkillResourceBase',
+    declaration: 'export type SkillResourceBase = {\n    kind: \'directory\';\n    path: string;\n} | {\n    kind: \'url\';\n    url: string;\n} | {\n    kind: \'opaque\';\n    description: string;\n};',
+  },
+  {
+    name: 'SkillSource',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | (string & {});',
+  },
+  {
+    name: 'SkillSummary',
+    declaration: 'export interface SkillSummary {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    disableModelInvocation?: boolean;\n    source: SkillSource;\n    provider: string;\n    resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'StreamChunk',

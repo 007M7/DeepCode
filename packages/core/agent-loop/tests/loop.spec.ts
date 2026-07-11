@@ -916,6 +916,21 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('attaches config agent cwd to the fresh session header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('config-agent'), model: 'mock', cwd: '/work/project' }],
+    })
+
+    const agent = ctx.agents.get(AgentId('config-agent'))! as ReactLoopAgent
+    expect(agent.session.header.cwd).toBe('/work/project')
+  })
+
   it('replays a session log into an identical derived history', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),

@@ -95,6 +95,16 @@
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsPolicyExec", "source": "packages/fs/fs-policy/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/read-render.ts" },
 
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillSource", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillResourceBase", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillSummary", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillCandidate", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillDefinition", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillRegistration", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillLookupOptions", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillProvider", "source": "packages/skill/skill/src/index.ts" },
+    { "doc": "docs/core-data-structures/skills.md", "symbol": "Config", "source": "packages/skill/skill/src/index.ts" },
+
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
 
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },
