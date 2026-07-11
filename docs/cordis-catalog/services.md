@@ -40,7 +40,7 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:169`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:174`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -189,7 +189,7 @@ Contracts every implementation MUST honor (a DB backend asserts them inside a tr
 
 - **Append-only; a crashed turn is closed, not truncated.** Committed events — those at or below a flushed `turn/end` — are never rewritten. A crash can leave an unclosed final turn whose events are real (and possibly large); load preserves them and closes the orphaned turn with synthetic boundary events (see load). Only a never-fully-written torn tail fragment is discarded.
 - **Contiguous seq.** A persisted log is contiguous: `events[i].seq === i`. load rejects a parse error or a `seq` gap in the COMMITTED region (unloadable); append's first event `seq` MUST equal the backend's stored next-seq (after `load` has balanced any interrupted turn).
-- **JSON-serializable data.** `SessionEventMap` is merge-extensible and `event.data` is typed only as `SessionEventMap[K]`, so append REJECTS non-JSON-serializable data with an error naming the offending event type. A backend snapshots (serializes/clones) each event when it buffers, since `session.events` hands out the live mutable object.
+- **JSON-serializable events.** `SessionEventMap` is merge-extensible, so append materializes each complete batch through the shared lossless-JSON boundary before buffering it. The public `session.events` view is immutable, but persistence still snapshots direct/replay callers at this independent trust boundary.
 - **Durability.** append returns only once the batch is durable (the file backend fsyncs; a DB commits). create MAY defer the physical write until the first append (lazy materialization).
 
 ```ts cordis-catalog
@@ -220,7 +220,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:427`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:608`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -233,7 +233,7 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:159`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -246,7 +246,7 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:160`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:161`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -260,7 +260,7 @@ protect(protection: PromptProtection): () => Promise<void> | void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:379`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:380`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

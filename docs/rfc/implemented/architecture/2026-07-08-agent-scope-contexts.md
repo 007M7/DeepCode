@@ -149,18 +149,23 @@ Calling a service through `agent.ctx` does not implicitly make every later read 
 
 The tool view must not change because a caller kept the object it passed to `register()` or received a definition from `get()` or `visible()`. Registration therefore creates the stored identity once; future changes happen through explicit unregister/register effects.
 
-Tool parameters cross the model and log boundary, so the registry requires them to be lossless JSON before cloning and validates the clone again to contain unstable getters. It snapshots the scalar fields, binds each callback once to the original definition as its method receiver, and deep-freezes the stored record. Replacing `definition.execute` after registration therefore has no effect, while a callback can still deliberately read mutable state from its closure or original receiver. `get()` and `visible()` return the frozen stored definitions; `schemas()` returns detached schema projections.
+Tool parameters cross the model and log boundary, so the registry materializes them with `snapshotJsonValue`: one recursive traversal reads each property once, rejects anything outside lossless JSON, and constructs the detached value that is actually stored. A check followed by `structuredClone` is not equivalent—a getter could return plain JSON to the check and a class instance to the clone, which would erase its prototype and silently accept different data. The first-party `defineTool()` helper closes the earlier authoring boundary with the same primitive: it reads every top-level option once, materializes the `SchemaSpec`, and derives an independent wire schema plus all later execute/presentation validation from that accepted snapshot. Without that split, mutating an author-owned spec after definition could make the model call a schema that the tool no longer accepts. Registration then reads every top-level definition field exactly once, validates, binds, and stores only those captured values; a stateful `parameters` or callback accessor therefore cannot make the checked definition differ from the executable one. It snapshots the scalar fields, binds each callback once to the original definition as its method receiver, and deep-freezes the stored record. Replacing `definition.execute` after registration therefore has no effect, while a callback can still deliberately read mutable state from its closure or original receiver. `get()` and `visible()` return the frozen stored definitions; `schemas()` returns detached schema projections.
 
 ```text
+defineTool(options):
+  accepted = read each top-level option exactly once
+  parameterSpec = snapshotLosslessJson(accepted.parameters)
+  wireParameters = snapshotLosslessJson(convertToJsonSchema(parameterSpec))
+  build execute and presentation validators over parameterSpec
+
 registerTool(context, definition):
-  require definition.parameters is lossless JSON
-  parameters = clone(definition.parameters)
-  require parameters is still lossless JSON
+  accepted = read each top-level definition field exactly once
+  parameters = snapshotLosslessJson(accepted.parameters)
 
   stored = deepFreeze({
-    copied name, description, timeout,
+    accepted name, description, timeout,
     parameters,
-    execute: bind definition.execute to definition,
+    execute: bind accepted.execute to definition,
     presentation callbacks: bind once when present
   })
 
@@ -173,7 +178,7 @@ The reserved Code Mode transport uses the same frozen-definition contract even t
 
 A tool restriction masks the global end-capability layer for one agent, while tools registered in that agent's own layer are explicit grants. Multiple restrictions intersect, so separately installed policies can only reduce the global surface.
 
-The restriction snapshots its input, rejects an empty filter, and validates named tools against the pre-restriction capability universe. A restricted-away tool behaves like an unknown tool at execution, avoiding disclosure of a hidden global implementation.
+The restriction reads `allow` and `deny` once, snapshots those exact values, rejects an empty filter, and validates named tools against the pre-restriction capability universe. The same captured arrays are then enforced, so a stateful accessor cannot pass one policy through validation and install another. A restricted-away tool behaves like an unknown tool at execution, avoiding disclosure of a hidden global implementation.
 
 [Code Mode](../feature/2026-06-15-code-mode.md)'s `run_code` is not an end capability. It is a reserved presentation transport that carries calls to the visible end capabilities, so the registry keeps it outside both global and scoped registration layers: restrictions cannot remove it, a scoped tool cannot shadow it, and configuration cannot explicitly allow or deny it. Without this exception, a restriction could leave the generated SDK in the prompt but remove the only way to invoke it.
 
@@ -241,7 +246,9 @@ An agent's scope, session, registry entry, and driver form one owned transaction
 
 Programmatic create and resume reserve both the agent ID and session ID before work that can await. Create prepares a fresh or seeded session; resume first loads and reconstructs the persisted session. Both paths then construct the agent, mint `agent.ctx`, and install the complete teardown skeleton before awaiting setup.
 
-The factory captures IDs and the setup callback and clones caller-owned agent options, session metadata, and seed events before the first asynchronous boundary. Resume does the same before persistence loading. A caller mutating its options object later therefore cannot move the transaction away from the identities it reserved or change the configuration eventually published.
+The factory captures IDs and the setup callback and clones caller-owned agent options before the first asynchronous boundary. Seed events and session metadata take a stricter route: pre-cloning either could erase a class or exotic prototype before the session validator saw it, so the factory reads each reference once and hands it synchronously to `SessionStore.prepare`. That boundary rejects exotic shells, reads each accepted metadata field once, and recursively validates and copies every seed value in one pass. One-pass materialization matters because `validate(value); structuredClone(value); validate(clone)` still reads a getter twice, and the clone can erase the prototype of a class instance returned only on the second read. The accepted metadata becomes a detached, deep-frozen `SessionHeader` whose id must equal the session id. Resume applies the same rule after persistence loading by capturing `createdAt`, `cwd`, `parentSession`, and `seedLength` once before reconstruction. A caller or stateful backend therefore cannot move the transaction away from the identities it reserved, change persistence routing or lineage after publication, or sanitize invalid data into acceptance.
+
+The session log also closes the ownership boundary after acceptance. Seed and append paths share exact runtime surface-metadata checks: surface events require either `'append'` or an exact replace record with non-negative safe-integer bounds, provenance is an array of non-negative safe integers, and non-surface events reject both fields. Accepted events are deep-frozen, and `session.events` returns a cached frozen array snapshot rather than the mutable internal array. A later append invalidates the cache and publishes a new snapshot; any earlier snapshot remains unchanged. This preserves append-only behavior even for JavaScript callers that cast away TypeScript's readonly view or retain an event reference received from `append` or `session/event`.
 
 Reservations prevent two concurrent transactions from composing different unpublished agents under the same public identity. They remain held across persistence loading and setup and are released on every success or failure path.
 
@@ -356,9 +363,9 @@ Cooperative waterfalls remain the general extension mechanism, but an invariant 
 
 ### Prompt protection restores named canonical contributions
 
-`systemPrompt.protect({ sections, tools })` declares that selected names must match the canonical registry/provider assembly after the complete `system-prompt/assemble` waterfall. Protections registered globally and for the current scope compose by set union, so callback order cannot weaken them. Protection finalizes a returned assembly rather than recovering from listener failure; if the waterfall throws, assembly still fails.
+`systemPrompt.protect({ sections, tools })` declares that selected names must match the canonical registry/provider assembly after the complete `system-prompt/assemble` waterfall. It reads each caller array once before deduplication, so the names checked for an empty protection are the names actually installed. Protections registered globally and for the current scope compose by set union, so callback order cannot weaken them. Protection finalizes a returned assembly rather than recovering from listener failure; if the waterfall throws, assembly still fails.
 
-For each protected name, the service restores the canonical presence and definition. If the canonical assembly omitted the name, protection removes a listener-fabricated entry; this makes mode-dependent absence enforceable as well as presence.
+For each protected name, the service restores the canonical presence and definition. If the canonical assembly omitted the name, protection removes a listener-fabricated entry; this makes mode-dependent absence enforceable as well as presence. Tool providers receive the same coherence treatment: assembly reads `schemas`, optional `knownNames`, and every schema field once, detaches that record, and uses its captured names for both `toolOrder` validation and the model-visible collection. A stateful provider therefore cannot validate a phantom name while showing a different tool.
 
 A global section protection also reserves the registry name against scoped shadowing. Registering a scoped section under an already protected global name throws, and adding global protection throws if any scoped shadow already exists. Section registration copies `name`, `order`, and the text value or callback before the check and stores that record, so later mutation of the caller's object cannot rename a safe section into a reserved one. This check must happen before assembly: otherwise the ordinary scoped-over-global merge would make the shadow itself look canonical, leaving post-waterfall restoration with the wrong owner's value. Tool-schema protection does not impose a blanket schema-name reservation because providers are additive and may deliberately contribute unrelated executable schemas.
 
@@ -392,7 +399,7 @@ Code Mode uses global protection for the `tools:sdk` section and reserved `run_c
 
 ### Tool executions have stable identity
 
-`ctx.tools.execute(input)` accepts a caller-owned `ToolExecutionInput` and snapshots it into a distinct pipeline-owned `ToolExecution`. The registry requires `arguments` to be losslessly JSON-serializable, validates before cloning and again after cloning to contain unstable accessors, then deep-freezes the detached value. A cloneable but mutable exotic such as `Map` is rejected before policy rather than smuggled through an apparently frozen wrapper. Invalid input still produces one normalized final error notification.
+`ctx.tools.execute(input)` accepts a caller-owned `ToolExecutionInput` and snapshots it into a distinct pipeline-owned `ToolExecution`. It captures the required `callId`/`name` correlation identity, then reads every other top-level caller field once before using it, so parent-token validation, scope routing, policy, dispatch, and final observation all see one coherent identity; those captured optional fields construct the normalized error shell if a later accessor or argument validation fails. The registry materializes `arguments` in one lossless-JSON traversal and deep-freezes the result, so policy and dispatch receive exactly the value that passed validation. A cloneable but mutable exotic such as `Map` or a class instance is rejected before policy rather than smuggled through an apparently frozen wrapper. Invalid input still produces one normalized final error notification; a throwing `callId` or `name` accessor is outside that guarantee because no trustworthy result correlation exists.
 
 The registry assigns each pipeline trip a frozen, property-free `ToolExecutionToken`; callers cannot choose that token. The execution's `token`, `callId`, `name`, `agent`, optional opaque `parent` token, and detached `arguments` are non-writable and non-configurable from the first policy listener onward. `signal` is the only operational field: an around-dispatch wrapper may add, replace, or remove it, and the registry freezes the complete execution before outcome observation.
 
@@ -404,19 +411,18 @@ The input-to-execution conversion is intentionally one-way:
 
 ```text
 prepareExecution(input):
-  require input.parent is absent or a registry-minted token
-  require input.arguments is lossless JSON
-  detachedArguments = clone(input.arguments)
-  require detachedArguments is still lossless JSON
+  accepted = read callId, name, arguments, agent, parent, signal exactly once
+  require accepted.parent is absent or a registry-minted token
+  detachedArguments = snapshotLosslessJson(accepted.arguments)
 
   execution = {
     token: new frozen property-free object,
-    callId: input.callId,
-    name: input.name,
+    callId: accepted.callId,
+    name: accepted.name,
     arguments: deepFreeze(detachedArguments),
-    agent: input.agent,
-    parent: input.parent,
-    signal: input.signal
+    agent: accepted.agent,
+    parent: accepted.parent,
+    signal: accepted.signal
   }
 
   make every field except signal non-writable and non-configurable
@@ -431,7 +437,7 @@ This one-way result makes the boundary monotonic. Pre-execution hooks can still 
 
 ### `tools/result` observes the authoritative live outcome
 
-The complete live pipeline is `tools/pre-execute` → monotonic guards → `tools/execute` → `tools/post-execute` → `tools/result`. The first three named events are transformable waterfalls; `tools/result` is an awaited, observe-only notification after all transforms and the registry's outer error normalization. Immediately before that boundary, the registry validates that the entire authoritative result can round-trip losslessly through JSON; an invalid tool or listener result becomes a normal JSON-safe `isError` outcome instead of reaching observers as apparent success and failing later at the session log.
+The complete live pipeline is `tools/pre-execute` → monotonic guards → `tools/execute` → `tools/post-execute` → `tools/result`. The first three named events are transformable waterfalls; `tools/result` is an awaited, observe-only notification after all transforms and the registry's outer error normalization. At each untrusted result boundary, the registry captures every top-level field once and materializes the complete authoritative outcome as detached lossless JSON. Immediately before observation it materializes that owned outcome again and deep-freezes the shared listener snapshot. An invalid tool or listener result becomes a normal JSON-safe `isError` outcome instead of reaching observers as apparent success and failing later at the session log.
 
 Every `tools/result` listener receives the same frozen execution and deep-frozen result snapshot. Listener failures are contained independently, so they cannot change the caller's result or starve peer observers. Scope filtering derives from `execution.agent`.
 
@@ -468,12 +474,12 @@ execute(input):
       result = requireValidExecutionResult(result)
 
     result = await tools/post-execute(execution, result)
-    result = requireLosslessJson(result)
+    result = snapshotLosslessJson(result)
   catch pipelineFailure:
     result = errorResult(pipelineFailure)
 
   freeze(execution)
-  frozenResult = deepFreeze(clone(result))
+  frozenResult = deepFreeze(snapshotLosslessJson(result))
   await every tools/result observer independently, containing each failure
   return result
 ```
@@ -520,11 +526,11 @@ In-process subagents demonstrate how the scope, lifecycle, and final-policy piec
 
 Provider registration first freezes an acceptance snapshot of the provider name, capability flags, parent-context descriptor, and `start` callback; the callback is bound to the original provider receiver so its intentional internal state stays live. Lookup, validation, model-facing wording, dispatch, lifecycle notifications, and HMR cleanup all use that snapshot. Mutating or reusing the caller's provider object later therefore cannot rename a live entry, change its advertised powers, replace its callback, or make its disposer delete the wrong key.
 
-Starting a run snapshots every accepted field before asynchronous owner setup. The parent and abort signal are retained as identity capabilities but never reread from the mutable request record; tool filters, seed events, agent options, output schema, and prompt are detached. The schema is validated before cloning, while the prompt must pass the same lossless-JSON check before and after cloning that the session log requires. Later caller mutation therefore cannot change lifecycle scope, configuration, the schema enforced by the capture tool, or the prompt eventually logged and sent.
+Starting a run reads every top-level request field once before capability validation, then snapshots every accepted field before asynchronous owner setup. This order makes checked and delegated capabilities identical even for a JavaScript caller with stateful accessors. Fixed scalars are checked at the same boundary: `maxDepth` must be a non-negative safe integer and `persona` must be a string. The parent and abort signal are retained as identity capabilities but never reread from the mutable request record; tool filters, seed events, agent options, output schema, and prompt are detached through the one-pass lossless-JSON materializer. The exported in-process driver repeats this boundary for direct callers before it awaits run-owner activation, including taking one seed snapshot from which it derives both the child prefix and `seedLength`. Later caller mutation therefore cannot change lifecycle scope, configuration, the schema enforced by the capture tool, or the prompt eventually logged and sent.
 
 The driver first installs provider ownership. Only after that succeeds does it attach the request's abort listener and create one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves neither a child nor an orphaned listener. The child factory runs through the owner fiber. Parent teardown, provider teardown, and manual run disposal all dispose this same node; moving it out of the active state synchronously prevents an unpublished setup from publishing afterward, while all three paths follow one quiescence promise. This structured ownership does not change the child's flat capability view.
 
-The returned run separates acceptance from publication with `started: Promise<void>`. For spawn and fork, it fulfills only after the child factory returns a published handle, so the service can emit `subagent/start` with `ctx.agents.get(run.id)` already live; it rejects when rollback prevents publication. The service observes `result` immediately but buffers its cloned end payload until readiness, preserving start-before-end order without leaving an early rejection unhandled. A readiness rejection emits neither lifecycle event. The result driver awaits the same boundary before sending the child prompt.
+The provider's run separates acceptance from publication with `started: Promise<void>`, but the service does not return that caller-owned handle directly. It reads `id`, `started`, `result`, and every method once, binds methods to the original provider receiver, and returns a frozen service-owned wrapper. Its `result` promise captures `output`, optional `structured`, and `stopReason` once and resolves to one detached, deeply frozen lossless-JSON value shared by the caller and lifecycle telemetry; malformed provider data rejects as an infrastructure fault and produces contained `error` telemetry. For spawn and fork, the accepted `started` promise fulfills only after the child factory returns a published handle, so the service can emit `subagent/start` with `ctx.agents.get(id)` already live; it rejects when rollback prevents publication. The service observes the normalized result immediately but buffers its end payload until readiness, preserving start-before-end order without leaving an early rejection unhandled. Both lifecycle payloads are deeply frozen before contained per-listener dispatch, so one observer cannot corrupt the caller or a peer. A readiness rejection emits neither lifecycle event. The result driver awaits the same boundary before sending the child prompt.
 
 ```text
 startInProcessRun(providerContext, acceptedRequest):
@@ -540,7 +546,7 @@ startInProcessRun(providerContext, acceptedRequest):
 
   creation = runOwner.ctx.agents.create({
     fresh ids and lineage,
-    cloned options and optional seed,
+    detached options and optional seed,
     setup(childCtx) => install persona, tool restriction, structured runtime
   })
 
@@ -550,9 +556,16 @@ startInProcessRun(providerContext, acceptedRequest):
     send the child prompt, await idle, derive the terminal result
 
 SubagentService.start(...):
-  attach result settlement handlers immediately
-  await returnedRun.started
+  providerRun = provider.start(detached request)
+  serviceRun = freeze({
+    id, started, and methods captured once from providerRun,
+    methods bound to providerRun,
+    result: normalize once into detached, deeply frozen lossless JSON
+  })
+  attach settlement handlers to serviceRun.result immediately
+  await serviceRun.started
   emit subagent/start; later emit the buffered or eventual subagent/end
+  return serviceRun
 
 Workflow worker bridge after receiving returnedRun:
   register the run so cancellation can reach pre-publication work
@@ -561,9 +574,14 @@ Workflow worker bridge after receiving returnedRun:
     send ChildStarted; then send the buffered or eventual outcome
   else:
     send ChildStartError and dispose the attempt
+
+Before publishing the workflow's own result:
+  abort the shared child-request signal
+  call cancel("workflow settled") on every host-registered run
+  only then settle the workflow result
 ```
 
-Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, sends `ChildStarted` only after `started` fulfills, and sends `ChildStartError` plus host-driven disposal when readiness rejects. This keeps cancellation able to reach pending creation, prevents an early result rejection from going unhandled, and ensures `workflow/agent-start` never names an unpublished child.
+Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, sends `ChildStarted` only after `started` fulfills, and sends `ChildStartError` plus host-driven disposal when readiness rejects. Before the workflow result becomes observable, the host also drives both permitted cancellation channels—the shared abort signal and each registered run's explicit `cancel()`—because a fire-and-forget child still waiting on readiness has no worker-side handle that could relay cancellation. Provider cancel callbacks are contained independently so one broken implementation cannot prevent peers from receiving cancellation or wedge the workflow result. This keeps cancellation able to reach pending creation, prevents an early result rejection from going unhandled, ensures `workflow/agent-start` never names an unpublished child, and prevents a child from publishing after its workflow has ended.
 
 Parent teardown reaches `runOwner` by nesting; the provider and returned run handle reach the same node through their explicit disposers.
 

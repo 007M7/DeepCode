@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-invariants",
-  "description": "Dev-mode event-contract invariants + session-log freeze for the DeepSeek Harness",
+  "description": "Dev-mode event-contract assertions for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",

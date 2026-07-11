@@ -23,10 +23,9 @@ const emptyStop: StreamChunk[] = [{ type: 'finish', reason: { kind: 'stop' } }]
 
 /**
  * Drives the REAL fork backend with a real loop + scripted mock MODEL + the
- * real dsh-invariants plugin. The invariants plugin re-replays a seeded child
- * log on `session/created` (its freeze-check), so a malformed (unbalanced) fork
- * seed makes these tests THROW — that is the regression guard for the
- * completed-turn-prefix boundary.
+ * real dsh-invariants plugin. The plugin replays a seeded child log on
+ * `session/created`, so a malformed (unbalanced) fork seed makes these tests
+ * THROW — that is the regression guard for the completed-turn-prefix boundary.
  */
 async function setup(script: Script) {
   const ctx = new Context()

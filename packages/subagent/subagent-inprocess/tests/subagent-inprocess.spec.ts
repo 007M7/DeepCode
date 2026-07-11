@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { depthOf, SubagentDepthError, startInProcessRun } from '../src/index.ts'
+import { depthOf, type InProcessRunOptions, SubagentDepthError, startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -57,7 +57,7 @@ describe('startInProcessRun', () => {
     }, {})).toThrow('subagent prompt must be losslessly JSON-serializable')
   })
 
-  it('rejects a prompt whose getter becomes non-JSON while it is snapshotted', async () => {
+  it('reads each prompt value once before asynchronous child creation', async () => {
     const { ctx, parent } = await setup([])
     let reads = 0
     const prompt = [{
@@ -68,9 +68,91 @@ describe('startInProcessRun', () => {
       },
     }]
 
-    expect(() => startInProcessRun(ctx, { prompt, parent }, {}))
-      .toThrow('subagent prompt must be stable losslessly JSON-serializable data')
-    expect(reads).toBe(2)
+    const run = startInProcessRun(ctx, { prompt, parent }, {})
+    expect(reads).toBe(1)
+    await run.dispose()
+  })
+
+  it('reads each public request and seed option field once', async () => {
+    const { ctx, parent } = await setup([])
+    const reads = { prompt: 0, toolFilter: 0, maxDepth: 0, outputSchema: 0, agentOptions: 0, persona: 0, seed: 0 }
+    const request = Object.defineProperties({ parent }, {
+      prompt: { enumerable: true, get: () => { reads.prompt += 1; return [{ type: 'text', text: 'accepted' }] } },
+      toolFilter: { enumerable: true, get: () => { reads.toolFilter += 1; return reads.toolFilter === 1 ? undefined : { deny: ['ghost'] } } },
+      maxDepth: { enumerable: true, get: () => { reads.maxDepth += 1; return reads.maxDepth === 1 ? undefined : 0 } },
+      outputSchema: { enumerable: true, get: () => { reads.outputSchema += 1; return undefined } },
+      agentOptions: { enumerable: true, get: () => { reads.agentOptions += 1; return {} } },
+      persona: { enumerable: true, get: () => { reads.persona += 1; return undefined } },
+    }) as unknown as SubagentStartRequest
+    const options = Object.defineProperty({}, 'seed', {
+      enumerable: true,
+      get: () => { reads.seed += 1; return reads.seed === 1 ? undefined : [] },
+    }) as InProcessRunOptions
+
+    const run = startInProcessRun(ctx, request, options)
+
+    expect(reads).toEqual({ prompt: 1, toolFilter: 1, maxDepth: 1, outputSchema: 1, agentOptions: 1, persona: 1, seed: 1 })
+    await run.dispose()
+  })
+
+  it('rejects an exotic seed before asynchronous owner setup can sanitize it', async () => {
+    const { ctx, parent } = await setup([])
+    class ExoticSeedEvent {
+      readonly type = 'turn/start'
+      readonly seq = 0
+      readonly time = 1
+      readonly data = { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }
+    }
+
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'accepted' }],
+      parent,
+    }, { seed: [new ExoticSeedEvent()] as unknown as SessionEvent[] }))
+      .toThrow(/subagent seed must be losslessly JSON-serializable/)
+  })
+
+  it.each([
+    {
+      label: 'tool filter',
+      overrides: { toolFilter: { deny: [Number.NaN as unknown as string] } },
+      message: 'subagent tool filter must be losslessly JSON-serializable',
+    },
+    {
+      label: 'agent options',
+      overrides: { agentOptions: { model: Number.NaN as unknown as string } },
+      message: 'subagent agent options must be losslessly JSON-serializable',
+    },
+    {
+      label: 'output schema',
+      overrides: {
+        outputSchema: {
+          type: 'object',
+          properties: { answer: { type: Number.NaN } },
+        } as unknown as NonNullable<SubagentStartRequest['outputSchema']>,
+      },
+      message: 'schema annotation must be JSON data',
+    },
+  ])('rejects non-JSON $label before asynchronous child creation', async ({ overrides, message }) => {
+    const { ctx, parent } = await setup([])
+
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'accepted' }],
+      parent,
+      ...overrides,
+    }, {})).toThrow(message)
+  })
+
+  it('rejects a non-JSON model inherited from the parent before child creation', async () => {
+    const { ctx, parent } = await setup([])
+    const invalidParent = {
+      options: { ...parent.options, model: Number.NaN as unknown as string },
+      session: parent.session,
+    } as unknown as Agent
+
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'accepted' }],
+      parent: invalidParent,
+    }, {})).toThrow('subagent agent options must be losslessly JSON-serializable')
   })
 
   it('rejects when the run-owner fiber settles without installing its context', async () => {

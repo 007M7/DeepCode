@@ -813,7 +813,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillLookupOptions',
-    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n    signal?: AbortSignal | undefined;\n}',
+    declaration: 'export interface SkillLookupOptions {\n    readonly cwd?: string | undefined;\n    readonly signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SkillProvider',

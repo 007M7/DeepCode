@@ -79,8 +79,8 @@ export interface StructuredAttachment {
  * agent-creation `setup` window with the child's scope context — every
  * registration rides the child's fiber and unwinds with the child.
  * @param childCtx - the child agent's scope context (`setup`'s argument).
- * @param schema - the isolation-cloned, already-asserted schema subset to
- *   enforce (see `assertSupportedOutputSchema` in dsh-tools).
+ * @param schema - the detached, already-asserted schema subset to enforce (see
+ *   `assertSupportedOutputSchema` in dsh-tools).
  * @returns the attachment handle (read `captured()` after the child settles).
  */
 export function attachStructuredRuntime(childCtx: Context, schema: StructuredOutputSchema): StructuredAttachment {

@@ -15,10 +15,13 @@
  * terminated — the real kill an in-process engine could not perform).
  *
  * Children live in a host-side registry (callId → run) as soon as the provider
- * accepts them, so cancellation reaches even a pre-publication attempt. The
- * host observes `result` immediately but acknowledges the child to the worker
- * only after `started` fulfills; readiness failure is a start error and the
- * host disposes the attempt because the worker never received a handle. The
+ * accepts them, so cancellation reaches even a pre-publication attempt. Both
+ * explicit run cancellation and the shared request signal are driven when the
+ * workflow is cancelled OR normally settles, so a fire-and-forget child cannot
+ * survive merely by honoring only one channel. The host observes `result`
+ * immediately but acknowledges the child to the worker only after `started`
+ * fulfills; readiness failure is a start error and the host disposes the
+ * attempt because the worker never received a handle. The
  * worker drives disposal by RPC on the graceful path, `dispose()` host-drives
  * every registered child's disposal immediately (a wedged worker can relay no
  * dispose RPC, and child teardown must overlap the grace, not start after it),
@@ -44,6 +47,7 @@ import type { WorkerOptions } from 'node:worker_threads'
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { assertNever } from '@deepseek-ai/dsh-llm'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import { renderThrown } from './realm.ts'
@@ -180,11 +184,10 @@ export class WorkerRun implements WorkflowRun {
     if (this.settled || this.cancelReason !== undefined) return
     this.cancelReason = reason ?? 'workflow cancelled'
     this.post(HostToWorkerType.Cancel, { reason: this.cancelReason })
-    this.controller.abort(this.cancelReason)
     // The explicit channel is driven host-side, not left to the worker: a
     // provider honoring only run.cancel() must not wait on a wedged worker's
     // ChildCancel relay (those later RPCs land as idempotent no-ops).
-    for (const run of this.children.values()) run.cancel(this.cancelReason)
+    this.cancelChildren(this.cancelReason)
     this.graceTimer = setTimeout(() => {
       // The worker may no longer speak (it is about to be terminated): pair
       // every stranded start before the run settles, so ends precede
@@ -274,7 +277,10 @@ export class WorkerRun implements WorkflowRun {
         this.onChildStart(message.callId, message.request)
         break
       case WorkerToHostType.ChildCancel:
-        this.children.get(message.callId)?.cancel(message.reason)
+        {
+          const run = this.children.get(message.callId)
+          if (run !== undefined) this.cancelChild(run, message.reason)
+        }
         break
       case WorkerToHostType.ChildDispose:
         this.onChildDispose(message.callId)
@@ -322,11 +328,19 @@ export class WorkerRun implements WorkflowRun {
     const forwardResult = run.result.then<() => void, () => void>(
       (result) => {
         try {
-          const snapshot: ChildResult = structuredClone({
-            output: result.output,
-            ...result.structured !== undefined ? { structured: result.structured } : {},
-            stopReason: result.stopReason,
+          // Capture every provider-owned field once, then materialize the
+          // worker-bound value in one lossless traversal. A stateful accessor
+          // cannot validate one result and send another, and an exotic value is
+          // rejected before any prototype-erasing clone.
+          const output = result.output
+          const structured = result.structured
+          const stopReason = result.stopReason
+          const snapshot = snapshotJsonValue<ChildResult>({
+            output,
+            ...structured !== undefined ? { structured } : {},
+            stopReason,
           })
+          if (snapshot === undefined) throw new TypeError('child result is not losslessly JSON-serializable')
           return () => { this.post(HostToWorkerType.ChildSettled, { callId, result: snapshot }) }
         } catch (error: unknown) {
           const rendered = `workflow child result could not cross the worker boundary: ${renderThrown(error)}`
@@ -416,18 +430,34 @@ export class WorkerRun implements WorkflowRun {
 
   /** Abort + dispose every registered child (worker death / final teardown); disposal is contained, not awaited. */
   private reapChildren(reason: string): void {
-    this.controller.abort(this.cancelReason ?? reason)
+    const cancellation = this.cancelReason ?? reason
+    this.cancelChildren(cancellation)
     for (const [callId, run] of [...this.children]) {
-      run.cancel(this.cancelReason ?? reason)
       void this.disposeChild(callId, run)
     }
   }
 
+  /** Drive both cancellation channels for every child already accepted by the host. */
+  private cancelChildren(reason: string): void {
+    this.controller.abort(reason)
+    for (const run of this.children.values()) this.cancelChild(run, reason)
+  }
+
+  /** Contain one provider-owned cancel callback so every peer still receives cancellation. */
+  private cancelChild(run: SubagentRun, reason?: string): void {
+    try {
+      run.cancel(reason)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`workflow-workerthread: child cancel failed: ${renderThrown(error)}`)
+    }
+  }
+
   private onResult(result: WorkflowResult): void {
-    // The worker's settle-reap already child-cancel()s every stray; this
-    // abort fires the seam signal too, for providers that only honor the
-    // request signal (both channels, on every path).
-    if (this.cancelReason === undefined) this.controller.abort('workflow settled')
+    // The worker cancels handles it already received, but a fire-and-forget
+    // child may still be waiting on readiness and therefore have no worker
+    // handle. Drive BOTH provider-permitted channels from the host before the
+    // workflow becomes externally settled.
+    if (this.cancelReason === undefined) this.cancelChildren('workflow settled')
     if (this.cancelReason !== undefined && result.stopReason !== 'cancelled') {
       // The script settled while our cancel was crossing the thread boundary
       // — the seam-visible result had NOT settled when cancellation was

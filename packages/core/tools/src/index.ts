@@ -23,7 +23,7 @@ import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
-import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -275,10 +275,10 @@ export interface ToolExecutionInput {
 
 /**
  * One pending tool call inside the registry pipeline. Call identity, the
- * registry-assigned {@link token}, and a lossless-JSON-validated, deep-frozen
- * clone of the parsed arguments are immutable from the first policy listener onward, while an
- * around-dispatch wrapper may set, replace, or remove only `signal`. The
- * registry freezes the complete object before `tools/result` observers run.
+ * registry-assigned {@link token}, and a deep-frozen lossless-JSON snapshot of
+ * the parsed arguments are immutable from the first policy listener onward,
+ * while an around-dispatch wrapper may set, replace, or remove only `signal`.
+ * The registry freezes the complete object before `tools/result` observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
@@ -590,12 +590,13 @@ export class ToolRegistry extends Service {
    * the shadowing feature, not an error; the global-duplicate message names
    * `agent.ctx` as the per-agent alternative), or if a non-native mode reserves
    * the `run_code` name for its presentation transport. The visible schema set
-   * flows into prompt assembly automatically. Registration validates and
-   * clones the JSON parameters, copies scalar fields, binds each callback once
-   * to the caller's definition as its method receiver, and freezes the stored
-   * snapshot; later mutation or callback replacement on the input object does
-   * not rewrite the registry. Disposed with the calling fiber. Emits
-   * `tools/change` on register/unregister.
+   * flows into prompt assembly automatically. Registration materializes the JSON
+   * parameters in one pass, copies scalar fields, binds each callback once to the
+   * caller's definition as its method receiver, and freezes the stored snapshot;
+   * later mutation or callback replacement on the input object does not rewrite
+   * the registry. Every top-level field is read once into one coherent acceptance
+   * snapshot, so stateful accessors cannot make validation and storage use
+   * different values. Emits `tools/change` on register/unregister.
    * @param definition - the tool's schema plus its execute (and optional
    *   presentation) functions.
    * @returns the disposer that unregisters the tool. The exact
@@ -604,31 +605,57 @@ export class ToolRegistry extends Service {
    */
   register(definition: ToolDefinition): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
-    // A schema crosses the same model/log boundary as execution arguments.
-    // Validate BEFORE cloning because structuredClone silently turns some
-    // forbidden values (for example class instances) into plain records, then
-    // validate the detached value again to contain hostile getters that change
-    // between inspection and snapshotting. A frozen Map is still mutable, so
-    // deepFreeze alone is not a sufficient registration boundary.
-    if (!isJsonValue(definition.parameters)) {
-      throw new TypeError('tool parameters must be losslessly JSON-serializable')
+    // One coherent acceptance snapshot: a caller may expose fields through
+    // accessors, so every top-level value is read exactly once before any
+    // validation or binding. Checked parameters and stored parameters must be
+    // the same reference, and a callback cannot change between lookup/bind.
+    const name = definition.name
+    const description = definition.description
+    const inputParameters = definition.parameters
+    const timeoutMs = definition.timeoutMs
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const inputExecute = definition.execute
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const inputPresentCall = definition.presentCall
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const inputPresentResult = definition.presentResult
+    // Reject malformed fixed fields before any caller-owned value can enter the
+    // frozen snapshot. In particular, a boxed string/object must not become a
+    // Map key or get recursively frozen as though it were a scalar.
+    if (typeof name !== 'string') throw new TypeError('tool name must be a string')
+    if (typeof description !== 'string') throw new TypeError(`tool "${name}" description must be a string`)
+    if (timeoutMs !== undefined
+      && (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+      throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`)
     }
-    const parameters = structuredClone(definition.parameters)
-    if (!isJsonValue(parameters)) {
-      throw new TypeError('tool parameters must be stable losslessly JSON-serializable data')
+    if (typeof inputExecute !== 'function') throw new TypeError(`tool "${name}" execute must be a function`)
+    if (inputPresentCall !== undefined && typeof inputPresentCall !== 'function') {
+      throw new TypeError(`tool "${name}" presentCall must be a function when provided`)
+    }
+    if (inputPresentResult !== undefined && typeof inputPresentResult !== 'function') {
+      throw new TypeError(`tool "${name}" presentResult must be a function when provided`)
+    }
+    const execute = inputExecute.bind(definition)
+    const presentCall = inputPresentCall?.bind(definition)
+    const presentResult = inputPresentResult?.bind(definition)
+    // A schema crosses the same model/log boundary as execution arguments.
+    // Validate and detach it in one traversal: validate-then-structuredClone
+    // would reread getters and could erase an exotic prototype returned only to
+    // the clone. A frozen Map is still mutable, so deepFreeze alone is not a
+    // sufficient registration boundary.
+    const parameters = snapshotJsonValue(inputParameters)
+    if (parameters === undefined) {
+      throw new TypeError('tool parameters must be losslessly JSON-serializable')
     }
     // Bind once so replacing a callback on the caller-owned definition after
     // registration cannot change dispatch, while preserving the historical
     // method receiver (`this === definition`) for callbacks that use it.
-    const execute = definition.execute.bind(definition)
-    const presentCall = definition.presentCall?.bind(definition)
-    const presentResult = definition.presentResult?.bind(definition)
     const snapshot: ToolDefinition = deepFreeze({
-      name: definition.name,
-      description: definition.description,
+      name,
+      description,
       parameters,
       execute,
-      ...definition.timeoutMs !== undefined ? { timeoutMs: definition.timeoutMs } : {},
+      ...timeoutMs !== undefined ? { timeoutMs } : {},
       ...presentCall !== undefined ? { presentCall } : {},
       ...presentResult !== undefined ? { presentResult } : {},
     })
@@ -677,8 +704,9 @@ export class ToolRegistry extends Service {
    * global tools they mask exist (the agent-creation `setup` window satisfies
    * this). A non-native mode's reserved `run_code` presentation transport is
    * not a filterable capability; naming it explicitly throws, while omitting
-   * it from an allow-list cannot remove it. The filter is SNAPSHOT at
-   * registration: later caller mutation of the arrays changes nothing.
+   * it from an allow-list cannot remove it. `allow` and `deny` are each read
+   * once, then the filter is SNAPSHOT at registration: the values checked are
+   * the values enforced, and later caller mutation of the arrays changes nothing.
    * Multiple restrictions compose by intersection. Scoped registrations
    * bypass restrictions (explicit grants win). Disposed with the calling
    * fiber (revocable independently); emits `tools/change`.
@@ -692,13 +720,19 @@ export class ToolRegistry extends Service {
     if (scope === undefined) {
       throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
     }
-    if (filter.allow === undefined && filter.deny === undefined) {
+    // Read each caller-owned accessor once. The same values must decide
+    // whether the filter is meaningful AND become the enforced snapshot: a
+    // stateful getter must not pass the no-op check as `allow: []` and then
+    // disappear when the snapshot is built.
+    const allow = filter.allow
+    const deny = filter.deny
+    if (allow === undefined && deny === undefined) {
       throw new Error('tools.restrict({}) is a no-op: pass `allow` and/or `deny` (an empty filter is almost always a materialized-empty-config bug)')
     }
     // Snapshot BEFORE validation so what was checked is what is enforced.
     const snapshot: ToolRestriction = {
-      ...filter.allow !== undefined ? { allow: [...filter.allow] } : {},
-      ...filter.deny !== undefined ? { deny: [...filter.deny] } : {},
+      ...allow !== undefined ? { allow: [...allow] } : {},
+      ...deny !== undefined ? { deny: [...deny] } : {},
     }
     if (this.codeTransport !== undefined
       && [...snapshot.allow ?? [], ...snapshot.deny ?? []].includes(RUN_CODE_NAME)) {
@@ -909,35 +943,62 @@ export class ToolRegistry extends Service {
    * restricted-away global is exactly as absent as a nonexistent one), the
    * result is an `isError` carrying a `UNKNOWN_TOOL` structured error. A thrown
    * {@link HarnessError} surfaces its `{ name, code }` on the result. Before
-   * the final observe-only notification, the authoritative outcome must survive
-   * a lossless JSON round trip; an invalid outcome is normalized to an error.
+   * the final observe-only notification, the authoritative outcome is
+   * materialized as a detached lossless-JSON snapshot; an invalid outcome is
+   * normalized to an error.
    * A malformed runtime/casted `tools/pre-execute` decision likewise normalizes
    * to an error before approval, guards, or the tool body.
-   * Caller-owned arguments must survive lossless-JSON validation before and
-   * after cloning; a violation normalizes to an error before policy or dispatch.
-   * @param exec - the single-use call input; its identity is snapshotted and
-   *   protected before policy runs.
-   * @returns the final result after every waterfall; failures resolve as
-   *   `isError` results, never rejections.
+   * Caller-owned arguments are validated and detached in one recursive
+   * lossless-JSON traversal; a violation normalizes to an error before policy
+   * or dispatch.
+   * @param exec - the single-use call input; every top-level field is read once
+   *   and that identity snapshot is protected before policy runs (and reused by
+   *   the normalized error shell if validation fails).
+   * @returns the final result after every waterfall. Once the required
+   *   `callId` and `name` correlation identity has been captured, later
+   *   accessor, validation, listener, and tool failures resolve as `isError`
+   *   results rather than rejections. A throwing `callId` or `name` accessor
+   *   rejects because no trustworthy result identity exists yet.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
+    // callId/name are the minimum correlation identity needed to construct a
+    // result at all. Every other caller-controlled accessor is read once
+    // INSIDE the normalization boundary; if one throws, the error shell uses
+    // the fields captured before it and never rereads the hostile record.
+    const callId = exec.callId
+    const name = exec.name
+    let agent: Agent | undefined
+    let parent: ToolExecutionToken | undefined
+    let signal: AbortSignal | undefined
     let execution: ToolExecution
     try {
-      execution = this.prepareExecution(exec)
+      agent = exec.agent
+      parent = exec.parent
+      signal = exec.signal
+      const args = exec.arguments
+      const input: Readonly<ToolExecutionInput> = Object.freeze({
+        callId,
+        name,
+        arguments: args,
+        ...agent !== undefined ? { agent } : {},
+        ...parent !== undefined ? { parent } : {},
+        ...signal !== undefined ? { signal } : {},
+      })
+      execution = this.prepareExecution(input)
     } catch (error: unknown) {
-      // Contract-violating non-JSON or non-cloneable arguments cannot enter a
-      // pipeline whose logged and executed forms must agree. Still publish one
-      // scoped final outcome, using an immutable identity shell, so result
-      // observers retain their every-call guarantee without seeing the invalid
-      // value.
+      // Contract-violating arguments outside the lossless-JSON vocabulary cannot
+      // enter a pipeline whose logged and executed forms must agree. Still
+      // publish one scoped final outcome, using an immutable identity shell, so
+      // result observers retain their every-call guarantee without seeing the
+      // invalid value.
       execution = Object.freeze({
         token: createExecutionToken(),
-        callId: exec.callId,
-        name: exec.name,
+        callId,
+        name,
         arguments: undefined,
-        ...exec.agent !== undefined ? { agent: exec.agent } : {},
-        ...isExecutionToken(exec.parent) ? { parent: exec.parent } : {},
-        ...exec.signal !== undefined ? { signal: exec.signal } : {},
+        ...agent !== undefined ? { agent } : {},
+        ...isExecutionToken(parent) ? { parent } : {},
+        ...signal !== undefined ? { signal } : {},
       })
       const result = toolErrorResult(execution.callId, error)
       await this.notifyResult(execution, result)
@@ -945,11 +1006,11 @@ export class ToolRegistry extends Service {
     }
     let result: ToolExecutionResult
     try {
-      // Validate the authoritative FINAL result, not merely the tool body's
+      // Materialize the authoritative FINAL result, not merely the tool body's
       // intermediate return. Post-policy may replace content or attach context,
-      // and every one of these fields is session-bound. Reject anything that
-      // cannot round-trip losslessly through the durable JSON log before the
-      // observe-only `tools/result` commit point sees success.
+      // and every one of these fields is session-bound. Reject anything outside
+      // the lossless-JSON vocabulary before the observe-only `tools/result`
+      // commit point sees success.
       result = this.snapshotExecutionResult(execution, await this.executePipeline(execution))
     } catch (error: unknown) {
       // Outer backstop: a throwing pre/post-execute listener, guard, or the
@@ -961,16 +1022,13 @@ export class ToolRegistry extends Service {
   }
 
   /** Snapshot one call into a shared pipeline object with immutable identity and mutable cancellation. */
-  private prepareExecution(input: ToolExecutionInput): ToolExecution {
+  private prepareExecution(input: Readonly<ToolExecutionInput>): ToolExecution {
     if (input.parent !== undefined && !isExecutionToken(input.parent)) {
       throw new TypeError('tool execution parent must be a registry-minted opaque token')
     }
-    if (!isJsonValue(input.arguments)) {
+    const args = snapshotJsonValue(input.arguments)
+    if (args === undefined) {
       throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
-    }
-    const args = structuredClone(input.arguments)
-    if (!isJsonValue(args)) {
-      throw new TypeError('tool execution arguments must be stable losslessly JSON-serializable data')
     }
     const execution: ToolExecution = {
       token: createExecutionToken(),
@@ -1100,10 +1158,13 @@ export class ToolRegistry extends Service {
     // The pipeline is over: freeze the remaining mutable signal slot so every
     // observer sees the SAME WeakMap-keyable execution without a mutation race.
     Object.freeze(exec)
-    // postExecute clones every accepted result/decision before rebuilding the
-    // outcome; all error paths construct plain data. The final result is thus
-    // structurally cloneable before it reaches this observe-only boundary.
-    const snapshot = deepFreeze(structuredClone(result))
+    // Materialize once more at the observer boundary so every listener receives
+    // the same detached result even when an internal error path constructed it.
+    const detached = snapshotJsonValue(result)
+    if (detached === undefined) {
+      throw new TypeError('tool result notification must be losslessly JSON-serializable')
+    }
+    const snapshot = deepFreeze(detached)
     const callbacks = this.ctx.events.dispatch('parallel', [
       scopeTarget(this, exec.agent), 'tools/result', exec, snapshot,
     ])
@@ -1169,13 +1230,16 @@ export class ToolRegistry extends Service {
     // authoritative-call-id requirement and the "preserve the dispatched
     // isError/error" contract. The decision is the ONLY sanctioned channel for a
     // listener to change the outcome (block, or accept-with-replacement); the
-    // call id is always the authoritative `exec.callId`. Deep cloning protects
-    // nested content, error, and meta data from in-place listener mutation.
+    // call id is always the authoritative `exec.callId`. The one-pass snapshot
+    // protects nested content, error, and meta from in-place listener mutation.
     const dispatched = this.snapshotExecutionResult(exec, result)
-    const decision = structuredClone(await this.ctx.waterfall(
+    const decision = snapshotJsonValue(await this.ctx.waterfall(
       scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
     ))
+    if (decision === undefined) {
+      throw new TypeError('tools/post-execute must return a losslessly JSON-serializable decision')
+    }
     this.assertPostDecision(decision)
     const additionalContext = decision.additionalContext
     if (decision.kind === 'block') {
@@ -1200,30 +1264,35 @@ export class ToolRegistry extends Service {
       throw new TypeError('tools/execute must return a ToolExecutionResult object')
     }
     const result = value as Partial<ToolExecutionResult>
-    if (!Array.isArray(result.content) || typeof result.isError !== 'boolean') {
+    // Capture the provider/listener-owned result exactly once. The same values
+    // must pass shape/correlation checks and become the detached final outcome;
+    // a stateful accessor cannot validate one result and publish another.
+    const callId = result.callId
+    const content = result.content
+    const isError = result.isError
+    const error = result.error
+    const additionalContext = result.additionalContext
+    const meta = result.meta
+    if (!Array.isArray(content) || typeof isError !== 'boolean') {
       throw new TypeError('tools/execute must return a ToolExecutionResult with content[] and boolean isError')
     }
-    if (result.callId !== exec.callId) {
-      throw new TypeError(`tools/execute returned callId "${String(result.callId)}" for authoritative call "${exec.callId}"`)
+    if (callId !== exec.callId) {
+      throw new TypeError(`tools/execute returned callId "${String(callId)}" for authoritative call "${exec.callId}"`)
     }
     const candidate = {
       callId: exec.callId,
-      content: result.content,
-      isError: result.isError,
-      ...result.error !== undefined ? { error: result.error } : {},
-      ...result.additionalContext !== undefined ? { additionalContext: result.additionalContext } : {},
-      ...result.meta !== undefined ? { meta: result.meta } : {},
+      content,
+      isError,
+      ...error !== undefined ? { error } : {},
+      ...additionalContext !== undefined ? { additionalContext } : {},
+      ...meta !== undefined ? { meta } : {},
     }
-    // Validate BEFORE cloning: structuredClone turns some forbidden exotic or
-    // class instances into plain objects, which would hide a lossy JSON
-    // boundary violation. Validate the detached clone again to contain hostile
-    // getters whose value changes between inspection and snapshotting.
-    if (!isJsonValue(candidate)) {
+    // One traversal both validates and detaches the accepted result. A separate
+    // check followed by structuredClone would reread getters and could sanitize
+    // a class instance into an apparently valid plain record.
+    const snapshot = snapshotJsonValue(candidate)
+    if (snapshot === undefined) {
       throw new TypeError('tools/execute must return a losslessly JSON-serializable ToolExecutionResult')
-    }
-    const snapshot = structuredClone(candidate)
-    if (!isJsonValue(snapshot)) {
-      throw new TypeError('tools/execute must return a stable losslessly JSON-serializable ToolExecutionResult')
     }
     return snapshot
   }

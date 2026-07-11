@@ -367,6 +367,16 @@ describe('scopeHost', () => {
       .rejects.toThrow('scopeHost: services "tools", "systemPrompt" not available')
   })
 
+  it('snapshots missing-service diagnostics across the host activation await', async () => {
+    const ctx = new Context()
+    const services = ['tools', 'systemPrompt']
+    const pending = scopeHost(ctx, services)
+    services.splice(0)
+
+    await expect(pending)
+      .rejects.toThrow('scopeHost: services "tools", "systemPrompt" not available')
+  })
+
   it('names a single absent service in the singular', async () => {
     const ctx = new Context()
     await expect(scopeHost(ctx, ['tools'])).rejects.toThrow('scopeHost: service "tools" not available')

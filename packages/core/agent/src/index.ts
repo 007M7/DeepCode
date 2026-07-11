@@ -48,7 +48,10 @@ export interface CreateAgentOptions {
    * `cwd`/`parentSession`/`seedLength` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
-   * excluded — a factory caller never sets it).
+   * excluded — a factory caller never sets it). The factory reads this raw
+   * reference once and hands it synchronously to the session boundary, which
+   * rejects an exotic shell and captures each accepted field once before any
+   * asynchronous setup.
    */
   meta?: { cwd?: string; parentSession?: SessionId; seedLength?: number }
   /**
@@ -57,9 +60,11 @@ export interface CreateAgentOptions {
    * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
    * in-process FORK subagent backend to seed a child with a balanced
    * completed-turn prefix of the parent's log. The prefix MUST be contiguous
-   * from seq 0 and balanced (no open turn/step, no dangling tool-call), or the
-   * session constructor (and the dev-mode invariants replay) reject it. Absent
-   * for a fresh (spawn) child.
+   * from seq 0, carry only lossless-JSON data, and be balanced (no open
+   * turn/step, no dangling tool-call), or the session constructor (and the
+   * dev-mode invariants replay) reject it. The factory passes the raw seed to
+   * the synchronous one-pass validator/copier; it never pre-clones and thereby
+   * sanitizes exotic prototypes. Absent for a fresh (spawn) child.
    */
   seed?: SessionEvent[]
   /** Per-agent options (model, …). */

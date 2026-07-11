@@ -258,6 +258,30 @@ describe('SystemPrompt', () => {
       expect(assembly.tools.map(tool => tool.name)).toEqual(['alpha', 'protected', 'zulu'])
     })
 
+    it('reads protection accessors once so the checked names are the protected names', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'protected', order: 10, text: 'canonical' })
+      let reads = 0
+      const protection = {
+        get sections(): string[] {
+          reads += 1
+          return reads === 1 ? ['protected'] : undefined as unknown as string[]
+        },
+      }
+      ctx.systemPrompt.protect(protection)
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        result.sections = result.sections.filter(section => section.name !== 'protected')
+        return result
+      })
+
+      const assembly = await ctx.systemPrompt.assemble()
+
+      expect(reads).toBe(1)
+      expect(assembly.sections).toContainEqual({ name: 'protected', order: 10, text: 'canonical' })
+    })
+
     it('protects canonical absence and rejects an empty protection', async () => {
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)

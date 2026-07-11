@@ -366,15 +366,68 @@ describe('dsh-workflow-workerthread', () => {
       expect((result.value as { message: string }).message).toContain('backend exploded')
     })
 
-    it('maps an uncloneable ready-child result to fatal AGENT_RESULT instead of wedging the bridge', async () => {
+    it('maps a non-JSON ready-child result to fatal AGENT_RESULT instead of wedging the bridge', async () => {
       const { ctx, parent } = await setup({
-        reply: () => ({ output: [], structured: () => { /* deliberately not cloneable */ }, stopReason: 'completed' }),
+        reply: () => ({ output: [], structured: () => { /* deliberately outside lossless JSON */ }, stopReason: 'completed' }),
       })
       const result = await run(ctx, parent, scripted(`
         try { await agent('p'); return 'unreachable' } catch (e) { return { code: e.code, message: e.message } }
       `))
       expect(result.value).toMatchObject({ code: 'AGENT_RESULT' })
-      expect((result.value as { message: string }).message).toContain('could not cross the worker boundary')
+      expect((result.value as { message: string }).message).toContain('subagent result must be losslessly JSON-serializable')
+    })
+
+    it('contains a non-JSON result even if the injected subagent service violates its normalization contract', async () => {
+      // SubagentService normally rejects this before the workflow sees it. Stub
+      // the injected seam itself so the host's defensive worker-boundary guard
+      // remains independently covered rather than becoming dead, untested code.
+      const { ctx, parent } = await setup()
+      const invalid = {
+        output: [],
+        structured: () => { /* deliberately outside lossless JSON */ },
+        stopReason: 'completed',
+      } as unknown as SubagentResult
+      const start = vi.spyOn(ctx.subagents, 'start').mockReturnValue({
+        id: AgentId('raw-invalid-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve(invalid),
+        cancel: () => { /* already settled */ },
+        dispose: () => Promise.resolve(),
+      })
+
+      const result = await run(ctx, parent, scripted(`
+        try { await agent('p'); return 'unreachable' } catch (e) { return { code: e.code, message: e.message } }
+      `))
+
+      expect(start).toHaveBeenCalledOnce()
+      expect(result.value).toMatchObject({ code: 'AGENT_RESULT' })
+      expect((result.value as { message: string }).message)
+        .toContain('workflow child result could not cross the worker boundary')
+    })
+
+    it('reads each resolved child-result field once before crossing the worker boundary', async () => {
+      let structuredReads = 0
+      class DriftedStructured { readonly value = 'drifted' }
+      const { ctx, parent } = await setup({
+        reply: () => ({
+          output: [],
+          get structured() {
+            structuredReads += 1
+            return structuredReads === 1 ? { value: 'accepted' } : new DriftedStructured()
+          },
+          stopReason: 'completed',
+        }),
+      })
+
+      const result = await run(ctx, parent, scripted(`
+        const found = await agent('p', {
+          schema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] }
+        })
+        return found.value
+      `))
+
+      expect(result.value).toBe('accepted')
+      expect(structuredReads).toBe(1)
     })
 
     it('a child whose dispose() throws synchronously cannot wedge the script (the host acks anyway)', async () => {
@@ -700,6 +753,81 @@ describe('dsh-workflow-workerthread', () => {
       // bound (unlike the file default) so a multi-second reap regression
       // cannot pass by outlasting the wait.
       await waitFor(() => { expect(aborted).toEqual(['workflow settled']) }, 1000)
+      await handle.dispose()
+    })
+
+    it('the settle-reap explicitly cancels a readiness-pending stray before workflow/end', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true, deferStart: true })
+      const childLifecycle: string[] = []
+      let cancellationAtWorkflowEnd: string | undefined
+      ctx.on('workflow/agent-start', () => { childLifecycle.push('start') })
+      ctx.on('workflow/agent-end', () => { childLifecycle.push('end') })
+      ctx.on('workflow/end', () => {
+        cancellationAtWorkflowEnd = provider.runs[0]?.cancelled
+      })
+      const handle = ctx.workflows.start({
+        ...scripted(`
+          agent('readiness-pending stray')
+          return 'done'
+        `),
+        parent,
+      })
+
+      const result = await handle.result
+
+      expect(result.stopReason).toBe('completed')
+      expect(provider.runs).toHaveLength(1)
+      expect(provider.runs[0]!.request.signal?.aborted).toBe(true)
+      expect(provider.runs[0]!.request.signal?.reason).toBe('workflow settled')
+      expect(provider.runs[0]!.cancelled).toBe('workflow settled')
+      expect(cancellationAtWorkflowEnd).toBe('workflow settled')
+      expect(childLifecycle).toEqual([])
+      await handle.dispose()
+      expect(provider.runs[0]!.disposeCalls).toBe(1)
+    })
+
+    it('contains a throwing child cancel and still settles after cancelling peer strays', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      let starts = 0
+      const cancelled: string[] = []
+      const warnings: string[] = []
+      ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+      const provider: SubagentProvider = {
+        name: 'throwing-cancel',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
+        inheritsParentContext: false,
+        start: () => {
+          const index = starts++
+          return {
+            id: AgentId(`throwing-cancel-${index}`),
+            started: new Promise(() => { /* readiness stays pending */ }),
+            result: new Promise(() => { /* cancellation callback owns settlement */ }),
+            cancel: (reason?: string) => {
+              if (index === 0) throw new Error('cancel callback broke')
+              cancelled.push(`${index}:${reason ?? 'cancelled'}`)
+            },
+            dispose: () => Promise.resolve(),
+          }
+        },
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(WorkerWorkflowEngine, { provider: 'throwing-cancel', maxConcurrentAgents: 2 })
+      const handle = ctx.workflows.start({
+        ...scripted(`
+          agent('first stray')
+          agent('second stray')
+          return 'done'
+        `),
+        parent: fakeParent(),
+      })
+
+      const result = await handle.result
+
+      expect(result.stopReason).toBe('completed')
+      expect(starts).toBe(2)
+      expect(cancelled).toContain('1:workflow settled')
+      expect(warnings.some(message => message.includes('cancel callback broke'))).toBe(true)
       await handle.dispose()
     })
 

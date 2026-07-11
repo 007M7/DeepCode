@@ -173,6 +173,16 @@ describe('SubagentService', () => {
       persona: true,
     }
     const provider = new StubProvider('stable', capabilities)
+    let capabilityReads = 0
+    let capabilityValue = capabilities
+    Object.defineProperty(provider, 'capabilities', {
+      configurable: true,
+      get: () => {
+        capabilityReads += 1
+        return capabilityValue
+      },
+      set: (value: SubagentCapabilities) => { capabilityValue = value },
+    })
     const added: SubagentProvider[] = []
     const removed: string[] = []
     ctx.on('subagent/provider-added', registered => void added.push(registered))
@@ -184,6 +194,7 @@ describe('SubagentService', () => {
         pluginCtx.subagents.registerProvider(provider)
       },
     })
+    expect(capabilityReads).toBe(1)
     const accepted = ctx.subagents.getProvider('stable')
 
     const mutable = provider as unknown as {
@@ -216,7 +227,10 @@ describe('SubagentService', () => {
     expect(ctx.subagents.list()).toEqual(['stable'])
     expect(ctx.subagents.getProvider('mutated')).toBeUndefined()
 
+    const controller = new AbortController()
     const run = ctx.subagents.start('stable', baseRequest({
+      signal: controller.signal,
+      agentOptions: { model: 'mock' },
       outputSchema: { type: 'object', properties: { answer: { type: 'string' } } },
       maxDepth: 2,
       toolFilter: { deny: ['bash'] },
@@ -277,6 +291,142 @@ describe('SubagentService', () => {
       ctx.subagents.start('strong', baseRequest({ outputSchema: { type: 'object', properties: { x: { type: 'string' } } }, maxDepth: 1 }))
       expect(provider.startCount).toBe(1)
     })
+
+    it.each([
+      { label: 'NaN', value: Number.NaN },
+      { label: 'a fraction', value: 1.5 },
+      { label: 'a negative integer', value: -1 },
+      { label: 'negative zero', value: -0 },
+    ])('rejects maxDepth=$label before the provider starts', async ({ value }) => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      const provider = new StubProvider('invalid-depth', ALL_CAPS)
+      ctx.subagents.registerProvider(provider)
+
+      expect(() => ctx.subagents.start('invalid-depth', baseRequest({ maxDepth: value })))
+        .toThrow('subagent maxDepth must be a non-negative safe integer')
+      expect(provider.startCount).toBe(0)
+    })
+
+    it('rejects a non-string persona before the provider starts', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      const provider = new StubProvider('invalid-persona', { ...ALL_CAPS, persona: true })
+      ctx.subagents.registerProvider(provider)
+
+      expect(() => ctx.subagents.start('invalid-persona', baseRequest({
+        persona: 42 as unknown as string,
+      }))).toThrow('subagent persona must be a string')
+      expect(provider.startCount).toBe(0)
+    })
+
+    it('reads an optional capability accessor once so it cannot appear after validation', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      let accepted: SubagentStartRequest | undefined
+      const provider: SubagentProvider = {
+        name: 'weak-getter',
+        capabilities: NO_CAPS,
+        inheritsParentContext: false,
+        start: (request) => {
+          accepted = request
+          return {
+            id: AgentId('weak-getter-child'),
+            started: Promise.resolve(),
+            result: Promise.resolve({ output: [], stopReason: 'completed' }),
+            cancel() {},
+            async dispose() {},
+          }
+        },
+      }
+      ctx.subagents.registerProvider(provider)
+      let reads = 0
+      const request = baseRequest()
+      Object.defineProperty(request, 'toolFilter', {
+        enumerable: true,
+        get: () => {
+          reads += 1
+          return reads === 1 ? undefined : { deny: ['bash'] }
+        },
+      })
+
+      ctx.subagents.start('weak-getter', request)
+
+      expect(reads).toBe(1)
+      expect(accepted?.toolFilter).toBeUndefined()
+    })
+  })
+
+  it('rejects an exotic public prompt before the provider starts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const provider = new StubProvider('prompt-boundary')
+    ctx.subagents.registerProvider(provider)
+    class ExoticTextBlock {
+      readonly type = 'text'
+      readonly text = 'hello'
+    }
+
+    expect(() => ctx.subagents.start('prompt-boundary', baseRequest({
+      prompt: [new ExoticTextBlock()] as unknown as SubagentStartRequest['prompt'],
+    }))).toThrow('subagent prompt must be losslessly JSON-serializable')
+    expect(provider.startCount).toBe(0)
+  })
+
+  it.each([
+    {
+      label: 'agent options',
+      overrides: { agentOptions: { model: Number.NaN as unknown as string } },
+      message: 'subagent agent options must be losslessly JSON-serializable',
+    },
+    {
+      label: 'tool filter',
+      overrides: { toolFilter: { deny: [Number.NaN as unknown as string] } },
+      message: 'subagent tool filter must be losslessly JSON-serializable',
+    },
+    {
+      label: 'output schema',
+      overrides: {
+        outputSchema: {
+          type: 'object',
+          properties: { answer: { type: Number.NaN } },
+        } as unknown as NonNullable<SubagentStartRequest['outputSchema']>,
+      },
+      message: 'schema annotation must be JSON data',
+    },
+  ])('rejects non-JSON $label before the provider starts', async ({ overrides, message }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const provider = new StubProvider('invalid-request-data', ALL_CAPS)
+    ctx.subagents.registerProvider(provider)
+
+    expect(() => ctx.subagents.start('invalid-request-data', baseRequest(overrides)))
+      .toThrow(message)
+    expect(provider.startCount).toBe(0)
+  })
+
+  it('reads each nested prompt value once into the provider snapshot', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const provider = new StubProvider('unstable-prompt')
+    ctx.subagents.registerProvider(provider)
+    let reads = 0
+    const block = Object.defineProperties({}, {
+      type: { enumerable: true, value: 'text' },
+      text: {
+        enumerable: true,
+        get: () => {
+          reads += 1
+          return reads === 1 ? 'hello' : new Map([['not', 'json']])
+        },
+      },
+    })
+
+    expect(() => ctx.subagents.start('unstable-prompt', baseRequest({
+      prompt: [block] as unknown as SubagentStartRequest['prompt'],
+    }))).not.toThrow()
+    expect(reads).toBe(1)
+    expect(provider.startCount).toBe(1)
   })
 
   it('emits subagent/start then subagent/end around a run', async () => {
@@ -297,6 +447,165 @@ describe('SubagentService', () => {
     // `subagent/end` fires from a `.then` on the result — let the microtask run.
     await Promise.resolve()
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
+  })
+
+  it('captures a provider run once and gives callers and telemetry one normalized result', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const reads = {
+      id: 0,
+      started: 0,
+      result: 0,
+      cancel: 0,
+      sendMessage: 0,
+      dispose: 0,
+      resume: 0,
+      output: 0,
+      structured: 0,
+      stopReason: 0,
+    }
+    const methodReceivers: string[] = []
+    const providerResult = Object.defineProperties({}, {
+      output: {
+        enumerable: true,
+        get: () => {
+          reads.output += 1
+          return reads.output === 1
+            ? [{ type: 'text', text: 'accepted output' }]
+            : [{ type: 'text', text: 'drifted output' }]
+        },
+      },
+      structured: {
+        enumerable: true,
+        get: () => {
+          reads.structured += 1
+          return { verdict: reads.structured === 1 ? 'accepted' : 'drifted' }
+        },
+      },
+      stopReason: {
+        enumerable: true,
+        get: () => {
+          reads.stopReason += 1
+          return reads.stopReason === 1 ? 'completed' : 'error'
+        },
+      },
+    }) as SubagentResult
+    const providerRun = Object.defineProperties({}, {
+      id: {
+        enumerable: true,
+        get: () => {
+          reads.id += 1
+          return AgentId(reads.id === 1 ? 'accepted-child' : 'drifted-child')
+        },
+      },
+      started: {
+        enumerable: true,
+        get: () => {
+          reads.started += 1
+          if (reads.started !== 1) throw new Error('started reread')
+          return Promise.resolve()
+        },
+      },
+      result: {
+        enumerable: true,
+        get: () => {
+          reads.result += 1
+          if (reads.result !== 1) throw new Error('result reread')
+          return Promise.resolve(providerResult)
+        },
+      },
+      cancel: {
+        enumerable: true,
+        get: () => {
+          reads.cancel += 1
+          if (reads.cancel !== 1) throw new Error('cancel reread')
+          return function (this: SubagentRun): void {
+            expect(this).toBe(providerRun)
+            methodReceivers.push('cancel')
+          }
+        },
+      },
+      sendMessage: {
+        enumerable: true,
+        get: () => {
+          reads.sendMessage += 1
+          if (reads.sendMessage !== 1) throw new Error('sendMessage reread')
+          return function (this: SubagentRun): void {
+            expect(this).toBe(providerRun)
+            methodReceivers.push('sendMessage')
+          }
+        },
+      },
+      dispose: {
+        enumerable: true,
+        get: () => {
+          reads.dispose += 1
+          if (reads.dispose !== 1) throw new Error('dispose reread')
+          return async function (this: SubagentRun): Promise<void> {
+            expect(this).toBe(providerRun)
+            methodReceivers.push('dispose')
+          }
+        },
+      },
+      resume: {
+        enumerable: true,
+        get: () => {
+          reads.resume += 1
+          if (reads.resume !== 1) throw new Error('resume reread')
+          return function (this: SubagentRun): SubagentRun {
+            expect(this).toBe(providerRun)
+            methodReceivers.push('resume')
+            return providerRun
+          }
+        },
+      },
+    }) as SubagentRun
+    ctx.subagents.registerProvider({
+      name: 'stateful-run',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => providerRun,
+    })
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('stateful-run', baseRequest())
+    expect(Object.is(run, providerRun)).toBe(false)
+    expect(Object.isFrozen(run)).toBe(true)
+    run.cancel()
+    run.sendMessage?.([])
+    expect(Object.is(run.resume?.([]), providerRun)).toBe(true)
+    await run.dispose()
+    const result = await run.result
+    await run.started
+    await Promise.resolve()
+
+    expect(reads).toEqual({
+      id: 1,
+      started: 1,
+      result: 1,
+      cancel: 1,
+      sendMessage: 1,
+      dispose: 1,
+      resume: 1,
+      output: 1,
+      structured: 1,
+      stopReason: 1,
+    })
+    expect(methodReceivers).toEqual(['cancel', 'sendMessage', 'resume', 'dispose'])
+    expect(result).toEqual({
+      output: [{ type: 'text', text: 'accepted output' }],
+      structured: { verdict: 'accepted' },
+      stopReason: 'completed',
+    })
+    expect(Object.isFrozen(result)).toBe(true)
+    expect(Object.isFrozen(result.output)).toBe(true)
+    expect(ended).toHaveBeenCalledWith({
+      provider: 'stateful-run',
+      id: 'accepted-child',
+      stopReason: 'completed',
+      lastAssistantMessage: [{ type: 'text', text: 'accepted output' }],
+    })
   })
 
   it('waits for provider readiness and observes an early result rejection without reordering lifecycle', async () => {
@@ -428,12 +737,13 @@ describe('SubagentService', () => {
     }))
   })
 
-  it('observe-only: a subagent/end listener mutating lastAssistantMessage cannot corrupt the caller\'s result', async () => {
+  it('observe-only: a mutating subagent/end listener cannot corrupt the caller or later listeners', async () => {
     // The subagent/end emit fires from a detached `.then` registered before
     // start() returns — i.e. BEFORE the caller's own `await run.result`
     // continuation. If the event shared the result.output reference, a mutating
-    // listener would change the SubagentResult the caller consumes. The service
-    // deep-clones output onto the event, so the listener mutates only its copy.
+    // listener would change the SubagentResult the caller consumes or the value
+    // a later observer sees. The service freezes one normalized result and the
+    // lifecycle payload before dispatching either public surface.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider(
@@ -448,12 +758,22 @@ describe('SubagentService', () => {
       if (blocks?.[0]?.type === 'text') blocks[0].text = 'HIJACKED'
       blocks?.push({ type: 'text', text: 'injected' })
     })
+    const later = vi.fn()
+    ctx.on('subagent/end', later)
 
     const run = ctx.subagents.start('clone', baseRequest())
     const result = await run.result
     await Promise.resolve() // let the detached settle hook (and its listener) run
-    // The caller's result.output is untouched by the listener's mutation.
+    // The caller and the listener after the mutator both retain the accepted value.
     expect(result.output).toEqual([{ type: 'text', text: 'original' }])
+    expect(Object.isFrozen(result.output)).toBe(true)
+    expect(later).toHaveBeenCalledWith(expect.objectContaining({
+      stopReason: 'completed',
+      lastAssistantMessage: [{ type: 'text', text: 'original' }],
+    }))
+    const laterInfo = later.mock.calls[0]![0] as Record<string, unknown>
+    expect(Object.isFrozen(laterInfo)).toBe(true)
+    expect(Object.isFrozen(laterInfo.lastAssistantMessage)).toBe(true)
   })
 
   it('omits lastAssistantMessage on the reject path (no SubagentResult was produced)', async () => {
@@ -483,17 +803,14 @@ describe('SubagentService', () => {
     expect('lastAssistantMessage' in endInfo).toBe(false) // no output exists on reject
   })
 
-  it('contains a structuredClone failure: emits subagent/end without lastAssistantMessage (no unhandled rejection)', async () => {
-    // The clone runs inside onFulfilled, OUTSIDE emitLifecycle's per-listener
-    // containment. An uncloneable output (here a content block carrying a
-    // function) would otherwise throw and become an unhandled rejection on the
-    // detached `.then`. The handler must instead log and emit the event WITHOUT
-    // lastAssistantMessage, still carrying the real stopReason.
+  it('rejects an invalid provider output and maps the contract fault to error telemetry', async () => {
+    // A function is outside the lossless JSON vocabulary. The service-owned
+    // result promise rejects instead of exposing the malformed provider value;
+    // its already-attached lifecycle observer maps that infrastructure fault to
+    // error telemetry without producing an unhandled rejection.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
-    const warn = vi.fn(); ctx.logger.warn = warn as never
-    // An output value structuredClone cannot handle (a function is uncloneable).
-    const uncloneable = [{ type: 'text', text: 'x', evil: () => 0 }] as unknown as SubagentResult['output']
+    const nonJsonOutput = [{ type: 'text', text: 'x', evil: () => 0 }] as unknown as SubagentResult['output']
     ctx.subagents.registerProvider({
       name: 'unclone',
       capabilities: NO_CAPS,
@@ -501,7 +818,7 @@ describe('SubagentService', () => {
       start: () => ({
         id: AgentId('unclone-child'),
         started: Promise.resolve(),
-        result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
+        result: Promise.resolve({ output: nonJsonOutput, stopReason: 'completed' } as SubagentResult),
         cancel() {},
         dispose: async () => {},
       }),
@@ -510,13 +827,52 @@ describe('SubagentService', () => {
     const ended = vi.fn()
     ctx.on('subagent/end', ended)
     const run = ctx.subagents.start('unclone', baseRequest())
-    await run.result
+    await expect(run.result).rejects.toThrow('subagent result must be losslessly JSON-serializable')
     await Promise.resolve()
 
     const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
-    expect(endInfo.stopReason).toBe('completed')        // the real outcome is preserved
-    expect('lastAssistantMessage' in endInfo).toBe(false) // clone failed → omitted, not crashed
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not clone'))
+    expect(endInfo.stopReason).toBe('error')
+    expect('lastAssistantMessage' in endInfo).toBe(false)
+  })
+
+  it.each([
+    {
+      label: 'a non-array output',
+      value: { output: { type: 'text', text: 'not an array' }, stopReason: 'completed' },
+      message: 'subagent result output must be an array',
+    },
+    {
+      label: 'a non-string stopReason',
+      value: { output: [], stopReason: 42 },
+      message: 'subagent result stopReason must be a string',
+    },
+  ])('rejects a provider result with $label', async ({ value, message }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'invalid-shape',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('invalid-shape-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve(value as unknown as SubagentResult),
+        cancel() {},
+        async dispose() {},
+      }),
+    })
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('invalid-shape', baseRequest())
+    await expect(run.result).rejects.toThrow(message)
+    await Promise.resolve()
+
+    expect(ended).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'invalid-shape',
+      id: 'invalid-shape-child',
+      stopReason: 'error',
+    }))
   })
 
   it('emits subagent/end with stopReason "error" when the run result promise rejects', async () => {
@@ -564,6 +920,60 @@ describe('SubagentService', () => {
     await run.started
     expect(second).toHaveBeenCalledWith(expect.objectContaining({ provider: 'contain', id: run.id }))
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+  })
+
+  it('contains a listener whose thrown value cannot be stringified', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider('hostile-listener'))
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const hostile = {
+      [Symbol.toPrimitive]() { throw new Error('render failed') },
+    }
+    const second = vi.fn()
+    ctx.on('subagent/start', () => { throw hostile })
+    ctx.on('subagent/start', second)
+
+    const run = ctx.subagents.start('hostile-listener', baseRequest())
+    await run.started
+
+    expect(second).toHaveBeenCalledOnce()
+    expect(warnings.some(message => message.includes('<unrenderable thrown value>'))).toBe(true)
+    await run.result
+  })
+
+  it('rejects a throwing provider result accessor and maps it to error telemetry', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'hostile-result',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('hostile-result-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve({
+          output: [],
+          get stopReason(): 'completed' { throw new Error('stop reason exploded') },
+        }),
+        cancel() {},
+        async dispose() {},
+      }),
+    })
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('hostile-result', baseRequest())
+    await run.started
+    await expect(run.result).rejects.toThrow('stop reason exploded')
+    await Promise.resolve()
+
+    expect(ended).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'hostile-result',
+      id: 'hostile-result-child',
+      stopReason: 'error',
+    }))
   })
 
   it('contains a throwing subagent/end listener per-listener: a later listener still observes the settle, no unhandled rejection', async () => {

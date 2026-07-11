@@ -32,6 +32,9 @@ export const SESSION_FORMAT_VERSION = 0
 
 /**
  * Immutable session metadata — written once at creation and never rewritten.
+ * {@link Session} enforces that contract at runtime: it validates and detaches
+ * the accepted scalar fields, requires this header's id to match the session
+ * id, and deep-freezes the published record.
  *
  * Kept SEPARATE from the event log deliberately: format-version, cwd, and
  * lineage are storage concerns, not conversation events, so they stay out of
@@ -75,7 +78,8 @@ export interface CreateSessionOptions {
   /** Events to seed the new session with (replay/fork). */
   seed?: SessionEvent[]
   /**
-   * Creation metadata. The store fills in `version`/`id` and defaults
+   * Creation metadata. The store reads this plain record and each accepted
+   * field once, then fills in `version`/`id` and defaults
    * `createdAt` to now; the caller supplies the storage-level fields (validated
    * absolute `cwd`, `parentSession` lineage, the seed boundary `seedLength`, and
    * — when reconstructing a persisted session — the original `createdAt` to

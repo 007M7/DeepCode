@@ -18,6 +18,7 @@ import z from 'schemastery'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 
 declare module 'cordis' {
   interface Context {
@@ -598,8 +599,9 @@ export class SystemPrompt extends Service {
    * restored AFTER the whole waterfall, so listener registration order cannot
    * strip, replace, duplicate, or fabricate it. Canonical absence is restored
    * too: if the protected name is intentionally absent for an assembly, a
-   * listener-injected entry with that name is removed. The input arrays are
-   * snapshotted; an empty protection throws because it cannot affect output.
+   * listener-injected entry with that name is removed. Each input array is
+   * read once and snapshotted; an empty protection throws because it cannot
+   * affect output.
    * Removed with the calling fiber and emits `system-prompt/change` on
    * registration/unregistration. A global section protection also reserves the
    * name against scoped section shadows; registering protection when such a
@@ -609,9 +611,11 @@ export class SystemPrompt extends Service {
    */
   protect(protection: PromptProtection): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
+    const sections = protection.sections
+    const tools = protection.tools
     const snapshot: PromptProtection = {
-      ...protection.sections !== undefined ? { sections: [...new Set(protection.sections)] } : {},
-      ...protection.tools !== undefined ? { tools: [...new Set(protection.tools)] } : {},
+      ...sections !== undefined ? { sections: [...new Set(sections)] } : {},
+      ...tools !== undefined ? { tools: [...new Set(tools)] } : {},
     }
     if ((snapshot.sections?.length ?? 0) === 0 && (snapshot.tools?.length ?? 0) === 0) {
       throw new Error('systemPrompt.protect() requires at least one section or tool name')
@@ -669,6 +673,8 @@ export class SystemPrompt extends Service {
    * the providers' `knownNames` universe rejects the assembly, while a known
    * name restricted away for this scope is a normal absence), and every
    * visible variable resolved against `context` into `assembly.variables`.
+   * Each provider result and schema field is read once; those same captured
+   * names drive both `toolOrder` validation and the model-visible collection.
    * Tool schemas are deep-cloned because adapters and request waterfalls may
    * mutate schema objects. Runs through the `system-prompt/assemble`
    * waterfall, giving listeners the opportunity to mutate or replace the
@@ -724,12 +730,43 @@ export class SystemPrompt extends Service {
     const knownNames = new Set<string>()
     for (const provider of providers) {
       const result = provider(context)
-      for (const tool of result.schemas) {
-        collected.push({ ...tool, parameters: structuredClone(tool.parameters) })
+      // One provider result snapshot: `schemas`, `knownNames`, and each schema
+      // field may be accessor-backed. The same captured names must drive both
+      // toolOrder validation and the model-visible collection.
+      const inputSchemas = result.schemas
+      const inputKnownNames = result.knownNames
+      const schemas = inputSchemas.map((tool, index): ToolSchema => {
+        const name = tool.name
+        const description = tool.description
+        const inputParameters = tool.parameters
+        if (typeof name !== 'string') {
+          throw new TypeError(`system prompt tool schema at index ${index} name must be a string`)
+        }
+        if (typeof description !== 'string') {
+          throw new TypeError(`system prompt tool "${name}" description must be a string`)
+        }
+        const parameters = snapshotJsonValue(inputParameters)
+        if (parameters === undefined) {
+          throw new TypeError(`system prompt tool "${name}" parameters must be losslessly JSON-serializable`)
+        }
+        return { name, description, parameters }
+      })
+      let acceptedKnownNames: string[]
+      if (inputKnownNames === undefined) {
+        acceptedKnownNames = schemas.map(tool => tool.name)
+      } else {
+        if (!Array.isArray(inputKnownNames)) {
+          throw new TypeError('system prompt tool provider knownNames must be an array of strings')
+        }
+        acceptedKnownNames = Array.from(inputKnownNames, (name) => {
+          if (typeof name !== 'string') {
+            throw new TypeError('system prompt tool provider knownNames must be an array of strings')
+          }
+          return name
+        })
       }
-      for (const name of result.knownNames ?? result.schemas.map(tool => tool.name)) {
-        knownNames.add(name)
-      }
+      collected.push(...schemas)
+      for (const name of acceptedKnownNames) knownNames.add(name)
     }
     const assembly: PromptAssembly = {
       sections: [...sectionByName.values()]

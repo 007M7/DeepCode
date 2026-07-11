@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -96,6 +96,22 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const { agent } = await ctx.agents.create({ agentId: AgentId('a-nometa'), sessionId: SessionId('nometa-session') })
     expect(agent.session.id).toBe('nometa-session')
     expect(agent.session.header.cwd).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('createAgent sends raw metadata to the session validator before cloning can sanitize it', async () => {
+    class ExoticMeta {
+      readonly cwd = '/accepted'
+    }
+    const { ctx } = await persistentHarness(new MockAdapter([textResponse('hi')]))
+
+    await expect(ctx.agents.create({
+      agentId: AgentId('exotic-meta-agent'),
+      sessionId: SessionId('exotic-meta-session'),
+      meta: new ExoticMeta(),
+    })).rejects.toThrow(/session metadata is not a plain JSON record/)
+    expect(ctx.agents.get(AgentId('exotic-meta-agent'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('exotic-meta-session'))).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
@@ -409,6 +425,54 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     expect(a2.session.header.cwd).toBe('/w')
     expect(a2.session.header.seedLength).toBe(seed.length)
     await ctx2.fiber.dispose()
+  })
+
+  it('reads each loaded metadata field once before reconstructing a resumed session', async () => {
+    const sessionId = SessionId('resume-loaded-meta-once')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const loaded = await ctx.sessionPersistence.load(sessionId)
+    const reads = { createdAt: 0, cwd: 0, parentSession: 0, seedLength: 0 }
+    const meta = Object.defineProperties({
+      version: loaded.meta.version,
+      id: loaded.meta.id,
+    }, {
+      createdAt: {
+        enumerable: true,
+        get: () => { reads.createdAt += 1; return reads.createdAt === 1 ? loaded.meta.createdAt : 1n },
+      },
+      cwd: {
+        enumerable: true,
+        get: () => { reads.cwd += 1; return reads.cwd === 1 ? '/loaded' : 'relative' },
+      },
+      parentSession: {
+        enumerable: true,
+        get: () => { reads.parentSession += 1; return reads.parentSession === 1 ? SessionId('parent') : 1n },
+      },
+      seedLength: {
+        enumerable: true,
+        get: () => { reads.seedLength += 1; return reads.seedLength === 1 ? 0 : 1n },
+      },
+    }) as unknown as SessionHeader
+    ctx.sessionPersistence.load = () => Promise.resolve({ meta, events: loaded.events })
+
+    const resumed = await ctx.agents.resume({
+      agentId: AgentId('resume-loaded-meta-once'),
+      resumeSessionId: sessionId,
+      agentOptions: { model: 'mock' },
+    })
+
+    expect(reads).toEqual({ createdAt: 1, cwd: 1, parentSession: 1, seedLength: 1 })
+    expect(resumed.agent.session.header).toEqual({
+      version: loaded.meta.version,
+      id: sessionId,
+      createdAt: loaded.meta.createdAt,
+      cwd: '/loaded',
+      parentSession: 'parent',
+      seedLength: 0,
+    })
+    await resumed.dispose()
+    await ctx.fiber.dispose()
   })
 
   it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {

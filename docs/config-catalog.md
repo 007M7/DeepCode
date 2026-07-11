@@ -343,24 +343,6 @@ export interface Config {
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
-## `@deepseek-ai/dsh-invariants`
-
-Requires: `sessions`
-
-```ts config-catalog
-/** Plugin config. */
-export interface Config {
-  /**
-   * Deep-freeze logged session-event data so mutating a logged event throws.
-   * Default true — this plugin only runs in dev/test, where freezing is the
-   * point. Set false to assert the event contract without freezing.
-   */
-  freeze?: boolean
-}
-```
-
-Source: [`packages/support/invariants/src/index.ts:48`](../packages/support/invariants/src/index.ts)
-
 ## `@deepseek-ai/dsh-llm-deepseek`
 
 Requires: `llm`
@@ -583,7 +565,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:112`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:114`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -808,7 +790,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:264`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:265`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -1168,6 +1150,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
+- `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))

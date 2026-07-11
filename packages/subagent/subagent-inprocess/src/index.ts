@@ -18,9 +18,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Context, Fiber } from 'cordis'
 import { AgentId, type Agent, type AgentHandle, type AgentOptions } from '@deepseek-ai/dsh-agent'
-import { SessionId, isJsonValue, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, snapshotJsonValue, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
+import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
   attachStructuredRuntime,
@@ -125,40 +125,51 @@ export function startInProcessRun(
   request: SubagentStartRequest,
   options: InProcessRunOptions,
 ): SubagentRun {
-  // Snapshot the accepted request synchronously. The parent and signal are
-  // identity capabilities (kept live but never reread from the mutable request
-  // record); every data field is detached before asynchronous owner setup.
+  // Capture every top-level field once. Parent/signal are identity capabilities;
+  // every data value is materialized below before asynchronous owner setup.
   const parent = request.parent
   const signal = request.signal
   const persona = request.persona
-  const toolFilter = request.toolFilter === undefined ? undefined : structuredClone(request.toolFilter)
-  const seed = options.seed === undefined ? undefined : structuredClone(options.seed)
+  const inputToolFilter = request.toolFilter
+  const inputMaxDepth = request.maxDepth
+  const inputSchema = request.outputSchema
+  const inputPrompt = request.prompt
+  const inputAgentOptions = request.agentOptions
+  const inputSeed = options.seed
+  const toolFilter = inputToolFilter === undefined ? undefined : snapshotJsonValue(inputToolFilter)
+  if (inputToolFilter !== undefined && toolFilter === undefined) {
+    throw new TypeError('subagent tool filter must be losslessly JSON-serializable')
+  }
+  const seed = inputSeed === undefined ? undefined : snapshotJsonValue(inputSeed)
+  if (inputSeed !== undefined && seed === undefined) {
+    throw new TypeError('subagent seed must be losslessly JSON-serializable')
+  }
   const childDepth = depthOf(parent) + 1
-  if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
-    throw new SubagentDepthError(childDepth, request.maxDepth)
+  if (inputMaxDepth !== undefined && childDepth > inputMaxDepth) {
+    throw new SubagentDepthError(childDepth, inputMaxDepth)
   }
-  // Assert, then snapshot, the schema subset BEFORE any child exists (the
-  // service has already capability-gated; this rejects a schema outside the
-  // enforced subset loud). Assertion comes FIRST so a hostile value fails as
-  // OutputSchemaError, never as structuredClone's raw DataCloneError — the
-  // asserted subset is plain JSON data, which always clones. The snapshot is
-  // load-bearing: the caller keeps its reference, so attaching the ORIGINAL
-  // would let a post-start() mutation drift the enforced schema away from the
-  // asserted one — the clone (taken synchronously with the assertion, no
-  // interleaving possible) pins assertion, the model-visible parameters, and
-  // validateStructuredValue to one isolation-immutable value.
-  if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
-  const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
+  const requestedAgentOptions = inputAgentOptions === undefined
+    ? {}
+    : snapshotJsonValue(inputAgentOptions)
+  if (requestedAgentOptions === undefined) {
+    throw new TypeError('subagent agent options must be losslessly JSON-serializable')
+  }
+  // Materialize, then assert, the schema subset BEFORE any child exists. The
+  // single traversal rejects non-JSON data without rereading accessors; the
+  // detached value then pins assertion, model-visible parameters, and runtime
+  // validation to one provider-owned schema. Contract failures stay typed as
+  // OutputSchemaError rather than leaking a materialization detail.
+  const schema = inputSchema === undefined ? undefined : snapshotJsonValue(inputSchema)
+  if (inputSchema !== undefined && schema === undefined) {
+    throw new OutputSchemaError(['schema annotation must be JSON data; the complete schema must be losslessly JSON-serializable'])
+  }
+  if (schema !== undefined) assertSupportedOutputSchema(schema)
   // The accepted request owns a value snapshot, not the caller's mutable
-  // content array. Validate the same lossless-JSON contract Session.append
-  // enforces before any child exists, then detach it synchronously so mutation
-  // during async creation cannot change what is logged or sent to the model.
-  if (!isJsonValue(request.prompt)) {
+  // content array. Use the same one-pass boundary Session.append enforces before
+  // any child exists so later mutation cannot change what is logged or sent.
+  const prompt = snapshotJsonValue(inputPrompt)
+  if (prompt === undefined) {
     throw new TypeError('subagent prompt must be losslessly JSON-serializable')
-  }
-  const prompt = structuredClone(request.prompt)
-  if (!isJsonValue(prompt)) {
-    throw new TypeError('subagent prompt must be stable losslessly JSON-serializable data')
   }
 
   const childId = AgentId(randomUUID())
@@ -166,18 +177,22 @@ export function startInProcessRun(
   // completed-turn prefix; spawn seeds nothing). `readResult` scopes to this
   // boundary so a child that produces no message of its own never returns the
   // SEEDED parent's last assistant message as its result.
-  const seedLength = options.seed?.length ?? 0
+  const seedLength = seed?.length ?? 0
   const parentHeader = parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
   // an explicit `request.agentOptions.model` overrides it. The deployment
   // persona needs no inheritance (a context-wide section both render); a
   // per-child `request.persona` becomes a SCOPED section of the same name in
   // the setup below, shadowing the deployment's for this child alone.
-  const agentOptions: AgentOptions = structuredClone({
-    ...parent.options.model !== undefined ? { model: parent.options.model } : {},
-    ...request.agentOptions,
+  const parentModel = parent.options.model
+  const agentOptions = snapshotJsonValue<AgentOptions>({
+    ...parentModel !== undefined ? { model: parentModel } : {},
+    ...requestedAgentOptions,
     subagentDepth: childDepth,
   })
+  if (agentOptions === undefined) {
+    throw new TypeError('subagent agent options must be losslessly JSON-serializable')
+  }
 
   // The child's scoped world, composed in the factory's unpublished setup
   // window. The factory awaits it before inserting or announcing the child, so

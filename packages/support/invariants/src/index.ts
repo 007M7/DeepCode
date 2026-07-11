@@ -1,20 +1,18 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts the harness event
- * contract at runtime, and (optionally) freezes logged session-event data so
- * any code that mutates history throws instead of corrupting silently.
+ * Dev-mode invariants: a pure-listener plugin that asserts relationships in
+ * the harness event contract at runtime.
  *
  * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, and `agent/status`. It is **off in production**: enable it
- * in tests and the demos, where a contract violation should be a loud failure,
- * not a subtle one. It doubles as executable documentation of the event
- * taxonomy: the assertions below ARE the contract.
+ * `session/event`, `agent/status`, and the scoped dispatch and request seams.
+ * It is **off in production**: enable it in tests and demos, where a contract
+ * violation should be a loud failure rather than a subtle one. It doubles as
+ * executable documentation of the event taxonomy: the assertions below are
+ * the contract.
  *
- * Why runtime assertions instead of compile-time deep-readonly types? See
- * the dev-invariants RFC. Briefly: a `DeepReadonly<SessionEvent>` is high type-noise across
- * every log consumer and a plugin casts straight through it; a dev-mode freeze
- * + assertions catch real corruption at zero production cost and zero type
- * noise. The always-on half of that defense (cloning derived messages) lives
- * in dsh-session; this package is the dev-mode tripwire.
+ * Session owns immutable log storage: it snapshots and deep-freezes every
+ * accepted event at the source. This plugin checks relationships that one
+ * event's types and immutability cannot express, including turn/step nesting,
+ * scoped dispatch, status transitions, and request reconstructability.
  *
  * @module @deepseek-ai/dsh-invariants
  */
@@ -42,16 +40,6 @@ export class InvariantError extends HarnessError {
     super(`invariant violated: ${message}`, 'INVARIANT')
     this.name = 'InvariantError'
   }
-}
-
-/** Plugin config. */
-export interface Config {
-  /**
-   * Deep-freeze logged session-event data so mutating a logged event throws.
-   * Default true — this plugin only runs in dev/test, where freezing is the
-   * point. Set false to assert the event contract without freezing.
-   */
-  freeze?: boolean
 }
 
 /** Per-session bookkeeping for the session-log invariants. */
@@ -85,29 +73,6 @@ interface SessionTrace {
 /** Event payload prefix for scoped seams whose first argument names its agent. */
 interface AgentSubject {
   agent: Agent
-}
-
-/**
- * Deep-freeze a value and everything reachable from it.
- *
- * Walks every object's own properties even when the object itself is already
- * frozen: `Session.append()` accepts event data from arbitrary plugins/tools,
- * so a caller can hand us a SHALLOW-frozen object whose descendants are still
- * mutable. Skipping an already-frozen node (the obvious idempotence shortcut)
- * would leave exactly the kind of mutable history the dev-invariants RFC means to catch. A
- * `WeakSet` of visited objects keeps it terminating on cycles and avoids
- * re-walking shared subtrees / already-processed seed events.
- */
-function deepFreeze(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
-  if (value === null || typeof value !== 'object') return
-  if (seen.has(value)) return
-  seen.add(value)
-  // Freeze the node (no-op if a caller pre-froze it), then ALWAYS descend —
-  // a frozen container can still hold mutable children.
-  Object.freeze(value)
-  for (const key of Object.keys(value)) {
-    deepFreeze((value as Record<string, unknown>)[key], seen)
-  }
 }
 
 /** Assert that a step-scoped event names the currently open turn and step. */
@@ -311,13 +276,13 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
 
 /**
  * Register the dev-mode invariants. Contributions are effect-scoped, so
- * disposing the plugin fiber removes all listeners and stops freezing
- * (HMR-safe). On (re-)apply the trace state is rebuilt by replaying each
- * existing session's log, so a hot reload mid-turn does not falsely reject the
- * next event.
+ * disposing the plugin fiber removes all listeners (HMR-safe). On (re-)apply
+ * the trace state is rebuilt by replaying each existing session's log, so a
+ * hot reload mid-turn does not falsely reject the next event.
+ *
+ * @param ctx - Cordis context that receives the invariant listeners.
  */
-export function apply(ctx: Context, config: Config = {}): void {
-  const freeze = config.freeze ?? true
+export function apply(ctx: Context): void {
   const traces = new WeakMap<Session, SessionTrace>()
   // Agent status has no stored history to replay; the first observation after
   // (re-)apply seeds the baseline, so a reload never produces a false positive.
@@ -334,13 +299,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     surface: [],
   })
 
-  /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
+  /** Build (or rebuild) a session's trace by replaying its whole log. */
   const seedSession = (session: Session): SessionTrace => {
     const trace = freshTrace()
     traces.set(session, trace)
     for (const event of session.events) {
       checkEvent(trace, event)
-      if (freeze) deepFreeze(event)
     }
     return trace
   }
@@ -362,7 +326,6 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.on('session/event', (session, event) => {
     checkEvent(traceFor(session), event)
-    if (freeze) deepFreeze(event)
   })
 
   ctx.on('agent/status', (agent, status) => {

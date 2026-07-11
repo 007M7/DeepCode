@@ -20,6 +20,7 @@
  */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
@@ -353,6 +354,12 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
  * by `ToolRegistry.register()` directly — `defineTool` is sugar for
  * first-party plugin authors.
+ *
+ * Definition is an acceptance boundary: every top-level option is read once,
+ * and the parameter spec is detached before either the wire schema or the
+ * runtime validators are built. Later mutation of the caller's options or
+ * schema therefore cannot make the model-visible schema disagree with execute
+ * or presentation validation.
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
@@ -362,6 +369,13 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  *   args).
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
+  // Capture every caller-owned top-level field before inspecting any nested
+  // schema value. Accessors may be stateful, so validation, presentation, and
+  // the returned definition must all derive from this one accepted record.
+  const name = options.name
+  const description = options.description
+  const inputParameters = options.parameters
+  const timeoutMs = options.timeoutMs
   // Object-literal execute methods don't use `this`; the reference is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
@@ -369,20 +383,31 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
-  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
-    throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
+  if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error(`defineTool(${name}): timeoutMs must be a positive finite number`)
+  }
+  // The internal SchemaSpec and public wire schema must not share mutable
+  // subobjects. Each is materialized through the lossless one-pass boundary;
+  // structuredClone alone could sanitize an exotic default or nested getter.
+  const parameterSpec = snapshotJsonValue(inputParameters)
+  if (parameterSpec === undefined) {
+    throw new Error(`defineTool(${name}): parameters must be losslessly JSON-serializable`)
+  }
+  const wireParameters = snapshotJsonValue(schemaSpecToJsonSchema(parameterSpec))
+  if (wireParameters === undefined) {
+    throw new Error(`defineTool(${name}): generated parameters must be losslessly JSON-serializable`)
   }
   const tool: ToolDefinition = {
-    name: options.name,
-    description: options.description,
-    parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
-    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    name,
+    description,
+    parameters: wireParameters as unknown as Record<string, unknown>,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the
       // cast to InferArgs<S> reflects the validated shape.
-      const violations = validateArgs(options.parameters, args)
+      const violations = validateArgs(parameterSpec, args)
       if (violations.length > 0) throw new ToolArgsError(violations)
       return userExecute(args as InferArgs<S>, exec)
     },
@@ -393,13 +418,13 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
     tool.presentCall = (args: unknown): ToolCallView | undefined => {
-      if (validateArgs(options.parameters, args).length > 0) return undefined
+      if (validateArgs(parameterSpec, args).length > 0) return undefined
       return userPresentCall(args as InferArgs<S>)
     }
   }
   if (userPresentResult) {
     tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
-      if (validateArgs(options.parameters, args).length > 0) return undefined
+      if (validateArgs(parameterSpec, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
     }
   }

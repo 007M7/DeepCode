@@ -34,10 +34,11 @@
 
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
+import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import type {
   SubagentCapabilities,
@@ -115,7 +116,7 @@ declare module 'cordis' {
   }
 }
 
-/** Identifying detail for a started subagent run (the `subagent/start` payload). */
+/** Deep-frozen, observe-only identifying detail for a started subagent run. */
 export interface SubagentRunInfo {
   /** The provider that started the run. */
   provider: string
@@ -123,7 +124,7 @@ export interface SubagentRunInfo {
   id: AgentId
 }
 
-/** Outcome detail for a settled subagent run (the `subagent/end` payload). */
+/** Deep-frozen, observe-only outcome detail for a settled subagent run. */
 export interface SubagentRunEndInfo {
   /** The provider that ran it. */
   provider: string
@@ -186,11 +187,12 @@ export class SubagentService extends Service {
     // mutate or reuse the provider object before its old fiber unloads. Binding
     // preserves the provider method's receiver while making replacement of the
     // public callback field after registration inert.
+    const inputCapabilities = provider.capabilities
     const capabilities: SubagentCapabilities = Object.freeze({
-      outputSchema: provider.capabilities.outputSchema,
-      depthLimit: provider.capabilities.depthLimit,
-      toolFilter: provider.capabilities.toolFilter,
-      persona: provider.capabilities.persona,
+      outputSchema: inputCapabilities.outputSchema,
+      depthLimit: inputCapabilities.depthLimit,
+      toolFilter: inputCapabilities.toolFilter,
+      persona: inputCapabilities.persona,
     })
     const snapshot: SubagentProvider = Object.freeze({
       name: provider.name,
@@ -244,10 +246,16 @@ export class SubagentService extends Service {
 
   /**
    * Start a subagent run on the named provider. Resolves the provider (throws
-   * `NO_PROVIDER` if absent), validates every requested START-TIME capability
+   * `NO_PROVIDER` if absent), reads the caller request once into a coherent
+   * acceptance snapshot, validates every requested START-TIME capability
    * against {@link SubagentProvider.capabilities} (throws `UNSUPPORTED_CAPABILITY`
    * for the first unmet one — fail loud, before any child is created), then
-   * delegates to {@link SubagentProvider.start}, then emits `subagent/start` /
+   * validates the request's scalar values, materializes model-bound data in one
+   * lossless-JSON traversal, and delegates the detached request to
+   * {@link SubagentProvider.start}. The returned handle is a service-owned,
+   * frozen wrapper: provider fields are captured once, methods stay bound to the
+   * provider handle, and `result` resolves to one detached, deeply frozen value
+   * shared by the caller and lifecycle telemetry. Emits `subagent/start` /
    * `subagent/end` only after the run's readiness boundary fulfills. A provider
    * that fails before establishing a child emits neither event.
    * @param name - the provider to run on.
@@ -255,32 +263,94 @@ export class SubagentService extends Service {
    * @returns the live run (its `result` resolves when the child settles).
    */
   start(name: string, request: SubagentStartRequest): SubagentRun {
-    // Parent is the lifecycle scope identity accepted at start. Never reread it
-    // from the caller-owned request after the provider/result async boundary,
-    // or start/end could be dispatched into different agent scopes.
-    const parent = request.parent
     const provider = this.providers.get(name)
     if (!provider) {
       throw new SubagentError(`no subagent provider registered for "${name}"`, 'NO_PROVIDER')
     }
-    this.assertCapabilities(provider, request)
-    if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
+    // Read every top-level field exactly once before capability checks or
+    // detachment. A stateful accessor must not look absent to validation and then
+    // appear in the provider request (or vice versa).
+    const input = this.snapshotStartRequest(request)
+    const parent = input.parent
+    this.assertCapabilities(provider, input)
+    if (input.maxDepth !== undefined && (
+      !Number.isSafeInteger(input.maxDepth)
+      || input.maxDepth < 0
+      || Object.is(input.maxDepth, -0)
+    )) {
+      throw new TypeError('subagent maxDepth must be a non-negative safe integer')
+    }
+    if (input.persona !== undefined && typeof input.persona !== 'string') {
+      throw new TypeError('subagent persona must be a string')
+    }
+    // Model/session-bound values are validated and detached in a single
+    // recursive pass. A check followed by structuredClone would reread getters
+    // and could erase an exotic prototype returned only to the clone.
+    const prompt = snapshotJsonValue(input.prompt)
+    if (prompt === undefined) {
+      throw new TypeError('subagent prompt must be losslessly JSON-serializable')
+    }
+    const outputSchema = input.outputSchema === undefined
+      ? undefined
+      : snapshotJsonValue(input.outputSchema)
+    if (input.outputSchema !== undefined && outputSchema === undefined) {
+      throw new OutputSchemaError(['schema annotation must be JSON data; the complete schema must be losslessly JSON-serializable'])
+    }
+    if (outputSchema !== undefined) assertSupportedOutputSchema(outputSchema)
+    const agentOptions = input.agentOptions === undefined
+      ? undefined
+      : snapshotJsonValue(input.agentOptions)
+    if (input.agentOptions !== undefined && agentOptions === undefined) {
+      throw new TypeError('subagent agent options must be losslessly JSON-serializable')
+    }
+    const toolFilter = input.toolFilter === undefined
+      ? undefined
+      : snapshotJsonValue(input.toolFilter)
+    if (input.toolFilter !== undefined && toolFilter === undefined) {
+      throw new TypeError('subagent tool filter must be losslessly JSON-serializable')
+    }
 
     // Detach every data field before crossing into a provider. Parent/signal
     // are live identity capabilities and stay exact; the mutable request record
     // and its arrays/objects are never retained, so every backend (including an
     // async out-of-process one) observes the request accepted at start.
     const accepted: SubagentStartRequest = {
-      prompt: structuredClone(request.prompt),
+      prompt,
       parent,
-      ...request.signal !== undefined ? { signal: request.signal } : {},
-      ...request.agentOptions !== undefined ? { agentOptions: structuredClone(request.agentOptions) } : {},
-      ...request.outputSchema !== undefined ? { outputSchema: structuredClone(request.outputSchema) } : {},
-      ...request.maxDepth !== undefined ? { maxDepth: request.maxDepth } : {},
-      ...request.toolFilter !== undefined ? { toolFilter: structuredClone(request.toolFilter) } : {},
-      ...request.persona !== undefined ? { persona: request.persona } : {},
+      ...input.signal !== undefined ? { signal: input.signal } : {},
+      ...agentOptions !== undefined ? { agentOptions } : {},
+      ...outputSchema !== undefined ? { outputSchema } : {},
+      ...input.maxDepth !== undefined ? { maxDepth: input.maxDepth } : {},
+      ...toolFilter !== undefined ? { toolFilter } : {},
+      ...input.persona !== undefined ? { persona: input.persona } : {},
     }
-    const run = provider.start(accepted)
+    const providerRun = provider.start(accepted)
+    // Provider-owned run objects can be accessor-backed too. Capture every
+    // public field exactly once, bind methods to the provider's original handle,
+    // and expose only this service-owned wrapper. The normalized result promise
+    // is also the one lifecycle telemetry observes, so the caller and observers
+    // cannot receive different values from stateful accessors.
+    const id = providerRun.id
+    const started = providerRun.started
+    const providerResult = providerRun.result
+    const cancel = providerRun.cancel.bind(providerRun)
+    const sendMessage = providerRun.sendMessage?.bind(providerRun)
+    const dispose = providerRun.dispose.bind(providerRun)
+    const resume = providerRun.resume?.bind(providerRun)
+    const result = providerResult.then(value => this.snapshotRunResult(value))
+    const run: SubagentRun = Object.freeze({
+      id,
+      started,
+      result,
+      cancel,
+      dispose,
+      ...sendMessage === undefined
+        ? {}
+        : { sendMessage },
+      ...resume === undefined
+        ? {}
+        : { resume },
+    })
 
     // Observe result settlement IMMEDIATELY, before waiting on readiness. A
     // provider may fail both promises in the same turn; deferring the rejection
@@ -296,26 +366,16 @@ export class SubagentService extends Service {
       // remains observable by the run's consumer, but telemetry must not claim
       // that a child started.
     }
-    void run.result.then(
-      (result) => {
-        // Snapshot before the caller's own `await run.result` continuation. Even
-        // when readiness is still pending, buffering the clone rather than the
-        // caller-owned result keeps the eventual observe-only event immutable
-        // with respect to consumer mutation.
-        let lastAssistantMessage: SubagentResult['output'] | undefined
-        try {
-          lastAssistantMessage = structuredClone(result.output)
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
-        }
+    void result.then(
+      (value) => {
         deliverEnd({
           provider: name,
-          id: run.id,
-          stopReason: result.stopReason,
-          ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {},
+          id,
+          stopReason: value.stopReason,
+          lastAssistantMessage: value.output,
         })
       },
-      () => { deliverEnd({ provider: name, id: run.id, stopReason: 'error' }) },
+      () => { deliverEnd({ provider: name, id, stopReason: 'error' }) },
     )
 
     // Readiness is the publication boundary owned by the provider. For
@@ -324,10 +384,10 @@ export class SubagentService extends Service {
     // per-listener containment, then flush an outcome that settled unusually
     // early. A readiness rejection is handled here and deliberately emits no
     // false start/end pair; the result path above remains independently handled.
-    void run.started.then(
+    void started.then(
       () => {
         readiness = 'started'
-        this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
+        this.emitLifecycle('subagent/start', { provider: name, id }, parent)
         if (pendingEnd !== undefined) {
           const info = pendingEnd
           pendingEnd = undefined
@@ -340,6 +400,54 @@ export class SubagentService extends Service {
       },
     )
     return run
+  }
+
+  /** Normalize one provider result into the immutable seam value. */
+  private snapshotRunResult(value: SubagentResult): SubagentResult {
+    // Capture every provider-owned field once before validation. In particular,
+    // lifecycle telemetry must not reread accessors after the caller receives
+    // the result and observe a different terminal outcome.
+    const output = value.output
+    const structured = value.structured
+    const stopReason = value.stopReason
+    if (!Array.isArray(output)) {
+      throw new TypeError('subagent result output must be an array')
+    }
+    if (typeof stopReason !== 'string') {
+      throw new TypeError('subagent result stopReason must be a string')
+    }
+    const accepted: SubagentResult = {
+      output,
+      ...structured === undefined ? {} : { structured },
+      stopReason,
+    }
+    const snapshot = snapshotJsonValue(accepted)
+    if (snapshot === undefined) {
+      throw new TypeError('subagent result must be losslessly JSON-serializable')
+    }
+    return deepFreeze(snapshot)
+  }
+
+  /** Read one coherent caller request into immutable data properties. */
+  private snapshotStartRequest(request: SubagentStartRequest): Readonly<SubagentStartRequest> {
+    const prompt = request.prompt
+    const parent = request.parent
+    const signal = request.signal
+    const agentOptions = request.agentOptions
+    const outputSchema = request.outputSchema
+    const maxDepth = request.maxDepth
+    const toolFilter = request.toolFilter
+    const persona = request.persona
+    return Object.freeze({
+      prompt,
+      parent,
+      ...signal !== undefined ? { signal } : {},
+      ...agentOptions !== undefined ? { agentOptions } : {},
+      ...outputSchema !== undefined ? { outputSchema } : {},
+      ...maxDepth !== undefined ? { maxDepth } : {},
+      ...toolFilter !== undefined ? { toolFilter } : {},
+      ...persona !== undefined ? { persona } : {},
+    })
   }
 
   /**
@@ -374,14 +482,15 @@ export class SubagentService extends Service {
     // parent-scoped listener observes only its own delegations); the
     // provider-removed registry notification stays unfiltered. The carrier is
     // args[0] of the dispatch call, exactly as cordis' own emit spells it.
+    const acceptedInfo = typeof info === 'string' ? info : deepFreeze(info)
     const dispatchArgs: unknown[] = parent === undefined
-      ? [name, info]
-      : [scopeTarget(this, parent), name, info]
+      ? [name, acceptedInfo]
+      : [scopeTarget(this, parent), name, acceptedInfo]
     for (const callback of this.ctx.events.dispatch('emit', dispatchArgs)) {
       try {
-        callback(info)
+        callback(acceptedInfo)
       } catch (error: unknown) {
-        this.ctx.logger.warn(`subagent: ${name} listener threw: ${String(error)}`)
+        this.ctx.logger.warn(`subagent: ${name} listener threw: ${renderThrown(error)}`)
       }
     }
   }
@@ -406,6 +515,15 @@ export class SubagentService extends Service {
         )
       }
     }
+  }
+}
+
+/** Render an arbitrary thrown value without allowing coercion to throw again. */
+function renderThrown(value: unknown): string {
+  try {
+    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
+  } catch {
+    return '<unrenderable thrown value>'
   }
 }
 

@@ -178,20 +178,21 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   async createAgent(options: CreateAgentOptions): Promise<AgentHandle> {
     // Snapshot every caller-owned field before the first async setup boundary.
-    // The callback itself is an identity capability; all data fields are
-    // detached so caller mutation cannot drift a reserved/published identity or
-    // the options the accepted agent observes.
+    // The callback itself is an identity capability. Agent options detach here;
+    // seed and metadata stay raw only until sessions.prepare() synchronously
+    // reads, validates, and detaches them, so structuredClone cannot erase an
+    // exotic prototype before the session boundary sees it.
     const agentId = options.agentId
     const sessionId = options.sessionId
     const setup = options.setup
     const agentOptions = structuredClone(options.agentOptions ?? {})
-    const seed = options.seed === undefined ? undefined : structuredClone(options.seed)
-    const meta = structuredClone(options.meta ?? {})
+    const seed = options.seed
+    const meta = options.meta
     const release = this.reserve(agentId, sessionId)
     try {
       const session = this.ctx.sessions.prepare(sessionId, {
         ...seed !== undefined ? { seed } : {},
-        meta,
+        ...meta !== undefined ? { meta } : {},
       })
       // A seeded (forked) create is still a fresh start, NOT a resume.
       return await this.startOwned(agentId, agentOptions, session, 'startup', setup)
@@ -281,16 +282,23 @@ export class AgentLoop extends Service implements AgentFactory {
             throw new Error(`agent "${agentId}" resume aborted: owner disposed during persistence load`)
           }),
         ])
+        // The backend is an async boundary too. Read each loaded header field
+        // once so a stateful implementation cannot pass a valid presence check
+        // and then substitute a different value during reconstruction.
+        const createdAt = meta.createdAt
+        const cwd = meta.cwd
+        const parentSession = meta.parentSession
+        const seedLength = meta.seedLength
         // An out-of-band direct registry/session insertion can still race this
         // service's reservation, so the public enter primitives re-check exact
         // liveness at publication.
         const session = this.ctx.sessions.prepare(sessionId, {
           seed: events,
           meta: {
-            createdAt: meta.createdAt,
-            ...meta.cwd !== undefined ? { cwd: meta.cwd } : {},
-            ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
-            ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
+            createdAt,
+            ...cwd !== undefined ? { cwd } : {},
+            ...parentSession !== undefined ? { parentSession } : {},
+            ...seedLength !== undefined ? { seedLength } : {},
           },
         })
         // Calling startOwned synchronously installs the complete lifecycle

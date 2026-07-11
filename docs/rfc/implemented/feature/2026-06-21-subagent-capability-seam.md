@@ -46,7 +46,7 @@ A provider exposes `start(request) → SubagentRun`. The run carries `started` (
 
 ### Fork vs. fresh are separate backends, not a flag
 
-Rather than a `context: 'fresh' | 'fork'` request field, the distinction is the provider's identity: `dsh-subagent-spawn` (fresh, isolated, own system prompt) and `dsh-subagent-fork` (seeded from the parent's log) are two registered providers. You pick behavior by picking a provider — consistent with the registry being the selection mechanism. The fork backend seeds only a **balanced, completed-turn prefix** of the parent log: at tool-execute time the parent's turn is open (it holds the `assistant/message` and the dangling spawn `tool/call` with no `tool/result`), and seeding that raw prefix would give the child an unbalanced turn the [invariants](../../../../packages/support/invariants/src/index.ts) freeze-check rejects.
+Rather than a `context: 'fresh' | 'fork'` request field, the distinction is the provider's identity: `dsh-subagent-spawn` (fresh, isolated, own system prompt) and `dsh-subagent-fork` (seeded from the parent's log) are two registered providers. You pick behavior by picking a provider — consistent with the registry being the selection mechanism. The fork backend seeds only a **balanced, completed-turn prefix** of the parent log: at tool-execute time the parent's turn is open (it holds the `assistant/message` and the dangling spawn `tool/call` with no `tool/result`), and seeding that raw prefix would give the child an unbalanced turn that the [invariants](../../../../packages/support/invariants/src/index.ts) trace replay rejects.
 
 ### Child isolation and the parent log
 

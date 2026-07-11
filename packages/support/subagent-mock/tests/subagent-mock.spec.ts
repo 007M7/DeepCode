@@ -57,7 +57,8 @@ describe('dsh-subagent-mock', () => {
     // the structured path is only reachable when the cap is on; with it off and
     // no schema requested, the result has no structured field.
     const run = ctx.subagents.start('mock', baseRequest())
-    await expect(run.result).resolves.toMatchObject({ structured: undefined })
+    const result = await run.result
+    expect(result).not.toHaveProperty('structured')
   })
 
   it('honors a configured stop reason', async () => {

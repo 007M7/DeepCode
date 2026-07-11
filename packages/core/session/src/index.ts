@@ -14,12 +14,12 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
-import { isJsonValue } from './json.ts'
+import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
-export { isJsonValue } from './json.ts'
+export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
@@ -99,6 +99,160 @@ function renderTagged(tag: string, content: ContentBlock[], source: MessageSourc
   ]
 }
 
+/** Reject a record shell that cloning or spreading would otherwise sanitize. */
+function assertPlainRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    throw new Error(`${label} is not a plain JSON record`)
+  }
+  const prototype = Object.getPrototypeOf(value) as unknown
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${label} is not a plain JSON record`)
+  }
+}
+
+/** Capture and validate the caller-owned fields that become a session header. */
+function snapshotSessionMeta(source: CreateSessionOptions['meta']): NonNullable<CreateSessionOptions['meta']> {
+  if (source === undefined) return {}
+  assertPlainRecord(source, 'session metadata')
+
+  // Read each accepted field exactly once. The metadata vocabulary is scalar,
+  // so this plain record is already detached from the caller; cloning the
+  // caller's shell first would erase a class prototype before validation.
+  const cwd = source.cwd
+  const parentSession = source.parentSession
+  const createdAt = source.createdAt
+  const seedLength = source.seedLength
+  const accepted = {
+    ...cwd !== undefined ? { cwd } : {},
+    ...parentSession !== undefined ? { parentSession } : {},
+    ...createdAt !== undefined ? { createdAt } : {},
+    ...seedLength !== undefined ? { seedLength } : {},
+  }
+  const snapshot = snapshotJsonValue(accepted)
+  if (snapshot === undefined) throw new Error('session metadata is not losslessly JSON-serializable')
+  if (snapshot.cwd !== undefined) {
+    if (typeof snapshot.cwd !== 'string') throw new Error('session cwd must be a string')
+    if (!isAbsolute(snapshot.cwd)) {
+      throw new Error(`session cwd must be an absolute path, got "${snapshot.cwd}"`)
+    }
+  }
+  if (snapshot.parentSession !== undefined && typeof snapshot.parentSession !== 'string') {
+    throw new Error('session parentSession must be a string')
+  }
+  if (snapshot.createdAt !== undefined
+    && (typeof snapshot.createdAt !== 'number' || !Number.isFinite(snapshot.createdAt))) {
+    throw new Error('session createdAt must be a finite number')
+  }
+  if (snapshot.seedLength !== undefined
+    && (typeof snapshot.seedLength !== 'number' || !Number.isSafeInteger(snapshot.seedLength) || snapshot.seedLength < 0)) {
+    throw new Error('session seedLength must be a non-negative safe integer')
+  }
+  return snapshot
+}
+
+/** Detach, validate, and freeze the creation metadata published by a session. */
+function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHeader {
+  const input: SessionHeader = source === undefined
+    ? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
+    : source
+  assertPlainRecord(input, 'session header')
+
+  // Capture each property once before validation. A stateful accessor therefore
+  // cannot present one identity or storage location to a check and publish a
+  // different one afterward.
+  const version = input.version
+  const headerId = input.id
+  const createdAt = input.createdAt
+  const cwd = input.cwd
+  const parentSession = input.parentSession
+  const seedLength = input.seedLength
+  const accepted = {
+    version,
+    id: headerId,
+    createdAt,
+    ...cwd !== undefined ? { cwd } : {},
+    ...parentSession !== undefined ? { parentSession } : {},
+    ...seedLength !== undefined ? { seedLength } : {},
+  }
+  const snapshot = snapshotJsonValue(accepted)
+  if (snapshot === undefined) throw new Error('session header is not losslessly JSON-serializable')
+  if (snapshot.version !== SESSION_FORMAT_VERSION) {
+    throw new Error(`session header version must be ${SESSION_FORMAT_VERSION}, got ${String(snapshot.version)}`)
+  }
+  if (snapshot.id !== id) {
+    throw new Error(`session header id "${String(snapshot.id)}" does not match session id "${id}"`)
+  }
+  if (typeof snapshot.createdAt !== 'number' || !Number.isFinite(snapshot.createdAt)) {
+    throw new Error('session header createdAt must be a finite number')
+  }
+  if (snapshot.cwd !== undefined) {
+    if (typeof snapshot.cwd !== 'string') throw new Error('session header cwd must be a string')
+    if (!isAbsolute(snapshot.cwd)) {
+      throw new Error(`session header cwd must be an absolute path, got "${snapshot.cwd}"`)
+    }
+  }
+  if (snapshot.parentSession !== undefined && typeof snapshot.parentSession !== 'string') {
+    throw new Error('session header parentSession must be a string')
+  }
+  if (snapshot.seedLength !== undefined
+    && (typeof snapshot.seedLength !== 'number' || !Number.isSafeInteger(snapshot.seedLength) || snapshot.seedLength < 0)) {
+    throw new Error('session header seedLength must be a non-negative safe integer')
+  }
+  return deepFreeze(snapshot)
+}
+
+/** Validate the runtime shape of surface metadata after its JSON snapshot. */
+function assertSurfaceMetadataShape(
+  type: string,
+  surfaceOp: unknown,
+  sourceEventSeqs: unknown,
+): void {
+  const eligible = isSurfaceEligibleType(type)
+  if (!eligible) {
+    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
+      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
+    }
+    return
+  }
+  if (surfaceOp === undefined) {
+    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
+  }
+  if (surfaceOp !== 'append') {
+    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
+      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
+    }
+    const op = surfaceOp as Record<string, unknown>
+    const keys = Object.keys(op)
+    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
+      || op['op'] !== 'replace'
+      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
+      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
+      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
+    }
+  }
+  if (sourceEventSeqs !== undefined) {
+    if (!Array.isArray(sourceEventSeqs)
+      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
+      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
+    }
+  }
+}
+
+/** Validate the fixed event envelope after one-pass JSON materialization. */
+function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
+  const event = value
+  const allowed = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  if (Object.keys(event).some(key => !allowed.has(key))
+    || !Object.hasOwn(event, 'type') || typeof event['type'] !== 'string'
+    || !Object.hasOwn(event, 'seq') || typeof event['seq'] !== 'number'
+    || !Number.isSafeInteger(event['seq']) || event['seq'] < 0
+    || !Object.hasOwn(event, 'time') || typeof event['time'] !== 'number'
+    || !Number.isSafeInteger(event['time']) || event['time'] < 0
+    || !Object.hasOwn(event, 'data')) {
+    throw new Error(`seed event at index ${index} has an invalid event envelope`)
+  }
+}
+
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
@@ -126,10 +280,10 @@ export class Session {
   }
 
   /**
-   * Immutable creation metadata (format version, cwd, lineage, seed boundary).
-   * Supplied by the store via `ctx.sessions.create()`. When a `Session` is
-   * constructed bare (tests, ad-hoc replay), a minimal header is synthesized
-   * (stamped with the current {@link SESSION_FORMAT_VERSION}) so
+   * Detached, deep-frozen creation metadata (format version, cwd, lineage,
+   * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
+   * `Session` is constructed bare (tests, ad-hoc replay), a minimal header is
+   * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a
    * storage concern, not replayable conversation state.
    */
@@ -144,12 +298,27 @@ export class Session {
       // `seq = log.length` contract the whole system relies on). Without this,
       // a bad seed would surface only later as a backend rejection or a silent
       // divergence between the live log and disk.
-      seed.forEach((event, index) => {
-        if (event.seq !== index) {
-          throw new Error(`seed event at index ${index} has seq ${event.seq} (expected ${index}); seed must be contiguous from 0`)
+      this.log = Array.from(seed, (source, index) => {
+        // Spreading would erase a class instance's prototype. Reject an exotic
+        // event shell before that normalization can turn it into an apparently
+        // valid plain record; field values are still captured by the one spread
+        // below, so their accessors are not read twice.
+        assertPlainRecord(source, `seed event at index ${index}`)
+        // Read every enumerable event field once. Validation and snapshot
+        // construction must consume this same captured record: a stateful seed
+        // index or event getter cannot present one record to the checks and
+        // another to the durable log.
+        const event = { ...source }
+        // Materialize the complete accepted record in one recursive pass. A
+        // validate-then-structuredClone sequence would reread nested getters and
+        // could sanitize a class instance returned only to the clone.
+        const snapshot = snapshotJsonValue(event)
+        if (snapshot === undefined) {
+          throw new Error(`seed event at index ${index} is not losslessly JSON-serializable`)
         }
-        if (!isJsonValue(event.data)) {
-          throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
+        assertSessionEventEnvelope(snapshot, index)
+        if (snapshot.seq !== index) {
+          throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
         // Surface-eligible events MUST carry a surfaceOp marker — the surface is
         // the sole source of derived history, so a marker-less message event
@@ -157,30 +326,30 @@ export class Session {
         // this at compile time via its typed overload; a seed arrives as raw
         // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
         // runtime here rather than silently resuming with empty history.
-        if (isSurfaceEligibleType(event.type)
-          && (event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) {
-          throw new Error(`seed event "${event.type}" (seq ${event.seq}) is surface-eligible but carries no surfaceOp marker`)
+        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        try {
+          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+        } catch (error: unknown) {
+          throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
+        return deepFreeze(snapshot)
       })
-      // Deep-clone each seed event, NOT just the array: the seed events and
-      // their `data` are still owned by the caller (or the source session of a
-      // fork), so keeping the references would let a post-create mutation of the
-      // original rewrite this session's durable log — or reintroduce a
-      // non-JSON-serializable value AFTER the validation above. Snapshotting at
-      // the boundary makes `session.events` independent and keeps it equal to
-      // what was validated. Serializability is guaranteed by the check above, so
-      // structuredClone can never hit a non-cloneable value here.
-      this.log = seed.map(event => structuredClone(event))
     }
-    this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
+    this.header = snapshotSessionHeader(id, header)
   }
 
+  /** Cached immutable public snapshot of the private append-only log. */
+  private eventsSnapshot: readonly SessionEvent[] | undefined
+
   /**
-   * The append-only event log, exposed live by reference (readonly-typed, not
-   * a snapshot): later appends are visible through the same array.
+   * An immutable snapshot of the append-only event log. The snapshot is reused
+   * until the next append; a previously returned array does not grow later.
+   * Events and their nested data are deep-frozen at acceptance, so neither a
+   * cast nor ordinary JavaScript can rewrite durable history.
    */
   get events(): readonly SessionEvent[] {
-    return this.log
+    this.eventsSnapshot ??= Object.freeze([...this.log])
+    return this.eventsSnapshot
   }
 
   /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
@@ -205,23 +374,27 @@ export class Session {
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
-   * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
-   *   symbol, undefined, non-finite number, circular ref, or an exotic object
-   *   like Map/Set/Date). The event log is the durable source of truth, so this
-   *   invariant is enforced at the source — a bad event never enters the log,
-   *   keeping `session.events` always equal to what a backend can persist. The
-   *   throw surfaces at the buggy caller's append site, not asynchronously in a
-   *   backend flush.
+   * @throws if `type` is not a string, or if `data` or surface metadata is not
+   *   losslessly JSON-serializable
+   *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
+   *   circular reference, sparse array, or an exotic object such as
+   *   Map/Set/Date/class instance). One recursive pass reads, validates, and
+   *   copies each nested value once, so a stateful getter cannot supply one value
+   *   to validation and another to storage. The event log is the durable source
+   *   of truth, so a bad event fails at the append site rather than later during
+   *   a backend flush.
    */
   append<T extends SessionEventType>(
     type: T,
     data: SessionEventMap[T],
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
   ): SessionEvent<T> {
-    if (!isJsonValue(data)) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable data`)
+    if (typeof type !== 'string') {
+      throw new TypeError('session event type must be a string')
     }
     const surfaceOpts: SurfaceIntent | undefined = opts[0]
+    const sourceEventSeqs = surfaceOpts?.sourceEventSeqs
+    const surfaceOp = surfaceOpts?.surfaceOp
     // Surface-eligible events MUST carry a surfaceOp marker — the surface is the
     // sole source of derived history, so a marker-less message event would be
     // logged yet vanish from deriveMessages(). The typed `opts` overload makes
@@ -230,41 +403,49 @@ export class Session {
     // events: `for (const e of log) append(e.type, e.data)`), the conditional
     // rest collapses to optional and the compiler stops enforcing it. Re-check
     // at runtime so that loophole can't silently drop history.
-    if (isSurfaceEligibleType(type) && surfaceOpts?.surfaceOp === undefined) {
-      throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
+    const surfaceMetadata = {
+      ...sourceEventSeqs !== undefined ? { sourceEventSeqs } : {},
+      ...surfaceOp !== undefined ? { surfaceOp } : {},
     }
-    // Snapshot `data` into the log, NOT the caller's reference: the validation
-    // above proves it is JSON-serializable AT THIS MOMENT, but the caller still
-    // owns the object and could mutate it afterwards (before a persistence
-    // flush, or permanently in the in-memory history) — making `session.events`
-    // diverge from the value that passed validation, or reintroducing a
-    // non-serializable value. Cloning here keeps the log equal to what was
-    // validated. structuredClone is safe because serializability was just
-    // checked. The returned event carries the SAME snapshot, so a caller reading
-    // back `event.data` sees the logged value, not its own mutable input.
+    // The caller still owns the data and metadata objects and could mutate them
+    // after append. Materialize each accepted value exactly once while checking
+    // its JSON vocabulary, so the log cannot drift and a stateful getter cannot
+    // show one value to validation and another to a prototype-erasing clone. The
+    // returned event carries these SAME snapshots.
     //
-    // Surface metadata is snapshot separately: sourceEventSeqs (number[] —
-    // primitives, so array spread is a complete copy) and surfaceOp (a string
-    // primitive, or cloned if it's a replace object).
+    // Surface metadata accessors are read once into one plain record; the
+    // recursive snapshot then reads each nested value once as it copies it.
     // Build the event shape with conditional surface fields via spreading.
     // The result is cast through `unknown` because the conditional spreads
     // produce an intersection type that the assignability checker can't
     // narrow to a specific discriminated-union member when T is generic.
-    // This is a safe internal boundary: data was validated above, and
-    // surface metadata was snapshot from primitive/clone-safe values.
+    // This is a safe internal boundary: data and surface metadata are
+    // materialized below before the event enters the log.
+    const dataSnapshot = snapshotJsonValue(data)
+    if (dataSnapshot === undefined) {
+      throw new Error(`session event "${type}" carries non-JSON-serializable data`)
+    }
+    const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
+    if (surfaceMetadataSnapshot === undefined) {
+      throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
+    }
+    assertSurfaceMetadataShape(
+      type,
+      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
+      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
+    )
     const event = {
       type,
       seq: this.log.length,
       time: Date.now(),
-      data: structuredClone(data),
-      ...surfaceOpts?.sourceEventSeqs !== undefined ? { sourceEventSeqs: [...surfaceOpts.sourceEventSeqs] } : {},
-      ...surfaceOpts?.surfaceOp !== undefined ? {
-        surfaceOp: typeof surfaceOpts.surfaceOp === 'string' ? surfaceOpts.surfaceOp : structuredClone(surfaceOpts.surfaceOp),
-      } : {},
+      data: dataSnapshot,
+      ...surfaceMetadataSnapshot,
     } as unknown as SessionEvent<T>
-    this.log.push(event as unknown as SessionEvent)
-    this.onAppend?.(event as unknown as SessionEvent)
-    return event
+    const acceptedEvent = deepFreeze(event)
+    this.log.push(acceptedEvent as unknown as SessionEvent)
+    this.eventsSnapshot = undefined
+    this.onAppend?.(acceptedEvent as unknown as SessionEvent)
+    return acceptedEvent
   }
 
   /** Cached fold of the request-header events — see {@link requestHeader}. */
@@ -457,7 +638,8 @@ export class SessionStore extends Service {
    * @param id - the session id; omitted, the store mints `session-<n>`.
    * @param options - seed events and/or creation metadata for the header.
    * @returns the live session, already entered and announced.
-   * @throws if a session with `id` already exists, or if `meta.cwd` is a
+   * @throws if a session with `id` already exists, metadata is not a plain
+   *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
    *   non-absolute path (storage backends key directories off it).
    */
   create(id?: SessionId, options?: CreateSessionOptions): Session {
@@ -485,25 +667,27 @@ export class SessionStore extends Service {
    * @param id - the session id; omitted, the store mints `session-<n>`.
    * @param options - seed events and/or creation metadata for the header.
    * @returns the constructed session, NOT yet in the store.
-   * @throws if a session with `id` already exists, or if `meta.cwd` is a
+   * @throws if a session with `id` already exists, metadata is not a plain
+   *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
    *   non-absolute path.
    */
   prepare(id?: SessionId, options?: CreateSessionOptions): Session {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
-    const cwd = options?.meta?.cwd
-    if (cwd !== undefined && !isAbsolute(cwd)) {
-      throw new Error(`session cwd must be an absolute path, got "${cwd}"`)
-    }
+    const seed = options?.seed
+    const meta = snapshotSessionMeta(options?.meta)
+    const cwd = meta.cwd
+    const parentSession = meta.parentSession
+    const seedLength = meta.seedLength
     const header: SessionHeader = {
       version: SESSION_FORMAT_VERSION,
       id: sessionId,
-      createdAt: options?.meta?.createdAt ?? Date.now(),
+      createdAt: meta.createdAt ?? Date.now(),
       ...cwd !== undefined ? { cwd } : {},
-      ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
-      ...options?.meta?.seedLength !== undefined ? { seedLength: options.meta.seedLength } : {},
+      ...parentSession !== undefined ? { parentSession } : {},
+      ...seedLength !== undefined ? { seedLength } : {},
     }
-    return new Session(sessionId, options?.seed, header)
+    return new Session(sessionId, seed, header)
   }
 
   /**

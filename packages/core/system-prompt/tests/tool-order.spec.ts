@@ -48,6 +48,100 @@ describe('SystemPrompt tool order', () => {
     expect(names(await ctx.systemPrompt.assemble())).toEqual(['todo_write', 'echo_a', 'echo_b', 'bash'])
   })
 
+  it('reads provider schemas once so toolOrder validates the model-visible collection', async () => {
+    const ctx = await mount({ toolOrder: ['actual', TOOL_ORDER_REST] })
+    let reads = 0
+    ctx.systemPrompt.tools(() => ({
+      get schemas(): ToolSchema[] {
+        reads += 1
+        return reads === 1 ? [tool('actual')] : [tool('phantom')]
+      },
+    }))
+
+    const assembly = await ctx.systemPrompt.assemble()
+
+    expect(reads).toBe(1)
+    expect(names(assembly)).toEqual(['actual'])
+  })
+
+  it('reads each provider schema field once before detaching it', async () => {
+    const ctx = await mount()
+    const accepted = { type: 'object', properties: { accepted: { type: 'string' } } }
+    let reads = 0
+    const schema = {
+      name: 'stable',
+      description: 'stable',
+      get parameters(): object {
+        reads += 1
+        return reads === 1 ? accepted : { type: 'object', properties: { drifted: { type: 'number' } } }
+      },
+    } as ToolSchema
+    ctx.systemPrompt.tools(() => ({ schemas: [schema] }))
+
+    const assembly = await ctx.systemPrompt.assemble()
+
+    expect(reads).toBe(1)
+    expect(assembly.tools[0]?.parameters).toEqual(accepted)
+  })
+
+  it('rejects exotic provider parameters before model-visible assembly', async () => {
+    const ctx = await mount()
+    class ExoticParameters {
+      readonly type = 'object'
+      readonly properties = { value: { type: 'string' } }
+    }
+    ctx.systemPrompt.tools(() => ({
+      schemas: [{
+        name: 'exotic',
+        description: 'must not be sanitized',
+        parameters: new ExoticParameters() as unknown as ToolSchema['parameters'],
+      }],
+    }))
+
+    await expect(ctx.systemPrompt.assemble())
+      .rejects.toThrow(/parameters must be losslessly JSON-serializable/)
+  })
+
+  it('rejects malformed fixed provider fields without freezing caller objects', async () => {
+    const ctx = await mount()
+    const badName = { value: 'object-name' }
+    const badDescription = { value: 'object-description' }
+    ctx.systemPrompt.tools(() => ({
+      schemas: [{
+        name: badName as unknown as string,
+        description: 'bad name',
+        parameters: {},
+      }],
+    }))
+    await expect(ctx.systemPrompt.assemble()).rejects.toThrow('name must be a string')
+    expect(Object.isFrozen(badName)).toBe(false)
+
+    const descriptions = await mount()
+    descriptions.systemPrompt.tools(() => ({
+      schemas: [{
+        name: 'bad-description',
+        description: badDescription as unknown as string,
+        parameters: {},
+      }],
+    }))
+    await expect(descriptions.systemPrompt.assemble()).rejects.toThrow('description must be a string')
+    expect(Object.isFrozen(badDescription)).toBe(false)
+
+    const knownNames = await mount()
+    knownNames.systemPrompt.tools(() => ({
+      schemas: [tool('valid')],
+      knownNames: [{} as unknown as string],
+    }))
+    await expect(knownNames.systemPrompt.assemble()).rejects.toThrow('knownNames must be an array of strings')
+
+    const nonArrayKnownNames = await mount()
+    nonArrayKnownNames.systemPrompt.tools(() => ({
+      schemas: [tool('valid')],
+      knownNames: 'valid' as unknown as string[],
+    }))
+    await expect(nonArrayKnownNames.systemPrompt.assemble()).rejects.toThrow('knownNames must be an array of strings')
+  })
+
   it('rejects the assembly when toolOrder names a tool that is not registered (misconfiguration blocks work)', async () => {
     const ctx = await mount({ toolOrder: ['todo_write', 'ghost', TOOL_ORDER_REST, 'wraith'] })
     ctx.systemPrompt.tools(() => ({ schemas: [tool('bash'), tool('todo_write')] }))

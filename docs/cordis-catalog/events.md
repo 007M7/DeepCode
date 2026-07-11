@@ -285,7 +285,7 @@ A skill provider became resolvable in the `ctx.skills` registry. Consumers can o
 'skill/provider-added'(provider: SkillProvider): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:130`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:132`](../../packages/skill/skill/src/index.ts)
 
 ### `skill/provider-removed` — emit
 
@@ -295,7 +295,7 @@ A skill provider left the registry because its plugin fiber was disposed.
 'skill/provider-removed'(name: string): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:136`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:138`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 
@@ -307,7 +307,7 @@ A started subagent run settled — emitted when SubagentRun.result resolves (any
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:115`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -317,7 +317,7 @@ A provider became resolvable in the SubagentService registry. Consumers that der
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:75`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:76`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -327,7 +327,7 @@ A provider left the registry (its plugin's fiber was disposed — an unload or a
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:87`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -337,7 +337,7 @@ A subagent run started — emitted only after SubagentRun.started fulfills, when
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:101`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:102`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
@@ -349,7 +349,7 @@ Waterfall around prompt assembly — mutate or extend the PromptAssembly (sectio
 'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:45`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:46`](../../packages/core/system-prompt/src/index.ts)
 
 ### `system-prompt/change` — emit
 
@@ -359,7 +359,7 @@ A section, tool provider, variable provider, or protection was registered or unr
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:55`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:56`](../../packages/core/system-prompt/src/index.ts)
 
 ## `tools/*`
 

@@ -4,7 +4,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -139,6 +139,25 @@ describe('restrict()', () => {
     scope.ctx.tools.restrict(filter)
     filter.deny.push('b')
     expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['b'])
+  })
+
+  it('reads restriction accessors once so the checked filter is the enforced filter', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    ctx.tools.register(tool('global'))
+    let allowReads = 0
+    const filter = {
+      get allow(): string[] | undefined {
+        allowReads += 1
+        return allowReads === 1 ? [] : undefined
+      },
+    } as ToolRestriction
+
+    scope.ctx.tools.restrict(filter)
+
+    expect(allowReads).toBe(1)
+    expect(ctx.tools.schemas(key)).toEqual([])
+    expect(await run(ctx, 'global', key)).toBe('Error: unknown tool "global"')
   })
 
   it('fails loud on an unscoped call, an empty filter, and unknown names', async () => {
@@ -372,6 +391,116 @@ describe('scoped execution dispatch', () => {
     expect(Object.isFrozen(forged)).toBe(false)
   })
 
+  it('reads a stateful parent accessor once before policy, dispatch, and result observation', async () => {
+    const ctx = await mount()
+    const observed: (ToolExecutionToken | undefined)[] = []
+    ctx.tools.register({
+      ...tool('t'),
+      execute: (_args, exec) => {
+        observed.push(exec.parent)
+        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+      },
+    })
+    ctx.on('tools/pre-execute', (exec, next) => {
+      observed.push(exec.parent)
+      return next()
+    })
+    ctx.on('tools/execute', (exec, next) => {
+      observed.push(exec.parent)
+      return next()
+    })
+    ctx.on('tools/result', (exec) => { observed.push(exec.parent) })
+    const forged = { fake: true } as unknown as ToolExecutionToken
+    let parentReads = 0
+    const input = {
+      callId: CallId('stateful-parent'),
+      name: 't',
+      arguments: {},
+      get parent(): ToolExecutionToken | undefined {
+        parentReads += 1
+        return parentReads === 1 ? undefined : forged
+      },
+    } as ToolExecutionInput
+
+    const result = await ctx.tools.execute(input)
+
+    expect(result.isError).toBe(false)
+    expect(parentReads).toBe(1)
+    expect(observed).toEqual([undefined, undefined, undefined, undefined])
+  })
+
+  it('uses one input snapshot for the normalized error shell', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'accepted')
+    const driftAgent = { id: 'drift' as AgentId } as Agent
+    ctx.tools.register(tool('parent'))
+    ctx.tools.register(tool('t'))
+    let parent!: ToolExecutionToken
+    const stopCapture = ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'parent') parent = exec.token
+      return next()
+    })
+    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    stopCapture()
+    const acceptedSignal = new AbortController().signal
+    const driftSignal = new AbortController().signal
+    const forged = { fake: true } as unknown as ToolExecutionToken
+    const reads = { callId: 0, name: 0, arguments: 0, agent: 0, parent: 0, signal: 0 }
+    const input = {
+      get callId() { reads.callId += 1; return CallId('unstable-error') },
+      get name() { reads.name += 1; return 't' },
+      get arguments(): unknown { reads.arguments += 1; return { invalid: () => undefined } },
+      get agent() { reads.agent += 1; return reads.agent === 1 ? key : driftAgent },
+      get parent() { reads.parent += 1; return reads.parent <= 2 ? parent : forged },
+      get signal() { reads.signal += 1; return reads.signal === 1 ? acceptedSignal : driftSignal },
+    } as ToolExecutionInput
+    let observed: Readonly<ToolExecution> | undefined
+    let scopedObserved = 0
+    ctx.on('tools/result', (exec) => { observed = exec })
+    scope.ctx.on('tools/result', () => { scopedObserved += 1 })
+
+    const result = await ctx.tools.execute(input)
+
+    expect(result.isError).toBe(true)
+    expect(reads).toEqual({ callId: 1, name: 1, arguments: 1, agent: 1, parent: 1, signal: 1 })
+    expect(scopedObserved).toBe(1)
+    expect(observed).toMatchObject({
+      callId: CallId('unstable-error'),
+      name: 't',
+      agent: key,
+      parent,
+      signal: acceptedSignal,
+    })
+    expect(Object.isFrozen(observed)).toBe(true)
+  })
+
+  it('normalizes a throwing arguments accessor without rereading it or losing the final notification', async () => {
+    const ctx = await mount()
+    ctx.tools.register(tool('t'))
+    let argumentReads = 0
+    let observed = 0
+    ctx.on('tools/result', (exec, result) => {
+      observed += 1
+      expect(exec.arguments).toBeUndefined()
+      expect(result.isError).toBe(true)
+    })
+    const input = {
+      callId: CallId('throwing-arguments'),
+      name: 't',
+      get arguments(): unknown {
+        argumentReads += 1
+        throw new Error('getter exploded')
+      },
+    } as ToolExecutionInput
+
+    const result = await ctx.tools.execute(input)
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: getter exploded' }])
+    expect(argumentReads).toBe(1)
+    expect(observed).toBe(1)
+  })
+
   it.each([
     ['Map', new Map([['mutable', true]])],
     ['class instance', new (class Arguments { value = 1 })()],
@@ -408,7 +537,7 @@ describe('scoped execution dispatch', () => {
     expect({ policyCalls, bodyCalls, observed }).toEqual({ policyCalls: 0, bodyCalls: 0, observed: 1 })
   })
 
-  it('rejects arguments that change to non-JSON data while being snapshotted', async () => {
+  it('reads nested arguments once into the executed snapshot', async () => {
     const ctx = await mount()
     ctx.tools.register(tool('t'))
     let reads = 0
@@ -421,12 +550,11 @@ describe('scoped execution dispatch', () => {
       callId: CallId('unstable-arguments'), name: 't', arguments: argumentsValue,
     })
 
+    expect(reads).toBe(1)
     expect(result).toEqual({
       callId: CallId('unstable-arguments'),
-      content: [{
-        type: 'text', text: 'Error: tool execution arguments must be stable losslessly JSON-serializable data',
-      }],
-      isError: true,
+      content: [{ type: 'text', text: 'ran:t' }],
+      isError: false,
     })
   })
 

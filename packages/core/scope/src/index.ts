@@ -320,6 +320,8 @@ export interface ScopeHost {
  * can never be satisfied RESOLVES its fiber await without ever running the
  * callback — a silent no-op host. This helper fails LOUD instead: when the
  * callback did not run, it names the absent services and disposes the host.
+ * The service list is copied before plugin activation so caller mutation
+ * across the await cannot change dependency resolution or diagnostics.
  * @param ctx - the context to mount the host under.
  * @param services - the service names scopes minted through this host reach
  *   (the host plugin's `inject` list).
@@ -328,16 +330,20 @@ export interface ScopeHost {
  *   Cordis dead end.
  */
 export async function scopeHost(ctx: Context, services: string[]): Promise<ScopeHost> {
+  // The inject list crosses an await before missing-service diagnostics run.
+  // Detach it now so caller mutation cannot change either Cordis dependency
+  // resolution or the names reported by this helper.
+  const requiredServices = [...services]
   let hostCtx: Context | undefined
   // A named function statement (not Object.assign({name}) — Function.name is
   // read-only) so diagnostics read `scopeHost`.
   function scopeHostPlugin(inner: Context): void { hostCtx = inner }
-  const fiber = ctx.plugin(Object.assign(scopeHostPlugin, { inject: services }))
+  const fiber = ctx.plugin(Object.assign(scopeHostPlugin, { inject: requiredServices }))
   await fiber
   if (hostCtx === undefined) {
     // Dependency-pending: cordis resolves the await without running the
     // callback. Name the absentees and unwind the pending fiber.
-    const missing = services.filter(name => ctx.get(name) === undefined)
+    const missing = requiredServices.filter(name => ctx.get(name) === undefined)
     await fiber.dispose()
     /* v8 ignore next -- the '(unknown)' fallback is defensive: a pending
      * fiber with zero absent services cannot occur (an all-present inject

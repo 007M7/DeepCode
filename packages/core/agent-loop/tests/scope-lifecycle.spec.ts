@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
@@ -304,6 +304,36 @@ describe('agent scope lifecycle', () => {
     expect(ctx.agents.get(AgentId('bad'))).toBeUndefined()
     expect(ctx.sessions.get(SessionId('bad-s'))).toBeUndefined()
     const retry = await ctx.agents.create({ agentId: AgentId('bad'), sessionId: SessionId('bad-s'), agentOptions: { model: 'mock' } })
+    await retry.dispose()
+  })
+
+  it('rejects an exotic seed before publishing either reserved identity', async () => {
+    const ctx = await harness()
+    const published: string[] = []
+    ctx.on('session/created', () => { published.push('session') })
+    ctx.on('agent/created', () => { published.push('agent') })
+    class ExoticData { readonly value = 'not durable JSON' }
+    const seed = [{
+      seq: 0,
+      type: 'test/exotic-seed',
+      data: new ExoticData(),
+    }] as unknown as SessionEvent[]
+
+    await expect(ctx.agents.create({
+      agentId: AgentId('exotic-seed'),
+      sessionId: SessionId('exotic-seed-session'),
+      agentOptions: { model: 'mock' },
+      seed,
+    })).rejects.toThrow(/seed event at index 0 is not losslessly JSON-serializable/)
+
+    expect(published).toEqual([])
+    expect(ctx.agents.get(AgentId('exotic-seed'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('exotic-seed-session'))).toBeUndefined()
+    const retry = await ctx.agents.create({
+      agentId: AgentId('exotic-seed'),
+      sessionId: SessionId('exotic-seed-session'),
+      agentOptions: { model: 'mock' },
+    })
     await retry.dispose()
   })
 

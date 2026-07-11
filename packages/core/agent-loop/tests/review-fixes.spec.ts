@@ -605,7 +605,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
     return ctx
   }
@@ -1014,7 +1014,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Blocking listener on the parent context (survives fiber disposal).
@@ -1071,7 +1071,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
@@ -1127,7 +1127,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1179,7 +1179,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1228,7 +1228,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
