@@ -9,6 +9,7 @@ import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentId, AgentOptions } from './types.ts'
+import { agentEvents } from './dispatch.ts'
 
 export * from './types.ts'
 export { agentEvents, assembleContextFor } from './dispatch.ts'
@@ -141,9 +142,9 @@ export interface AgentFactory {
    * creation notifications in order, unlocks driving at
    * `agent/session-start`, and only then starts the loop. The sequence is
    * rollback-covered, but notifications delivered before a later listener
-   * failure remain observable; if agent announcement began, rollback emits
-   * `agent/disposed`, while the session entry is removed without a separate
-   * disposal event. The owner disposes the resolved handle to stop/drain,
+   * failure remain observable; every agent or session creation announcement
+   * that began is paired by `agent/disposed` or `session/disposed` during
+   * rollback. The owner disposes the resolved handle to stop/drain,
    * unregister, remove the session, and unwind the scope.
    * @param options - agent/session identity, configuration, and optional setup.
    * @returns the owned handle after setup, both announcements, and loop start complete.
@@ -164,6 +165,33 @@ export interface AgentFactory {
 /** Thrown when create/resume is called before an agent factory is registered. */
 const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
 
+/** Render an arbitrary thrown value without allowing coercion to throw again. */
+function renderThrown(value: unknown): string {
+  try {
+    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
+/**
+ * Unforgeable ownership handle for one unpublished agent id. The factory holds
+ * this object across asynchronous setup; while it is live, ordinary public
+ * registration of that id fails, so setup cannot publish the factory's agent
+ * (or a replacement with the same id) ahead of the transaction. Callers obtain
+ * handles only from {@link AgentRegistry.reserve}.
+ */
+export interface AgentRegistrationReservation {
+  /** The reserved registry id. */
+  readonly id: AgentId
+  /**
+   * Release the unpublished reservation; idempotent. The registry also
+   * releases it automatically when the fiber that called `reserve` disposes.
+   * @returns nothing.
+   */
+  release(): void
+}
+
 /**
  * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
  * orchestrator plugins can find them without depending on the concrete loop
@@ -173,6 +201,10 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
  */
 export class AgentRegistry extends Service {
   private store = new Map<AgentId, Agent>()
+  /** The one accepted registry key for each live agent; never reread caller state. */
+  private acceptedIds = new WeakMap<Agent, AgentId>()
+  /** Unpublished identities held across factory setup/load transactions. */
+  private reservations = new Map<AgentId, AgentRegistrationReservation>()
   /** Entries whose `agent/created` announcement phase began. */
   private announced = new WeakSet<Agent>()
   private factory: AgentFactory | undefined
@@ -186,6 +218,49 @@ export class AgentRegistry extends Service {
     // accessor body never needs to resolve a scope itself. Effect-scoped:
     // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+  }
+
+  /**
+   * Reserve an unpublished agent id. Registration through {@link register} or
+   * bare {@link enter} fails until the returned capability is released; the
+   * owning factory passes the exact capability back to `enter` at publication.
+   * This makes “setup cannot publish” structural rather than a cooperative
+   * convention, including attempts to register a different object under the
+   * reserved id. The reservation belongs to the calling fiber and is released
+   * automatically if that owner unloads before the transaction settles.
+   * @param id - the id the factory transaction will publish.
+   * @returns the opaque reservation capability.
+   * @throws if the id is malformed, live, or already reserved.
+   */
+  reserve(id: AgentId): AgentRegistrationReservation {
+    if (typeof id !== 'string') throw new TypeError('agent id must be a string')
+    if (this.store.has(id) || this.reservations.has(id)) {
+      throw new Error(`agent "${id}" is already registered or reserved`)
+    }
+    let active = true
+    const rawRelease = (): void => {
+      if (!active) return
+      active = false
+      this.reservations.delete(id)
+    }
+    let disposeEffect!: () => Promise<void> | void
+    const reservation: AgentRegistrationReservation = Object.freeze({
+      id,
+      release: () => {
+        rawRelease()
+        // Remove the now-inert ownership effect on manual transaction settle;
+        // its cleanup is the exact idempotent raw release above.
+        void disposeEffect()
+      },
+    })
+    this.reservations.set(id, reservation)
+    try {
+      disposeEffect = this.ctx.effect(() => rawRelease, `agents.reserve(${id})`)
+    } catch (error: unknown) {
+      rawRelease()
+      throw error
+    }
+    return reservation
   }
 
   /**
@@ -269,43 +344,87 @@ export class AgentRegistry extends Service {
    * returned detach closure into its pre-installed composite teardown before
    * calling {@link announce}. Ordinary callers use {@link register}.
    * @param agent - the prepared, unpublished agent.
+   * @param reservation - the exact unpublished-id capability, when a factory
+   *   reserved this id across setup.
    * @returns an idempotent closure that removes this exact entry and emits
    *   `agent/disposed` with listener failures contained.
    */
-  enter(agent: Agent): () => void {
-    if (this.store.has(agent.id)) {
-      throw new Error(`agent "${agent.id}" is already registered`)
+  enter(agent: Agent, reservation?: AgentRegistrationReservation): () => void {
+    const id = agent.id
+    if (typeof id !== 'string') throw new TypeError('agent id must be a string')
+    const held = this.reservations.get(id)
+    if (reservation === undefined) {
+      if (held !== undefined) throw new Error(`agent "${id}" is reserved for unpublished creation`)
+    } else if (reservation.id !== id || held !== reservation) {
+      throw new Error(`agent "${id}" registration reservation is not active for this id`)
     }
-    this.store.set(agent.id, agent)
+    if (this.acceptedIds.has(agent)) {
+      throw new Error(`agent "${id}" is already registered`)
+    }
+    if (this.store.has(id)) {
+      throw new Error(`agent "${id}" is already registered`)
+    }
+    try {
+      // Registration accepts ownership of the public identity contract. Pin an
+      // own data slot from the one captured value so a custom JavaScript Agent
+      // with a getter or writable field cannot later present a different id to
+      // event listeners while the registry still owns the accepted key.
+      Object.defineProperty(agent, 'id', {
+        value: id,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      })
+    } catch {
+      // Only the engine's property-definition failure is swallowed; the stable
+      // public error below is the registration contract exposed to callers.
+      throw new TypeError('agent id must be installable as a stable own property')
+    }
+    this.store.set(id, agent)
+    this.acceptedIds.set(agent, id)
     let entered = true
     return () => {
       if (!entered) return
       entered = false
-      this.store.delete(agent.id)
+      this.store.delete(id)
+      this.acceptedIds.delete(agent)
       // An insertion rolled back before announce was never externally created,
       // so emitting disposed would invent an impossible lifecycle edge. Marking
       // happens before the created emit: if a later created listener throws,
       // earlier listeners may already have observed it and must see disposal.
       if (!this.announced.delete(agent)) return
-      try {
-        this.ctx.emit(scopeTarget(agent, agent), 'agent/disposed', agent)
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`agent "${agent.id}": agent/disposed listener threw: ${String(error)}`)
-      }
+      agentEvents(this.ctx, agent).emit('agent/disposed')
     }
   }
 
   /**
    * Announce an agent previously inserted with {@link enter}.
    * @param agent - the live inserted agent to announce.
-   * @throws if `agent` is not the exact live registry entry for its id.
+   * @throws if `agent` is not the exact live registry entry for its id, or its
+   *   creation announcement already began (including a reentrant call from a
+   *   creation listener).
    */
   announce(agent: Agent): void {
-    if (this.store.get(agent.id) !== agent) {
-      throw new Error(`agent "${agent.id}" is not live in this registry`)
+    const id = this.acceptedIds.get(agent)
+    if (id === undefined || this.store.get(id) !== agent) {
+      throw new Error(`agent "${id ?? '<unknown>'}" is not live in this registry`)
     }
+    if (this.announced.has(agent)) {
+      throw new Error(`agent "${id}" was already announced`)
+    }
+    // Mark before dispatch so a listener cannot recursively create a second
+    // lifecycle edge; detach still pairs a partially delivered first edge.
     this.announced.add(agent)
-    this.ctx.emit(scopeTarget(agent, agent), 'agent/created', agent)
+    const args: unknown[] = [scopeTarget(agent, agent), 'agent/created', agent]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      // A synchronous creation failure vetoes publication and rolls back.
+      // Returned-promise rejection happens after this synchronous boundary, so
+      // observe and report it instead of leaking an unhandled rejection.
+      const returned: unknown = callback(...args)
+      void Promise.resolve(returned).catch((error: unknown) => {
+        this.ctx.logger.warn(`agent "${id}": agent/created listener rejected: ${renderThrown(error)}`)
+      })
+    }
   }
 
   /**

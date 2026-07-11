@@ -7,7 +7,7 @@ import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@de
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type DefineToolOptions, type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
-  type ToolDefinition, type ToolExecution, type ToolExecutionResult, type ToolGuard,
+  type ToolDefinition, type ToolExecution, type ToolExecutionInput, type ToolExecutionResult, type ToolGuard,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -81,6 +81,95 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+  })
+
+  it.each([
+    { field: 'callId', value: 1n },
+    { field: 'callId', value: 123 },
+    { field: 'name', value: 1n },
+    { field: 'name', value: 123 },
+  ] as const)('rejects a non-string $field before final observation', async ({ field, value }) => {
+    const ctx = await setup()
+    let observed = 0
+    ctx.on('tools/result', () => { observed += 1 })
+    const input: Record<string, unknown> = {
+      callId: CallId('valid-call'),
+      name: 'missing',
+      arguments: {},
+    }
+    input[field] = value
+
+    await expect(ctx.tools.execute(input as unknown as ToolExecutionInput))
+      .rejects.toThrow(`tool execution ${field} must be a string`)
+    expect(observed).toBe(0)
+  })
+
+  it('reads correlation accessors once and normalizes a later hostile accessor', async () => {
+    const ctx = await setup()
+    const reads = { callId: 0, name: 0, arguments: 0 }
+    let observed: { callId: unknown; name: unknown; isError: boolean } | undefined
+    ctx.on('tools/result', (exec, result) => {
+      observed = { callId: exec.callId, name: exec.name, isError: result.isError }
+    })
+    const input = Object.defineProperties({}, {
+      callId: {
+        enumerable: true,
+        get: () => {
+          reads.callId += 1
+          if (reads.callId > 1) throw new Error('callId reread')
+          return CallId('one-read-call')
+        },
+      },
+      name: {
+        enumerable: true,
+        get: () => {
+          reads.name += 1
+          if (reads.name > 1) throw new Error('name reread')
+          return 'missing'
+        },
+      },
+      arguments: {
+        enumerable: true,
+        get: () => {
+          reads.arguments += 1
+          throw new Error('arguments accessor broke')
+        },
+      },
+    }) as unknown as ToolExecutionInput
+
+    const result = await ctx.tools.execute(input)
+
+    expect(reads).toEqual({ callId: 1, name: 1, arguments: 1 })
+    expect(result).toMatchObject({ callId: CallId('one-read-call'), isError: true })
+    expect(result.content[0]).toMatchObject({ text: 'Error: arguments accessor broke' })
+    expect(observed).toEqual({ callId: CallId('one-read-call'), name: 'missing', isError: true })
+  })
+
+  it('reads callId once before a hostile name accessor rejects correlation', async () => {
+    const ctx = await setup()
+    const reads = { callId: 0, name: 0 }
+    let observed = 0
+    ctx.on('tools/result', () => { observed += 1 })
+    const input = Object.defineProperties({ arguments: {} }, {
+      callId: {
+        enumerable: true,
+        get: () => {
+          reads.callId += 1
+          return CallId('hostile-name')
+        },
+      },
+      name: {
+        enumerable: true,
+        get: () => {
+          reads.name += 1
+          throw new Error('name accessor broke')
+        },
+      },
+    }) as unknown as ToolExecutionInput
+
+    await expect(ctx.tools.execute(input)).rejects.toThrow('name accessor broke')
+    expect(reads).toEqual({ callId: 1, name: 1 })
+    expect(observed).toBe(0)
   })
 
   it('threads a tool-attached meta (object return form) onto the result', async () => {

@@ -13,16 +13,23 @@ import z from 'schemastery'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentId, AgentOptions, AgentRegistrationReservation, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionRegistrationReservation } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { prepareReactLoopAgent, ReactLoopAgent } from './agent.ts'
+import { bindReactLoopAgentContext, prepareReactLoopAgent, ReactLoopAgent } from './agent.ts'
 
 export { ReactLoopAgent } from './agent.ts'
+
+/** Both unpublished identity capabilities held by one factory transaction. */
+interface RegistrationReservations {
+  agent: AgentRegistrationReservation
+  session: SessionRegistrationReservation
+  release(): void
+}
 
 declare module 'cordis' {
   interface Context {
@@ -70,10 +77,6 @@ export interface Config {
  */
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
-
-  /** IDs held by unpublished async creation transactions. */
-  private pendingAgentIds = new Set<AgentId>()
-  private pendingSessionIds = new Set<SessionId>()
 
   // The schema validates plain strings (cordis.yml config values are untyped at
   // runtime); the {@link Config} TYPE declares the branded `id`/`resumeSessionId`
@@ -153,14 +156,19 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the running agent, owned by the calling fiber (no handle).
    */
   create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
-    this.assertAgentIdFree(id)
+    const sessionId = SessionId(`${id}-session-${randomUUID()}`)
+    const reservations = this.reserve(id, sessionId)
     // Config/programmatic path: prepare the session and let start() fold its
     // lifecycle into the agent's composite effect (so a fiber unload tears the
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
-    const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta })
-    const { agent } = this.start(id, options, session, 'startup')
-    return agent
+    try {
+      const session = reservations.session.prepare({ meta })
+      const { agent } = this.start(id, options, session, 'startup', reservations)
+      return agent
+    } finally {
+      reservations.release()
+    }
   }
 
   /**
@@ -188,16 +196,16 @@ export class AgentLoop extends Service implements AgentFactory {
     const agentOptions = structuredClone(options.agentOptions ?? {})
     const seed = options.seed
     const meta = options.meta
-    const release = this.reserve(agentId, sessionId)
+    const reservations = this.reserve(agentId, sessionId)
     try {
-      const session = this.ctx.sessions.prepare(sessionId, {
+      const session = reservations.session.prepare({
         ...seed !== undefined ? { seed } : {},
         ...meta !== undefined ? { meta } : {},
       })
       // A seeded (forked) create is still a fresh start, NOT a resume.
-      return await this.startOwned(agentId, agentOptions, session, 'startup', setup)
+      return await this.startOwned(agentId, agentOptions, session, 'startup', reservations, setup)
     } finally {
-      release()
+      reservations.release()
     }
   }
 
@@ -273,7 +281,7 @@ export class AgentLoop extends Service implements AgentFactory {
       return transactionSettled
     }, `agentLoop.resumeLoad(${agentId})`)
     try {
-      const release = this.reserve(agentId, sessionId)
+      const reservations = this.reserve(agentId, sessionId)
       try {
         const loadTask = persistence.load(sessionId)
         const { meta, events } = await Promise.race([
@@ -292,7 +300,7 @@ export class AgentLoop extends Service implements AgentFactory {
         // An out-of-band direct registry/session insertion can still race this
         // service's reservation, so the public enter primitives re-check exact
         // liveness at publication.
-        const session = this.ctx.sessions.prepare(sessionId, {
+        const session = reservations.session.prepare({
           seed: events,
           meta: {
             createdAt,
@@ -305,12 +313,12 @@ export class AgentLoop extends Service implements AgentFactory {
         // effect before it reaches its first setup await. Only then disarm the
         // load sentinel: ownership passes directly from one effect to the other
         // with no disposal gap.
-        const starting = this.startOwned(agentId, agentOptions, session, 'resume', setup)
+        const starting = this.startOwned(agentId, agentOptions, session, 'resume', reservations, setup)
         observingOwner = false
         await disposeLoadSentinel()
         return await starting
       } finally {
-        release()
+        reservations.release()
       }
     } finally {
       try {
@@ -327,29 +335,24 @@ export class AgentLoop extends Service implements AgentFactory {
     }
   }
 
-  /**
-   * Reject a duplicate agent id BEFORE the session is entered into the store, so
-   * a failed factory call never leaves an orphaned live session (and lazy
-   * persistence state) behind. `register()` enforces the same uniqueness, but
-   * only after the session has already entered the store.
-   */
-  private assertAgentIdFree(id: AgentId): void {
-    if (this.ctx.agents.get(id) !== undefined || this.pendingAgentIds.has(id)) {
-      throw new Error(`agent "${id}" is already registered`)
-    }
-  }
-
-  /** Reserve both public identities for one unpublished async transaction. */
-  private reserve(agentId: AgentId, sessionId: SessionId): () => void {
-    this.assertAgentIdFree(agentId)
-    if (this.ctx.sessions.get(sessionId) !== undefined || this.pendingSessionIds.has(sessionId)) {
-      throw new Error(`session "${sessionId}" already exists`)
-    }
-    this.pendingAgentIds.add(agentId)
-    this.pendingSessionIds.add(sessionId)
-    return () => {
-      this.pendingAgentIds.delete(agentId)
-      this.pendingSessionIds.delete(sessionId)
+  /** Reserve both public identities in their owning registries. */
+  private reserve(agentId: AgentId, sessionId: SessionId): RegistrationReservations {
+    const agent = this.ctx.agents.reserve(agentId)
+    try {
+      const session = this.ctx.sessions.reserve(sessionId)
+      return {
+        agent,
+        session,
+        release() {
+          // Both owner capabilities are independently idempotent, so the
+          // composite needs no second state machine of its own.
+          session.release()
+          agent.release()
+        },
+      }
+    } catch (error: unknown) {
+      agent.release()
+      throw error
     }
   }
 
@@ -361,7 +364,12 @@ export class AgentLoop extends Service implements AgentFactory {
    * `active`, unwinds the scope, and wins the race without any late Cordis
    * effect collection.
    */
-  private prepareLifecycle(id: AgentId, options: AgentOptions, session: Session): {
+  private prepareLifecycle(
+    id: AgentId,
+    options: AgentOptions,
+    session: Session,
+    reservations: RegistrationReservations,
+  ): {
     agent: ReactLoopAgent
     active: () => boolean
     deactivated: Promise<void>
@@ -378,7 +386,7 @@ export class AgentLoop extends Service implements AgentFactory {
     const driver = prepareReactLoopAgent(this.ctx, id, options, session)
     const { agent } = driver
     const scope: Scope = createScope(this.ctx, agent)
-    agent.ctx = scope.ctx.extend({ agent })
+    bindReactLoopAgentContext(agent, scope.ctx.extend({ agent }))
 
     let active = true
     let detachSession: (() => void) | undefined
@@ -422,19 +430,15 @@ export class AgentLoop extends Service implements AgentFactory {
     const publish = (source: SessionStartSource): void => {
       // Publication is one synchronous, rollback-covered sequence. Setup has
       // already completed, so its scoped listeners observe both announcements.
-      detachSession = agent.ctx.sessions.enter(session)
-      detachAgent = this.ctx.agents.enter(agent)
+      detachSession = agent.ctx.sessions.enter(session, reservations.session)
+      detachAgent = this.ctx.agents.enter(agent, reservations.agent)
       this.ctx.sessions.announce(session)
       this.ctx.agents.announce(agent)
       // Setup is over and both entries are live. Open the driving surface just
       // before session-start so its listeners retain their supported ability to
       // inject/queue, while setup itself can never drive an unpublished agent.
       driver.enableDrive()
-      try {
-        agentEvents(this.ctx, agent).emit('agent/session-start', source)
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
-      }
+      agentEvents(this.ctx, agent).emit('agent/session-start', source)
       stop = driver.startDriver()
     }
 
@@ -453,9 +457,13 @@ export class AgentLoop extends Service implements AgentFactory {
 
   /** Publish a no-setup config agent synchronously. */
   private start(
-    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+    id: AgentId,
+    options: AgentOptions,
+    session: Session,
+    source: SessionStartSource,
+    reservations: RegistrationReservations,
   ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
-    const lifecycle = this.prepareLifecycle(id, options, session)
+    const lifecycle = this.prepareLifecycle(id, options, session, reservations)
     try {
       lifecycle.publish(source)
       return { agent: lifecycle.agent, disposeAgent: lifecycle.disposeAgent }
@@ -485,9 +493,10 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   private async startOwned(
     id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+    reservations: RegistrationReservations,
     setup?: (agentCtx: Context) => Promise<void> | void,
   ): Promise<AgentHandle> {
-    const lifecycle = this.prepareLifecycle(id, options, session)
+    const lifecycle = this.prepareLifecycle(id, options, session, reservations)
     try {
       // The owner-disposal branch makes a never-settling setup unable to hold
       // the transaction or its ID reservations forever. Promise.race installs

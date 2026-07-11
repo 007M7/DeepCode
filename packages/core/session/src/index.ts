@@ -34,7 +34,10 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * A session was created in the store.
+     * A session was created in the store. A synchronous listener throw vetoes
+     * publication and rollback emits the matching `session/disposed` edge;
+     * returned-promise rejection is observed and logged but cannot retroactively
+     * veto this synchronous boundary.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
      * session's owner scope, captured when the session was ENTERED (an agent's
      * session is entered through `agent.ctx`, so its events dispatch in that
@@ -45,6 +48,18 @@ declare module 'cordis' {
      * @mode emit
      */
     'session/created'(this: Scoped<Session>, session: Session): void
+    /**
+     * A previously announced session left the store. Emitted exactly once on
+     * normal detach or publication rollback, and never for a prepared/entered
+     * session whose `session/created` announcement did not begin. Listener
+     * failures (including returned-promise rejections) are logged and contained
+     * per listener so teardown always reaches quiescence.
+     * Scope-filtered dispatch uses the same owner carrier captured at entry;
+     * agent-scoped listeners hear only their own session's teardown.
+     * @param session - the session that is no longer live in the store.
+     * @mode emit
+     */
+    'session/disposed'(this: Scoped<Session>, session: Session): void
     /**
      * An event was appended to a session log (sync, fire-and-forget). This is
      * the per-append feed a UI or invariant plugin tails.
@@ -253,6 +268,17 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   }
 }
 
+/** Render an arbitrary thrown value without allowing coercion to throw again. */
+function renderThrown(value: unknown): string {
+  try {
+    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
+const appendObservers = new WeakMap<Session, (event: SessionEvent) => void>()
+
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
@@ -261,8 +287,6 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
  */
 export class Session {
   private log: SessionEvent[] = []
-  /** Set by the store so appends are observable; undefined when detached. */
-  onAppend: ((event: SessionEvent) => void) | undefined
 
   /**
    * Derived surface — a cached linked list of message-producing events.
@@ -336,6 +360,14 @@ export class Session {
       })
     }
     this.header = snapshotSessionHeader(id, header)
+    // TypeScript readonly prevents ordinary typed assignment only. Pin both
+    // public identity bindings at runtime too: setup/plugins receive the live
+    // Session object, and replacing either slot would split registry keys,
+    // persistence routing, and the already-validated header.
+    Object.defineProperties(this, {
+      id: { value: id, enumerable: true, writable: false, configurable: false },
+      header: { value: this.header, enumerable: true, writable: false, configurable: false },
+    })
   }
 
   /** Cached immutable public snapshot of the private append-only log. */
@@ -359,8 +391,8 @@ export class Session {
 
   /**
    * Append one typed event to the log and synchronously notify observers via
-   * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
-   * asynchronously.
+   * the store-owned, module-private append observer. The hot path never blocks
+   * on I/O — persistence plugins buffer asynchronously.
    *
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
@@ -444,7 +476,7 @@ export class Session {
     const acceptedEvent = deepFreeze(event)
     this.log.push(acceptedEvent as unknown as SessionEvent)
     this.eventsSnapshot = undefined
-    this.onAppend?.(acceptedEvent as unknown as SessionEvent)
+    appendObservers.get(this)?.(acceptedEvent as unknown as SessionEvent)
     return acceptedEvent
   }
 
@@ -600,6 +632,29 @@ export class SessionForkError extends Error {
 }
 
 /**
+ * Unforgeable ownership handle for one unpublished session id. A factory keeps
+ * this capability across load/setup, preventing setup code from entering the
+ * prepared Session or publishing a replacement under the same id. Obtain it
+ * only from {@link SessionStore.reserve}.
+ */
+export interface SessionRegistrationReservation {
+  /** The reserved store id. */
+  readonly id: SessionId
+  /**
+   * Construct the one Session owned by this reservation.
+   * @param options - seed events and creation metadata.
+   * @returns the still-unpublished Session.
+   */
+  prepare(options?: CreateSessionOptions): Session
+  /**
+   * Release the unpublished reservation; idempotent. The store also releases
+   * it automatically when the fiber that called `reserve` disposes.
+   * @returns nothing.
+   */
+  release(): void
+}
+
+/**
  * In-memory session store (`ctx.sessions`).
  *
  * Persistence is intentionally not implemented here — persistence plugins
@@ -607,6 +662,14 @@ export class SessionForkError extends Error {
  */
 export class SessionStore extends Service {
   private store = new Map<SessionId, Session>()
+  /** The one accepted map key for each live session; never reread caller state. */
+  private acceptedIds = new WeakMap<Session, SessionId>()
+  /** Sessions whose creation announcement began and therefore require a pair. */
+  private announced = new WeakSet<Session>()
+  /** Unpublished identities held across factory load/setup transactions. */
+  private reservations = new Map<SessionId, SessionRegistrationReservation>()
+  /** The exact prepared object owned by each reservation capability. */
+  private reservedSessions = new WeakMap<SessionRegistrationReservation, Session>()
   /**
    * Each live session's dispatch carrier, captured at {@link enter} from the
    * ENTERING context's scope tag (an agent session is entered through
@@ -622,6 +685,59 @@ export class SessionStore extends Service {
   }
 
   /**
+   * Reserve one unpublished session id across an asynchronous factory
+   * transaction. Bare `prepare`/`create`/`enter` calls for the id reject until
+   * release; the capability constructs exactly one Session and is passed back
+   * to {@link enter} at publication. The reservation belongs to the calling
+   * fiber, so owner unload releases an abandoned id automatically.
+   * @param id - the session id the transaction will publish.
+   * @returns the opaque reservation capability.
+   * @throws if the id is malformed, live, or already reserved.
+   */
+  reserve(id: SessionId): SessionRegistrationReservation {
+    if (typeof id !== 'string') throw new TypeError('session id must be a string')
+    if (this.store.has(id) || this.reservations.has(id)) {
+      throw new Error(`session "${id}" already exists or is reserved`)
+    }
+    let active = true
+    let prepared = false
+    const rawRelease = (): void => {
+      if (!active) return
+      active = false
+      this.reservedSessions.delete(reservation)
+      this.reservations.delete(id)
+    }
+    let disposeEffect!: () => Promise<void> | void
+    const reservation: SessionRegistrationReservation = Object.freeze({
+      id,
+      prepare: (options?: CreateSessionOptions) => {
+        if (!active) {
+          throw new Error(`session "${id}" reservation is no longer active`)
+        }
+        if (prepared) throw new Error(`session "${id}" reservation already prepared a session`)
+        prepared = true
+        const session = this.prepareReserved(id, options, reservation)
+        this.reservedSessions.set(reservation, session)
+        return session
+      },
+      release: () => {
+        rawRelease()
+        // Remove the now-inert ownership effect on manual transaction settle;
+        // its cleanup is the exact idempotent raw release above.
+        void disposeEffect()
+      },
+    })
+    this.reservations.set(id, reservation)
+    try {
+      disposeEffect = this.ctx.effect(() => rawRelease, `sessions.reserve(${id})`)
+    } catch (error: unknown) {
+      rawRelease()
+      throw error
+    }
+    return reservation
+  }
+
+  /**
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
@@ -630,7 +746,7 @@ export class SessionStore extends Service {
    * fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
-   * loop's final flush is captured before `onAppend` detaches), do NOT use this
+   * loop's final flush is captured before the store-owned observer detaches), do NOT use this
    * — fold the session lifecycle into the agent's own effect via
    * {@link prepare} + {@link enter} + {@link announce} (see `dsh-agent-loop`'s
    * `startOwned`).
@@ -647,7 +763,7 @@ export class SessionStore extends Service {
     // Single effect owned by the calling fiber. Yield the detach BEFORE
     // announcing so a throwing `session/created` listener rolls the attach back
     // (the generator effect disposes already-yielded disposers on a throw)
-    // instead of leaking the store entry + onAppend.
+    // instead of leaking the store entry + append observer.
     this.ctx.effect(function* (this: SessionStore) {
       yield this.enter(session)
       this.announce(session)
@@ -661,7 +777,7 @@ export class SessionStore extends Service {
    * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
    * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
    * effect so a fiber unload tears the session + agent down as a single ORDERED
-   * chain rather than as racing sibling effects — which would detach `onAppend`
+   * chain rather than as racing sibling effects — which would detach the append observer
    * before the loop's closing `session/flush`, dropping the closing events.
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
@@ -672,7 +788,27 @@ export class SessionStore extends Service {
    *   non-absolute path.
    */
   prepare(id?: SessionId, options?: CreateSessionOptions): Session {
-    const sessionId = SessionId(id ?? `session-${++this.counter}`)
+    return this.prepareReserved(id, options)
+  }
+
+  /** Shared prepare implementation, optionally authorized by a reservation. */
+  private prepareReserved(
+    id?: SessionId,
+    options?: CreateSessionOptions,
+    reservation?: SessionRegistrationReservation,
+  ): Session {
+    let sessionId: SessionId
+    if (id === undefined) {
+      do sessionId = SessionId(`session-${++this.counter}`)
+      while (this.store.has(sessionId) || this.reservations.has(sessionId))
+    } else {
+      sessionId = SessionId(id)
+    }
+    if (typeof sessionId !== 'string') throw new TypeError('session id must be a string')
+    const held = this.reservations.get(sessionId)
+    if (reservation === undefined && held !== undefined) {
+      throw new Error(`session "${sessionId}" is reserved for unpublished creation`)
+    }
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     const seed = options?.seed
     const meta = snapshotSessionMeta(options?.meta)
@@ -691,9 +827,9 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Enter a {@link prepare}d session into the store: wire `onAppend` →
-   * `session/event` and add it to the store. Returns the DETACH disposer
-   * (`onAppend = undefined` + store removal). Does NOT emit `session/created` —
+   * Enter a {@link prepare}d session into the store: wire the module-private
+   * append observer to `session/event` and add it to the store. Returns the
+   * DETACH disposer (observer + store removal). Does NOT emit `session/created` —
    * the caller yields this disposer inside its effect and THEN calls
    * {@link announce}, so a throwing `session/created` listener rolls the attach
    * back instead of leaking it.
@@ -707,11 +843,23 @@ export class SessionStore extends Service {
    * assume that.
    *
    * @param session - a {@link prepare}d session not yet in the store.
-   * @returns the detach disposer (`onAppend = undefined` + store removal).
+   * @param reservation - the exact unpublished-id capability when a factory
+   *   reserved this session across setup.
+   * @returns the detach disposer (observer + store removal).
    * @throws if a session with this id is already in the store.
    */
-  enter(session: Session): () => void {
-    if (this.store.has(session.id)) throw new Error(`session "${session.id}" already exists`)
+  enter(session: Session, reservation?: SessionRegistrationReservation): () => void {
+    const id = session.id
+    if (typeof id !== 'string') throw new TypeError('session id must be a string')
+    const held = this.reservations.get(id)
+    if (reservation === undefined) {
+      if (held !== undefined) throw new Error(`session "${id}" is reserved for unpublished creation`)
+    } else if (reservation.id !== id || held !== reservation
+      || this.reservedSessions.get(reservation) !== session) {
+      throw new Error(`session "${id}" registration reservation does not own this prepared session`)
+    }
+    if (this.store.has(id)) throw new Error(`session "${id}" already exists`)
+    if (appendObservers.has(session)) throw new Error(`session "${id}" is already attached to a store`)
     // The carrier is decided HERE, once, from the ENTERING context's scope tag
     // (`this.ctx` is the caller's context — the tracker mechanism): every
     // session/created|event|flush dispatch for this session uses it, so the
@@ -720,24 +868,65 @@ export class SessionStore extends Service {
     const carrier = scopeTarget(session, scopeOf(this.ctx))
     this.carriers.set(session, carrier)
     const emitCtx = this.ctx
-    session.onAppend = (event) => { emitCtx.emit(carrier, 'session/event', session, event) }
-    this.store.set(session.id, session)
+    appendObservers.set(session, (event) => { emitCtx.emit(carrier, 'session/event', session, event) })
+    this.acceptedIds.set(session, id)
+    this.store.set(id, session)
     let entered = true
     return () => {
       if (!entered) return
       entered = false
-      session.onAppend = undefined
+      const wasAnnounced = this.announced.delete(session)
+      appendObservers.delete(session)
+      this.acceptedIds.delete(session)
       this.carriers.delete(session)
-      this.store.delete(session.id)
+      this.store.delete(id)
+      if (wasAnnounced) this.emitDisposed(session, carrier, id)
     }
   }
 
-  /** Emit `session/created` for an {@link enter}ed session (with the carrier
-   * {@link enter} captured). Separate from {@link enter} so the caller can
-   * yield the detach disposer first (rollback safety — see {@link enter}).
-   * @param session - the entered session to announce to listeners. */
+  /** Emit `session/created` exactly once for an {@link enter}ed session (with
+   * the carrier {@link enter} captured). Separate from {@link enter} so the
+   * caller can yield the detach disposer first (rollback safety — see
+   * {@link enter}).
+   * @param session - the entered session to announce to listeners.
+   * @throws if the session is not live or its announcement already began,
+   *   including a reentrant call from a creation listener. */
   announce(session: Session): void {
-    this.ctx.emit(this.liveCarrierFor(session), 'session/created', session)
+    const carrier = this.liveCarrierFor(session)
+    if (this.announced.has(session)) {
+      throw new Error(`session "${session.id}" was already announced`)
+    }
+    // Mark before emit: Cordis emit may deliver to earlier listeners and then
+    // throw. Rollback must still pair that partial creation with disposal, and
+    // a listener cannot recursively create a second lifecycle edge.
+    this.announced.add(session)
+    const args: unknown[] = [carrier, 'session/created', session]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      // Synchronous throws intentionally propagate and veto publication; the
+      // yielded detach then emits the paired disposal edge. An async function
+      // is nevertheless assignable to a void listener, so observe its returned
+      // promise: rejection is too late to roll back and must be logged instead
+      // of becoming unhandled.
+      const returned: unknown = callback(...args)
+      void Promise.resolve(returned).catch((error: unknown) => {
+        this.ctx.logger.warn(`session "${session.id}": session/created listener rejected: ${renderThrown(error)}`)
+      })
+    }
+  }
+
+  /** Emit the paired teardown notification with per-listener containment. */
+  private emitDisposed(session: Session, carrier: Scoped<Session>, id: SessionId): void {
+    const args: unknown[] = [carrier, 'session/disposed', session]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      try {
+        const returned: unknown = callback(...args)
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.ctx.logger.warn(`session "${id}": session/disposed listener rejected: ${renderThrown(error)}`)
+        })
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`session "${id}": session/disposed listener threw: ${renderThrown(error)}`)
+      }
+    }
   }
 
   /**
@@ -756,8 +945,9 @@ export class SessionStore extends Service {
 
   /** Return the exact live session's carrier; detached/prepared objects reject. */
   private liveCarrierFor(session: Session): Scoped<Session> {
-    if (this.store.get(session.id) !== session) {
-      throw new Error(`session "${session.id}" is not live in this store`)
+    const id = this.acceptedIds.get(session)
+    if (id === undefined || this.store.get(id) !== session) {
+      throw new Error(`session "${id ?? session.id}" is not live in this store`)
     }
     const carrier = this.carriers.get(session)
     // enter() installs store + carrier in one synchronous sequence; a live
@@ -765,7 +955,7 @@ export class SessionStore extends Service {
     // to subject-less dispatch (that would silently cross scope boundaries).
     /* v8 ignore next -- enter installs store and carrier in one synchronous sequence */
     if (carrier === undefined) {
-      throw new Error(`session "${session.id}" has no dispatch carrier`)
+      throw new Error(`session "${id}" has no dispatch carrier`)
     }
     return carrier
   }

@@ -951,22 +951,33 @@ export class ToolRegistry extends Service {
    * Caller-owned arguments are validated and detached in one recursive
    * lossless-JSON traversal; a violation normalizes to an error before policy
    * or dispatch.
-   * @param exec - the single-use call input; every top-level field is read once
-   *   and that identity snapshot is protected before policy runs (and reused by
-   *   the normalized error shell if validation fails).
-   * @returns the final result after every waterfall. Once the required
-   *   `callId` and `name` correlation identity has been captured, later
-   *   accessor, validation, listener, and tool failures resolve as `isError`
-   *   results rather than rejections. A throwing `callId` or `name` accessor
-   *   rejects because no trustworthy result identity exists yet.
+   * @param exec - the single-use call input; every top-level field is read once.
+   *   `callId` and `name` must each yield a string before that identity snapshot
+   *   is protected and policy begins.
+   * @returns the final result after every waterfall. Once the required string
+   *   `callId` and `name` correlation identity has been captured, later accessor,
+   *   validation, listener, and tool failures resolve as `isError` results rather
+   *   than rejections. A throwing accessor or non-string value in either identity
+   *   field rejects because no trustworthy result correlation exists yet.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
     // callId/name are the minimum correlation identity needed to construct a
-    // result at all. Every other caller-controlled accessor is read once
-    // INSIDE the normalization boundary; if one throws, the error shell uses
-    // the fields captured before it and never rereads the hostile record.
+    // result at all. Capture each once, then validate the captured scalar before
+    // anything can treat it as a trustworthy identity. A JavaScript/casted
+    // caller that supplies another type rejects at this outer boundary: an error
+    // result carrying the same malformed value would not satisfy the correlation
+    // contract and might itself fail lossless-JSON materialization. Every other
+    // caller-controlled accessor is read once INSIDE the normalization boundary;
+    // if one throws, the error shell uses the fields captured before it and never
+    // rereads the hostile record.
     const callId = exec.callId
     const name = exec.name
+    if (typeof callId !== 'string') {
+      throw new TypeError('tool execution callId must be a string')
+    }
+    if (typeof name !== 'string') {
+      throw new TypeError('tool execution name must be a string')
+    }
     let agent: Agent | undefined
     let parent: ToolExecutionToken | undefined
     let signal: AbortSignal | undefined

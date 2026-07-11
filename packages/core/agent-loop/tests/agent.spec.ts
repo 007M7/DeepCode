@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { prepareReactLoopAgent } from '../src/agent.ts'
+import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -49,6 +49,34 @@ function send(agent: ReactLoopAgent, text: string) {
 }
 
 describe('ReactLoopAgent', () => {
+  it('owns immutable runtime bindings for id, options, session, and scoped context', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('unused')]))
+    const options = { model: 'mock' }
+    const agent = ctx.agentLoop.create(AgentId('owned-bindings'), options)
+    const acceptedSession = agent.session
+    const acceptedContext = agent.ctx
+
+    options.model = 'caller-mutated'
+    expect(agent.options).toEqual({ model: 'mock' })
+    expect(Object.isFrozen(agent.options)).toBe(true)
+    expect(Reflect.set(agent, 'id', AgentId('redirected'))).toBe(false)
+    expect(Reflect.set(agent, 'options', { model: 'other' })).toBe(false)
+    expect(Reflect.set(agent, 'session', ctx.sessions.create(SessionId('other')))).toBe(false)
+    expect(Reflect.set(agent, 'ctx', new Context())).toBe(false)
+    expect(agent.id).toBe('owned-bindings')
+    expect(agent.session).toBe(acceptedSession)
+    expect(agent.ctx).toBe(acceptedContext)
+    expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
+    for (const name of ['id', 'options', 'session', 'ctx']) {
+      expect(Object.getOwnPropertyDescriptor(agent, name)).toMatchObject({
+        configurable: false,
+        writable: false,
+      })
+    }
+
+    await ctx.fiber.dispose()
+  })
+
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -194,6 +222,23 @@ describe('ReactLoopAgent', () => {
     // normalized to an Error.
     expect(errors).toEqual([{ turn: 1, step: 0, message: 'disk gone' }])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('flush after idle injection failed'))
+    warn.mockRestore()
+  })
+
+  it('idle inject() safely renders a hostile non-Error flush failure', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('ok')]))
+    const hostile = { [Symbol.toPrimitive]() { throw new Error('no coercion') } }
+    ctx.on('session/flush', () => { throw hostile })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(AgentId('hostile-flush'), { model: 'mock' })
+    const errors: string[] = []
+    ctx.on('agent/error', (_a, _turn, _step, error) => void errors.push(error.message))
+
+    agent.inject([{ type: 'text', text: 'notice' }])
+    await new Promise(r => setTimeout(r, 20))
+
+    expect(errors).toEqual(['<unrenderable thrown value>'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('<unrenderable thrown value>'))
     warn.mockRestore()
   })
 
@@ -416,7 +461,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on running'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 
@@ -434,7 +479,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on idle'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 })

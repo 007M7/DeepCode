@@ -232,7 +232,7 @@ describe('scopeTarget dispatch filtering', () => {
     expect(detached()).toBe(2)
   })
 
-  it('delegates sets to the base and leaves frozen own function props unbound (proxy invariant)', () => {
+  it('delegates the ordinary reflective surface while keeping overlays immutable', () => {
     const frozenFn = (): string => 'frozen'
     const base: { mutable: number; pinned: () => string; toString: () => string } = {
       mutable: 0,
@@ -243,25 +243,158 @@ describe('scopeTarget dispatch filtering', () => {
     const carrier = scopeTarget(base, undefined)
     carrier.mutable = 7
     expect(base.mutable).toBe(7) // sets land on the base, not a detached overlay
-    // A non-configurable, non-writable own data prop must be reported
-    // unchanged (binding it would violate the proxy get invariant).
-    expect(carrier.pinned).toBe(frozenFn)
+    // The surrogate target frees reads from the base property's proxy
+    // invariant, so even a frozen own method can be safely bound to the base.
+    expect(carrier.pinned).not.toBe(frozenFn)
+    expect(carrier.pinned()).toBe('frozen')
     // The overlay literal inherits Object.prototype; hasOwn (not `in`) keeps
     // it from shadowing the subject's own prototype-surface members.
     expect(String(carrier)).toBe('base-str')
+    expect('mutable' in carrier).toBe(true)
+    expect(Object.hasOwn(carrier, 'mutable')).toBe(true)
+    expect(Object.keys(carrier)).toEqual(['mutable', 'pinned', 'toString'])
+    Object.defineProperty(carrier, 'extra', { value: 1, configurable: true })
+    expect((base as typeof base & { extra?: number }).extra).toBe(1)
+    expect(delete (carrier as typeof carrier & { extra?: number }).extra).toBe(true)
+    expect(Reflect.preventExtensions(carrier)).toBe(false)
+    expect(Reflect.setPrototypeOf(carrier, null)).toBe(false)
   })
 
-  it('honors the get invariant even when an overlay key collides with a frozen own prop of the base', () => {
-    // Pathological but engine-enforced: a base whose own [Context.filter] is
-    // a non-configurable, non-writable data prop pins what any proxy over it
-    // may report for that key. The carrier must yield the base's value (an
-    // overlay there would be a runtime TypeError from the engine, not a
-    // filtering choice). Such a base forgoes scope filtering by construction.
+  it('keeps isolation when the base filter is pinned before, during, or after construction', async () => {
+    const ctx = new Context()
+    const keyA = { name: 'A' }
+    const keyB = { name: 'B' }
+    const scopeA = await mintScope(ctx, keyA)
+    const scopeB = await mintScope(ctx, keyB)
+    const heard: string[] = []
+    ctx.on('scope-test/ping', value => void heard.push(`global:${value}`))
+    scopeA.ctx.on('scope-test/ping', value => void heard.push(`A:${value}`))
+    scopeB.ctx.on('scope-test/ping', value => void heard.push(`B:${value}`))
     const pinnedFilter = (): boolean => true
-    const base = {}
-    Object.defineProperty(base, Context.filter, { value: pinnedFilter, writable: false, configurable: false })
-    const carrier = scopeTarget(base, { name: 'key' })
-    expect((carrier as Record<symbol, unknown>)[Context.filter]).toBe(pinnedFilter)
+
+    const pinnedData = {}
+    Object.defineProperty(pinnedData, Context.filter, {
+      value: pinnedFilter,
+      writable: false,
+      configurable: false,
+    })
+    const pinnedCarrier = scopeTarget(pinnedData, keyA)
+    ctx.emit(pinnedCarrier, 'scope-test/ping', 'before')
+
+    const duringRead = {}
+    Object.defineProperty(duringRead, Context.filter, {
+      configurable: true,
+      get() {
+        Object.defineProperty(duringRead, Context.filter, {
+          value: pinnedFilter,
+          writable: false,
+          configurable: false,
+        })
+        return pinnedFilter
+      },
+    })
+    ctx.emit(scopeTarget(duringRead, keyA), 'scope-test/ping', 'during')
+
+    const pinnedAfter = { [Context.filter]: pinnedFilter }
+    const afterCarrier = scopeTarget(pinnedAfter, keyA)
+    Object.defineProperty(pinnedAfter, Context.filter, {
+      value: pinnedFilter,
+      writable: false,
+      configurable: false,
+    })
+    ctx.emit(afterCarrier, 'scope-test/ping', 'after')
+
+    const pinnedGetterless = {}
+    Object.defineProperty(pinnedGetterless, Context.filter, { set(_value: unknown) {}, configurable: false })
+    ctx.emit(scopeTarget(pinnedGetterless, keyA), 'scope-test/ping', 'getterless')
+
+    expect(heard).toEqual([
+      'global:before', 'A:before',
+      'global:during', 'A:during',
+      'global:after', 'A:after',
+      'global:getterless', 'A:getterless',
+    ])
+    expect((pinnedCarrier as Record<symbol, unknown>)[Context.filter]).not.toBe(pinnedFilter)
+    expect(Reflect.set(pinnedCarrier, Context.filter, pinnedFilter)).toBe(false)
+    expect(Reflect.defineProperty(pinnedCarrier, Context.filter, { value: pinnedFilter })).toBe(false)
+    expect(Reflect.deleteProperty(pinnedCarrier, Context.filter)).toBe(false)
+
+    expect(() => scopeTarget({ [Context.filter]: 1 }, { name: 'A' })).toThrow(
+      /Context\.filter must be a function/,
+    )
+  })
+
+  it('preserves callable and constructable bases', () => {
+    function Subject(this: { value?: number }, value: number): number {
+      if (new.target) {
+        this.value = value
+        return value
+      }
+      return value * 2
+    }
+    const carrier = scopeTarget(Subject as typeof Subject & (new (value: number) => { value: number }), {
+      name: 'callable',
+    })
+
+    const called: unknown = Reflect.apply(carrier, { value: 0 }, [3])
+    expect(called).toBe(6)
+    const instance = new carrier(4)
+    expect(instance).toBeInstanceOf(Subject)
+    expect(instance.value).toBe(4)
+    const prototypeDescriptor = Object.getOwnPropertyDescriptor(carrier, 'prototype')
+    const subjectPrototype: unknown = Reflect.get(Subject, 'prototype')
+    expect(prototypeDescriptor?.configurable).toBe(true)
+    expect(prototypeDescriptor?.value).toBe(subjectPrototype)
+    class Derived extends carrier {}
+    const derived = new Derived(5)
+    expect(derived).toBeInstanceOf(Derived)
+    expect(derived).toBeInstanceOf(Subject)
+    expect(derived.value).toBe(5)
+    expect(isScopeCarrier(carrier)).toBe(true)
+  })
+
+  it('matches non-constructable and bound-constructor function shapes', () => {
+    const arrow = (value: number): number => value + 1
+    const arrowCarrier = scopeTarget(arrow, { name: 'arrow' })
+    const arrowResult: unknown = Reflect.apply(arrowCarrier, undefined, [2])
+    expect(arrowResult).toBe(3)
+    expect('prototype' in arrowCarrier).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(arrowCarrier, 'prototype')).toBeUndefined()
+    expect(() => { Reflect.construct(arrowCarrier, []) }).toThrow(TypeError)
+
+    class Subject {
+      constructor(readonly value: number) {}
+    }
+    const bound = Subject.bind(undefined, 7)
+    const boundCarrier = scopeTarget(bound, { name: 'bound-constructor' })
+    expect('prototype' in boundCarrier).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(boundCarrier, 'prototype')).toBeUndefined()
+    const instance = new boundCarrier()
+    expect(instance).toBeInstanceOf(Subject)
+    expect(instance.value).toBe(7)
+  })
+
+  it('detects construction without reading a hostile base prototype', () => {
+    class Subject {
+      constructor(readonly value: number) {}
+    }
+    let prototypeReads = 0
+    const hostile = new Proxy(Subject, {
+      get(target, prop, receiver) {
+        if (prop === 'prototype') {
+          prototypeReads += 1
+          throw new Error('hostile prototype getter')
+        }
+        return Reflect.get(target, prop, receiver) as unknown
+      },
+    })
+
+    const carrier = scopeTarget(hostile, { name: 'hostile-constructor' })
+    expect(prototypeReads).toBe(0)
+    const instance: unknown = Reflect.construct(carrier, [9], Subject)
+    expect(instance).toBeInstanceOf(Subject)
+    expect(instance).toMatchObject({ value: 9 })
+    expect(prototypeReads).toBe(0)
   })
 
   it('keeps the real constructor: class identity survives the carrier', () => {

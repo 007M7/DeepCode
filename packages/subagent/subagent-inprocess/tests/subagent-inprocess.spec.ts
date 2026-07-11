@@ -269,6 +269,38 @@ describe('startInProcessRun', () => {
     await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
   })
 
+  it('observes detached pre-readiness teardown failure and reports it to explicit dispose', async () => {
+    const { ctx, parent } = await setup([])
+    function inertOwner(): void {}
+    const ownerFiber = ctx.plugin(inertOwner)
+    await ownerFiber
+    const disposeFailure = new Error('owner dispose exploded')
+    const disposeSpy = vi.spyOn(ownerFiber, 'dispose').mockImplementation(() => { throw disposeFailure })
+    const rejectingOwnerCtx = {
+      agents: { create: () => Promise.reject(new Error('creation stopped by cancellation')) },
+    } as unknown as Context
+    const parentWithFailingTeardown = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        plugin(plugin: (inner: Context) => void) {
+          plugin(rejectingOwnerCtx)
+          return ownerFiber
+        },
+      },
+    } as unknown as Agent
+    const run = startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent: parentWithFailingTeardown,
+    }, {})
+
+    run.cancel('cancel before readiness')
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
+    await expect(run.dispose()).rejects.toBe(disposeFailure)
+    disposeSpy.mockRestore()
+    await ownerFiber.dispose()
+  })
+
   it('does not attach an abort listener when provider ownership is already inactive', async () => {
     const { ctx, parent } = await setup([])
     let providerCtx: Context | undefined

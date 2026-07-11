@@ -367,6 +367,7 @@ export function apply(ctx: Context): void {
     'tools/result': args => (args[0] as ToolExecution).agent,
     'system-prompt/assemble': args => (args[1] as AssembleContext).scope,
     'session/created': null,
+    'session/disposed': null,
     'session/event': null,
     'session/flush': null,
     'subagent/start': null,

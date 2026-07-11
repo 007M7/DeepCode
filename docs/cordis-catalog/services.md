@@ -21,18 +21,19 @@ async createAgent(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:71`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:78`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
 Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
+reserve(id: AgentId): AgentRegistrationReservation
 setFactory(factory: AgentFactory): () => Promise<void> | void
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => Promise<void> | void
-enter(agent: Agent): () => void
+enter(agent: Agent, reservation?: AgentRegistrationReservation): () => void
 announce(agent: Agent): void
 get(id: AgentId): Agent | undefined
 list(): Agent[]
@@ -40,7 +41,7 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:174`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:202`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -54,7 +55,7 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:292`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:305`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -210,9 +211,10 @@ In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
 ```ts cordis-catalog
+reserve(id: SessionId): SessionRegistrationReservation
 create(id?: SessionId, options?: CreateSessionOptions): Session
 prepare(id?: SessionId, options?: CreateSessionOptions): Session
-enter(session: Session): () => void
+enter(session: Session, reservation?: SessionRegistrationReservation): () => void
 announce(session: Session): void
 async flush(session: Session): Promise<void>
 get(id: SessionId): Session | undefined
@@ -220,7 +222,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:608`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:663`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -260,7 +262,7 @@ protect(protection: PromptProtection): () => Promise<void> | void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:380`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:430`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

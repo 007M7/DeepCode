@@ -111,6 +111,86 @@ describe('SystemPrompt', () => {
     expect(contributed(assembly).map(s => s.text)).toEqual(['first'])
   })
 
+  it('rejects malformed fixed registration fields before storing an effect', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    const badName = { value: 'name' }
+    const badText = { value: 'text' }
+
+    expect(() => ctx.systemPrompt.section(null as unknown as Parameters<typeof ctx.systemPrompt.section>[0]))
+      .toThrow('requires a section object')
+    expect(() => ctx.systemPrompt.section(1 as unknown as Parameters<typeof ctx.systemPrompt.section>[0]))
+      .toThrow('requires a section object')
+    expect(() => ctx.systemPrompt.section({ name: badName as unknown as string, order: 1, text: 'x' }))
+      .toThrow('prompt section name must be a string')
+    expect(() => ctx.systemPrompt.section({ name: 'bad-order', order: '1' as unknown as number, text: 'x' }))
+      .toThrow('order must be a finite number')
+    expect(() => ctx.systemPrompt.section({ name: 'bad-order', order: Number.NaN, text: 'x' }))
+      .toThrow('order must be a finite number')
+    expect(() => ctx.systemPrompt.section({ name: 'bad-text', order: 1, text: badText as unknown as string }))
+      .toThrow('text must be a string or function')
+    expect(() => ctx.systemPrompt.tools(1 as unknown as Parameters<typeof ctx.systemPrompt.tools>[0]))
+      .toThrow('tool provider must be a function')
+    expect(() => ctx.systemPrompt.variable({} as unknown as string, () => 'x'))
+      .toThrow('prompt variable name must be a string')
+    expect(() => ctx.systemPrompt.variable('valid', 1 as unknown as Parameters<typeof ctx.systemPrompt.variable>[1]))
+      .toThrow('provider must be a function')
+    expect(() => ctx.systemPrompt.protect(null as unknown as Parameters<typeof ctx.systemPrompt.protect>[0]))
+      .toThrow('requires a protection object')
+    expect(() => ctx.systemPrompt.protect(1 as unknown as Parameters<typeof ctx.systemPrompt.protect>[0]))
+      .toThrow('requires a protection object')
+    expect(() => ctx.systemPrompt.protect({ sections: 'x' as unknown as string[] }))
+      .toThrow('sections must be an array of strings')
+    expect(() => ctx.systemPrompt.protect({ tools: 'x' as unknown as string[] }))
+      .toThrow('tools must be an array of strings')
+    expect(() => ctx.systemPrompt.protect({ sections: ['ok', {} as unknown as string] }))
+      .toThrow('sections must be an array of strings')
+    expect(() => ctx.systemPrompt.protect({ tools: [{} as unknown as string] }))
+      .toThrow('tools must be an array of strings')
+
+    expect(Object.isFrozen(badName)).toBe(false)
+    expect(Object.isFrozen(badText)).toBe(false)
+    expect(contributed(await ctx.systemPrompt.assemble())).toEqual([])
+  })
+
+  it('reads each section field and protection-name slot once at registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    const reads = { name: 0, order: 0, text: 0, sections: 0, item: 0 }
+    const section = Object.defineProperties({}, {
+      name: {
+        enumerable: true,
+        get: () => (++reads.name === 1 ? 'stable' : 42),
+      },
+      order: {
+        enumerable: true,
+        get: () => (++reads.order === 1 ? 10 : Number.NaN),
+      },
+      text: {
+        enumerable: true,
+        get: () => (++reads.text === 1 ? 'stable text' : null),
+      },
+    }) as unknown as Parameters<typeof ctx.systemPrompt.section>[0]
+    const names = new Array<string>(1)
+    Object.defineProperty(names, 0, {
+      enumerable: true,
+      get: () => (++reads.item === 1 ? 'stable' : 'drifted'),
+    })
+    const protection = {
+      get sections(): string[] {
+        reads.sections += 1
+        return reads.sections === 1 ? names : ['drifted']
+      },
+    }
+
+    ctx.systemPrompt.section(section)
+    ctx.systemPrompt.protect(protection)
+    const assembly = await ctx.systemPrompt.assemble()
+
+    expect(reads).toEqual({ name: 1, order: 1, text: 1, sections: 1, item: 1 })
+    expect(assembly.sections).toContainEqual({ name: 'stable', order: 10, text: 'stable text' })
+  })
+
   it('rolls back a section when a system-prompt/change listener throws (P1-1)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -280,6 +360,56 @@ describe('SystemPrompt', () => {
 
       expect(reads).toBe(1)
       expect(assembly.sections).toContainEqual({ name: 'protected', order: 10, text: 'canonical' })
+    })
+
+    it('materializes waterfall entry names once before restoring protected definitions', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'protected', order: 10, text: 'canonical section' })
+      ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'protected', description: 'canonical tool', parameters: {} }] }))
+      ctx.systemPrompt.protect({ sections: ['protected'], tools: ['protected'] })
+      let sectionNameReads = 0
+      let toolNameReads = 0
+      const hostileSection = {
+        get name(): string {
+          sectionNameReads += 1
+          return sectionNameReads === 1 ? 'impostor-section' : 'protected'
+        },
+        order: 999,
+        text: 'listener section',
+      }
+      const hostileTool = {
+        get name(): string {
+          toolNameReads += 1
+          return toolNameReads === 1 ? 'impostor-tool' : 'protected'
+        },
+        description: 'listener tool',
+        parameters: {},
+      }
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        result.sections = [
+          ...result.sections.filter(section => section.name !== 'protected'),
+          hostileSection,
+        ]
+        result.tools = [
+          ...result.tools.filter(tool => tool.name !== 'protected'),
+          hostileTool,
+        ]
+        return result
+      })
+
+      const assembly = await ctx.systemPrompt.assemble()
+
+      expect(sectionNameReads).toBe(1)
+      expect(toolNameReads).toBe(1)
+      expect(assembly.sections.map(section => section.name)).toEqual([
+        'harness:identity',
+        'deployment:persona',
+        'impostor-section',
+        'protected',
+      ])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['impostor-tool', 'protected'])
     })
 
     it('protects canonical absence and rejects an empty protection', async () => {

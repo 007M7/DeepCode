@@ -39,6 +39,158 @@ function requestOf(agent: Agent, overrides: Partial<ApprovalRequest> = {}): Appr
 }
 
 describe('ApprovalService.request', () => {
+  it('rejects malformed fixed fields and identities before appending or dispatching', async () => {
+    const ctx = await mounted()
+    const consulted = vi.fn()
+    ctx.on('approval/request', () => {
+      consulted()
+      return Promise.resolve<ApprovalOutcome>('allowed-once')
+    })
+    const { agent, appended } = fakeAgent()
+    const badSessionAppends: Array<ReturnType<typeof vi.fn>> = []
+    const badSession = (events: unknown, append: unknown): Agent => ({
+      session: { events, append },
+    }) as unknown as Agent
+    const appendSpy = (): ReturnType<typeof vi.fn> => {
+      const append = vi.fn()
+      badSessionAppends.push(append)
+      return append
+    }
+    const validSignalShape = {
+      aborted: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }
+    const cases: Array<{ request: unknown; message: string }> = [
+      { request: null, message: 'requires a request object' },
+      { request: 1, message: 'requires a request object' },
+      { request: { agent: null, toolName: 'echo' }, message: 'agent must be an object' },
+      { request: { agent: 1, toolName: 'echo' }, message: 'agent must be an object' },
+      { request: { agent, toolName: 1 }, message: 'toolName must be a string' },
+      { request: { agent, toolName: 'echo', callId: 1 }, message: 'callId must be a string' },
+      { request: { agent, toolName: 'echo', reason: 1 }, message: 'reason must be a string' },
+      { request: { agent, toolName: 'echo', signal: null }, message: 'signal must be an AbortSignal' },
+      { request: { agent, toolName: 'echo', signal: 1 }, message: 'signal must be an AbortSignal' },
+      {
+        request: { agent, toolName: 'echo', signal: { ...validSignalShape, aborted: 'no' } },
+        message: 'signal must be an AbortSignal',
+      },
+      {
+        request: { agent, toolName: 'echo', signal: { ...validSignalShape, addEventListener: 1 } },
+        message: 'signal must be an AbortSignal',
+      },
+      {
+        request: { agent, toolName: 'echo', signal: { ...validSignalShape, removeEventListener: 1 } },
+        message: 'signal must be an AbortSignal',
+      },
+      {
+        request: { agent: { session: null }, toolName: 'echo' },
+        message: 'agent session must be an object',
+      },
+      {
+        request: { agent: { session: 1 }, toolName: 'echo' },
+        message: 'agent session must be an object',
+      },
+      {
+        request: { agent: badSession(null, appendSpy()), toolName: 'echo' },
+        message: 'session events must be an array',
+      },
+      {
+        request: { agent: badSession([{ type: 'turn/start' }], 1), toolName: 'echo' },
+        message: 'session append must be a function',
+      },
+    ]
+
+    for (const { request, message } of cases) {
+      await expect(ctx.approval.request(request as ApprovalRequest)).rejects.toThrow(message)
+    }
+
+    expect(appended).toEqual([])
+    for (const append of badSessionAppends) expect(append).not.toHaveBeenCalled()
+    expect(consulted).not.toHaveBeenCalled()
+  })
+
+  it('reads request fields, the agent session, and the session append method once', async () => {
+    const ctx = await mounted()
+    const { agent: acceptedSessionOwner, appended: acceptedAudit } = fakeAgent()
+    const { agent: replacementAgent, appended: replacementAudit } = fakeAgent()
+    const acceptedSession = acceptedSessionOwner.session
+    const acceptedAppend = acceptedSession.append.bind(acceptedSession)
+    const signal = new AbortController().signal
+    const reads = {
+      agent: 0,
+      toolName: 0,
+      callId: 0,
+      reason: 0,
+      signal: 0,
+      session: 0,
+      append: 0,
+    }
+    const session = {
+      events: acceptedSession.events,
+      get append(): Session['append'] {
+        reads.append += 1
+        return reads.append === 1 ? acceptedAppend : undefined as unknown as Session['append']
+      },
+    } as Session
+    const agent = Object.defineProperty({}, 'session', {
+      enumerable: true,
+      get: () => {
+        reads.session += 1
+        return reads.session === 1 ? session : replacementAgent.session
+      },
+    }) as Agent
+    const request = Object.defineProperties({}, {
+      agent: {
+        enumerable: true,
+        get: () => (++reads.agent === 1 ? agent : null),
+      },
+      toolName: {
+        enumerable: true,
+        get: () => (++reads.toolName === 1 ? 'stable-tool' : 1),
+      },
+      callId: {
+        enumerable: true,
+        get: () => (++reads.callId === 1 ? CallId('stable-call') : {}),
+      },
+      reason: {
+        enumerable: true,
+        get: () => (++reads.reason === 1 ? 'stable reason' : {}),
+      },
+      signal: {
+        enumerable: true,
+        get: () => (++reads.signal === 1 ? signal : {}),
+      },
+    }) as ApprovalRequest
+    let received: ApprovalRequest | undefined
+    ctx.on('approval/request', (accepted) => {
+      received = accepted
+      return Promise.resolve<ApprovalOutcome>('allowed-once')
+    })
+
+    await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
+
+    expect(reads).toEqual({
+      agent: 1,
+      toolName: 1,
+      callId: 1,
+      reason: 1,
+      signal: 1,
+      session: 1,
+      append: 1,
+    })
+    expect(received).toMatchObject({
+      agent,
+      toolName: 'stable-tool',
+      callId: 'stable-call',
+      reason: 'stable reason',
+      signal,
+    })
+    expect(Object.isFrozen(received)).toBe(true)
+    expect(acceptedAudit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(replacementAudit).toEqual([])
+  })
+
   it('throws before appending anything when no turn has ever opened (idle ask)', async () => {
     const ctx = await mounted()
     const { agent, appended } = fakeAgent([])
@@ -418,6 +570,15 @@ describe('approval policy (the approval/policy fold)', () => {
     setApprovalPolicy(session, 'ask')
     expect(effectiveApprovalPolicy(session.events)).toBe('ask')
     expect(session.events.at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
+  })
+
+  it('rejects a policy outside the closed vocabulary before appending', () => {
+    const append = vi.fn()
+    const session = { append } as unknown as Session
+
+    expect(() => { setApprovalPolicy(session, 'sometimes' as Parameters<typeof setApprovalPolicy>[1]) })
+      .toThrow('approval policy must be one of "ask" or "never"')
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('defaults a schema-less construction to ask (the ?? narrows the optional TYPE)', async () => {

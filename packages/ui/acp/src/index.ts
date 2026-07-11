@@ -1010,7 +1010,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
-   * final `turn/end` + `session/flush` are captured while `onAppend` is still
+   * final `turn/end` + `session/flush` are captured while the store-owned append observer is still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
    * map first and memoizes, so a second call (close racing dispose) is a no-op.

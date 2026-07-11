@@ -288,7 +288,10 @@ declare module 'cordis' {
      * {@link AgentRegistry}. Its session is already live in the session store,
      * but concrete factories may keep driving verbs locked until the subsequent
      * `agent/session-start` boundary; that event is the first supported place
-     * to inject or queue work during startup.
+     * to inject or queue work during startup. A synchronous listener throw
+     * vetoes publication and rollback emits the matching disposal edges;
+     * returned-promise rejection is observed and logged but cannot
+     * retroactively veto this synchronous boundary.
      * @param agent - the newly registered agent with its live session and completed setup.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a

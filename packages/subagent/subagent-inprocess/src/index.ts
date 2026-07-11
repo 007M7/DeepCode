@@ -110,7 +110,10 @@ async function quiesceFiber(fiber: Fiber): Promise<void> {
  * before the turn starts). The final `assistant/message` is the result output,
  * the matching `turn/end.reason` the stop reason. `dispose()` delegates to the
  * factory's {@link AgentHandle.dispose} (stop loop → await quiescence → remove
- * session); `cancel()` cancels the child's in-flight turn.
+ * session). `cancel()` cancels a published child's in-flight turn; before
+ * readiness it instead deactivates the unpublished run-owner transaction, so
+ * `started` rejects, no agent/session lifecycle is published, and `result`
+ * resolves `aborted`.
  *
  * Throws {@link SubagentDepthError} before creating anything when the child's
  * depth (parent depth + 1) would exceed `request.maxDepth`.
@@ -219,9 +222,10 @@ export function startInProcessRun(
   // Install it after provider ownership succeeds but BEFORE awaiting creation,
   // so an inactive provider cannot leave an orphaned listener and abort/dispose
   // during async setup is still recorded and applied the moment a child exists.
-  // `cancelled` records that a cancel was requested at all, so the pre-turn
-  // cancel window — where the child clears the queued prompt before any
-  // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
+  // `cancelled` records that a cancel was requested at all. Before readiness,
+  // cancellation deactivates the unpublished run-owner transaction so the
+  // factory cannot publish an agent or session. After readiness, it cancels the
+  // live child. Either path settles as `aborted` (honoring the cancel contract)
   // rather than falling through to the no-turn `error` mapping.
   let cancelled = false
   // An accessor, not an inline read: `cancelled` mutates from closures (the
@@ -230,13 +234,6 @@ export function startInProcessRun(
   const isCancelled = (): boolean => cancelled
   let child: Agent | undefined
   let handle: AgentHandle | undefined
-  let disposeRequested = false
-  const isDisposeRequested = (): boolean => disposeRequested
-  const requestCancel = (reason: string): void => {
-    cancelled = true
-    child?.cancel(reason)
-  }
-  const onAbort = (): void => { requestCancel('subagent cancelled') }
 
   // One run-owned Cordis fiber is the common ownership node. Install the
   // provider effect FIRST: a start racing an already-unloading provider fails
@@ -250,11 +247,28 @@ export function startInProcessRun(
   let ownerFiber: (Fiber & PromiseLike<Fiber>) | undefined
   let ownerSetupError: unknown
   let ownerDisposing: Promise<void> | undefined
-  const disposeOwner = (): Promise<void> => (ownerDisposing ??= ownerFiber === undefined
-    ? Promise.resolve()
-    : quiesceFiber(ownerFiber))
-  let manualDisposeRequested = false
-  const isManualDisposeRequested = (): boolean => manualDisposeRequested
+  const disposeOwner = (): Promise<void> => {
+    if (ownerDisposing !== undefined) return ownerDisposing
+    // An already-aborted request is observed before the owner fiber is minted.
+    // Do not memoize that no-op: the post-plugin cancellation check below must
+    // still be able to claim and deactivate the real fiber.
+    if (ownerFiber === undefined) return Promise.resolve()
+    ownerDisposing = quiesceFiber(ownerFiber)
+    // Pre-readiness cancellation is synchronous fire-and-forget at the public
+    // `cancel()` boundary. Observe a teardown rejection here; dispose() still
+    // awaits the same memoized promise and reports it to an explicit caller.
+    void ownerDisposing.catch(() => undefined)
+    return ownerDisposing
+  }
+  const requestCancel = (reason: string): void => {
+    cancelled = true
+    if (child === undefined) {
+      if (ownerFiber !== undefined) void disposeOwner()
+      return
+    }
+    child.cancel(reason)
+  }
+  const onAbort = (): void => { requestCancel('subagent cancelled') }
   const unlinkProvider = ctx.effect(() => () => {
     requestCancel('subagent provider disposed')
     return disposeOwner()
@@ -265,6 +279,10 @@ export function startInProcessRun(
     ownerFiber = parent.ctx.plugin(Object.assign(subagentRunOwner, {
       inject: ['agents', 'sessions', 'llm', 'tools', 'systemPrompt'],
     }))
+    // `signal.aborted` is checked before this fiber exists. Once it does, make
+    // that recorded cancellation effective immediately; awaiting creation must
+    // observe an inactive owner instead of reaching the publication boundary.
+    if (isCancelled()) void disposeOwner()
   } catch (error: unknown) {
     ownerSetupError = error
   }
@@ -299,8 +317,6 @@ export function startInProcessRun(
     })
     handle = created
     child = created.agent
-
-    if (isCancelled()) created.agent.cancel('subagent cancelled')
     return created.agent
   })()
 
@@ -322,10 +338,9 @@ export function startInProcessRun(
         // without manufacturing an unreachable runtime branch.
         liveChild = child as Agent
       } catch (error: unknown) {
-        if (isManualDisposeRequested()) return { output: [], stopReason: 'aborted' }
+        if (isCancelled()) return { output: [], stopReason: 'aborted' }
         throw error instanceof Error ? error : new Error('subagent child creation failed with a non-Error value', { cause: error })
       }
-      if (isCancelled() || isDisposeRequested()) return { output: [], stopReason: 'aborted' }
       liveChild.send(prompt)
       await liveChild.whenIdle()
       // Deliberately NO re-prompt when a structured child finishes cleanly
@@ -348,8 +363,6 @@ export function startInProcessRun(
     async dispose(): Promise<void> {
       return (disposing ??= (async () => {
         signal?.removeEventListener('abort', onAbort)
-        disposeRequested = true
-        manualDisposeRequested = true
         requestCancel('subagent disposed during creation')
         // Removing provider ownership and disposing the common run-owner fiber
         // are the same quiescence transaction; parent disposal may already have

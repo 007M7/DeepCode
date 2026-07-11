@@ -163,20 +163,31 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
-  it('cancelling BEFORE the child turn starts settles aborted, not error', async () => {
-    // Regression: a cancel landing in the pre-turn window clears the queued
-    // prompt before any `turn/end` is logged. Deriving the stop reason from
-    // `turn/end` alone then mis-maps the no-turn case to `error`; the run must
-    // honor the cancel contract and settle `aborted`. The cancel is synchronous
-    // (same tick as start, before the loop's queued-wait continuation runs), so
-    // the turn is dropped and the empty script is never consumed.
+  it('same-tick cancellation rejects readiness and prevents child publication', async () => {
+    // Regression: cancellation before readiness used to set a flag but let the
+    // async factory publish a child anyway, so `started` fulfilled and lifecycle
+    // observers saw an agent for an attempt the caller had already cancelled.
+    // The empty script also proves no model turn can run.
     const { ctx, parent } = await setup([])
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+    ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+    ctx.on('subagent/start', () => void published.push('subagent/start'))
+    ctx.on('subagent/end', () => void published.push('subagent/end'))
     const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
     run.cancel('early')
-    const result = await run.result
-    expect(result.stopReason).toBe('aborted')
-    expect(result.output).toEqual([])
+
+    await expect(run.started).rejects.toThrow()
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
     await run.dispose()
+    await Promise.resolve()
+    expect(ctx.agents.get(run.id)).toBeUndefined()
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+    expect(published).toEqual([])
   })
 
   it('a cancel from agent/queued maps a no-turn child log to aborted', async () => {

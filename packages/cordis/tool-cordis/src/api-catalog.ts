@@ -65,11 +65,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'agents',
     summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
     methods: [
+      'reserve(id: AgentId): AgentRegistrationReservation',
       'setFactory(factory: AgentFactory): () => Promise<void> | void',
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
       'register(agent: Agent): () => Promise<void> | void',
-      'enter(agent: Agent): () => void',
+      'enter(agent: Agent, reservation?: AgentRegistrationReservation): () => void',
       'announce(agent: Agent): void',
       'get(id: AgentId): Agent | undefined',
       'list(): Agent[]',
@@ -155,9 +156,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'sessions',
     summary: 'In-memory session store (`ctx.sessions`).',
     methods: [
+      'reserve(id: SessionId): SessionRegistrationReservation',
       'create(id?: SessionId, options?: CreateSessionOptions): Session',
       'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-      'enter(session: Session): () => void',
+      'enter(session: Session, reservation?: SessionRegistrationReservation): () => void',
       'announce(session: Session): void',
       'async flush(session: Session): Promise<void>',
       'get(id: SessionId): Session | undefined',
@@ -354,6 +356,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A session was created in the store.',
   },
   {
+    name: 'session/disposed',
+    mode: 'emit',
+    signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
+    summary: 'A previously announced session left the store.',
+  },
+  {
     name: 'session/event',
     mode: 'emit',
     signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
@@ -502,6 +510,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    model?: string;\n}',
+  },
+  {
+    name: 'AgentRegistrationReservation',
+    declaration: 'export interface AgentRegistrationReservation {\n    readonly id: AgentId;\n    release(): void;\n}',
   },
   {
     name: 'AgentStatus',
@@ -802,6 +814,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionRegistrationReservation',
+    declaration: 'export interface SessionRegistrationReservation {\n    readonly id: SessionId;\n    prepare(options?: CreateSessionOptions): Session;\n    release(): void;\n}',
   },
   {
     name: 'SkillCandidate',

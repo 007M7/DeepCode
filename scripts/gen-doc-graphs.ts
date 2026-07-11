@@ -246,6 +246,13 @@ const SERVICE_ROLES: ServiceRole[] = [
 ]
 
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
+  // Creation notifications preserve synchronous veto/rollback but observe
+  // returned promises explicitly so async listener rejection is not unhandled.
+  { event: 'agent/created', pkg: 'agent', method: 'events.dispatch' },
+  { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
+  // Session disposal uses direct callback resolution so teardown contains each
+  // synchronous throw and returned-promise rejection independently.
+  { event: 'session/disposed', pkg: 'session', method: 'events.dispatch' },
   // tools/result uses ctx.events.dispatch directly so the registry can await
   // every observer while containing each callback independently.
   { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },

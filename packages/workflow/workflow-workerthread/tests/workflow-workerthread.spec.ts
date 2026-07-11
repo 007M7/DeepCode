@@ -585,6 +585,41 @@ describe('dsh-workflow-workerthread', () => {
       await second.dispose()
     })
 
+    it('removes the exact external abort callback on first settlement or teardown', async () => {
+      const { ctx, parent } = await setup()
+      const settledController = new AbortController()
+      const settledAdd = vi.spyOn(settledController.signal, 'addEventListener')
+      const settledRemove = vi.spyOn(settledController.signal, 'removeEventListener')
+      const completed = ctx.workflows.start({ ...scripted('return 123'), parent, signal: settledController.signal })
+      const settledAbort = settledAdd.mock.calls.find(([type]) => type === 'abort')?.[1]
+      expect(typeof settledAbort).toBe('function')
+
+      await expect(completed.result).resolves.toMatchObject({ value: 123, stopReason: 'completed' })
+      expect(settledRemove).toHaveBeenCalledWith('abort', settledAbort)
+      const cancelAfterSettle = vi.spyOn(completed, 'cancel')
+      settledController.abort()
+      expect(cancelAfterSettle).not.toHaveBeenCalled()
+      cancelAfterSettle.mockRestore()
+      await completed.dispose()
+
+      const manual = await setup({ manual: true })
+      const teardownController = new AbortController()
+      const teardownAdd = vi.spyOn(teardownController.signal, 'addEventListener')
+      const teardownRemove = vi.spyOn(teardownController.signal, 'removeEventListener')
+      const tornDown = manual.ctx.workflows.start({
+        ...scripted("return await agent('job')"),
+        parent: manual.parent,
+        signal: teardownController.signal,
+      })
+      await waitFor(() => { expect(manual.provider.runs).toHaveLength(1) })
+      const teardownAbort = teardownAdd.mock.calls.find(([type]) => type === 'abort')?.[1]
+      expect(typeof teardownAbort).toBe('function')
+
+      const disposing = tornDown.dispose()
+      expect(teardownRemove).toHaveBeenCalledWith('abort', teardownAbort)
+      await disposing
+    })
+
     it('a child-start racing the host cancel is refused: no child starts after cancellation', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
       // Cancel from INSIDE the log listener: the worker has already posted

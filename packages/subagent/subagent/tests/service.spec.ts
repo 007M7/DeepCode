@@ -150,6 +150,93 @@ describe('SubagentService', () => {
     }
   })
 
+  it.each([
+    { label: 'a non-string name', patch: { name: 42 }, message: 'name must be a string' },
+    { label: 'null capabilities', patch: { capabilities: null }, message: 'capabilities must be an object' },
+    { label: 'primitive capabilities', patch: { capabilities: 42 }, message: 'capabilities must be an object' },
+    { label: 'array capabilities', patch: { capabilities: [] }, message: 'capabilities must be an object' },
+    {
+      label: 'a non-boolean outputSchema capability',
+      patch: { capabilities: { ...NO_CAPS, outputSchema: 'yes' } },
+      message: 'capability "outputSchema" must be a boolean',
+    },
+    {
+      label: 'a non-boolean depthLimit capability',
+      patch: { capabilities: { ...NO_CAPS, depthLimit: 'yes' } },
+      message: 'capability "depthLimit" must be a boolean',
+    },
+    {
+      label: 'a non-boolean toolFilter capability',
+      patch: { capabilities: { ...NO_CAPS, toolFilter: 'yes' } },
+      message: 'capability "toolFilter" must be a boolean',
+    },
+    {
+      label: 'a non-boolean persona capability',
+      patch: { capabilities: { ...NO_CAPS, persona: 'yes' } },
+      message: 'capability "persona" must be a boolean',
+    },
+    { label: 'a non-boolean context descriptor', patch: { inheritsParentContext: 'yes' }, message: 'inheritsParentContext must be a boolean' },
+    { label: 'a non-callable start field', patch: { start: 42 }, message: 'start must be a function' },
+  ])('rejects a provider registration with $label before entering the registry', async ({ patch, message }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const provider = Object.assign(new StubProvider('invalid'), patch)
+
+    expect(() => ctx.subagents.registerProvider(provider as unknown as SubagentProvider)).toThrow(message)
+    expect(ctx.subagents.list()).toEqual([])
+    expect(Object.isFrozen(provider)).toBe(false)
+  })
+
+  it('reads every registration field once and binds the accepted start callback to the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const reads = {
+      name: 0,
+      capabilities: 0,
+      outputSchema: 0,
+      depthLimit: 0,
+      toolFilter: 0,
+      persona: 0,
+      inheritsParentContext: 0,
+      start: 0,
+    }
+    const capabilities = Object.defineProperties({}, {
+      outputSchema: { enumerable: true, get: () => { reads.outputSchema += 1; return false } },
+      depthLimit: { enumerable: true, get: () => { reads.depthLimit += 1; return false } },
+      toolFilter: { enumerable: true, get: () => { reads.toolFilter += 1; return false } },
+      persona: { enumerable: true, get: () => { reads.persona += 1; return false } },
+    }) as SubagentCapabilities
+    const acceptedStart = function (this: SubagentProvider, request: SubagentStartRequest): SubagentRun {
+      expect(this).toBe(provider)
+      return {
+        id: AgentId(`one-read:${request.parent.id}`),
+        started: Promise.resolve(),
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        cancel() {},
+        async dispose() {},
+      }
+    }
+    const provider = Object.defineProperties({}, {
+      name: { enumerable: true, get: () => { reads.name += 1; return 'one-read' } },
+      capabilities: { enumerable: true, get: () => { reads.capabilities += 1; return capabilities } },
+      inheritsParentContext: { enumerable: true, get: () => { reads.inheritsParentContext += 1; return false } },
+      start: { enumerable: true, get: () => { reads.start += 1; return acceptedStart } },
+    }) as SubagentProvider
+
+    ctx.subagents.registerProvider(provider)
+    await expect(ctx.subagents.start('one-read', baseRequest()).result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(reads).toEqual({
+      name: 1,
+      capabilities: 1,
+      outputSchema: 1,
+      depthLimit: 1,
+      toolFilter: 1,
+      persona: 1,
+      inheritsParentContext: 1,
+      start: 1,
+    })
+  })
+
   it('unregisters a provider when its owning fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
@@ -608,6 +695,178 @@ describe('SubagentService', () => {
     })
   })
 
+  it.each([
+    { label: 'a non-string id', field: 'id', value: 42, message: 'run id must be a string' },
+    { label: 'a non-Promise started field', field: 'started', value: undefined, message: 'run started must be a Promise' },
+    { label: 'a non-Promise result field', field: 'result', value: undefined, message: 'run result must be a Promise' },
+    { label: 'a non-callable cancel field', field: 'cancel', value: undefined, message: 'run cancel must be a function' },
+    { label: 'a non-callable sendMessage field', field: 'sendMessage', value: 42, message: 'run sendMessage must be a function' },
+    { label: 'a non-callable resume field', field: 'resume', value: 42, message: 'run resume must be a function' },
+  ])('rolls back a provider run with $label', async ({ field, value, message }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const providerDispose = vi.fn(async () => {})
+    const providerRun = {
+      id: AgentId('invalid-handle-child'),
+      started: Promise.resolve(),
+      result: Promise.resolve({ output: [], stopReason: 'completed' } satisfies SubagentResult),
+      cancel() {},
+      dispose: providerDispose,
+      [field]: value,
+    } as unknown as SubagentRun
+    ctx.subagents.registerProvider({
+      name: 'invalid-handle',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => providerRun,
+    })
+
+    expect(() => ctx.subagents.start('invalid-handle', baseRequest())).toThrow(message)
+    expect(providerDispose).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { label: 'null', value: null },
+    { label: 'a primitive', value: 42 },
+  ])('rejects $label returned by provider.start before reading a disposer', async ({ value }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'invalid-run-shell',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => value as unknown as SubagentRun,
+    })
+
+    expect(() => ctx.subagents.start('invalid-run-shell', baseRequest())).toThrow('must return a SubagentRun object')
+  })
+
+  it('rejects a run without a callable disposer before accepting ownership', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'invalid-dispose',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({ dispose: 42 }) as unknown as SubagentRun,
+    })
+
+    expect(() => ctx.subagents.start('invalid-dispose', baseRequest())).toThrow('run dispose must be a function')
+  })
+
+  it('observes accepted provider promises when a later handle field is malformed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const providerDispose = vi.fn(async () => {})
+    ctx.subagents.registerProvider({
+      name: 'rejected-malformed-handle',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('rejected-malformed-child'),
+        started: Promise.reject(new Error('readiness already rejected')),
+        result: Promise.reject(new Error('result already rejected')),
+        cancel: 42,
+        dispose: providerDispose,
+      }) as unknown as SubagentRun,
+    })
+
+    expect(() => ctx.subagents.start('rejected-malformed-handle', baseRequest())).toThrow('run cancel must be a function')
+    expect(providerDispose).toHaveBeenCalledOnce()
+    // Let both provider rejections run: the seam's immediate observers keep
+    // them from surfacing as unhandled after no wrapper was returned.
+    await Promise.resolve()
+  })
+
+  it('starts rollback before surfacing a hostile run accessor failure', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const disposalGate = Promise.withResolvers<undefined>()
+    const order: string[] = []
+    const providerRun = Object.defineProperties({}, {
+      dispose: {
+        get: () => {
+          order.push('dispose:get')
+          return async function (this: SubagentRun): Promise<void> {
+            expect(this).toBe(providerRun)
+            order.push('dispose:call')
+            await disposalGate.promise
+            order.push('dispose:quiescent')
+          }
+        },
+      },
+      id: { get: () => { order.push('id:get'); return AgentId('hostile-handle-child') } },
+      started: { get: () => { order.push('started:get'); return Promise.resolve() } },
+      result: { get: () => { order.push('result:get'); throw new Error('result accessor exploded') } },
+    }) as SubagentRun
+    ctx.subagents.registerProvider({
+      name: 'hostile-handle',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => providerRun,
+    })
+
+    expect(() => ctx.subagents.start('hostile-handle', baseRequest())).toThrow('result accessor exploded')
+    expect(order).toEqual(['dispose:get', 'id:get', 'started:get', 'result:get', 'dispose:call'])
+    disposalGate.resolve(undefined)
+    await vi.waitFor(() => { expect(order).toContain('dispose:quiescent') })
+  })
+
+  it('rolls back when binding a hostile optional run method fails', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const providerDispose = vi.fn(async () => {})
+    const hostileCancel = new Proxy(() => {}, {
+      get(_target, property) {
+        if (property === 'length') throw new Error('cancel bind exploded')
+        return undefined
+      },
+    })
+    ctx.subagents.registerProvider({
+      name: 'hostile-bind',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('hostile-bind-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        cancel: hostileCancel,
+        dispose: providerDispose,
+      }),
+    })
+
+    expect(() => ctx.subagents.start('hostile-bind', baseRequest())).toThrow('cancel bind exploded')
+    expect(providerDispose).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { label: 'an Error', thrown: new Error('cleanup exploded'), warning: 'cleanup exploded' },
+    { label: 'a non-Error value', thrown: 'naked cleanup fault', warning: 'dispose threw a non-Error value' },
+  ])('contains rollback failure from $label while preserving the malformed-handle fault', async ({ thrown, warning }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    ctx.subagents.registerProvider({
+      name: 'rollback-failure',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: 42,
+        started: Promise.resolve(),
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        cancel() {},
+        dispose: () => {
+          // Deliberately violate the seam contract to exercise normalization.
+          throw thrown
+        },
+      }) as unknown as SubagentRun,
+    })
+
+    expect(() => ctx.subagents.start('rollback-failure', baseRequest())).toThrow('run id must be a string')
+    await vi.waitFor(() => { expect(warnings.some(message => message.includes(warning))).toBe(true) })
+  })
+
   it('waits for provider readiness and observes an early result rejection without reordering lifecycle', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
@@ -811,6 +1070,8 @@ describe('SubagentService', () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     const nonJsonOutput = [{ type: 'text', text: 'x', evil: () => 0 }] as unknown as SubagentResult['output']
+    const disposalGate = Promise.withResolvers<undefined>()
+    const providerDispose = vi.fn(async () => { await disposalGate.promise })
     ctx.subagents.registerProvider({
       name: 'unclone',
       capabilities: NO_CAPS,
@@ -820,16 +1081,23 @@ describe('SubagentService', () => {
         started: Promise.resolve(),
         result: Promise.resolve({ output: nonJsonOutput, stopReason: 'completed' } as SubagentResult),
         cancel() {},
-        dispose: async () => {},
+        dispose: providerDispose,
       }),
     })
 
     const ended = vi.fn()
     ctx.on('subagent/end', ended)
     const run = ctx.subagents.start('unclone', baseRequest())
+    let resultSettled = false
+    void run.result.catch(() => { resultSettled = true })
+    await vi.waitFor(() => { expect(providerDispose).toHaveBeenCalledOnce() })
+    expect(resultSettled).toBe(false)
+    disposalGate.resolve(undefined)
     await expect(run.result).rejects.toThrow('subagent result must be losslessly JSON-serializable')
+    await run.dispose()
     await Promise.resolve()
 
+    expect(providerDispose).toHaveBeenCalledOnce()
     const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
     expect(endInfo.stopReason).toBe('error')
     expect('lastAssistantMessage' in endInfo).toBe(false)
@@ -920,6 +1188,42 @@ describe('SubagentService', () => {
     await run.started
     expect(second).toHaveBeenCalledWith(expect.objectContaining({ provider: 'contain', id: run.id }))
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+  })
+
+  it('contains asynchronous lifecycle-listener rejections without serializing later listeners', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const laterStart = vi.fn()
+    const laterEnd = vi.fn()
+    const laterRemoved = vi.fn()
+    const asyncStart = (async () => { await Promise.resolve(); throw new Error('async start listener') }) as unknown as () => void
+    const asyncEnd = (async () => { await Promise.resolve(); throw new Error('async end listener') }) as unknown as () => void
+    const asyncRemoved = (async () => { await Promise.resolve(); throw new Error('async removed listener') }) as unknown as () => void
+    ctx.on('subagent/start', asyncStart)
+    ctx.on('subagent/start', laterStart)
+    ctx.on('subagent/end', asyncEnd)
+    ctx.on('subagent/end', laterEnd)
+    ctx.on('subagent/provider-removed', asyncRemoved)
+    ctx.on('subagent/provider-removed', laterRemoved)
+    const unregister = ctx.subagents.registerProvider(new StubProvider('async-listeners'))
+
+    const run = ctx.subagents.start('async-listeners', baseRequest())
+    await run.started
+    expect(laterStart).toHaveBeenCalledOnce()
+    await run.result
+    await vi.waitFor(() => {
+      expect(laterEnd).toHaveBeenCalledOnce()
+      expect(warnings.some(message => message.includes('async start listener'))).toBe(true)
+      expect(warnings.some(message => message.includes('async end listener'))).toBe(true)
+    })
+
+    await unregister()
+    expect(laterRemoved).toHaveBeenCalledWith('async-listeners')
+    await vi.waitFor(() => {
+      expect(warnings.some(message => message.includes('async removed listener'))).toBe(true)
+    })
   })
 
   it('contains a listener whose thrown value cannot be stringified', async () => {

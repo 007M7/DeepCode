@@ -197,6 +197,35 @@ describe('agent scope lifecycle', () => {
     await handle.dispose()
   })
 
+  it('makes setup-time publication structurally impossible through public stores', async () => {
+    const ctx = await harness()
+    const lifecycle: string[] = []
+    ctx.on('session/created', () => void lifecycle.push('session'))
+    ctx.on('agent/created', () => void lifecycle.push('agent'))
+
+    const handle = await ctx.agents.create({
+      agentId: AgentId('guarded-publication'),
+      sessionId: SessionId('guarded-publication-s'),
+      agentOptions: { model: 'mock' },
+      setup: (agentCtx) => {
+        const agent = agentCtx.agent!
+        expect(() => agentCtx.agents.enter(agent)).toThrow(/reserved for unpublished creation/)
+        expect(() => agentCtx.agents.register(agent)).toThrow(/reserved for unpublished creation/)
+        expect(() => agentCtx.sessions.enter(agent.session)).toThrow(/reserved for unpublished creation/)
+        expect(() => agentCtx.sessions.prepare(agent.session.id)).toThrow(/reserved for unpublished creation/)
+        expect(() => agentCtx.sessions.create(agent.session.id)).toThrow(/reserved for unpublished creation/)
+        expect(lifecycle).toEqual([])
+        expect(ctx.agents.get(agent.id)).toBeUndefined()
+        expect(ctx.sessions.get(agent.session.id)).toBeUndefined()
+      },
+    })
+
+    expect(lifecycle).toEqual(['session', 'agent'])
+    expect(ctx.agents.get(handle.agent.id)).toBe(handle.agent)
+    expect(ctx.sessions.get(handle.agent.session.id)).toBe(handle.agent.session)
+    await handle.dispose()
+  })
+
   it('structurally rejects every driving verb during setup', async () => {
     const ctx = await harness()
     const handle = await ctx.agents.create({
@@ -355,6 +384,33 @@ describe('agent scope lifecycle', () => {
     const retry = await ctx.agents.create({ agentId: AgentId('bad'), sessionId: SessionId('bad-s'), agentOptions: { model: 'mock' } })
     expect(scopeOf(retry.agent.ctx)).toBe(retry.agent)
     await retry.dispose()
+  })
+
+  it('pairs session and agent announcements when agent creation aborts publication', async () => {
+    const ctx = await harness()
+    const lifecycle: string[] = []
+    ctx.on('session/created', (session) => { lifecycle.push(`session-created:${session.id}`) })
+    ctx.on('session/disposed', (session) => { lifecycle.push(`session-disposed:${session.id}`) })
+    ctx.on('agent/created', (agent) => {
+      lifecycle.push(`agent-created:${agent.id}`)
+      throw new Error('agent observer failed')
+    })
+    ctx.on('agent/disposed', (agent) => { lifecycle.push(`agent-disposed:${agent.id}`) })
+
+    await expect(ctx.agents.create({
+      agentId: AgentId('partial-agent'),
+      sessionId: SessionId('partial-session'),
+      agentOptions: { model: 'mock' },
+    })).rejects.toThrow('agent observer failed')
+
+    expect(lifecycle).toEqual([
+      'session-created:partial-session',
+      'agent-created:partial-agent',
+      'agent-disposed:partial-agent',
+      'session-disposed:partial-session',
+    ])
+    expect(ctx.agents.get(AgentId('partial-agent'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('partial-session'))).toBeUndefined()
   })
 
   it('the synchronous config helper rolls back when publication throws', async () => {

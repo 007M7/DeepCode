@@ -130,6 +130,9 @@ export class WorkerRun implements WorkflowRun {
   private readonly quiescenceWaiters: (() => void)[] = []
   /** The per-run abort fanout every child start request carries. */
   private readonly controller = new AbortController()
+  /** External start signal and the exact callback installed on it, retained only until first settle/teardown. */
+  private inputSignal: AbortSignal | undefined
+  private inputSignalAbort: (() => void) | undefined
   private disposed: Promise<void> | undefined
 
   constructor(
@@ -159,8 +162,14 @@ export class WorkerRun implements WorkflowRun {
     })
     if (signal?.aborted) {
       this.cancel('workflow start signal already aborted')
-    } else {
-      signal?.addEventListener('abort', () => { this.cancel('workflow signal aborted') }, { once: true })
+    } else if (signal !== undefined) {
+      const onAbort = (): void => {
+        this.detachInputSignal()
+        this.cancel('workflow signal aborted')
+      }
+      this.inputSignal = signal
+      this.inputSignalAbort = onAbort
+      signal.addEventListener('abort', onAbort, { once: true })
     }
   }
 
@@ -217,6 +226,7 @@ export class WorkerRun implements WorkflowRun {
    */
   dispose(): Promise<void> {
     this.disposed ??= (async () => {
+      this.detachInputSignal()
       this.cancel('workflow disposed')
       for (const [callId, run] of [...this.children]) void this.disposeChild(callId, run)
       await Promise.race([
@@ -522,10 +532,21 @@ export class WorkerRun implements WorkflowRun {
     return { value: null, stopReason: 'cancelled', error: `workflow run cancelled: ${reason}`, agentsStarted }
   }
 
-  /** First settle wins; disarms the grace timer. */
+  /** Remove the exact abort callback installed on the caller's start signal. */
+  private detachInputSignal(): void {
+    const signal = this.inputSignal
+    const onAbort = this.inputSignalAbort
+    if (signal === undefined || onAbort === undefined) return
+    this.inputSignal = undefined
+    this.inputSignalAbort = undefined
+    signal.removeEventListener('abort', onAbort)
+  }
+
+  /** First settle wins; disarms the grace timer and releases the caller signal. */
   private settleResult(result: WorkflowResult): void {
     if (this.settled) return
     this.settled = true
+    this.detachInputSignal()
     clearTimeout(this.graceTimer)
     this.settleResolve(result)
   }

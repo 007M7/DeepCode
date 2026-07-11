@@ -234,11 +234,41 @@ function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined, knownN
     name === TOOL_ORDER_REST ? rest : tools.filter(tool => tool.name === name))
 }
 
+/** Snapshot one waterfall-produced named entry with a stable, own data `name`. */
+function snapshotNamedEntry<T extends { name: string }>(entry: T): { entry: T; name: string } {
+  // Read the name exactly once before protection matching. The waterfall owns
+  // its output and may return accessor-backed records; retaining such an entry
+  // would let a getter answer "unprotected" during filtering and the protected
+  // name later when a consumer reads the final assembly.
+  const name = entry.name
+  const snapshot: Record<string, unknown> = {}
+  Object.defineProperty(snapshot, 'name', {
+    value: name,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  })
+  // Copy every other enumerable field once while deliberately skipping name.
+  // defineProperty keeps a literal "__proto__" extension field ordinary data.
+  for (const key of Object.keys(entry)) {
+    if (key === 'name') continue
+    Object.defineProperty(snapshot, key, {
+      value: (entry as unknown as Record<string, unknown>)[key],
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  }
+  return { entry: snapshot as T, name }
+}
+
 /** Restore protected named entries from `canonical`, anchored before their next unprotected canonical neighbor. */
 function restoreProtected<T extends { name: string }>(
   canonical: readonly T[], result: readonly T[], protectedNames: ReadonlySet<string>,
 ): T[] {
-  const restored = result.filter(entry => !protectedNames.has(entry.name))
+  const restored = result
+    .map(snapshotNamedEntry)
+    .filter(record => !protectedNames.has(record.name))
   for (const [index, entry] of canonical.entries()) {
     if (!protectedNames.has(entry.name)) continue
     // Protected entries are inserted in canonical order. Anchor each one
@@ -251,9 +281,29 @@ function restoreProtected<T extends { name: string }>(
         .map(candidate => candidate.name),
     )
     const next = restored.findIndex(candidate => following.has(candidate.name))
-    restored.splice(next < 0 ? restored.length : next, 0, structuredClone(entry))
+    restored.splice(next < 0 ? restored.length : next, 0, {
+      entry: structuredClone(entry),
+      name: entry.name,
+    })
   }
-  return restored
+  return restored.map(record => record.entry)
+}
+
+/** Validate and detach one protection-name array without rereading an element. */
+function snapshotProtectionNames(value: unknown, field: 'sections' | 'tools'): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`systemPrompt.protect() ${field} must be an array of strings`)
+  }
+  const names: string[] = []
+  const length = value.length
+  for (let index = 0; index < length; index += 1) {
+    const name: unknown = value[index]
+    if (typeof name !== 'string') {
+      throw new TypeError(`systemPrompt.protect() ${field} must be an array of strings`)
+    }
+    names.push(name)
+  }
+  return Object.freeze([...new Set(names)])
 }
 
 /** Lexicographic (code-unit) name comparison — locale-independent, so the order is identical on every machine. */
@@ -433,9 +483,10 @@ export class SystemPrompt extends Service {
    * `deployment:persona`) unless that global name is protected: global
    * protection reserves its section name against scoped shadows so the
    * registration owner—not a later scope—defines the canonical value. The
-   * registry snapshots `name`, `order`, and `text` before checking/storing, so
-   * later caller-object mutation cannot rename a contribution. Throws
-   * if the SAME layer already has the name (a
+   * registry reads `name`, `order`, and `text` once, validates their fixed
+   * string/finite-number/string-or-function types, and stores only that
+   * accepted record, so later caller-object mutation cannot rename or reshape
+   * a contribution. Throws if the SAME layer already has the name (a
    * duplicate would silently double prompt text — e.g. a double-loaded tool
    * plugin; the global-duplicate message names `agent.ctx` as the per-agent
    * alternative). Removed when the calling fiber is disposed. Emits
@@ -446,12 +497,23 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   section(section: PromptSection): () => Promise<void> | void {
-    const scope = scopeOf(this.ctx)
-    const snapshot: PromptSection = {
-      name: section.name,
-      order: section.order,
-      text: section.text,
+    const input: unknown = section
+    if (typeof input !== 'object' || input === null) {
+      throw new TypeError('systemPrompt.section() requires a section object')
     }
+    const accepted = input as PromptSection
+    const name = accepted.name
+    const order = accepted.order
+    const text = accepted.text
+    if (typeof name !== 'string') throw new TypeError('prompt section name must be a string')
+    if (typeof order !== 'number' || !Number.isFinite(order)) {
+      throw new TypeError(`prompt section "${name}" order must be a finite number`)
+    }
+    if (typeof text !== 'string' && typeof text !== 'function') {
+      throw new TypeError(`prompt section "${name}" text must be a string or function`)
+    }
+    const scope = scopeOf(this.ctx)
+    const snapshot: PromptSection = { name, order, text }
     if (scope !== undefined && this.protections.some(record => record.sections?.includes(snapshot.name))) {
       throw new Error(`prompt section "${snapshot.name}" is globally protected and cannot be shadowed in an agent scope`)
     }
@@ -498,7 +560,8 @@ export class SystemPrompt extends Service {
    * `schemas`/`knownNames` split). The layer is decided by the calling
    * context: a scoped provider (registered through `agent.ctx`) is consulted
    * only for that scope's assemblies. Removed when the calling fiber is
-   * disposed. A provider must not return a schema named
+   * disposed. A non-function provider is rejected before any effect is stored.
+   * A provider must not return a schema named
    * {@link TOOL_ORDER_REST}; that name is reserved for
    * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
    * `system-prompt/change`.
@@ -508,6 +571,9 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void {
+    if (typeof provider !== 'function') {
+      throw new TypeError('system prompt tool provider must be a function')
+    }
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -545,10 +611,11 @@ export class SystemPrompt extends Service {
    * deployment must not claim facts it does not have). The layer is decided
    * by the calling context: a scoped variable (registered through
    * `agent.ctx`) resolves only for that scope's assemblies and SHADOWS a
-   * same-named global variable there. Throws on a name that does not match
-   * `[a-z][a-z0-9_]*` (it could never be referenced) or one already
-   * registered in the SAME layer. Removed when the calling fiber is disposed;
-   * emits `system-prompt/change` on register/unregister.
+   * same-named global variable there. The fixed name and callback types are
+   * validated before effect storage. Throws on a name that does not match
+   * `[a-z][a-z0-9_]*` (it could never be referenced) or one already registered
+   * in the SAME layer. Removed when the calling fiber is disposed; emits
+   * `system-prompt/change` on register/unregister.
    * @param name - the reference name (matches `[a-z][a-z0-9_]*`).
    * @param provider - evaluated at every {@link assemble} for the value.
    * @returns the disposer that removes the variable. The exact
@@ -556,11 +623,16 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void {
+    const inputName: unknown = name
+    if (typeof inputName !== 'string') throw new TypeError('prompt variable name must be a string')
+    if (!VARIABLE_NAME.test(inputName)) {
+      throw new Error(`invalid prompt variable name "${inputName}" (must match ${String(VARIABLE_NAME)})`)
+    }
+    if (typeof provider !== 'function') {
+      throw new TypeError(`prompt variable "${inputName}" provider must be a function`)
+    }
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      if (!VARIABLE_NAME.test(name)) {
-        throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
-      }
       const layer = scope === undefined
         ? this.variableProviders
         : this.scopedVariableProviders.get(scope) ?? (() => {
@@ -599,9 +671,13 @@ export class SystemPrompt extends Service {
    * restored AFTER the whole waterfall, so listener registration order cannot
    * strip, replace, duplicate, or fabricate it. Canonical absence is restored
    * too: if the protected name is intentionally absent for an assembly, a
-   * listener-injected entry with that name is removed. Each input array is
-   * read once and snapshotted; an empty protection throws because it cannot
-   * affect output.
+   * listener-injected entry with that name is removed. Each optional field and
+   * array slot is read once; non-array fields or non-string names reject before
+   * effect storage, and the accepted deduplicated arrays are frozen. During
+   * finalization each waterfall-produced entry name is likewise read once into
+   * an owned data record, so a stateful getter cannot look unprotected during
+   * filtering and later impersonate a protected name. An empty protection
+   * throws because it cannot affect output.
    * Removed with the calling fiber and emits `system-prompt/change` on
    * registration/unregistration. A global section protection also reserves the
    * name against scoped section shadows; registering protection when such a
@@ -610,13 +686,24 @@ export class SystemPrompt extends Service {
    * @returns the exact Cordis effect disposer that removes the protection.
    */
   protect(protection: PromptProtection): () => Promise<void> | void {
-    const scope = scopeOf(this.ctx)
-    const sections = protection.sections
-    const tools = protection.tools
-    const snapshot: PromptProtection = {
-      ...sections !== undefined ? { sections: [...new Set(sections)] } : {},
-      ...tools !== undefined ? { tools: [...new Set(tools)] } : {},
+    const input: unknown = protection
+    if (typeof input !== 'object' || input === null) {
+      throw new TypeError('systemPrompt.protect() requires a protection object')
     }
+    const accepted = input as PromptProtection
+    const inputSections = accepted.sections
+    const inputTools = accepted.tools
+    const sections = inputSections === undefined
+      ? undefined
+      : snapshotProtectionNames(inputSections, 'sections')
+    const tools = inputTools === undefined
+      ? undefined
+      : snapshotProtectionNames(inputTools, 'tools')
+    const scope = scopeOf(this.ctx)
+    const snapshot: PromptProtection = Object.freeze({
+      ...sections !== undefined ? { sections } : {},
+      ...tools !== undefined ? { tools } : {},
+    })
     if ((snapshot.sections?.length ?? 0) === 0 && (snapshot.tools?.length ?? 0) === 0) {
       throw new Error('systemPrompt.protect() requires at least one section or tool name')
     }

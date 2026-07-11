@@ -171,6 +171,20 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
   return (ctx as Context & { [kScope]?: ScopeKey })[kScope]
 }
 
+/** Whether a callable has JavaScript's internal construction capability. */
+function isConstructable(value: (...args: unknown[]) => unknown): boolean {
+  try {
+    // A Proxy has [[Construct]] iff its target does. Its trap returns before
+    // the engine invokes `value` or reads `value.prototype`, so a hostile but
+    // constructable callable cannot be mistaken for a non-constructor.
+    Reflect.construct(new Proxy(value, { construct: () => ({}) }), [])
+    return true
+  } catch {
+    // The harmless outer trap leaves lack of [[Construct]] as the only failure.
+    return false
+  }
+}
+
 /**
  * Build the dispatch carrier for a scope-filtered event: `base` overlaid with
  * a `Context.filter` that admits a listener iff
@@ -206,7 +220,10 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
  * @returns the carrier to pass as the dispatch `thisArg`.
  */
 export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined): Scoped<T> {
-  const baseFilter = (base as { [CordisContext.filter]?: (ctx: Context) => boolean })[CordisContext.filter]
+  const baseFilter: unknown = (base as { [CordisContext.filter]?: unknown })[CordisContext.filter]
+  if (baseFilter !== undefined && typeof baseFilter !== 'function') {
+    throw new TypeError('scope target Context.filter must be a function when present')
+  }
   const filter = (ctx: Context): boolean => {
     if (baseFilter && !baseFilter.call(base, ctx)) return false
     const tag = scopeOf(ctx)
@@ -214,34 +231,57 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
   }
   const overlay: Record<string | symbol, unknown> = {
     [CordisContext.filter]: filter,
-    [kCarrier]: { key },
+    [kCarrier]: Object.freeze({ key }),
   }
-  // A hand-rolled proxy, NOT cordis withProps: withProps delegates gets with
-  // the PROXY as receiver, so a getter on `base` runs with proxy `this` and a
-  // method call through the carrier gets a proxy receiver — either one throws
-  // on a native `#private` field of the subject (TypeError: private member
-  // not declared). Cordis hands the carrier to listeners as `this`, and the
-  // event declarations type it `Scoped<Agent>` — so subject method calls
-  // through it are a SUPPORTED shape and must reach the real object: gets
-  // delegate with `base` as receiver, functions come back bound to `base`,
-  // and sets land on `base` directly.
-  return new Proxy(base, {
+  // Use a dedicated extensible proxy TARGET, never `base` itself. Proxy get
+  // invariants force a trap to return a base's non-configurable/non-writable
+  // own value verbatim; if a caller pinned Context.filter during or after
+  // construction, a base-target proxy would therefore silently replace the
+  // composed scope predicate with the caller's filter. The surrogate owns the
+  // two immutable overlay slots, so later descriptor changes on `base` cannot
+  // affect isolation. It shares the base prototype and delegates ordinary
+  // reads/writes/keys to preserve the supported transparent shape. Callable
+  // targets use native bound built-ins so V8 contributes no user-code surface;
+  // the chosen built-in matches whether `base` has [[Construct]], and the traps
+  // below delegate the actual call/construction to `base`.
+  const callableBase = typeof base === 'function'
+    ? base as unknown as (...args: unknown[]) => unknown
+    : undefined
+  const constructable = callableBase !== undefined && isConstructable(callableBase)
+  const target: object = callableBase === undefined
+    ? {}
+    : constructable
+      ? Object.bind(undefined)
+      : Math.max.bind(undefined)
+  Reflect.setPrototypeOf(target, Reflect.getPrototypeOf(base))
+  Object.defineProperties(target, {
+    [CordisContext.filter]: {
+      value: filter,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    },
+    [kCarrier]: {
+      value: overlay[kCarrier],
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    },
+  })
+  const carrier = new Proxy(target, {
     get(target, prop) {
-      // Proxy get invariants pin what this trap may report for a
-      // non-configurable OWN property of the base: a non-writable data prop
-      // must be reported AS-IS (neither overlaid nor bound), a getterless
-      // accessor as undefined — checked FIRST so even an overlay key
-      // colliding with a frozen own prop of a (pathological) base yields the
-      // base's value instead of an engine TypeError. Such a base forgoes
-      // scope filtering; no production base freezes these keys.
+      // The callable surrogate has engine-owned pinned properties (`prototype`,
+      // `caller`, …); honor those target invariants. For object carriers the
+      // only pinned target properties are the exact overlay values above.
       const own = Reflect.getOwnPropertyDescriptor(target, prop)
       const pinned = own !== undefined && own.configurable === false
         && own.get === undefined && own.writable !== true
-      // hasOwn, not `in`: the overlay literal inherits Object.prototype, so
-      // `in` would claim `toString`/`constructor` and shadow the subject's.
-      if (!pinned && Object.hasOwn(overlay, prop)) return overlay[prop]
-      const value: unknown = Reflect.get(target, prop, target)
-      if (typeof value !== 'function' || pinned) return value
+      if (pinned) {
+        const value: unknown = Reflect.get(target, prop, target)
+        return value
+      }
+      const value: unknown = Reflect.get(base, prop, base)
+      if (typeof value !== 'function') return value
       // `constructor` is looked up, never invoked as a subject method — keep
       // the real one (withProps special-cases it the same way), so
       // `carrier.constructor` still identifies the subject's class.
@@ -249,12 +289,66 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
       // `Function.prototype.bind` types as `any`; the value is structurally
       // T[prop] and the trap's contract is untyped (`any`), so unknown is the
       // honest safe return.
-      return value.bind(target) as unknown
+      return value.bind(base) as unknown
     },
-    set(target, prop, value) {
-      return Reflect.set(target, prop, value, target)
+    set(_target, prop, value) {
+      if (Object.hasOwn(overlay, prop)) return false
+      return Reflect.set(base, prop, value, base)
     },
-  }) as Scoped<T>
+    has(_target, prop) {
+      // A Proxy may not hide a non-configurable target key. Configurable
+      // surrogate-only keys (bound-function name/length) are omitted; the
+      // base's own/inherited surface remains authoritative.
+      const own = Reflect.getOwnPropertyDescriptor(target, prop)
+      return own?.configurable === false || Reflect.has(base, prop)
+    },
+    ownKeys(target) {
+      const requiredTargetKeys = Reflect.ownKeys(target).filter((prop) => {
+        return Reflect.getOwnPropertyDescriptor(target, prop)?.configurable === false
+      })
+      return [...new Set([...requiredTargetKeys, ...Reflect.ownKeys(base)])]
+    },
+    getOwnPropertyDescriptor(target, prop) {
+      const targetDescriptor = Reflect.getOwnPropertyDescriptor(target, prop)
+      if (targetDescriptor?.configurable === false) return targetDescriptor
+      const baseDescriptor = Reflect.getOwnPropertyDescriptor(base, prop)
+      if (baseDescriptor !== undefined) return { ...baseDescriptor, configurable: true }
+      // Configurable surrogate-only function metadata is intentionally hidden.
+      return undefined
+    },
+    defineProperty(_target, prop, attributes) {
+      if (Object.hasOwn(overlay, prop)) return false
+      return Reflect.defineProperty(base, prop, attributes)
+    },
+    deleteProperty(_target, prop) {
+      if (Object.hasOwn(overlay, prop)) return false
+      return Reflect.deleteProperty(base, prop)
+    },
+    preventExtensions() {
+      // Keeping the surrogate extensible is required for ownKeys to report
+      // caller-owned base fields that may change over the carrier's lifetime.
+      return false
+    },
+    setPrototypeOf() {
+      // The carrier prototype and base delegation must not be split.
+      return false
+    },
+    apply(_target, thisArg, args) {
+      const callable = callableBase as (...values: unknown[]) => unknown
+      const result: unknown = Reflect.apply(callable, thisArg, args)
+      return result
+    },
+    construct(_target, args, newTarget) {
+      const constructor = callableBase as unknown as new (...values: unknown[]) => object
+      const result: unknown = Reflect.construct(
+        constructor,
+        args,
+        newTarget === carrier ? constructor : newTarget,
+      )
+      return result as object
+    },
+  })
+  return carrier as Scoped<T>
 }
 
 /**
@@ -266,10 +360,8 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
  * @returns true iff `value` came from {@link scopeTarget}.
  */
 export function isScopeCarrier(value: unknown): value is Scoped<object> {
-  if (typeof value !== 'object' || value === null) return false
-  // A property READ, not an `in` check: the carrier overlays its marks in the
-  // get trap only (no `has` trap), so `kCarrier in carrier` would fall
-  // through to the wrapped base and always answer false.
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false
+  // A property read checks the immutable marker owned by the surrogate target.
   return (value as { [kCarrier]?: { key: ScopeKey | undefined } })[kCarrier] !== undefined
 }
 

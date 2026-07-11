@@ -578,6 +578,17 @@ describe('Session', () => {
     expect(session.header).not.toBe(input)
     expect(Object.isFrozen(session.header)).toBe(true)
     expect(Reflect.set(session.header, 'cwd', '/published-mutated')).toBe(false)
+    expect(Reflect.set(session, 'id', SessionId('redirected'))).toBe(false)
+    expect(Reflect.set(session, 'header', input)).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(session, 'id')).toMatchObject({
+      configurable: false,
+      writable: false,
+    })
+    expect(Object.getOwnPropertyDescriptor(session, 'header')).toMatchObject({
+      configurable: false,
+      writable: false,
+    })
+    expect(session.id).toBe('header-owned')
     expect(session.header.cwd).toBe('/accepted')
   })
 
@@ -691,6 +702,10 @@ describe('SessionStore', () => {
     const session = ctx.sessions.create()
     expect(created).toEqual([session])
 
+    // The store-owned append observer is module-private. A JavaScript caller
+    // may create an unrelated property with the old implementation's name,
+    // but cannot suppress the durable event feed.
+    expect(Reflect.set(session, 'onAppend', undefined)).toBe(true)
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
     expect(events[0]![0]).toBe(session)
@@ -744,6 +759,114 @@ describe('SessionStore', () => {
     detach()
     detach() // idempotent: cannot disturb a later same-id lifecycle
     expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
+  })
+
+  it('captures the accepted id once and prevents simultaneous attachment to two stores', async () => {
+    const firstCtx = new Context()
+    const secondCtx = new Context()
+    await firstCtx.plugin(SessionStore)
+    await secondCtx.plugin(SessionStore)
+    const session = new Session(SessionId('owned-key'))
+    const detachFirst = firstCtx.sessions.enter(session)
+
+    expect(Reflect.set(session, 'id', SessionId('redirected'))).toBe(false)
+    expect(() => secondCtx.sessions.enter(session)).toThrow(/already attached to a store/)
+    expect(firstCtx.sessions.get(SessionId('owned-key'))).toBe(session)
+
+    detachFirst()
+    expect(firstCtx.sessions.get(SessionId('owned-key'))).toBeUndefined()
+    const detachSecond = secondCtx.sessions.enter(session)
+    expect(secondCtx.sessions.get(SessionId('owned-key'))).toBe(session)
+    detachSecond()
+
+    expect(() => firstCtx.sessions.enter({ id: 42 } as unknown as Session)).toThrow(/id must be a string/)
+  })
+
+  it('uses an opaque one-session reservation to gate unpublished factory insertion', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const held = ctx.sessions.reserve(SessionId('held-session'))
+
+    expect(() => ctx.sessions.reserve(SessionId('held-session'))).toThrow(/already exists or is reserved/)
+    expect(() => ctx.sessions.prepare(SessionId('held-session'))).toThrow(/reserved for unpublished creation/)
+    expect(() => ctx.sessions.create(SessionId('held-session'))).toThrow(/reserved for unpublished creation/)
+    const session = held.prepare({ meta: { cwd: '/held' } })
+    expect(() => held.prepare()).toThrow(/already prepared/)
+    expect(() => ctx.sessions.enter(session)).toThrow(/reserved for unpublished creation/)
+
+    const other = ctx.sessions.reserve(SessionId('other-session'))
+    expect(() => ctx.sessions.enter(session, other)).toThrow(/does not own this prepared session/)
+    expect(() => ctx.sessions.enter(new Session(SessionId('held-session')), held))
+      .toThrow(/does not own this prepared session/)
+
+    const detach = ctx.sessions.enter(session, held)
+    ctx.sessions.announce(session)
+    held.release()
+    held.release()
+    expect(ctx.sessions.get(SessionId('held-session'))).toBe(session)
+    expect(() => ctx.sessions.reserve(SessionId('held-session'))).toThrow(/already exists or is reserved/)
+    detach()
+    other.release()
+
+    const expired = ctx.sessions.reserve(SessionId('expired-session'))
+    expired.release()
+    expect(() => expired.prepare()).toThrow(/no longer active/)
+    expect(() => ctx.sessions.enter(new Session(SessionId('expired-session')), expired))
+      .toThrow(/does not own this prepared session/)
+    expect(() => ctx.sessions.reserve(42 as unknown as SessionId)).toThrow(/id must be a string/)
+    expect(() => ctx.sessions.prepare(42 as unknown as SessionId)).toThrow(/id must be a string/)
+
+    // Auto-generated ids skip unpublished reservations just as they skip live
+    // store entries; no hidden collision can be published later.
+    const firstAuto = ctx.sessions.reserve(SessionId('session-1'))
+    expect(ctx.sessions.prepare().id).toBe('session-2')
+    firstAuto.release()
+  })
+
+  it('owns reservations by the calling fiber and rolls back failed ownership registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let held!: import('@deepseek-ai/dsh-session').SessionRegistrationReservation
+    let scopedSessions!: SessionStore
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      scopedSessions = inner.sessions
+      held = inner.sessions.reserve(SessionId('fiber-held'))
+    }, { inject: ['sessions'] }))
+
+    expect(() => ctx.sessions.reserve(SessionId('fiber-held'))).toThrow(/already exists or is reserved/)
+    await owner.dispose()
+    const reused = ctx.sessions.reserve(SessionId('fiber-held'))
+    reused.release()
+    held.release() // idempotent after the automatic owner-disposal release
+
+    expect(() => scopedSessions.reserve(SessionId('inactive-owner'))).toThrow(/inactive context/)
+    const recovered = ctx.sessions.reserve(SessionId('inactive-owner'))
+    recovered.release()
+  })
+
+  it('rejects direct and reentrant repeat announcements to preserve one lifecycle pair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let created = 0
+    let disposed = 0
+    let reentrantError = ''
+    ctx.on('session/created', (session) => {
+      created += 1
+      try {
+        ctx.sessions.announce(session)
+      } catch (error: unknown) {
+        reentrantError = String(error)
+      }
+    })
+    ctx.on('session/disposed', () => { disposed += 1 })
+
+    const session = ctx.sessions.prepare(SessionId('once'))
+    const detach = ctx.sessions.enter(session)
+    ctx.sessions.announce(session)
+    expect(reentrantError).toMatch(/already announced/)
+    expect(() => { ctx.sessions.announce(session) }).toThrow(/already announced/)
+    detach()
+    expect({ created, disposed }).toEqual({ created: 1, disposed: 1 })
   })
 
   it('synthesizes a minimal current-version header for a bare-created session', async () => {
@@ -864,11 +987,13 @@ describe('SessionStore', () => {
     expect(observed).toBe(0)
   })
 
-  it('rolls back the session (and onAppend) when a session/created listener throws (P1-1)', async () => {
+  it('pairs a partial session/created announcement with disposal during rollback', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
 
     let threw = false
+    const disposed: Session[] = []
+    ctx.on('session/disposed', (session) => { disposed.push(session) })
     ctx.on('session/created', () => {
       if (!threw) { threw = true; throw new Error('boom created listener') }
     })
@@ -876,15 +1001,69 @@ describe('SessionStore', () => {
     // The throwing emit must roll the store entry back, not leak it.
     expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('boom created listener')
     expect(ctx.sessions.get(SessionId('fixed'))).toBeUndefined() // rolled back, not leaked
+    expect(disposed.map(session => session.id)).toEqual(['fixed'])
 
     // A subsequent create of the SAME id succeeds (the already-exists check is
-    // not wedged) and its onAppend is correctly wired (events observable).
+    // not wedged) and its store-owned observer is correctly wired (events observable).
     const events: SessionEvent[] = []
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
+  })
+
+  it('observes async session/created rejection without rolling back or starving peers', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const heard: string[] = []
+    ctx.on('session/created', () => Promise.reject(new Error('late creation failure')) as never)
+    ctx.on('session/created', (session) => { heard.push(session.id) })
+
+    const session = ctx.sessions.create(SessionId('async-created'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(ctx.sessions.get(session.id)).toBe(session)
+    expect(heard).toEqual(['async-created'])
+    expect(warnings).toEqual([
+      'session "async-created": session/created listener rejected: Error: late creation failure',
+    ])
+  })
+
+  it('contains synchronous and async session/disposed listener failures per observer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const hostile = { [Symbol.toPrimitive]() { throw new Error('cannot stringify') } }
+    const printable = { toString: () => 'printable failure' }
+    const heard: string[] = []
+    ctx.on('session/disposed', () => { throw hostile })
+    ctx.on('session/disposed', () => Promise.reject(new Error('async disposed')) as never)
+    ctx.on('session/disposed', () => { throw printable })
+    ctx.on('session/disposed', (session) => { heard.push(session.id) })
+
+    const unannounced = ctx.sessions.prepare(SessionId('never-announced'))
+    const detachUnannounced = ctx.sessions.enter(unannounced)
+    detachUnannounced()
+    expect(heard).toEqual([])
+
+    const announced = ctx.sessions.prepare(SessionId('contained-disposal'))
+    const detach = ctx.sessions.enter(announced)
+    ctx.sessions.announce(announced)
+    expect(() => { detach() }).not.toThrow()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(heard).toEqual(['contained-disposal'])
+    expect(warnings).toEqual([
+      'session "contained-disposal": session/disposed listener threw: <unrenderable thrown value>',
+      'session "contained-disposal": session/disposed listener threw: printable failure',
+      'session "contained-disposal": session/disposed listener rejected: Error: async disposed',
+    ])
   })
 })
 

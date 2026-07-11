@@ -7,10 +7,10 @@
  */
 
 import type { Context } from 'cordis'
-import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { Scoped } from '@deepseek-ai/dsh-scope'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { Inbox } from './inbox.ts'
@@ -66,6 +66,26 @@ export function prepareReactLoopAgent(
 }
 
 /**
+ * Install the concrete agent's scope context exactly once. Construction and
+ * scope minting are mutually referential (the scope key is the agent), so the
+ * factory performs this one post-construction binding before setup receives
+ * the unpublished agent. The runtime slot is non-writable/non-configurable;
+ * TypeScript `readonly` alone would still let JavaScript redirect later
+ * registrations to another context.
+ * @param agent - the unpublished concrete agent to bind.
+ * @param ctx - its fully extended agent scope context.
+ */
+export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): void {
+  if (Object.hasOwn(agent, 'ctx')) throw new Error(`agent "${agent.id}" context is already bound`)
+  Object.defineProperty(agent, 'ctx', {
+    value: ctx,
+    enumerable: true,
+    writable: false,
+    configurable: false,
+  })
+}
+
+/**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.
  *
  * Owns the inbox (queued + steering FIFOs), the per-step AbortController, and
@@ -84,18 +104,7 @@ export class ReactLoopAgent implements Agent {
    * context are mutually referential (the scope is keyed BY this agent), so
    * neither can exist strictly before the other.
    */
-  ctx!: Context
-
-  /**
-   * The dispatch carrier for this agent's own emits (`agent/status`,
-   * `agent/queued`, `agent/error`): keyed by the agent, base = the agent
-   * (listener `this` is the agent). Built lazily because it is self-referential.
-   */
-  private get carrier(): Scoped<Agent> {
-    return (this.#carrier ??= scopeTarget(this, this))
-  }
-
-  #carrier: Scoped<Agent> | undefined
+  declare readonly ctx: Context
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
@@ -143,6 +152,16 @@ export class ReactLoopAgent implements Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
+    const acceptedOptions = deepFreeze(structuredClone(options))
+    // Pin the public ownership/identity bindings in the runtime object. A
+    // JavaScript caller can otherwise replace TS-readonly parameter properties
+    // after publication and split the registry, driver, session, and model
+    // configuration into different worlds.
+    Object.defineProperties(this, {
+      id: { value: id, enumerable: true, writable: false, configurable: false },
+      options: { value: acceptedOptions, enumerable: true, writable: false, configurable: false },
+      session: { value: session, enumerable: true, writable: false, configurable: false },
+    })
     const { promise, resolve } = Promise.withResolvers<void>()
     this.disposed = promise
     this.resolveDisposed = resolve
@@ -161,11 +180,7 @@ export class ReactLoopAgent implements Agent {
     // waiter (docs/defensive-patterns.md "contain callback exceptions" — a lifecycle await must
     // not hang on one bad listener).
     if (status !== 'running') this.settleIdleWaiters()
-    try {
-      this.loopCtx.emit(this.carrier, 'agent/status', this, status)
-    } catch (error: unknown) {
-      this.loopCtx.logger.warn(`agent "${this.id}": agent/status listener threw on ${status}: ${String(error)}`)
-    }
+    agentEvents(this.loopCtx, this).emit('agent/status', status)
   }
 
   /**
@@ -194,7 +209,7 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     const source = this.resolveSource(options)
     this.#inbox.enqueue({ content, source })
-    this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: false })
+    agentEvents(this.loopCtx, this).emit('agent/queued', content, { source, steering: false })
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
@@ -203,7 +218,7 @@ export class ReactLoopAgent implements Agent {
     if (this._status !== 'running') { this.send(content, options); return }
     const source = this.resolveSource(options)
     this.#inbox.steer({ content, source })
-    this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: true })
+    agentEvents(this.loopCtx, this).emit('agent/queued', content, { source, steering: true })
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
@@ -269,14 +284,10 @@ export class ReactLoopAgent implements Agent {
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
         const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-          const err = error instanceof Error ? error : new Error(String(error))
-          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
-          try {
-            this.loopCtx.emit(this.carrier, 'agent/error', this, turn, 0, err)
-          } catch {
-            // contained: the failure is already logged; a throwing agent/error
-            // listener must not escape this fire-and-forget catch.
-          }
+          const rendered = renderThrown(error)
+          const err = error instanceof Error ? error : new Error(rendered)
+          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
+          agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
         })
         this.pendingIdleFlushes.add(flush)
         // Attach the same retirement callback to both settlement arms so even a
@@ -393,11 +404,7 @@ export class ReactLoopAgent implements Agent {
         // setStatus refuses transitions out of 'disposed', so emit directly —
         // 'disposed' is part of the agent/status contract. Guarded: a throwing
         // listener must not break the disposal chain.
-        try {
-          this.loopCtx.emit(this.carrier, 'agent/status', this, 'disposed')
-        } catch {
-          // listener error during disposal — nothing safe left to do with it
-        }
+        agentEvents(this.loopCtx, this).emit('agent/status', 'disposed')
       }
       // An unexpected driver rejection must not skip registry/session/scope
       // cleanup. The normal loop contains turn failures itself; allSettled is the
@@ -412,5 +419,14 @@ export class ReactLoopAgent implements Agent {
         await Promise.allSettled([...this.pendingIdleFlushes])
       }
     }
+  }
+}
+
+/** Render an arbitrary thrown value without allowing coercion to throw again. */
+function renderThrown(value: unknown): string {
+  try {
+    return value instanceof Error ? value.message : String(value)
+  } catch {
+    return '<unrenderable thrown value>'
   }
 }

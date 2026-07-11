@@ -60,6 +60,23 @@ describe('session dispatch carriers', () => {
     bare.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(heard).toEqual(['global:turn/start'])
   })
+
+  it('reuses the captured owner carrier for the paired disposal notification', async () => {
+    const ctx = await mount()
+    const owner = await mintScope(ctx, 'owner')
+    const other = await mintScope(ctx, 'other')
+    const heard: string[] = []
+    ctx.on('session/disposed', (session) => { heard.push(`global:${session.id}`) })
+    owner.ctx.on('session/disposed', (session) => { heard.push(`owner:${session.id}`) })
+    other.ctx.on('session/disposed', (session) => { heard.push(`other:${session.id}`) })
+
+    const session = owner.ctx.sessions.prepare()
+    const detach = owner.ctx.sessions.enter(session)
+    owner.ctx.sessions.announce(session)
+    detach()
+
+    expect(heard).toEqual([`global:${session.id}`, `owner:${session.id}`])
+  })
 })
 
 describe('sessions.flush()', () => {

@@ -45,7 +45,10 @@ type Tail<K extends AgentSubjectEvent> = Params<Events[K]> extends [Agent, ...in
  */
 export interface AgentEventDispatch {
   /**
-   * Fire-and-forget notification (Cordis `emit`) in the agent's scope.
+   * Fire-and-forget notification in the agent's scope. Every listener is
+   * invoked; synchronous throws and returned-promise rejections are logged and
+   * contained per listener, so a notification cannot veto lifecycle progress
+   * or starve a later observer.
    * @param name - the agent-subject event to emit.
    * @param rest - the event's arguments after the injected agent.
    */
@@ -96,9 +99,22 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   // tuple — hence one contained, shape-preserving cast per method.
   return {
     emit(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
-      const emit = ctx.emit as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => void
-      emit(carrier, name, agent, ...rest)
+      // Cordis emit invokes callbacks through Array.map: one synchronous throw
+      // starves later listeners, and returned promises are discarded. Agent
+      // notifications are non-vetoing, so resolve the same filtered callback
+      // set ourselves and contain both failure modes independently.
+      const args: unknown[] = [carrier, name, agent, ...rest]
+      const callbacks = ctx.events.dispatch('emit', args)
+      for (const callback of callbacks) {
+        try {
+          const returned: unknown = callback(...args)
+          void Promise.resolve(returned).catch((error: unknown) => {
+            ctx.logger.warn(`agent event "${name}" listener rejected: ${renderThrown(error)}`)
+          })
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent event "${name}" listener threw: ${renderThrown(error)}`)
+        }
+      }
     },
     async serial(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
@@ -126,6 +142,15 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
       const waterfall = ctx.waterfall as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => never
       return waterfall(carrier, name, agent, ...rest)
     },
+  }
+}
+
+/** Render an arbitrary thrown value without allowing coercion to throw again. */
+function renderThrown(value: unknown): string {
+  try {
+    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
+  } catch {
+    return '<unrenderable thrown value>'
   }
 }
 

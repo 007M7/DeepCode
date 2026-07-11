@@ -4,7 +4,7 @@ Event-sourced session log and in-memory store. A `Session` is the append-only so
 
 ## Service: `SessionStore` (ctx key: `sessions`)
 
-Creates and holds event-sourced `Session` instances. Persistence is intentionally not implemented here — plugins subscribe to `session/event` and flush on `session/flush`.
+Creates and holds event-sourced `Session` instances. Persistence is intentionally not implemented here — plugins subscribe to `session/event`, flush on `session/flush`, and may mirror the paired `session/created`/`session/disposed` lifecycle.
 
 ### Public API
 
@@ -16,17 +16,18 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 #### Advanced: ordered-teardown lifecycle primitives
 
-`create()` covers the common case (the session is owned by the calling fiber). When a session must be torn down **in order with another resource** — so a final flush is captured before `onAppend` detaches — `create()`'s self-contained effect is wrong, because a fiber unload disposes sibling effects *concurrently*. For that, split the lifecycle and fold it into the owner's single effect:
+`create()` covers the common case (the session is owned by the calling fiber). When a session must be torn down **in order with another resource** — so a final flush is captured before the store-owned append observer detaches — `create()`'s self-contained effect is wrong, because a fiber unload disposes sibling effects *concurrently*. For that, split the lifecycle and fold it into the owner's single effect:
 
 - `ctx.sessions.prepare(id?, options?): Session` — read `options.seed`/`options.meta` once, validate and detach the metadata/header, and construct the `Session` WITHOUT entering it into the store. Same options as `create`.
-- `ctx.sessions.enter(session): () => void` — wire `onAppend` → `session/event`, capture its scope carrier, and add the session to the store; returns the idempotent DETACH disposer, which clears both notification and carrier state. Does NOT emit `session/created` (the caller installs the disposer first, then calls `announce`, so a throwing listener rolls the attach back). It re-checks the id because public `prepare`/`enter` calls may be interleaved; a stale prepared object must not overwrite a live same-id session.
-- `ctx.sessions.announce(session): void` — emit `session/created` for an entered session.
+- `ctx.sessions.reserve(id): SessionRegistrationReservation` — hold an unpublished id under the calling fiber and construct its one owned Session through `reservation.prepare(options?)`. Until `release()` or owner unload, bare `prepare`/`create`/`enter` calls for that id reject; the factory later presents the exact capability to `enter`, making setup-time publication structurally impossible without leaking an abandoned reservation across HMR disposal.
+- `ctx.sessions.enter(session, reservation?): () => void` — install the module-private `session/event` observer, capture its scope carrier, and add the session under one accepted id; returns the idempotent DETACH disposer, which clears notification, carrier, and accepted-key state. Does NOT emit `session/created` (the caller installs the disposer first, then calls `announce`, so a throwing listener rolls the attach back). It re-checks the id because public `prepare`/`enter` calls may be interleaved; a stale prepared object must not overwrite a live same-id session. A factory passes the opaque capability from `reserve(id)` so setup cannot enter the reserved session or publish a same-id replacement before the owning transaction.
+- `ctx.sessions.announce(session): void` — begin the one allowed `session/created` announcement for an entered session; repeat and reentrant calls reject before dispatch. Its detach emits `session/disposed` exactly once, including rollback after a partially delivered creation notification; a never-announced entry emits neither edge.
 
 `dsh-agent-loop` is the canonical consumer: after unpublished agent setup it enters both session and agent before announcing either, then nests loop stop, agent removal, session detach, and scope unwind in one ordered lifecycle. The final flush therefore settles before this package detaches the session, whether teardown starts from an `AgentHandle` or owner-fiber unload.
 
 ### Live service events
 
-The store announces creation, publishes each append, and provides an awaited durability checkpoint. Exact `session/*` signatures, modes, and scope-carrier behavior live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the append-only payload vocabulary is separately generated into the [persistence catalog](../../../docs/persistence-catalog.md). Persistence consumers write behind from the append notification and drain on the store-owned flush entry point rather than dispatching the event directly.
+The store pairs announced creation with disposal, publishes each append, and provides an awaited durability checkpoint. Disposal listener failures, including returned-promise rejections, are contained per observer so teardown cannot be interrupted. Exact `session/*` signatures, modes, and scope-carrier behavior live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the append-only payload vocabulary is separately generated into the [persistence catalog](../../../docs/persistence-catalog.md). Persistence consumers write behind from the append notification and drain on the store-owned flush entry point rather than dispatching the event directly.
 
 ### Class: `Session`
 
@@ -37,8 +38,8 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `session.deriveEventMessage(event): Message | null` — the per-event projection `deriveMessages()` folds: one event's derived message (an unfrozen clone), or `null` when it produces none (a non-surface event, or an empty-content `assistant/message` hosting only usage). External reconstructors and the dev invariant fold the same function over a log prefix's surface, so no two paths can disagree about what a request's messages were (the reconstructability RFC).
 - `session.surface: SurfaceManager` — the derived surface, lazily rebuilt from `surfaceOp` markers in the log. Processes only new events (delta) on each access — the log is append-only, so prior events never change. `surface.replaceGeneration` is the rewrite signal: bumped by every folded `replace` and by `invalidate()`, never reset, so an incremental consumer comparing generations cannot be fooled.
 - `session.events` — a cached, frozen array snapshot over deep-frozen events. Repeated reads without an append return the same array; an append invalidates the cache and the next read returns a new snapshot, while earlier snapshots stay unchanged. Neither a cast nor a retained reference can push into the live log or rewrite an accepted event.
-- `session.seq`, `session.id`
-- `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`). Construction validates its lossless-JSON shape and requires the header id to match `session.id`, so a caller cannot later mutate persistence routing or lineage through an aliased header. Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
+- `session.seq`, `session.id` — `id` is a non-writable, non-configurable runtime identity slot, not merely TypeScript-readonly.
+- `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`) published through a non-writable, non-configurable slot. Construction validates its lossless-JSON shape and requires the header id to match `session.id`, so a caller cannot later replace or mutate persistence routing or lineage. Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
 
 ### Lossless JSON utilities
 
