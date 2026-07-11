@@ -12,7 +12,8 @@ flowchart TD
   presentCall["UI pending card<br/>presentCall(args)"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
   guards["Registered monotonic guards<br/>deny or abstain; identity protected"]
-  denied["deny or ask<br/>tool body skipped"]
+  denied["denied or approval refused<br/>tool body skipped"]
+  approval["<code>ctx.approval</code> one-shot prompt<br/>absent or unanswerable: deny"]
   around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
@@ -30,7 +31,10 @@ flowchart TD
   guards -->|allow| around
   guards -->|deny| denied
   around --> toolBody
-  pre -->|deny or ask| denied
+  pre -->|deny| denied
+  pre -->|ask| approval
+  approval -->|allowed-once| guards
+  approval -->|rejected, cancelled, unavailable| denied
   denied --> post
   toolBody --> fsGate
   fsGate --> toolBody
@@ -44,6 +48,6 @@ flowchart TD
   allResults --> context
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The awaited `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution's opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call's `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The awaited `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution's opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call's `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

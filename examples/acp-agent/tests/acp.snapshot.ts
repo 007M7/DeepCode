@@ -52,6 +52,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
+  { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },

@@ -112,4 +112,3 @@ export type WorkerToHostMessage<T extends WorkerToHostType = WorkerToHostType> =
  */
 export type HostToWorkerMessage<T extends HostToWorkerType = HostToWorkerType> =
   { [K in T]: { type: K } & HostToWorkerPayloads[K] }[T]
-

@@ -82,6 +82,11 @@ interface SessionTrace {
   surface: number[]
 }
 
+/** Event payload prefix for scoped seams whose first argument names its agent. */
+interface AgentSubject {
+  agent: Agent
+}
+
 /**
  * Deep-freeze a value and everything reachable from it.
  *
@@ -392,6 +397,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     'agent/turn-continuation': args => args[0],
     'agent/turn-stop': args => args[0],
     'agent/error': args => args[0],
+    'approval/request': args => (args[0] as AgentSubject).agent,
     'tools/pre-execute': args => (args[0] as ToolExecution).agent,
     'tools/execute': args => (args[0] as ToolExecution).agent,
     'tools/post-execute': args => (args[0] as ToolExecution).agent,

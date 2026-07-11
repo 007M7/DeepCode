@@ -63,7 +63,16 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
       // requires it (mirrors the `demo:echo` script). The whole point is to boot
       // the example EXACTLY as it really runs, through the bin + Loader.
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
-      { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        cwd,
+        env: {
+          ...process.env,
+          TSX_TSCONFIG_PATH: repoTsconfig,
+          DSH_HOME: join(cwd, '.dsh'),
+          DSH_AGENTS_HOME: join(cwd, '.agents'),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
     )
     child = proc
     let stdout = ''

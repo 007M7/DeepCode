@@ -168,12 +168,61 @@ describe('runScenario', () => {
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
+    [{ op: 'setConfigOption', configId: 'sandbox-mode', value: 'read-only' }, /setConfigOption before newSession/],
+    [{ op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'yolo' }, /setConfigOptionExpectError before newSession/],
   ] as [InputStep, RegExp][])('rejects %j before newSession', { timeout: 20_000 }, async (step, message) => {
     const { fixtureFile } = await scenario({})
     await expect(runScenario(
       { steps: [{ op: 'initialize' }, step] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(message)
+  })
+
+  it('setConfigOption switches a value and receives the complete refreshed option state', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      configOptions: { 'sandbox-mode': ['read-only', 'workspace-write'], 'approval-policy': ['ask', 'never'] },
+    })
+    const result = await runScenario(
+      {
+        steps: [...boot,
+          { op: 'setConfigOption', configId: 'sandbox-mode', value: 'workspace-write' },
+          { op: 'setConfigOption', configId: 'approval-policy', value: 'never' }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    // Every set answers with the FULL state: the second response carries the
+    // first switch's value too — the complete-refreshed-state contract.
+    const frames = result.rawStdout.trim().split('\n').map(line => JSON.parse(line) as { result?: { configOptions?: { id: string; currentValue: string }[] } })
+    const states = frames
+      .map(f => f.result?.configOptions)
+      .filter(options => options !== undefined)
+      .map(options => Object.fromEntries((options as { id: string; currentValue: string }[]).map(o => [o.id, o.currentValue])))
+    expect(states).toEqual([
+      { 'sandbox-mode': 'workspace-write', 'approval-policy': 'ask' },
+      { 'sandbox-mode': 'workspace-write', 'approval-policy': 'never' },
+    ])
+  })
+
+  it('setConfigOptionExpectError swallows the rejection for unknown ids and out-of-vocabulary values', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ configOptions: { 'sandbox-mode': ['read-only'] } })
+    const result = await runScenario(
+      {
+        steps: [...boot,
+          { op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'yolo' },
+          { op: 'setConfigOptionExpectError', configId: 'reasoning-effort', value: 'max' }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('unknown sandbox-mode value yolo')
+    expect(result.rawStdout).toContain('unknown config option reasoning-effort')
+  })
+
+  it('setConfigOptionExpectError throws when the set unexpectedly succeeds', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ configOptions: { 'sandbox-mode': ['read-only'] } })
+    await expect(runScenario(
+      { steps: [...boot, { op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'read-only' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/expected set_config_option to be rejected/)
   })
 
   it('rejects an unknown input op', { timeout: 20_000 }, async () => {

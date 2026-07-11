@@ -1,14 +1,12 @@
 # DeepSeek Harness Architecture
 
-The project is an SDK for building agent harnesses. The idea is to have **everything as a plugin**. For example, the agent loop is just one plugin shipped by default.
+The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
 
 ## Overview
 
-The project is based on [Cordis](cordis-primer.md).
+A harness is one [Cordis](cordis-primer.md) context. Packages contribute service keys, typed events, and disposable registrations: services expose stable calls (`ctx.llm`, `ctx.tools`, `ctx.sessions`), events provide interception and notifications (`agent/request`, `tools/pre-execute`, `session/event`), and registrations install prompt sections, tools, providers, adapters, or listeners.
 
-A running harness is one Cordis context. Packages contribute service keys, typed events, and disposable registrations to that context. Services provides stable call signatures (`ctx.llm`, `ctx.tools`, `ctx.sessions`); events are interception and notification points (`agent/request`, `tools/pre-execute`, `session/event`); registrations install prompt sections, tool schemas, providers, adapters, and listeners.
-
-Composition is preferred over inheritance. `packages/core/` is a repository grouping for the default agent flow; capability around it are equally first-class plugins from a Cordis perspective.
+`packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
 
 ### Default Services
 
@@ -27,8 +25,10 @@ Composition is preferred over inheritance. `packages/core/` is a repository grou
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
+| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
@@ -37,11 +37,9 @@ Composition is preferred over inheritance. `packages/core/` is a repository grou
 
 ## Event
 
-Events are the harness extension API used by Service. The generated [events catalog](cordis-catalog/events.md) is the exhaustive reference. The [producer/consumer map](event-producer-consumer.md) shows which packages emit or listen to each event.
+Events form the service extension API; see the exhaustive [events catalog](cordis-catalog/events.md) and [producer/consumer map](event-producer-consumer.md).
 
 ### Event Domains
-
-Pick the event domain for new behavior:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
 - **Agent events** carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
@@ -53,7 +51,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains queued work, assembles a request, streams a model answer, executes tools, decides whether to continue, and checkpoints durable state. The important part is where it pauses: each pause is a documented service call or event that another plugin can use.
+The shipped loop drains work, assembles requests, streams model answers, executes tools, applies continuation policy, and checkpoints state. Every pause is a service call or event available to plugins.
 
 A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
 
@@ -133,13 +131,13 @@ Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAs
 
 ### Capability Pattern
 
-A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and event names; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability graph](capability-seams.md) shows the current package families.
+A swappable capability usually splits into **interface / implementation / consumer**: the interface owns its `ctx` key and events, an implementation registers a backend, and a consumer exposes model behavior through tools or prompts. Bash is the reference; the [capability graph](capability-seams.md) shows every family.
 
-Some cases bend the template deliberately. LLM keeps interface and consumer event names together because adapters are the implementations. Filesystem adds policy checks around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
+Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Skills and subagents use named provider registries; local skills scan project/user roots, and other providers can add embedded or remote catalogs without registry/tool changes. Subagents spawn fresh, fork from the parent's completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
 ### Bundles And Apps
 
-`dsh-agent-core` is the default bundle: one plugin loading the agent loop ([README](../packages/core/agent-core/README.md)). App packages compose it with a front end and own the entrypoint `bin`: `dsh-stdio-agent` for the terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-core` is the default composition bundle: one plugin loading the shared spine ([README](../packages/core/agent-core/README.md)). App packages compose it with a front door and boot `bin`: `dsh-stdio-agent` for terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 
@@ -151,6 +149,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
+| Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall; use serial `agent/turn-stop` for a monotonic terminal stop |
 | Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |

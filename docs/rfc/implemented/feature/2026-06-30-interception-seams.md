@@ -46,7 +46,7 @@ Core dispatch and the tool body sit inside normalization boundaries, so tool, li
 
 ### Boundaries
 
-The seam package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the seams through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, Codex `PermissionRequest`, and the permission/`ask` interaction remain outside this decision (`FIXME(permissions)` marks the current `ask`→deny degradation).
+The seam package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the seams through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, and Codex `PermissionRequest` remain outside this decision. The permission/`ask` system has since landed as the [approval seam](2026-07-06-approval-seam.md), whose `ctx.approval` services the `ask` this RFC originally shipped degraded to deny; terminal monotonic stopping is now provided separately by `agent/turn-stop`.
 
 ## Alternatives considered
 

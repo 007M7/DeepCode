@@ -10,7 +10,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 Lifecycle (scoped): programmatic creation and resume snapshot caller-owned identity/configuration data, reserve both IDs, mint `agent.ctx`, and install the ordered teardown skeleton before awaiting optional `setup`. Resume installs an owner-liveness sentinel before persistence load, then hands ownership directly to the full lifecycle. After setup resolves, the factory checks its lifecycle flag, owner-fiber state, and owning agent status around one microtask checkpoint so a same-turn Cordis unload wins before publication. Successful setup inserts both session and agent before announcing either, enables driving immediately before `agent/session-start`, then starts the loop. Setup calls to `send`/`steer`/`inject`/`cancel` reject structurally; load/setup rejection or owner unload publishes nothing. Teardown runs stop/drain → unregister → detach session → unwind scope. All `agent/*` dispatches go through `agentEvents(ctx, agent)`; per-step assembly through `assembleContextFor(agent)`; the turn-end durability checkpoint through `ctx.sessions.flush(session)`.
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` with optional session metadata. Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -31,11 +31,12 @@ interface Config {
     id: string                 // required
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
+    cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup. (There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context.) The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 
