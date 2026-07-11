@@ -47,3 +47,7 @@ The data structures and catalog/tool contract are documented in [skills.md](../.
 The agent-core spine includes one session-prefix contributor, one local provider, and one model-facing tool. Skill discovery is cwd-sensitive, so callers that create agents with different session cwd values can observe different project skill overrides by design.
 
 The catalog is deterministic for a fixed root set and runtime registration revision, but disk changes are not watched; discovery is memoized until runtime registration invalidates the cache or the process restarts.
+
+## Deferred
+
+Forked skill contexts (`context: fork`), direct user/slash invocation (`user-invocable`), parameter declarations and hints (`arguments` and `argument-hint`), and per-skill tool constraints (`allowed-tools` and `disallowed-tools`) are outside the shipped contract. The registry, local provider, and model-facing tool do not parse, advertise, or enforce these fields.
