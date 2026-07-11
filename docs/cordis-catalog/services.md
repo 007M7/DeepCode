@@ -44,13 +44,15 @@ Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/i
 
 The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
 
-Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): a PREPENDED decide-or-delegate gate resolves `'never'` sessions to `'rejected'` before any interactive answerer is prompted, a per-agent prompt section states a `'never'` policy (and only that one — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
+Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'` before dispatching any interactive answerer, a per-agent prompt section states a `'never'` policy (and only that one in prose — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
 
 ```ts cordis-catalog
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 ```
 
-Source: [`packages/approval/approval/src/index.ts:269`](../../packages/approval/approval/src/index.ts)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:282`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -172,6 +174,8 @@ Semantics every implementation must honor:
 ```ts cordis-catalog
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
+
+Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
 Source: [`packages/sandbox/sandbox/src/index.ts:180`](../../packages/sandbox/sandbox/src/index.ts)
 

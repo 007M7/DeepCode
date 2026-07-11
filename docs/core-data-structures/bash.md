@@ -152,13 +152,9 @@ interface CollectedOutput {
 }
 ```
 
-## File sandbox: `SandboxMode` / `BashSandboxInfo`
+## File sandbox: `BashSandboxInfo`
 
-A sandbox-consuming executor (`dsh-bash-sandbox`) confines commands under its executor-configured mode — fixed at config time for the executor's lifetime; a runtime/per-session mode surface is the sandbox RFC's config phase, not current behavior; the mode/enforcement vocabulary is owned by the `@deepseek-ai/dsh-sandbox` seam (whose provider wraps the executor's argv), and the mode governs FILE effects only — network and process visibility are deliberately not restricted, because a backend that cannot honestly enforce them must not pretend to:
-
-```ts type-equiv
-type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
-```
+A sandbox-consuming executor (`dsh-bash-sandbox`) exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each agent session's durable `bash/sandbox-mode` override, stamps the effective mode onto the request, states it in the per-agent prompt, and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned and cataloged by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md), whose provider wraps the executor's argv; modes govern FILE effects only, not network or process visibility.
 
 A sandboxed run always reports the facts it executed under on `BashRunResult.sandbox`: `denied` is the executor's conservative classification of a failure as sandbox-caused (a failed exit whose stderr carries a filesystem-permission signature — never a clean exit or a signal kill), read from the collected stderr tail; `enforcement` reports how completely the selected backend governs the mode's file effects (`SandboxEnforcement = 'full' | 'partial'` — `partial` when an older Landlock ABI governs only a subset of the requested accesses; absent under `danger-full-access`, where nothing is confined); `runnerFailed` marks the opposite of a denial — the sandbox RUNNER itself failed and the command never ran (stamped only on settled background tasks; a foreground run surfaces the same condition as the thrown `SANDBOX_UNAVAILABLE` error):
 
@@ -197,7 +193,7 @@ interface BashSandboxInfo {
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the sandbox seam) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend: sandboxed modes fail CLOSED instead of silently running unconfined. The model's view of the sandbox is result facts only: the static bash tool description explains the denial marker, and each run's `result.sandbox` carries the mode it executed under (no live-mode getter on the seam and no current-mode prompt statement — both arrive with the runtime-context phase of the RFC below). Denials are deny-only result facts today; the approval/escalated-retry flow on top of them is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model sees the current effective mode in the prompt, receives denial/runner facts in results, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
 
 ## Background tasks: `BashTask`
 

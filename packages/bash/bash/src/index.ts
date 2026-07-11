@@ -76,11 +76,12 @@ export abstract class BashExecutor extends Service {
   /**
    * The sandbox mode this executor confines commands under BY DEFAULT, or
    * `undefined` when it does not sandbox at all — the capability fact the
-   * tool layer reads to advertise escalation honestly (a mode-widening lever
-   * is only offered when a sandboxing executor is mounted to honor it, and
-   * only for modes strictly wider than this one). Composition truth, not
-   * configuration: the base class reports `undefined`; a sandboxing
-   * implementation overrides the getter with its configured mode.
+   * tool and ACP layers read to advertise sandbox controls honestly. The
+   * getter proves a sandboxing executor is mounted and supplies its fallback
+   * mode; a session override may make the effective mode narrower or wider,
+   * so strict escalation widening is checked per call rather than encoded in
+   * this default-relative capability fact. The base class reports
+   * `undefined`; a sandboxing implementation overrides the getter.
    * @returns the configured default mode of a sandboxing executor;
    *   `undefined` for an executor that never confines.
    */

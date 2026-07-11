@@ -173,7 +173,9 @@ Waterfall asking the composed answerers to decide one approval request. Dispatch
 'approval/request'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
 ```
 
-Source: [`packages/approval/approval/src/index.ts:64`](../../packages/approval/approval/src/index.ts)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:64`](../../packages/ui/user-approval/src/index.ts)
 
 ## `fs/*`
 

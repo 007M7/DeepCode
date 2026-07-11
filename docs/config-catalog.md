@@ -130,37 +130,6 @@ Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`]
 
 Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
 
-## `@deepseek-ai/dsh-approval`
-
-```ts config-catalog
-/** Plugin config. All optional — `static Config` supplies the defaults. */
-export interface Config {
-  /**
-   * The deployment's default {@link ApprovalPolicy} for sessions without an
-   * `approval/policy` override — `'ask'` delegates to the composed answerers
-   * (fail-closed with none); `'never'` auto-rejects every ask without
-   * prompting (the deterministic CI/unattended stance).
-   */
-  policy?: ApprovalPolicy
-}
-
-/**
- * A session's approval policy — what happens to an {@link ApprovalService}
- * ask BEFORE any interactive answerer sees it:
- *
- * - `'ask'` (the default) — delegate to the composed answerers; with none
- *   composed the chain falls through to the fail-closed `'unavailable'`
- *   (exactly today's behavior).
- * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
- *   deterministically. The strict headless stance (CI, unattended runs) and
- *   the only policy value stated in the system prompt — unlike `'ask'`, its
- *   outcome is knowable without asking, so stating it cannot overclaim.
- */
-export type ApprovalPolicy = 'ask' | 'never'
-```
-
-Source: [`packages/approval/approval/src/index.ts:244`](../packages/approval/approval/src/index.ts)
-
 ## `@deepseek-ai/dsh-bash-local`
 
 ```ts config-catalog
@@ -204,9 +173,9 @@ export interface Config extends LocalConfig {
 }
 ```
 
-Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](../packages/sandbox/sandbox/src/index.ts)
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/bash/bash-sandbox/src/index.ts:59`](../packages/bash/bash-sandbox/src/index.ts)
+Source: [`packages/bash/bash-sandbox/src/index.ts:60`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -500,7 +469,9 @@ export interface Config {
    * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
    * — carries both Linux file-denial dialects as its denial signatures) —
    * the runner chain and its probes are skipped,
-   * and a broken runner fails loudly at spawn time like any missing command.
+   * and a broken runner fails loudly at execution time. The operator also
+   * supplies {@link runnerFailureSignatures}, which distinguish the runner
+   * refusing its profile from the wrapped command failing normally.
    * Absent (or empty — the schema normalizes an omitted array to `[]`): the
    * built-in platform chains — Linux `bwrap` then the Landlock launcher
    * (probed in that order), darwin `sandbox-exec` (the sole candidate,
@@ -508,6 +479,15 @@ export interface Config {
    * for deterministic fake runners in keyless test tiers.
    */
   runnerCommand?: string[]
+  /**
+   * Case-insensitive stderr substrings emitted when a configured
+   * {@link runnerCommand} refuses its profile before executing the wrapped
+   * command. Required and non-empty with `runnerCommand`; rejected without
+   * it. Missing/unexecutable runner errors are added automatically from
+   * `runnerCommand[0]`, while these signatures cover an executable runner's
+   * own failure dialect.
+   */
+  runnerFailureSignatures?: string[]
   /**
    * Per-probe timeout in milliseconds for the chain's functional probes
    * (default: 5000; must be a positive finite number — Node treats a 0
@@ -913,6 +893,37 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
 Source: [`packages/core/tools/src/index.ts:323`](../packages/core/tools/src/index.ts)
+
+## `@deepseek-ai/dsh-user-approval`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * The deployment's default {@link ApprovalPolicy} for sessions without an
+   * `approval/policy` override — `'ask'` delegates to the composed answerers
+   * (fail-closed with none); `'never'` auto-rejects every ask without
+   * prompting (the deterministic CI/unattended stance).
+   */
+  policy?: ApprovalPolicy
+}
+
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
+export type ApprovalPolicy = 'ask' | 'never'
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:258`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 

@@ -41,7 +41,9 @@ export interface Config {
    * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
    * — carries both Linux file-denial dialects as its denial signatures) —
    * the runner chain and its probes are skipped,
-   * and a broken runner fails loudly at spawn time like any missing command.
+   * and a broken runner fails loudly at execution time. The operator also
+   * supplies {@link runnerFailureSignatures}, which distinguish the runner
+   * refusing its profile from the wrapped command failing normally.
    * Absent (or empty — the schema normalizes an omitted array to `[]`): the
    * built-in platform chains — Linux `bwrap` then the Landlock launcher
    * (probed in that order), darwin `sandbox-exec` (the sole candidate,
@@ -49,6 +51,15 @@ export interface Config {
    * for deterministic fake runners in keyless test tiers.
    */
   runnerCommand?: string[]
+  /**
+   * Case-insensitive stderr substrings emitted when a configured
+   * {@link runnerCommand} refuses its profile before executing the wrapped
+   * command. Required and non-empty with `runnerCommand`; rejected without
+   * it. Missing/unexecutable runner errors are added automatically from
+   * `runnerCommand[0]`, while these signatures cover an executable runner's
+   * own failure dialect.
+   */
+  runnerFailureSignatures?: string[]
   /**
    * Per-probe timeout in milliseconds for the chain's functional probes
    * (default: 5000; must be a positive finite number — Node treats a 0
@@ -309,6 +320,7 @@ export class LocalSandboxProvider extends SandboxProvider {
   // Inline schema call: the config catalog walks `static Config` statically.
   static Config: z<Config> = z.object({
     runnerCommand: z.array(z.string()).default([]),
+    runnerFailureSignatures: z.array(z.string()).default([]),
     probeTimeoutMs: z.natural().default(5_000),
   })
 
@@ -316,17 +328,29 @@ export class LocalSandboxProvider extends SandboxProvider {
   internals: SandboxInternals = {}
 
   private readonly runnerCommand: string[] | undefined
+  private readonly configuredRunnerFailureSignatures: string[]
   private readonly probeTimeoutMs: number
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
-    // The schema (static Config) defaults both fields — the casts record
+    // The schema (static Config) defaults every field — the casts record
     // those runtime facts. An empty runnerCommand means "not configured":
     // use the platform chain.
     const runner = config.runnerCommand as string[]
+    const runnerFailureSignatures = config.runnerFailureSignatures as string[]
+    if (runner.length === 0 && runnerFailureSignatures.length > 0) {
+      throw new Error('sandbox-local: runnerFailureSignatures requires runnerCommand')
+    }
+    if (runner.length > 0 && runnerFailureSignatures.length === 0) {
+      throw new Error('sandbox-local: runnerCommand requires at least one runnerFailureSignatures entry')
+    }
+    if (runnerFailureSignatures.some(signature => signature.trim().length === 0)) {
+      throw new Error('sandbox-local: runnerFailureSignatures entries must be non-empty')
+    }
     this.runnerCommand = runner.length > 0 ? runner : undefined
+    this.configuredRunnerFailureSignatures = runnerFailureSignatures
     this.probeTimeoutMs = config.probeTimeoutMs as number
     assertPositiveFinite('probeTimeoutMs', this.probeTimeoutMs)
   }
@@ -351,17 +375,16 @@ export class LocalSandboxProvider extends SandboxProvider {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
-        // The configured runner's own failure dialect is unknown (as is its
-        // kernel mechanism), but the consumer never spawns the wrap directly
-        // — it re-joins it through an outer `bash -c 'exec …'` — so a
-        // missing or unexecutable runner fails with the OUTER shell's
-        // argv0-scoped shapes, and those we do know. Scoping every shape to
+        // The operator names the configured runner's OWN pre-exec refusal
+        // dialect; the consumer additionally re-joins the wrap through an
+        // outer `bash -c 'exec …'`, so we can add the missing/unexecutable
+        // outer-shell shapes ourselves. Scoping every automatic shape to
         // argv0 keeps in-command errors out (a bare `exec:`/`Permission
-        // denied` prefix would claim tool output; `exec: <argv0>: not
-        // found` cannot). The residual collision — a command invoking a
-        // file named exactly like the runner and hitting the same errno —
-        // is the classifier's documented conservative-inference trade.
+        // denied` prefix would claim tool output; `exec: <argv0>: not found`
+        // cannot). The residual text-collision trade is documented by the
+        // seam's conservative classifier contract.
         runnerFailureSignatures: [
+          ...this.configuredRunnerFailureSignatures,
           `exec: ${argv0}: not found`,
           `${argv0}: No such file or directory`,
           `${argv0}: Permission denied`,

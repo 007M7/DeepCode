@@ -16,8 +16,8 @@ import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
-import ApprovalService from '@deepseek-ai/dsh-approval'
-import type { ApprovalOutcome } from '@deepseek-ai/dsh-approval'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { renderResult } from '@deepseek-ai/dsh-tool-bash'
 
@@ -27,6 +27,13 @@ const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 // profile args up to `--` and execs the command unconfined — deterministic
 // without a host bwrap.
 const PASSTHROUGH_RUNNER = ['bash', '-c', 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"', 'passthrough-runner']
+const PASSTHROUGH_RUNNER_CONFIG = {
+  runnerCommand: PASSTHROUGH_RUNNER,
+  // The script has no pre-exec failure path; the provider still requires an
+  // explicit dialect so a future script change cannot silently turn runner
+  // failure into an ordinary command result.
+  runnerFailureSignatures: ['passthrough-runner: profile rejected'],
+}
 
 async function setup() {
   const ctx = new Context()
@@ -1022,7 +1029,7 @@ describe('sandbox rendering', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1113,12 +1120,31 @@ describe('sandbox rendering', () => {
     expect(text(read)).not.toContain('file access denied')
   })
 
+  it('classifies an executable configured runner that refuses its profile before the command runs', async () => {
+    const signature = 'custom-runner-rejected'
+    const ctx = new Context()
+    await ctx.plugin(LocalSandboxProvider, {
+      runnerCommand: ['bash', '-c', `printf '${signature}\\n' >&2; exit 125`, 'custom-runner'],
+      runnerFailureSignatures: [signature],
+    })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
+    const bash = ctx.bash as SandboxBashExecutor
+    bash.internals = { spillDir }
+
+    await expect(bash.run(bash.resolve({ command: 'echo command-must-not-run' })))
+      .rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE' })
+
+    const task = bash.start(bash.resolve({ command: 'echo command-must-not-run' }))
+    await task.done
+    expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full', runnerFailed: true })
+  })
+
   it('reports a real denial end-to-end through the shipping sandbox executor', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1141,7 +1167,7 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...mode !== undefined ? { mode } : {} })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1363,7 +1389,7 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200, mode })
     ;(ctx.bash as SandboxBashExecutor).internals = { spillDir }
     if (opts.approval === true) await ctx.plugin(ApprovalService)

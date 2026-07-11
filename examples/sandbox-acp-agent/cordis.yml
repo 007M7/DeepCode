@@ -42,7 +42,7 @@
 # editor. Without an editor attached nothing can answer, and every ask fails
 # closed.
 - id: approval
-  name: '@deepseek-ai/dsh-approval'
+  name: '@deepseek-ai/dsh-user-approval'
 
 # The ACP server app: the agent-core spine + JSONL persistence + the ACP
 # bridge (whose approval answerer completes the loop).

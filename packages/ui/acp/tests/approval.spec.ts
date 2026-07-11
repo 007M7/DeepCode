@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
-import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-approval'
+import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { makeBridgeHarness, type BridgeHarness } from './harness.ts'
 
 /**

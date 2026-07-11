@@ -10,7 +10,7 @@ Legend: ✅ supported · ⚠️ partial / fallback · ❌ not yet · — n/a. Th
 
 ## At a glance
 
-The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), and resumable session replay. The largest **unbuilt** areas are the **permission gate** (`session/request_permission`), **MCP passthrough**, **session modes / config options / model selection**, **slash commands**, and **agent plans** — all of which both reference adapters ship — plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
+The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), resumable session replay, one-shot permission prompts, and per-session sandbox/approval config options. The largest **unbuilt** areas are **MCP passthrough**, runtime model selection, **slash commands**, and **agent plans**, plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
 
 ## 1. Agent methods (client → agent)
 
@@ -39,7 +39,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | Method | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
 | `session/update` | S | ✅ | ✅ | ✅ | The bridge's primary output channel (see [§4](#4-sessionupdate-variants)). |
-| `session/request_permission` | S | ✅ | ✅ | ✅ | The bridge answers the [`ctx.approval`](../../approval/approval/README.md) seam for the agents it owns: an `ask` from a hook/plugin becomes an editor prompt attached to the streamed tool call, one-shot `allow_once`/`reject_once` options only. Whether a call asks is policy (nothing asks by default); `allow_always` is deferred (grant storage). |
+| `session/request_permission` | S | ✅ | ✅ | ✅ | The bridge answers the [`ctx.approval`](../user-approval/README.md) seam for the agents it owns: an `ask` from a hook/plugin becomes an editor prompt attached to the streamed tool call, one-shot `allow_once`/`reject_once` options only. Whether a call asks is policy (nothing asks by default); `allow_always` is deferred (grant storage). |
 | `fs/read_text_file` | S | ❌ | ✅ | ❌ | The harness reads files directly (it does not see the editor's unsaved buffer state). Claude delegates; Codex does not. |
 | `fs/write_text_file` | S | ❌ | ✅ | ❌ | Same — direct writes, no editor delegation. |
 | `terminal/create` | S | ❌ | ❌ | ❌ | Neither reference adapter drives the client terminal API either — both, like the bridge, render shell output as tool-call content + a `_meta` channel (see [§5 Terminal](#terminal-rendering)). |
@@ -130,7 +130,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 | Feature | Stable | Bridge | Notes |
 |---|---|---|---|
 | `StopReason` mapping | S | ✅ | `turnEndToStopReason` is total over harness turn-end reasons → `end_turn`/`max_tokens`/`cancelled`. |
-| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md). |
+| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md). |
 | Disconnect / disposal teardown | S | ✅ | Quiesces every live session on client disconnect or Cordis disposal. |
 | `_meta` extensibility | S | ⚠️ | Consumed (Zed terminal cap) and emitted (terminal `_meta`); no other custom extensions. |
 | Background-task ownership isolation | — | ✅ | `bash_output`/`bash_kill` reject another session's task via an opaque owner token. |
@@ -141,7 +141,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 Ranked by how commonly the reference adapters ship them and how much UX they unlock:
 
 1. **Session lifecycle** — `session/list` + `session/delete` (the persistence layer already lists), then `session/resume` / `session/close`.
-2. **Modes / config options / model selection** — the permission round-trip landed with the approval seam; the config surface (`sandbox_mode`/`approval_policy` options) is the sandbox RFC's config phase.
+2. **Model selection** — sandbox and approval config options are implemented; selecting the bridge's model at runtime remains open.
 3. **Agent plan** (`sessionUpdate: 'plan'`) — surface the loop's plan as structured entries.
 4. **Slash commands** (`available_commands_update`).
 5. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).

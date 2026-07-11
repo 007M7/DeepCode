@@ -23,7 +23,7 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
-    "@deepseek-ai/dsh-approval": "^0.0.1",
+    "@deepseek-ai/dsh-user-approval": "^0.0.1",
     "@deepseek-ai/dsh-bash": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-sandbox": "^0.0.1",
@@ -34,7 +34,7 @@
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
-    "@deepseek-ai/dsh-approval": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-bash": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:^",

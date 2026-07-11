@@ -35,7 +35,8 @@
  * `dsh-tool-bash` through `ctx.approval` — this executor's contribution is the
  * per-call `sandboxMode` override it honors in {@link resolve}: an escalated
  * call runs (and classifies, and reports) under ITS granted mode while every
- * neighboring call keeps the configured default.
+ * neighboring call keeps its session's standing mode (or the configured
+ * default when that session has no override).
  *
  * @module @deepseek-ai/dsh-bash-sandbox
  */
@@ -138,17 +139,13 @@ function matchesSignature(exitCode: number | null, stderr: string, signatures: r
 /**
  * Sandbox-consuming bash executor. Registers as `ctx.bash` (loading it
  * INSTEAD OF `dsh-bash-local`, together with a `ctx.sandbox` provider, is
- * the whole swap — the tool layer is untouched). The DEFAULT mode is fixed at
- * config time for the executor's lifetime; a single call escalates past it
- * only through the request-level `sandboxMode` override its {@link resolve}
- * stamps onto the spec (granted upstream via `ctx.approval` — the
- * sandbox RFC § Escalation). The model learns of the sandbox only through
- * result facts: the static bash tool description explains the denial marker,
- * and every run's `result.sandbox` carries the mode it executed under and how
- * completely the runner enforced it. Runtime default-mode switching and a
- * current-mode prompt statement are deliberately absent until a config
- * surface exists to drive them (TODO(sandbox-config): the sandbox RFC's
- * future-work list brings both with the per-session config options).
+ * the whole swap — the tool layer is untouched). Its configured mode is the
+ * fallback exposed by {@link sandboxMode}; `dsh-tool-bash` folds a session's
+ * durable `bash/sandbox-mode` override and stamps the effective mode onto each
+ * request, while an approved escalation may stamp a strictly wider mode for
+ * one call. The tool's per-agent prompt section states that same effective
+ * mode, and each run's `result.sandbox` reports what actually executed plus
+ * enforcement completeness.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox']

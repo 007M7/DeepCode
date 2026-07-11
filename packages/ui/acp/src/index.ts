@@ -75,9 +75,9 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
-import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-approval'
+import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { ApprovalPolicy } from '@deepseek-ai/dsh-approval'
+import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
@@ -85,7 +85,7 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 import type {} from '@deepseek-ai/dsh-session-persistence'
 // Side-effect type import: declaration-merges the `approval/request` waterfall
 // the bridge answers for its own agents (see the approval answerer below).
-import type {} from '@deepseek-ai/dsh-approval'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -582,7 +582,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // --- Approval answerer -----------------------------------------------------
   // The bridge is the approval channel for the agents it owns: an `ask` routed
-  // through `ctx.approval` (dsh-tools today, sandbox escalation later) becomes
+  // through `ctx.approval` (dsh-tools asks and sandbox escalation) becomes
   // an editor permission prompt attached to the already-streamed tool call. The
   // listener occupies the single decision slot ONLY for its own agents — a
   // foreign or call-less request delegates via next() so another answerer (or

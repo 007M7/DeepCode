@@ -65,7 +65,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 // Side-effect type import: declaration-merges `ctx.approval`, consumed
 // opportunistically by the escalation gate (`ctx.get('approval')` — the seam
 // stays optional at runtime, same pattern as dsh-tools' ask routing).
-import type {} from '@deepseek-ai/dsh-approval'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { BashTaskId, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
@@ -471,12 +471,12 @@ export function apply(ctx: Context): void {
     }
   })
 
-  // The escalation surface exists exactly when the mounted executor confines
-  // under a default that has a strictly wider mode to escalate to — a lever
-  // is never advertised that the composition cannot honor. Registration time
-  // is the right read: the executor's default is config-fixed for its
-  // lifetime, and an executor swap restarts this fiber (static inject) and
-  // re-registers the schema.
+  // The escalation surface exists whenever the mounted executor confines.
+  // Its enum is the closed target vocabulary, deliberately NOT cut down by
+  // the configured default: a session may switch to a narrower effective mode
+  // while sharing this globally registered schema. Strict widening therefore
+  // belongs to the per-call check below. An executor swap restarts this fiber
+  // (static inject) and re-registers the schema.
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
@@ -505,8 +505,7 @@ export function apply(ctx: Context): void {
    */
   const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
     // Schema validation only checks ADVERTISED keys, so an unadvertised
-    // `sandbox_permissions` (no sandboxing executor, or a `danger-full-access`
-    // default with nothing wider) still reaches execute — reject it here so a
+    // `sandbox_permissions` (no sandboxing executor) still reaches execute — reject it here so a
     // human is never prompted to "escalate" a sandbox that is not there. When
     // the fields ARE advertised, the registry's SchemaSpec enum has already
     // pinned `mode` to this ladder for every caller.
@@ -540,8 +539,8 @@ export function apply(ctx: Context): void {
       ...exec.signal ? { signal: exec.signal } : {},
     })
     switch (outcome) {
-      // The SchemaSpec enum already pinned `mode` to this executor's wider
-      // ladder; the cast records that validated fact.
+      // The SchemaSpec enum already pinned `mode` to the closed target
+      // vocabulary; the per-call check above proved it is strictly wider.
       case 'allowed-once': return mode as SandboxMode
       case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
       case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)

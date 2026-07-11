@@ -35,6 +35,6 @@ Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mo
 
 ## sandbox-acp-agent
 
-The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-approval`](../packages/approval/approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
+The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
 
 Run with: `pnpm run demo:sandbox-acp` (needs `DEEPSEEK_API_KEY`; bwrap, a Landlock-enforcing kernel, or macOS for confined runs). See [sandbox-acp-agent/README.md](sandbox-acp-agent/README.md).

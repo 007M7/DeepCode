@@ -30,7 +30,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../approval/approval"
+      "path": "../../ui/user-approval"
     }
   ]
 }

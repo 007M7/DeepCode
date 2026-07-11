@@ -8,8 +8,8 @@
  *
  * The service is the MECHANISM (dispatch, cancellation, audit); answerers are
  * the POLICY. It serves both ask paths the sandbox RFC names — the
- * `tools/pre-execute` `ask` decision today, and the sandbox post-denial
- * escalation when that phase lands — so every asker shares one outcome
+ * `tools/pre-execute` `ask` decision and the sandbox post-denial escalation —
+ * so every asker shares one outcome
  * vocabulary and one audit trail. Grants are one-shot by design: an
  * `'allowed-once'` outcome authorizes the single action it was asked about,
  * never a class of future actions.
@@ -30,7 +30,7 @@
  * asking); an `agent/pre-step` narrator explains a switch to the model in at
  * most one coalesced notice per step.
  *
- * @module @deepseek-ai/dsh-approval
+ * @module @deepseek-ai/dsh-user-approval
  */
 
 import { randomUUID } from 'node:crypto'
@@ -153,17 +153,31 @@ export const APPROVAL_POLICIES: readonly ApprovalPolicy[] = ['ask', 'never']
 
 /**
  * The prompt sentence stating a `'never'` policy — visibility for the one
- * deterministic policy (see {@link ApprovalPolicy}), and the narrator's parse
- * candidate for "what was the model last told": a folded `request/header*`
- * system text containing it was assembled under `'never'`; one without it
- * (but with any header at all) was assembled under `'ask'`, which states
- * nothing. The exact-wording compatibility surface (writer and parser) lives
- * entirely in this module; the bash tool description's escalation teaching
- * additionally defers to the sentence's opening claim by meaning (see
- * `dsh-tool-bash`), so keep the sentence opening with the approvals-disabled
- * statement.
+ * deterministic policy (see {@link ApprovalPolicy}). Narrator persistence
+ * does NOT parse this prose: deployments can quote it in a persona or another
+ * section, so the section also emits a source-owned marker.
  */
 const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
+
+/** Source-owned prompt markers used to reconstruct the policy in a logged header. */
+const POLICY_MARKERS = {
+  ask: '<!-- dsh-user-approval-policy:ask -->',
+  never: '<!-- dsh-user-approval-policy:never -->',
+} as const satisfies Record<ApprovalPolicy, string>
+
+/**
+ * Read the policy fact emitted by this service from a logged system prompt.
+ * The section is ordered after deployment persona text, and the last marker
+ * wins so a persona quoting an earlier marker cannot shadow the service's own
+ * contribution. Ordinary policy prose is deliberately ignored.
+ */
+function toldApprovalPolicy(system: string | undefined): ApprovalPolicy | undefined {
+  if (system === undefined) return undefined
+  const ask = system.lastIndexOf(POLICY_MARKERS.ask)
+  const never = system.lastIndexOf(POLICY_MARKERS.never)
+  if (ask < 0 && never < 0) return undefined
+  return never > ask ? 'never' : 'ask'
+}
 
 /**
  * The session's approval-policy override: the last `approval/policy` event in
@@ -258,13 +272,12 @@ export interface Config {
  * returned to the caller, never stored here.
  *
  * Owns the policy tier too (`effective = fold(the session's 'approval/policy'
- * events) ?? config.policy`): a PREPENDED decide-or-delegate gate resolves
- * `'never'` sessions to `'rejected'` before any interactive answerer is
- * prompted, a per-agent prompt section states a `'never'` policy (and only
- * that one — an `'ask'` promise could overclaim an answerer that headless
- * compositions do not have), and an `agent/pre-step` narrator injects at most
- * one coalesced notice when a session's effective policy moved past what the
- * model was last told.
+ * events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'`
+ * before dispatching any interactive answerer, a per-agent prompt section
+ * states a `'never'` policy (and only that one in prose — an `'ask'` promise
+ * could overclaim an answerer that headless compositions do not have), and an
+ * `agent/pre-step` narrator injects at most one coalesced notice when a
+ * session's effective policy moved past what the model was last told.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -278,9 +291,10 @@ export class ApprovalService extends Service {
 
     // Visibility layer 1, scoped on the prompt registry so headless
     // compositions mount the seam without it: state the one deterministic
-    // policy per session. 'ask' renders nothing — stating "you will be
-    // asked" would overclaim in a composition with no answerer, and absence
-    // under any logged header is exactly how the narrator reads 'ask' back.
+    // policy per session. 'ask' renders only a source-owned state marker —
+    // stating "you will be asked" would overclaim in a composition with no
+    // answerer. The marker, not deployment-controlled prose, is what the
+    // restart narrator reads back from the logged request header.
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.section({
         name: 'approval:policy',
@@ -289,7 +303,8 @@ export class ApprovalService extends Service {
           const agent = context.agent
           // A bare assemble() (tests, diagnostics) has no session to state.
           if (agent === undefined) return ''
-          return effective(agent) === 'never' ? NEVER_SENTENCE : ''
+          const policy = effective(agent)
+          return policy === 'never' ? `${NEVER_SENTENCE}\n${POLICY_MARKERS.never}` : POLICY_MARKERS.ask
         },
       })
     })
@@ -322,8 +337,7 @@ export class ApprovalService extends Service {
       // for POSITIONAL attribution; the default lives once, in the method.
       const current = this.effectivePolicy(agent)
       const header = session.requestHeader()
-      const told = narrated.get(session)
-        ?? (header === undefined ? undefined : header.system?.includes(NEVER_SENTENCE) === true ? 'never' : 'ask')
+      const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
       narrated.set(session, current)
       // Cold start (nothing ever told) narrates nothing — the section about
       // to go out states the truth, and there is no delta to explain.
@@ -331,7 +345,7 @@ export class ApprovalService extends Service {
       const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
       agent.inject(
         [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        { source: { kind: 'plugin', plugin: 'approval' } },
+        { source: { kind: 'plugin', plugin: 'user-approval' } },
       )
     })
   }

@@ -30,7 +30,7 @@
       "path": "../../core/system-prompt"
     },
     {
-      "path": "../../approval/approval"
+      "path": "../../ui/user-approval"
     },
     {
       "path": "../../sandbox/sandbox"

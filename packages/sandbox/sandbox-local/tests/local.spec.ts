@@ -102,7 +102,10 @@ describe('runnerCommand config', () => {
     const probeBwrap = vi.fn(() => false)
     const probeLandlock = vi.fn(() => 'unusable' as const)
     const probeSeatbelt = vi.fn(() => false)
-    const { sandbox } = await setup({ runnerCommand: ['fake-runner', '--flag'] }, { probeBwrap, probeLandlock, probeSeatbelt })
+    const { sandbox } = await setup({
+      runnerCommand: ['fake-runner', '--flag'],
+      runnerFailureSignatures: ['fake-runner: profile rejected'],
+    }, { probeBwrap, probeLandlock, probeSeatbelt })
     const confined = sandbox.confine(['bash', '-c', 'echo hi'], WW)
     expect(confined).toEqual({
       argv: ['fake-runner', '--flag', ...bwrapProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
@@ -115,6 +118,7 @@ describe('runnerCommand config', () => {
       // unexecutable runner fails with the OUTER shell's argv0-scoped
       // shapes, and those classify as sandbox failures like any rung.
       runnerFailureSignatures: [
+        'fake-runner: profile rejected',
         'exec: fake-runner: not found',
         'fake-runner: No such file or directory',
         'fake-runner: Permission denied',
@@ -130,6 +134,24 @@ describe('runnerCommand config', () => {
     const { sandbox } = await setup({ runnerCommand: [] }, { platform: 'linux', probeBwrap, probeLandlock: () => 'unusable' })
     expect(() => sandbox.confine(['true'], RO)).toThrow(SandboxUnavailableError)
     expect(probeBwrap).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires an operator-owned failure dialect for every configured runner', async () => {
+    await expect(setup({ runnerCommand: ['fake-runner'] })).rejects.toThrow(
+      'runnerCommand requires at least one runnerFailureSignatures entry',
+    )
+  })
+
+  it('rejects runner failure signatures when no custom runner consumes them', async () => {
+    await expect(setup({ runnerFailureSignatures: ['profile rejected'] })).rejects.toThrow(
+      'runnerFailureSignatures requires runnerCommand',
+    )
+  })
+
+  it('rejects blank configured-runner failure signatures', async () => {
+    await expect(setup({ runnerCommand: ['fake-runner'], runnerFailureSignatures: ['  '] })).rejects.toThrow(
+      'runnerFailureSignatures entries must be non-empty',
+    )
   })
 })
 
