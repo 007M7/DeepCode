@@ -1,10 +1,10 @@
 # Packages
 
-Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis plugin: a default `Service` subclass or functional plugin declaring ctx keys/events through declaration merging and contributing through `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) and root [AGENTS.md](../AGENTS.md) § Conventions.
+Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis service or functional plugin contributing through the framework's effect/event seams. Authoring conventions: [AGENTS.md](AGENTS.md) and root [AGENTS.md](../AGENTS.md).
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json`); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. **Each group README is the canonical per-package map** — package roles, ctx keys, and the product-vs-support split live there, next to the code.
+Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -30,12 +30,12 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
 
-The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and this table).
+Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
 ## Dependencies
 
 The inter-package dependency graph is generated: [docs/module-graph.md](../docs/module-graph.md) (`pnpm run gen-module-graph`, freshness-gated in CI).
 
-The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
+**Extension plugins depend on interfaces, never the concrete loop.** Composition bundles such as `dsh-agent-core` intentionally assemble that loop. Swappable capabilities split into interface, implementation, and consumer packages; see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md).
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).

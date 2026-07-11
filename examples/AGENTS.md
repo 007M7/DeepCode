@@ -1,8 +1,8 @@
 # AGENTS.md — Examples
 
-Runnable demos showing how the harness is wired. **Examples are NOT workspaces** — each `examples/*/package.json` is a private, dependency-free stub, never built. They are booted as unbuilt `tsx` subprocesses via the cordis Loader reading a `cordis.yml`; the `@deepseek-ai/dsh-*` plugin names in those YAML files resolve through the root `tsconfig.json` `paths` map, not through `node_modules`.
+Runnable harness compositions. **Examples are NOT workspaces**: their private `package.json` files are dependency-free stubs, and the cordis Loader boots each `cordis.yml` unbuilt through `tsx` plus the root tsconfig paths.
 
-Because examples are not under the `packages/*/src` coverage gate, an example that grows real, reusable *logic* should extract it into a `packages/` package (where it gets the per-file 100% gate and a README). Keep only example-specific glue here: the `cordis.yml` wiring, demo-only mocks/teaching artifacts, and the e2e/snapshot scenarios. There is no `start.ts` — the boot glue lives in each app package's `bin` (`@deepseek-ai/dsh-stdio-agent`, `@deepseek-ai/dsh-acp-agent`), which the `demo:*` scripts invoke against the leaf `cordis.yml`.
+Extract reusable logic into `packages/`, where per-file coverage and README gates apply. Examples keep only `cordis.yml` wiring, demo artifacts, and e2e/snapshot scenarios; app package bins own boot glue.
 
 ## Every example ships e2e smokes (keyless + with-key)
 
