@@ -19,3 +19,10 @@ The plugin contributes one user-role `<system-reminder>` catalog through `agent/
 Execution uses the calling agent's `session.header.cwd` so workspace-sensitive providers can resolve the right winning skill. A successful call returns one text tool result with `<skill_content name="...">`, containing `<skill_resources>` followed by `<skill_instructions>`. Resource guidance resolves paths or URLs explicitly referenced by the loaded instructions against `resourceBase`; referenced scripts, references, and assets load only when needed, and the tool does not enumerate a skill directory. Local filesystem skills provide a base directory, while remote or embedded providers can provide a URL or opaque provider-managed guidance. A name that cannot be resolved reports that the skill is unknown or no longer available; invalid names and skills marked `disableModelInvocation: true` retain distinct `isError` results.
 
 The tool does not call `agent.inject()` in v1. Its result is already recorded as the tool result and becomes available to the next model step without duplicating the content as synthetic context.
+
+## Known Limitations and Deferred Work
+
+- **The catalog omits `whenToUse`, source, and provider metadata** — routing is based only on name and a capped description; `whenToUse` remains provider metadata and is not rendered by the loaded wrapper either.
+- **Loaded instruction bodies have no size cap** — a provider can return a skill large enough to consume substantial next-step context; only catalog descriptions are truncated.
+- **Resources are guidance, not attachments** — the tool reports a base directory/URL/opaque hint but neither enumerates nor fetches referenced files for the model.
+- **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.

@@ -40,6 +40,5 @@ Thrown by `startInProcessRun` when a spawn would exceed the request's `maxDepth`
 
 ## Known Limitations and Deferred Work
 
-- **The structured-output runtime is context-global** — the tool registry and prompt assembly are context-wide while schemas differ per concurrent child, hence the final-assembly enforcement dance; per-agent/per-session scoping would dissolve it (the module-doc `FIXME`).
 - **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
-- **`toolFilter` is unimplemented in this driver** — both in-process backends declare it `false`; scoping a child's tool set is deferred.
+- **Structured capture accepts the `defineTool` schema subset only** — unsupported JSON Schema constructs fail before the child is created; a provider needing a broader schema vocabulary requires a different runtime.

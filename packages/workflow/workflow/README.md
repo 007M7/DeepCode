@@ -24,6 +24,12 @@ All observe-only emits carrying DATA SNAPSHOTS (`WorkflowRunInfo` = id + meta) �
 - `workflow/phase`(info, title) / `workflow/log`(info, message) — script narration.
 - `workflow/agent-start`(info, agent) / `workflow/agent-end`(info, agent + outcome) — ready-child lifecycle correlated by `seq`; the [generated event contract](../../../docs/cordis-catalog/events.md#workflowagent-start--emit) defines publication and pairing.
 
-## Non-goals (this cut)
+## Known Limitations and Deferred Work
 
-Background collection, journaling/resume, saved workflows, nested `workflow()`, token budgets — see the [RFC's deferred section](../../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md).
+- **Foreground collection only** — the caller owns one live run and awaits it; background start/poll, spill handles, and detached collection are deferred.
+- **No journaling or resume** — scripts, child progress, and intermediate values are not checkpointed, so a process restart cannot continue a run.
+- **No saved or nested workflows** — the seam starts caller-supplied scripts only, and a workflow script receives no `workflow()` hook for recursive orchestration.
+- **No token-budget vocabulary** — engines cap concurrency/items/agents, but neither the request nor result accounts for model tokens across children.
+- **Runs are holder-owned, not service-tracked** — unloading the engine does not discover independent live handles; every consumer must dispose the run it started.
+
+See the [dynamic-workflows RFC](../../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md) for the deferred workflow surface.

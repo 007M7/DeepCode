@@ -29,4 +29,4 @@ Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implem
 
 - **Delegation blocks the parent turn** — synchronous collect only; background start + poll collection is deferred to the long-running-runtime redesign.
 - **Duplicate `toolName` across waiting loads is detected late** (`TODO(subagent-dup-toolname)`) — two loads waiting on providers collide only when a provider arrives, and the throw rolls back the provider's fiber rather than the misconfigured tool's; config-time detection needs a cross-fiber registry of intended names.
-- **No per-child persona or prompt shaping** — `agentOptions` carries only `model`; the deployment persona is context-wide, and per-child system-prompt variation has no seam yet.
+- **Child policy is fixed per tool registration** — `model`, persona, tool filter, and depth cap come from this plugin load's config, not model-call arguments; exposing another policy requires another distinctly named tool.

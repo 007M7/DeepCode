@@ -14,7 +14,9 @@
  * package set, so a rename or removal fails loud instead of silently
  * un-gating a README.
  *
- * Checks, per packages/<group>/<pkg>/README.md (fenced code excluded):
+ * The package set comes from `packages/<group>/<package>/package.json`, so a manifest with no
+ * sibling README fails instead of escaping a README-only glob. Checks, per
+ * package README (fenced code excluded):
  * 1. Non-whitelisted: exactly one limitations-like heading, byte-equal to the
  *    canonical h2, with at least one top-level `- ` bullet before the next
  *    heading.
@@ -30,7 +32,7 @@
  * Run: `tsx scripts/verify-readme-limitations.ts`.
  */
 
-import { globSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
@@ -43,21 +45,18 @@ const CANONICAL = '## Known Limitations and Deferred Work'
  * package directory relative to the repo root). Their READMEs must NOT carry
  * the section; adding one moves the package off this list in the same change.
  */
-const NO_LIMITATIONS: readonly string[] = [
-  'packages/support/subagent-mock',
-  'packages/ui/app-boot',
-  'packages/util/brand',
-  'packages/util/timeout',
-]
+const NO_LIMITATIONS: Readonly<Record<string, string>> = {
+  'packages/util/brand': 'Type-only nominal-branding primitive with no runtime behavior or deferred work.',
+}
 
 /** A heading that reads as a limitations section — canonical or drifted. */
 function isLimitationsLike(headingText: string): boolean {
   return (
-    /known limitation/i.test(headingText)
+    /\blimitations?\b/i.test(headingText)
     || /deferred work/i.test(headingText)
     || /what is not here/i.test(headingText)
-    || /^limitations?\b/i.test(headingText)
     || /^deferred\b/i.test(headingText)
+    || /^non-goals?\b/i.test(headingText)
   )
 }
 
@@ -66,37 +65,52 @@ interface Line {
   raw: string
 }
 
+const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+/
+
 /** Split a README into prose lines (fenced code dropped), keeping 1-based line numbers. */
 function proseLines(text: string): Line[] {
-  let inFence = false
+  let fence: { marker: '`' | '~'; length: number } | undefined
   const kept: Line[] = []
   text.split('\n').forEach((raw, i) => {
-    if (raw.startsWith('```')) {
-      inFence = !inFence
+    const token = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1]
+    if (token !== undefined) {
+      const marker = token[0] as '`' | '~'
+      if (fence === undefined) {
+        fence = { marker, length: token.length }
+      } else if (marker === fence.marker && token.length >= fence.length) {
+        fence = undefined
+      }
       return
     }
-    if (!inFence) kept.push({ index: i + 1, raw })
+    if (fence === undefined) kept.push({ index: i + 1, raw })
   })
   return kept
 }
 
-const readmes = globSync('packages/*/*/README.md', { cwd: root }).sort()
-const scannedPackages = new Set(readmes.map(path => path.slice(0, -'/README.md'.length)))
+const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
+const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 const failures: string[] = []
 
-for (const entry of NO_LIMITATIONS) {
+for (const [entry, reason] of Object.entries(NO_LIMITATIONS)) {
   if (!scannedPackages.has(entry)) {
     failures.push(`whitelist entry ${entry} does not name a scanned package — renamed or removed? update NO_LIMITATIONS in scripts/verify-readme-limitations.ts in the same change`)
   }
+  if (reason.trim().length === 0) {
+    failures.push(`whitelist entry ${entry} has no justification — state why a limitations section would be empty boilerplate`)
+  }
 }
 
-for (const readme of readmes) {
-  const pkg = readme.slice(0, -'/README.md'.length)
+for (const pkg of scannedPackages) {
+  const readme = `${pkg}/README.md`
+  if (!existsSync(resolve(root, readme))) {
+    failures.push(`${readme}: package manifest has no sibling README with the \`${CANONICAL}\` section`)
+    continue
+  }
   const lines = proseLines(readFileSync(resolve(root, readme), 'utf8'))
-  const headings = lines.filter(line => /^#{1,6} /.test(line.raw))
-  const limitations = headings.filter(line => isLimitationsLike(line.raw.replace(/^#{1,6}\s+/, '')))
+  const headings = lines.filter(line => ATX_HEADING.test(line.raw))
+  const limitations = headings.filter(line => isLimitationsLike(line.raw.replace(ATX_HEADING, '')))
 
-  if (NO_LIMITATIONS.includes(pkg)) {
+  if (Object.hasOwn(NO_LIMITATIONS, pkg)) {
     for (const heading of limitations) {
       failures.push(`${readme}:${heading.index}: whitelisted as having no known limitations, but carries ${JSON.stringify(heading.raw)} — drop the section or remove the package from NO_LIMITATIONS`)
     }
@@ -118,7 +132,7 @@ for (const readme of readmes) {
   }
   const headingAt = lines.indexOf(heading)
   const body = lines.slice(headingAt + 1)
-  const end = body.findIndex(line => /^#{1,6} /.test(line.raw))
+  const end = body.findIndex(line => ATX_HEADING.test(line.raw))
   const section = end === -1 ? body : body.slice(0, end)
   if (!section.some(line => /^- /.test(line.raw))) {
     failures.push(`${readme}:${heading.index}: the \`${CANONICAL}\` section has no top-level \`- \` bullet — state the limitations, or whitelist the package if there are genuinely none`)
@@ -131,4 +145,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log(`verify-readme-limitations: ${readmes.length} package READMEs checked (${NO_LIMITATIONS.length} whitelisted), all conform.`)
+console.log(`verify-readme-limitations: ${scannedPackages.size} package READMEs checked (${Object.keys(NO_LIMITATIONS).length} whitelisted), all conform.`)

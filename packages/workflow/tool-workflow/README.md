@@ -4,7 +4,7 @@ The model-facing **`workflow` tool**: run a JavaScript orchestration script that
 
 ## What the model sees
 
-Two parameters: `script` (required — the full `export const meta = {...}` + body text; the tool DESCRIPTION carries the complete authoring contract: hooks, semantics, the supported schema subset) and `args` (optional JSON object exposed to the script as the `args` global; a bare list is wrapped as a field, a deliberate deviation from Claude Code's any-JSON `args` so the wire schema stays honest). The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow / large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
+Three parameters: `script` (required plain-JavaScript body with no `export const meta` statement), `meta` (required JSON identity with `name`/`description` and optional `whenToUse`/`phases`), and `args` (optional JSON object exposed to the script as the `args` global; wrap a bare list as a field so the wire schema stays honest). The tool description carries the complete authoring contract: hooks, semantics, and the supported schema subset. The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow / large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
 
 ## Lifecycle
 
@@ -12,7 +12,7 @@ Collection is SYNCHRONOUS this cut (like [`dsh-tool-subagent`](../../subagent/to
 
 ## Render intent
 
-Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md)): a `generic` card titled `workflow: <meta.name>`, the name sniffed TEXTUALLY from `args.script` (presentation must be a pure function of args, so it cannot ask the engine to parse); the script text rides as `rawInput`. The result keeps the generic card.
+Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md)): a `generic` card titled `workflow: <meta.name>`, read directly from the call's `meta` parameter (presentation is a pure function of args); the script text rides as `rawInput`. The result keeps the generic card.
 
 ## Config
 
@@ -20,3 +20,9 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 |---|---|---|
 | `toolName` | `workflow` | The model-facing tool name to register. |
 | `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice. |
+
+## Known Limitations and Deferred Work
+
+- **The parent turn blocks until the whole workflow settles** — there is no background start/poll surface, and cancellation discards partial output as an error.
+- **`args` must be an object and the result is bounded text** — callers wrap top-level arrays/scalars in a field, and JSON beyond `maxResultChars` is truncated rather than stored behind a retrieval handle.
+- **Workflow policy is fixed per tool registration** — provider selection, caps, and tool name are deployment config, not model-call arguments.

@@ -36,7 +36,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 
@@ -107,6 +107,6 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 - **Tool calls within a step execute sequentially** — parallel execution waits on concurrency-safety metadata in the tool contract (see `dsh-tools`).
 - **No resume-or-create policy on the config path** — config-driven `create()` starts a fresh `${id}-session-<uuid>` every run (`TODO(demo)`), and a config `resumeSessionId` whose resume fails logs a warning and creates no agent.
-- **Config agents carry no session `cwd`** — `Config` has no cwd field, so a persona referencing `{{cwd}}` fails prompt assembly for config-created agents.
+- **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
 - **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.
 - **`runLoop`/`Inbox`/`InboxMessage` stay exported with no outside consumer** — [removal is proposed](../../../docs/rfc/proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md).

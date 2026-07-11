@@ -39,7 +39,7 @@ Per-run limits: a concurrency semaphore (`maxConcurrentAgents`), a total-`agent(
 
 A worker that dies unexpectedly (an OOM, a script reaching `process.exit` through the documented vm escape) settles the run `stopReason: 'error'` with the exit diagnostics — or `'cancelled'` when a cancel was in flight — and the host-side child registry is what winds every surviving child down. `dispose()` = cancel + immediate host-driven disposal of every registered child (a wedged worker can relay no dispose RPC, so child teardown overlaps the grace instead of starting after it; the worker's own dispose RPCs join the same per-child disposal) + bounded wait (result, then child-registry quiescence, capped by the grace) + unconditional `worker.terminate()`: the thread never outlives its run. Once a run settles, stray children a script fired without awaiting are cancelled too, and `dispose()` waits for their disposal (bounded by the grace) before returning. `agent-start`/`agent-end` pairing is host-guaranteed the same way: forwarded starts live in a ledger, worker-reported ends pair them on the graceful paths, and the termination paths (grace force-settle, worker death) synthesize the missing ends (outcome `cancelled`) before the run settles — a start still in flight across the force-settle can surface after `workflow/end`, immediately paired the same way.
 
-**Engine-specific limitations**: worker startup is paid per run; on a termination path `agentsStarted` reports the HOST-observed count (accepted `child-start`s — calls still queued worker-side for a concurrency slot are unknowable then); and a returned promise or thenable resolves per JavaScript semantics BEFORE materialization — that is what makes an un-awaited `return agent('x')` work — with the value-boundary guard applying to the resolution.
+A returned promise or thenable resolves per JavaScript semantics BEFORE materialization — that is what makes an un-awaited `return agent('x')` work — with the value-boundary guard applying to the resolution.
 
 ## Config
 
@@ -51,3 +51,11 @@ A worker that dies unexpectedly (an OOM, a script reaching `process.exit` throug
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()`/`pipeline()` call. |
 | `syncTimeoutMs` | `5000` | vm timeout for the script's initial synchronous slice (in the worker). |
 | `disposeGraceMs` | `5000` | How long a cancelled run may stay unsettled before force-settle + terminate; also bounds `dispose()`. |
+
+## Known Limitations and Deferred Work
+
+- **The worker/vm is not a security boundary** — model-written code can escape `node:vm` and reach the worker's process authority; a hostile-code deployment needs a separate-process or container engine.
+- **One worker thread is paid per run** — there is no pool, warm runtime, or cross-run script cache.
+- **No ambient timers, filesystem, or network are injected, but escaped code can still reach Node** — the missing globals are portability API, not containment.
+- **Termination can only report host-observed starts** — `agentsStarted` excludes worker-side calls still queued behind concurrency when a forced termination makes them unknowable.
+- **Cross-realm errors fail `instanceof Error` inside scripts** — workflow authors must branch on stable fields such as `name` and `code`.

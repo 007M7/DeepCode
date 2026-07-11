@@ -24,6 +24,5 @@ See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, m
 
 ## Known Limitations and Deferred Work
 
-- **Tool-scoping (`toolFilter`) is not supported** — declared `false`, so the service rejects a request needing it before `start` runs.
 - **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
 - **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.

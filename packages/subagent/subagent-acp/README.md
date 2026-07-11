@@ -73,7 +73,7 @@ Named `name` / `inject` / `Config` / `apply`, with **no default export**: the co
 ## Known Limitations and Deferred Work
 
 - **A fresh process per run** — persistent-process pooling is a future optimization ([the seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)).
-- **No start-time capability enforcement** — an out-of-process child cannot honor the parent's `outputSchema`/`depthLimit`/`toolFilter`, so the provider advertises none and `request.parent` is ignored.
+- **No start-time capability enforcement** — an out-of-process child cannot honor the parent's `outputSchema`/`depthLimit`/`toolFilter`/`persona`, so the provider advertises none and `request.parent` is ignored.
 - **Only `agent_message_chunk` text is collected** — the child's tool-call activity, thought chunks, and plan updates are not surfaced to the parent.
 - **Permission prompts are auto-answered** (`permission: allow | reject`) — no human is surfaced a child's `session/request_permission` in this cut.
 - **No snapshot-tier replay coverage** (`TODO(acp-subagent-replay)`) — an ACP child is its own process with its own replay shape, deferred.

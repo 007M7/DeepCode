@@ -28,9 +28,11 @@ Design surveyed against the bash tools of Claude Code, OpenCode, Codex, and pi; 
 ## Known Limitations and Deferred Work
 
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose [`dsh-bash-sandbox`](../bash-sandbox/README.md), while per-call allow/deny/ask policy belongs on `tools/pre-execute`.
+- **No persistent shell or PTY** — every call starts a fresh non-login `bash -c`; cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
 - **POSIX-only** — the `bash` binary, detached process groups, group kills, and SIGTERM→SIGKILL escalation are hardcoded; Windows is unsupported.
 - **The credential scrub is a name heuristic** — `*KEY*`/`*SECRET*`/`*TOKEN*` only; differently-named secrets (e.g. `*PASSWORD*`) pass through, and a whitelist for over-scrubbed vars is noted future work.
 - **Spill files are never deleted** — full-output recovery files (and the private per-process spill dir) accumulate under the OS tmpdir until something external cleans them.
 - **Finished background tasks are never evicted** — they stay in the task map, retaining their in-memory output tails, until executor disposal.
+- **`OutputCollector.snapshot()` / `totalBytes` are test-shaped residuals** — the live poll path uses `readFrom()` and a marked cleanup can inline the final snapshot and remove the unused public getter.
 
 The raw process handling lives in `src/run.ts`; `src/index.ts` is the service wiring.

@@ -31,3 +31,10 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
 ```
 
 The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [`examples/sandbox-acp-agent`](../../../examples/sandbox-acp-agent/) for the runnable demo.
+
+## Known Limitations and Deferred Work
+
+- **Confinement covers file effects only** — network access and process visibility are unchanged, so the modes are not a general-purpose security sandbox.
+- **Denials are inferred from failed-command stderr** — backend signatures make the inference portable, but a matching application error can be classified as a denial and a denial omitted from the retained tail can be missed.
+- **A background runner failure has no immediate error channel** — it is recorded on the settled task and surfaces when the caller polls with `bash_output`.
+- **`danger-full-access` deliberately bypasses `ctx.sandbox`** — it is an explicit unconfined mode, not a wider sandbox profile.

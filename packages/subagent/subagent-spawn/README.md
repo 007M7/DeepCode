@@ -20,5 +20,5 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## Known Limitations and Deferred Work
 
-- **Tool-scoping (`toolFilter`) is not supported** — the capability is declared `false`, so the service rejects a request needing it before `start` runs; scoping a child's tool set is deferred.
 - **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
+- **Fresh means no parent transcript** — the child inherits cwd, lineage, model, and explicitly configured persona/tool restrictions, but none of the parent's conversation; use the fork provider when completed-turn context is required.

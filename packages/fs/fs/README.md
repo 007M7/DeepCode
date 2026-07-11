@@ -47,6 +47,5 @@ This package declares three events (see the generated [events catalog](../../../
 
 - **Text-only by contract** — backends reject binary/non-UTF-8 content with `FS_NOT_TEXT`; binary-safe operations are a deliberate deferral of [the tool-schemas RFC](../../../docs/rfc/implemented/feature/2026-06-17-filesystem-tool-schemas.md).
 - **Seven primitives only** — no delete, rename/move, copy, or watch; `listDir` is single-level, with recursion, globbing, pagination, and search out of scope per [the directory-listing RFC](../../../docs/rfc/implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md).
-- **`listDir` has no in-repo consumer yet** — skill discovery and a model-facing `ls` tool are the named follow-ups; sessions list directories via `bash` meanwhile.
 - **No IO deadline** — the seam arms no timeout; cancellation is a best-effort optional `AbortSignal` per primitive (the deliberate [fs-family stance](../README.md)).
 - **Resolve-then-operate costs a remote backend two round-trips per tool call** — folding or caching resolution is left to such a backend.

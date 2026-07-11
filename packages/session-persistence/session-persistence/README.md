@@ -24,7 +24,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 The two first-party backends were byte-identical (or same-algorithm) for ALL of their write-path orchestration — the in-memory bookkeeping (per-id state, write-behind buffers, per-id serialization chains, per-session init promises), the `session/event` → buffer → `session/flush` drain, lazy materialization, crash-tail repair on load, the four `session/created` adoption cases (new / HMR-adopt / collision / ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives differed (write bytes vs. INSERT rows).
 
-`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its four public service methods to the coordinator. This keeps the duplicated, correctness-heavy orchestration in a single place (it used to receive the same fixes twice).
+`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its four public service methods to the coordinator. The correctness-heavy orchestration therefore has one implementation and one place for fixes.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 
