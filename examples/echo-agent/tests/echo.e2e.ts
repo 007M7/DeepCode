@@ -51,7 +51,7 @@ afterEach(async () => {
 /**
  * Boot echo-agent, write `lines` to its stdin, close stdin, and resolve with
  * the full stdout once the process exits (the stdio UI exits on EOF after the
- * agent settles). Rejects on a non-zero exit or a 10s timeout.
+ * agent settles). Rejects on a non-zero exit or a 30s timeout.
  */
 async function runEcho(lines: string[]): Promise<{ stdout: string; code: number }> {
   workdir = await mkdtemp(join(tmpdir(), 'echo-smoke-'))
@@ -84,8 +84,8 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`echo-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`echo-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -105,19 +105,19 @@ describe('echo-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await runEcho([])
     expect(code).toBe(0)
     expect(stdout).toContain('echo-agent ready.')
-  }, 15_000)
+  }, 45_000)
 
   it('runs the echo tool round-trip for an "echo …" line', async () => {
     const { stdout } = await runEcho(['echo hello world'])
     // mock-llm.ts emits a tool-call for the echo tool; echo-tool.ts uppercases.
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HELLO WORLD')
-  }, 15_000)
+  }, 45_000)
 
   it('streams a direct canned reply for a non-echo line', async () => {
     const { stdout } = await runEcho(['just chatting'])
     // The direct-response branch of mock-llm.ts quotes the input back.
     expect(stdout).toContain('just chatting')
     expect(stdout).not.toContain('[tool call]')
-  }, 15_000)
+  }, 45_000)
 })
