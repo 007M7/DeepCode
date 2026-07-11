@@ -19,8 +19,9 @@
  * (a benign-bug guard; the postMessage clone already isolated the caller).
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
- * unsupported options/schemas, tripped caps, host start refusals and child
- * result rejections, cancellation) ALWAYS propagate through
+ * unsupported options/schemas, tripped caps, synchronous start refusal,
+ * pre-publication readiness failure, ready-child result rejection, and
+ * cancellation) ALWAYS propagate through
  * `parallel`/`pipeline` — recognized by `instanceof` against this realm's
  * class, which a script inside the vm context cannot forge — and the per-item
  * `null` is reserved for child-run failures and ordinary in-stage script

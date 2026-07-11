@@ -22,7 +22,7 @@ All observe-only emits carrying DATA SNAPSHOTS (`WorkflowRunInfo` = id + meta) �
 
 - `workflow/start`(info) / `workflow/end`(info, resultInfo) — run lifecycle; `resultInfo` deliberately omits the value.
 - `workflow/phase`(info, title) / `workflow/log`(info, message) — script narration.
-- `workflow/agent-start`(info, agent) / `workflow/agent-end`(info, agent + outcome) — one pair per `agent()` call that STARTED a child run (a call rejected at validation or caps, refused at start, or cancelled while queued for a slot emits no pair), correlated by `seq`.
+- `workflow/agent-start`(info, agent) / `workflow/agent-end`(info, agent + outcome) — ready-child lifecycle correlated by `seq`; the [generated event contract](../../../docs/cordis-catalog/events.md#workflowagent-start--emit) defines publication and pairing.
 
 ## Non-goals (this cut)
 

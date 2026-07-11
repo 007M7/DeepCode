@@ -89,24 +89,26 @@ class ChildRpcBridge implements ChildPort {
       settled: Promise.withResolvers<ChildResult>(),
       disposed: Promise.withResolvers<void>(),
     }
-    // Containment: when the start is refused (or the run torn down) the
-    // settled promise may never gain a consumer — it must not surface as an
-    // unhandled rejection and kill the worker.
-    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after a refused start */ })
+    // Containment: when synchronous start or asynchronous readiness fails (or
+    // the run is torn down), the settled promise may never gain a consumer —
+    // it must not surface as an unhandled rejection and kill the worker.
+    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after failed start/readiness */ })
     this.pending.set(callId, entry)
     this.post(WorkerToHostType.ChildStart, { callId, request })
     const childId = await entry.started.promise
     return new RpcChildHandle(this.post, callId, entry, childId)
   }
 
-  /** The host started the child; releases the `startAgent` await. */
+  /** The host established a ready child; releases the `startAgent` await. */
   onChildStarted(callId: number, childId: string): void {
     this.pending.get(callId)?.started.resolve(childId)
   }
 
-  /** The host refused the start; `startAgent` rejects with the rendered cause. */
+  /** Synchronous start or asynchronous readiness failed; reject and retire the pending RPC. */
   onChildStartError(callId: number, rendered: string): void {
-    this.pending.get(callId)?.started.reject(new Error(rendered))
+    const entry = this.pending.get(callId)
+    this.pending.delete(callId)
+    entry?.started.reject(new Error(rendered))
   }
 
   /** The child's terminal result arrived. */
