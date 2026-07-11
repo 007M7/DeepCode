@@ -166,12 +166,18 @@ export class SessionProviderCoordinator {
   private _syncAll(state: ProviderState): Promise<void> {
     // Capture the direct source before awaiting: only searches that observed
     // the same live corpus may share an in-flight full synchronization.
-    const liveSessions = this._corpus().listLive()
-    const liveKey = JSON.stringify(liveSessions.map(session => this._snapshotLive(session)).map(snapshot => [
-      snapshot.session.header.id,
-      snapshot.fingerprint,
-      snapshot.session.persisted,
-    ]))
+    let liveSessions: Session[]
+    let liveKey: string
+    try {
+      liveSessions = this._corpus().listLive()
+      liveKey = JSON.stringify(liveSessions.map(session => this._snapshotLive(session)).map(snapshot => [
+        snapshot.session.header.id,
+        snapshot.fingerprint,
+        snapshot.session.persisted,
+      ]))
+    } catch (error: unknown) {
+      return Promise.reject(this._synchronizationError(state, error))
+    }
     if (state.fullSync?.liveKey === liveKey) return state.fullSync.promise
     const promise = this._enqueue(state, async () => {
       /* v8 ignore next -- a provider can be disposed while queued behind an in-flight update */
@@ -242,10 +248,14 @@ export class SessionProviderCoordinator {
     const next = state.chain.then(operation, operation)
     state.chain = next.then(() => undefined, () => undefined)
     return next.catch((error: unknown) => {
-      /* v8 ignore next -- service-created typed synchronization errors pass through unchanged */
-      if (error instanceof SessionQueryError) throw error
-      throw new SessionQueryError(`session-query provider "${state.provider.id}" synchronization failed: ${errorMessage(error)}`, 'SESSION_QUERY_INDEX_FAILED', { cause: error })
+      throw this._synchronizationError(state, error)
     })
+  }
+
+  private _synchronizationError(state: ProviderState, error: unknown): SessionQueryError {
+    /* v8 ignore next -- service-created typed synchronization errors pass through unchanged */
+    if (error instanceof SessionQueryError) return error
+    return new SessionQueryError(`session-query provider "${state.provider.id}" synchronization failed: ${errorMessage(error)}`, 'SESSION_QUERY_INDEX_FAILED', { cause: error })
   }
 
   private _resolveProvider(): ProviderState {

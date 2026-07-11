@@ -673,6 +673,30 @@ describe('provider selection and synchronization', () => {
     await expect(ctx.sessionQuery.searchSessions({ query: 'x' })).resolves.toMatchObject({ providerId: provider.id })
     expect(provider.persisted.get(persisted.id)?.documents[0]?.text).toBe('retry')
   })
+
+  it('types synchronous extractor failures during full-search key construction', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('throwing-extractor'))
+    session.append('test/note', { note: 'unreachable' })
+    const provider = new FakeProvider()
+    ctx.sessionQuery.registerSearchProvider(provider)
+    const cause = new Error('custom extractor failed')
+    ctx.sessionQuery.registerEventTextExtractor('test/note', {
+      version: 'throwing-v1',
+      extract: () => { throw cause },
+    })
+
+    let thrown: unknown
+    try {
+      await ctx.sessionQuery.searchSessions({ query: 'x' })
+    } catch (error: unknown) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(SessionQueryError)
+    expect(thrown).toMatchObject({ code: 'SESSION_QUERY_INDEX_FAILED', cause })
+    expect(asError(thrown).message).toContain(`provider "${provider.id}"`)
+    expect(provider.sessionRequests).toEqual([])
+  })
 })
 
 describe('semantic text extractors', () => {
