@@ -27,6 +27,10 @@ const AGENT = {
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
 
+// The sandbox variant (its own composition, not an include patch: sandboxed
+// bash executor + the approval seam over the same app spine).
+const SANDBOX_CONFIG = fileURLToPath(new URL('../sandbox.cordis.yml', import.meta.url))
+
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
     case undefined:
@@ -121,6 +125,37 @@ const SCENARIOS: Scenario[] = [
   // therefore pins its own class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
+  // The SANDBOX variant (sandbox.cordis.yml: sandboxed bash + approval seam).
+  // Replay swaps only the MODEL for the recorded transcript — every bash call
+  // re-executes for real under the host's actual runner (Seatbelt on macOS,
+  // bwrap on Linux CI), so these recordings double as cross-backend
+  // confinement regression; their commands are limited to `cat`/`printf`
+  // shapes whose bytes are identical across those backends and across
+  // GNU/BSD userlands. Deliberately ABSENT: a scenario whose transcript
+  // carries a real sandbox DENIAL — the denied command's own stderr is the
+  // backend's dialect (EROFS/EACCES/EPERM phrasing), so such a fixture
+  // replays only on the platform that recorded it; the denial→marker path
+  // stays on dsh-tool-bash's unit tests and the real-kernel sandbox e2e legs,
+  // and the escalation scenarios sidestep it by having the USER assert the
+  // prior denial. config-options: the session config-option surface this
+  // composition adds (both advertised selects, the refreshed state every
+  // set_config_option answers with, both rejection shapes) — protocol-only,
+  // replays on runner-less hosts. mode-switching: the runtime switching arc
+  // and NECESSARILY this class's pinned-header scenario (an approval-policy
+  // switch rewrites its prompt section; the resulting request/header-delta is
+  // legal only in the pinning scenario) — the pin commits the full sandbox
+  // header (persona, tool schemas WITH the escalation fields) plus the
+  // approval delta and its "changed by the user" notice; the SANDBOX switch
+  // stays deliberately silent (the visibility asymmetry), proven by BEHAVIOR.
+  // escalation-approved/rejected: the approval wire end-to-end under the
+  // default read-only/ask — the escalating call streams,
+  // session/request_permission attaches to it, and the scripted answer drives
+  // each branch (approved runs CONFINED under the granted workspace-write;
+  // rejected executes nothing, failing with the deterministic text).
+  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
+  { name: 'mode-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
+  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
+  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
 ]
 
 defineAcpSnapshotSuite({

@@ -17,7 +17,7 @@
 - id: base
   name: '@cordisjs/plugin-include'
   config:
-    path: ./cordis.yml
+    path: ./sandbox.cordis.yml
     patches:
       # The name is an assertion, not an override: the include skips the patch
       # (warning) when the id points at a different plugin, so this can never

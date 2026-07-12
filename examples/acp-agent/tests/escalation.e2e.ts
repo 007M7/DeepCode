@@ -17,9 +17,9 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * examples/sandbox-acp-agent end to end.
+ * The sandbox variant (`sandbox.cordis.yml`) end to end.
  *
- * Keyless smoke: boot the REAL `cordis.yml` through the `dsh-acp-agent` bin as
+ * Keyless smoke: boot the REAL `sandbox.cordis.yml` through the `dsh-acp-agent` bin as
  * an ACP subprocess and drive initialize + session/new — the real-Loader-path
  * guard (postmortem 0001) for THIS tree's export shapes, which now include the
  * sandbox executor AND the approval service. No prompt is sent, so neither the
@@ -36,7 +36,7 @@ import {
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../sandbox.cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The subprocess runs from a temp cwd OUTSIDE the repo; point tsx at the repo
 // tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
@@ -116,7 +116,7 @@ afterEach(async () => {
   workdir = undefined
 })
 
-describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () => {
+describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)', () => {
   it('boots the tree — sandbox executor + approval service + bridge — and opens a session', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-smoke-'))
     spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
@@ -161,7 +161,7 @@ describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () 
   }, 30_000)
 })
 
-describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox-acp-agent e2e: the live approval loop', () => {
+describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox variant e2e: the live approval loop', () => {
   it('denial → model escalation → editor prompt → allow-once → the retried write lands on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
     spawned = spawnSandboxAcpAgent(workdir, 'allow-once')

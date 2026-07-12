@@ -1,13 +1,13 @@
-# The sandbox-acp-agent plugin tree: the sandboxed coding agent served over the
-# Agent Client Protocol, with the approval seam composed — the first LIVE
-# approval composition. A sandbox denial escalated by the model
+# The SANDBOX VARIANT of the acp-agent example: the sandboxed coding agent
+# served over the Agent Client Protocol, with the approval seam composed —
+# the live approval composition (`pnpm run demo:sandbox-acp`). A sandbox denial escalated by the model
 # (sandbox_permissions + justification) reaches the EDITOR as a
 # session/request_permission prompt through the ACP bridge's answerer, and an
 # "Allow once" runs exactly that command under the wider mode.
 #
 # CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved
 # for the ACP JSON-RPC protocol (a property of @deepseek-ai/dsh-acp-agent,
-# same as examples/acp-agent).
+# same as the sibling cordis.yml).
 #
 # Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) — the
 # dsh-acp-agent bin loads the gitignored repo-root .env first (on STDERR only).
