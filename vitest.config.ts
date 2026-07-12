@@ -2,8 +2,8 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  // Vite ≥8 warns that this plugin can be replaced by the native (experimental)
-  // `resolve.tsconfigPaths: true`.
+  // Native path resolution reads each package's nearest tsconfig, but only the root defines
+  // workspace paths. Keep this plugin pinned to the root map.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
     include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],

@@ -1,9 +1,6 @@
 import stylistic from '@stylistic/eslint-plugin'
 import tseslint from 'typescript-eslint'
 
-/**
- * ESLint flat config. Two layers.
- */
 export default tseslint.config(
   {
     ignores: [
