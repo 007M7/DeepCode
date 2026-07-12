@@ -59,4 +59,4 @@ A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only
 ## Known Limitations and Deferred Work
 
 - **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
-- **`dsh-invariants` mounts unconditionally** — a dev/test plugin with default `freeze: true` and no reachable toggle in this bundle's `Config`, so every deployment currently pays the assertion/freeze cost.
+- **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.
