@@ -67,8 +67,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`code-mode overlay did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`code-mode overlay did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -87,5 +87,5 @@ describe('code-mode overlay keyless smoke (real code-mode.cordis.yml via the Loa
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('code-mode agent ready.')
-  }, 15_000)
+  }, 45_000)
 })

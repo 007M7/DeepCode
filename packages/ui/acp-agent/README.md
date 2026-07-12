@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp-agent
 
-The **ACP server app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster an [Agent Client Protocol](../acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
+The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster an [Agent Client Protocol](../acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
 
 It is the structured counterpart to [`@deepseek-ai/dsh-stdio-agent`](../stdio-agent/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
 

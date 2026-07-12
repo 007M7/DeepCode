@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-agent
 
-The **terminal stdio chat app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
+The **terminal stdio chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
 
 It is the readline counterpart to [`@deepseek-ai/dsh-acp-agent`](../acp-agent/README.md): both consume the same spine, but each bakes in the OPPOSITE front-door cluster.
 
@@ -11,7 +11,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
-| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model` and carrying its `persona` |
+| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model` with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
@@ -31,6 +31,8 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
+
+Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-agent` was started. Resumed sessions keep the cwd stored in the persisted session header.
 
 ## The bin
 

@@ -1,0 +1,10 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    { "op": "setConfigOption", "configId": "sandbox-mode", "value": "workspace-write" },
+    { "op": "setConfigOption", "configId": "approval-policy", "value": "never" },
+    { "op": "setConfigOptionExpectError", "configId": "sandbox-mode", "value": "yolo" },
+    { "op": "setConfigOptionExpectError", "configId": "reasoning-effort", "value": "max" }
+  ]
+}

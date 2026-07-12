@@ -3,7 +3,7 @@
  * tier (`pnpm run test:snapshot`). Three layers, composable per example:
  * the subprocess scenario harness ({@link runScenario}), the pure golden
  * normalizers ({@link normalizeStdout} / {@link normalizeSessionLog} /
- * {@link scrubRequestHeaders}), and the suite factory
+ * {@link scrubRequestHeaders} / {@link scrubSystemPrompts}), and the suite factory
  * ({@link defineAcpSnapshotSuite}) that registers a scenario table as a full
  * describe/it tree. An example's `*.snapshot.ts` supplies only its
  * {@link AgentUnderTest} paths, its snapshots directory, and its
@@ -29,6 +29,7 @@ export {
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,
+  scrubSystemPrompts,
   type NormalizeContext,
 } from './normalize.ts'
 export {
