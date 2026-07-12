@@ -63,19 +63,16 @@ describe('scoped sections', () => {
     expect(() => scope.ctx.systemPrompt.section({ name: 'y', order: 1, text: 'b' })).toThrow(/already registered in this scope/)
   })
 
-  it.each([
-    [['reserved'], 'section "reserved"'],
-    [['first', 'second'], 'sections "first", "second"'],
-  ])('rejects global protection added after scoped shadows (%j)', async (names, message) => {
+  it('rejects a global owner-final section added after a scoped shadow', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'child')
-    for (const name of names) {
-      scope.ctx.systemPrompt.section({ name, order: 1, text: `scoped ${name}` })
-    }
+    scope.ctx.systemPrompt.section({ name: 'reserved', order: 1, text: 'scoped reserved' })
 
-    expect(() => ctx.systemPrompt.protect({ sections: names })).toThrow(message)
+    expect(() => ctx.systemPrompt.section({
+      name: 'reserved', order: 1, text: 'global reserved', ownerFinal: true,
+    })).toThrow('owner-final prompt section "reserved"')
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
-      .toContain(`scoped ${names[0]}`)
+      .toContain('scoped reserved')
   })
 })
 
@@ -164,13 +161,18 @@ describe('scoped assemble dispatch', () => {
     expect(shaped).toHaveLength(1)
   })
 
-  it('a scoped protection finalizes only its own assemblies and disappears with the scope', async () => {
+  it('scoped owner-final contributions finalize only their assemblies and disappear with the scope', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'child')
     const key = scopeKeyOf(scope)
     ctx.systemPrompt.section({ name: 'required', order: 10, text: 'required' })
     ctx.systemPrompt.tools(() => ({ schemas: [schema('required')] }))
-    scope.ctx.systemPrompt.protect({ sections: ['required'], tools: ['required'] })
+    scope.ctx.systemPrompt.section({
+      name: 'required', order: 10, text: 'scoped required', ownerFinal: true,
+    })
+    scope.ctx.systemPrompt.tools(() => ({
+      schemas: [schema('required')], ownerFinalNames: ['required'],
+    }))
     ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const result = await next()
       result.sections = result.sections.filter(section => section.name !== 'required')

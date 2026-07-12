@@ -87,6 +87,7 @@ export const LINK_MAP: Record<string, string> = {
   GenerateOptions: 'core.md',
   LlmCallConfig: 'core.md',
   SessionEvent: 'core.md',
+  SessionStartSource: 'core.md',
   StreamChunk: 'llm-streaming.md',
   TurnEndReason: 'session.md',
   ToolDefinition: 'tools.md',

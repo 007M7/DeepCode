@@ -1,39 +1,41 @@
 # @deepseek-ai/dsh-subagent-inprocess
 
-The shared **in-process subagent run driver**. A library with no provider or import-time registration that the in-process backends — [spawn](../subagent-spawn/README.md) (a fresh child) and [fork](../subagent-fork/README.md) (a child seeded with a prefix of the parent's log) — both build on. Each accepted run installs one provider-owned cleanup effect. The backends are thin shells that differ ONLY in the session seed they pass; everything downstream lives here, so neither backend depends on the other.
+This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation, optional child customization, result reading, cancellation, and disposal—has one implementation here.
 
-## What it exports
+## Start contract
 
-### `startInProcessRun(ctx, request, options): SubagentRun`
+`startInProcessRun(request, options): Promise<SubagentRun>` fulfills only after the child is published in `ctx.agents`. A rejected start has already quiesced the agent factory's unpublished creation transaction, so the caller never receives a half-created handle.
 
-Runs a child as a child [`Agent`](../../core/agent) on the same cordis context (`ctx.agents`):
+The driver follows this sequence:
 
-1. snapshots the accepted request before asynchronous owner setup: the parent and signal remain identity capabilities but are never reread from the caller-owned record; tool filter, seed, agent options, output schema, and prompt are detached. It computes child depth = `depthOf(parent) + 1` and rejects `request.maxDepth` overflow with `SubagentDepthError`; `outputSchema` is asserted before cloning so a hostile value fails as `OutputSchemaError`, while the prompt passes the session log's lossless-JSON check before and after cloning;
-2. first installs provider ownership, then attaches the request abort listener and creates one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves no child or orphaned listener. Async child creation goes through that fiber's `ctx.agents` service with fresh IDs, lineage/seed, inherited model, and an unpublished setup transaction for persona, tool restriction, and structured output. Parent teardown, provider teardown, and manual `run.dispose()` all dispose this exact node, preventing publication after it becomes inactive and awaiting the same quiescence boundary. `startInProcessRun` still returns its `SubagentRun` immediately: `run.started` resolves only after `ctx.agents.create()` has published the child (and rejects if publication never happens), while cancellation during creation is recorded and applied when a child exists;
-3. drives the one-shot: `child.send(prompt)` then `await child.whenIdle()` (ordering matters — `send` enqueues synchronously, so `whenIdle` observes the queued work and resolves on the child's `running → idle` transition, never before the turn starts); there is deliberately NO re-prompt for a structured child that finished cleanly without calling `structured_output` — the shortfall maps to an `error` result for the parent;
-4. reads the result, scoped to the child's OWN events (everything at or after `seedLength`, so a seeded child that produced no message of its own never returns the seeded parent's last message): the last `assistant/message` content (deep-cloned — the log is frozen) and the last `turn/end.reason` mapped to a `SubagentStopReason`. A structured run surfaces the captured value as `result.structured`; a structured child that finished cleanly WITHOUT ever capturing settles `error` (a clean finish without the demanded result is a failure, not a success with a missing field).
+1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one.
+2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
+3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
+4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.send(prompt)` followed by `child.whenIdle()`.
+5. Read the child's own last assistant message and terminal turn reason, excluding any fork seed.
 
-`SubagentService` waits for `run.started` before emitting `subagent/start`, so a synchronous start observer can resolve the published child with `ctx.agents.get(run.id)`; the result driver awaits the same boundary before sending the prompt. An attempt that never publishes rejects readiness and emits no false start/end pair; its result reports a deliberate cancel/dispose as `aborted` and propagates an infrastructure fault. `dispose()` awaits creation or rollback and then delegates to `AgentHandle.dispose()` (stop and drain → remove agent → detach session → unwind scope); `cancel()` records its request even before publication and cancels the child immediately once available. A cancel landing before any `turn/end` still settles `aborted`, honoring the cancel contract rather than the generic no-turn `error`.
+The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
-### `InProcessRunOptions`
+## Cancellation and ownership
 
-`{ seed?: SessionEvent[] }` — the optional child-session seed: absent for spawn, or the parent's balanced completed-turn prefix for fork.
+The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the driver immediately checks the signal once more before installing a minimal live-run listener, closing the handoff race. After publication, abort cancels the child.
 
-### Structured output (package-internal runtime)
+After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
 
-`attachStructuredRuntime(childCtx, schema)` registers the run's whole enforcement surface as SCOPED registrations on the child's `agent.ctx` — riding the child's fiber (a backend hot-reload mid-run cannot unregister anything; a disposed child leaves no residue) and visible to that child alone (two concurrent structured runs never interact; no placeholder schema, no strip-for-everyone-else, no refcounted global state):
+## Spawn and fork inputs
 
-- the `structured_output` capture tool with the run's REAL schema as its registered `parameters`, validating each call (`validateStructuredValue`) — violations become an `INVALID_ARGS` isError the model retries in-turn; a valid call STAGES the value in a `WeakMap` keyed by that call's `ToolExecution` object;
-- the calling instruction as an ordinary order-190 scoped prompt section (the demand travels with the tool, as prompt state of exactly one agent);
-- a scoped `systemPrompt.protect()` registration making the capture instruction and schema canonical after the complete assembly waterfall. Canonical absence is protected too: pure Code Mode removes `structured_output` from the wire and declares it through the SDK. The tool registry separately owns and protects its `tools:sdk` section and reserved `run_code` transport; protection guarantees those named contributions, while unrelated listener-added schemas remain the listener's responsibility. The loop logs the finalized assembly as the step's `request/header`, so the demand remains reconstructable;
-- a scoped `tools/result` observer as the commit point: it promotes a staged value only when that same execution's immutable, JSON-safe authoritative result after the complete pre-execute → guards → execute → post-execute pipeline succeeds. For a Code Mode SDK sub-dispatch, the child's opaque `parent` token matches the enclosing `run_code` execution's registry-assigned `token`, so promotion waits for that outer final result without exposing its live object; a runtime failure or post-policy block discards the value. Execution-object identity prevents call-id reuse or another execution from reaching the stage;
-- a scoped monotonic `tools.guard()` denial for every call arriving after capture. Guards run after the extensible pre-execute waterfall and cannot return allow, so terminal means terminal within the step regardless of listener order;
-- a scoped `agent/turn-stop` terminal policy stopping the child's turn once its output is captured. It runs after ordinary continuation and steering folding, and its terminal state survives turn close and flush, so later listeners cannot leak steering into another step or turn; ordinary queued prompts remain intact.
+`InProcessRunOptions` is `{ seed?: SessionEvent[] }`. Spawn omits it. Fork supplies a balanced completed-turn prefix and records its length so the result reader never mistakes a seeded parent message for child output.
 
-### `depthOf(agent): number`
+`depthOf(agent)` reads `AgentOptions.subagentDepth`, treating absence as top-level depth zero and rejecting malformed stored values. `SubagentDepthError` reports an attempted child depth above `maxDepth`; an unrepresentable depth above the safe-integer domain is a `RangeError`.
 
-Delegation depth rides on a merge-extensible `AgentOptions.subagentDepth` field (0 for a top-level agent, parent + 1 for a child), so a nested spawn reads its parent's depth from `parent.options.subagentDepth`. `depthOf` reads it (absent ⇒ 0).
+## Structured output
 
-### `SubagentDepthError`
+`attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope:
 
-Thrown by `startInProcessRun` when a spawn would exceed the request's `maxDepth` cap; carries `attemptedDepth` and `maxDepth`.
+- A `structured_output` tool registered with the requested schema validates and stages the model's value.
+- An order-190 system-prompt section tells the child that the tool call is the terminal answer.
+- Both contributions use `ownerFinal: true`, so their owners control their final presence after prompt/tool assembly while unrelated contributions remain extensible.
+- A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
+- A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
+
+A clean turn that never commits the required structured value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.

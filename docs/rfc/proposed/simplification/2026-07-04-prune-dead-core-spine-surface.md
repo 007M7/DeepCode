@@ -27,8 +27,6 @@ The production corpus is `packages/*/*/src`, example sources/config, and runtime
 | `CodeLogEntry.source`/`level` and `RunCodeMeta.dispatches` | Every production consumer maps logs to text; no presenter/model path reads the other fields or the persisted dispatch count. | Make code-runtime logs strings (or text-only entries) and remove result-meta dispatch plumbing; keep the local counter that mints deterministic dispatch ids. |
 | `ToolNotFoundError.toolName`, `SystemPrompt.config`, and `BashTask.command` | Each stored public value has no production reader. | Drop the unread field while retaining error messages, resolved configuration behavior, and task lifecycle. |
 
-The earlier version of this RFC also named `runLoop`, `Inbox`, and `InboxMessage`; the agent-scope branch has already made those package-internal, so they are no longer proposed work.
-
 ## Proposal
 
 Remove or demote every row as one bounded coordinated public-surface cleanup. Update package READMEs, JSDoc, generated API/event catalogs, type-equivalence records, exports maps where needed, and tests so they exercise the owning public seam instead of preserving test-only entry points. Do not collapse any capability seam, LLM adapter, persistence backend, or lifecycle quiescence contract.

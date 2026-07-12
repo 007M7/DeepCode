@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-The workflow capability executes foreground JavaScript that composes subagents, but it also carries an unconsumed progress-observation system. No production listener subscribes to any of the six `workflow/*` events; listeners exist only in workflow tests. Nevertheless the seam defines run/phase/agent outcome snapshots, the worker sends phase/log/agent lifecycle protocol messages, the host clones payloads and keeps a `liveAgents` pairing ledger, and the engine maintains run ids solely to correlate those notifications.
+The workflow capability executes foreground JavaScript that composes subagents, but it also carries an unconsumed progress-observation system. No production listener subscribes to any of the six `workflow/*` events; listeners exist only in workflow tests. Nevertheless the seam defines run/phase/agent outcome payloads, the worker sends phase/log/agent lifecycle protocol messages, the host forwards them through a `liveAgents` pairing ledger, and the engine maintains run ids solely to correlate those notifications.
 
 The progress vocabulary is not merely unused; it cannot serve its only named future owner without redesign. `WorkflowRunInfo` contains `{id, meta}` but no parent agent, session, or tool-call identity, while the model-facing tool never exposes the run id. A global ACP listener could not route an event to the correct client session. `meta.phases` is never consulted, `phase(title)` does not validate against it, phase `detail`/`model` and agent `label`/`phase` feed only events, and `whenToUse` is validated and copied but never rendered or selected. `phase()` and `log()` still cross the worker boundary despite having no receiver.
 
@@ -18,7 +18,7 @@ Amend the implemented dynamic-workflow RFC and update the seam/tool/worker READM
 
 ## Alternatives considered
 
-**Keep the prebuilt observation vocabulary for a future UI.** The current shape resembles Claude Code dynamic-workflow metadata, and PR #233 deliberately added host pairing state and synthesized agent-end events so observers would see balanced lifecycles; this proposal reopens that recent choice rather than treating the machinery as accidental. Removing it gives up compatibility-by-shape and makes progress UI a new design task, but the existing shape still lacks routable ownership, so its hardened pairing cannot make the named ACP owner viable without redesign.
+**Keep the prebuilt observation vocabulary for a future UI.** The current shape resembles Claude Code dynamic-workflow metadata, and the host deliberately pairs each forwarded agent start with either the worker's end or a synthesized terminal end. Removing it gives up compatibility-by-shape and makes progress UI a new design task, but the existing payloads still lack routable ownership, so balanced lifecycles alone cannot make the named ACP owner viable without redesign.
 
 ## Acceptance criteria
 

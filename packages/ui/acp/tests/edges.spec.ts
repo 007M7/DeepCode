@@ -20,7 +20,7 @@ describe('acp bridge — demux & config edges', () => {
 
   it('ignores events from an agent the bridge does not own (strict id demux)', async () => {
     // A second agent created directly on the registry (NOT via the bridge) runs
-    // a turn. Its session/event + agent/status must NOT produce ACP updates and
+    // a turn. Its session events must NOT produce ACP updates and
     // must not settle anything — the bridge demuxes strictly by its own id.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('foreign')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

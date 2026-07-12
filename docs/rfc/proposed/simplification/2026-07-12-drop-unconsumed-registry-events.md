@@ -6,7 +6,7 @@ Status: proposed
 
 Four registry notifications are produced but have no production listener. The generated producer/consumer matrix and exact event-name searches find only declarations, emit sites, invariant metadata, tests, generated catalogs, and prose for `tools/change`, `system-prompt/change`, `skill/provider-added`, and `skill/provider-removed`.
 
-No shipped path uses these signals for invalidation: request assembly deliberately reruns for every step, tool/system-prompt membership is now agent-scoped, and skill discovery reads providers on demand. PR #224 also makes the payloadless tool/system-prompt notices less coherent because a change may be scope-local but the event cannot identify that scope.
+No shipped path uses these signals for invalidation: request assembly deliberately reruns for every step, tool/system-prompt membership may be agent-scoped, and skill discovery reads providers on demand. The payloadless tool/system-prompt notices are also insufficient for a scoped observer because a change may be local to one agent but the event cannot identify that scope.
 
 Earlier registry work retained tool/system-prompt notifications as low-cost hooks for a hypothetical live UI even while the equivalent LLM and web notifications were removed. The new evidence is that no owner has appeared, per-step assembly needs no signal, and scope-local membership has made the old payload insufficient for that hypothetical owner. This proposal does not include `subagent/provider-added`/`removed`, which `tool-subagent` consumes to tolerate concurrent sibling-plugin loading.
 
