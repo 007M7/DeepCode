@@ -103,6 +103,21 @@ describe('scoped tool registration', () => {
       .toThrow(/owner-final tool "reserved" cannot be registered while a scoped shadow exists/)
   })
 
+  it('restores global and scoped owner-final tools removed by assembly middleware', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'owner-final')
+    ctx.tools.register({ ...tool('required'), ownerFinal: true })
+    scope.ctx.tools.register({ ...tool('scoped-required'), ownerFinal: true })
+    ctx.on('system-prompt/assemble', async assembly => ({
+      ...assembly,
+      tools: assembly.tools.filter(schema => !schema.name.includes('required')),
+    }))
+
+    expect((await ctx.systemPrompt.assemble()).tools.map(schema => schema.name)).toContain('required')
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(schema => schema.name))
+      .toEqual(expect.arrayContaining(['required', 'scoped-required']))
+  })
+
   it('disposing the scope unwinds its registrations and leaves no residue', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

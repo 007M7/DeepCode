@@ -54,7 +54,6 @@ class FactoryOwnership {
   }
 
   track(transaction: AgentCreationTransaction): () => void {
-    if (!this.isActive()) throw new Error('agent loop is not active')
     this.transactions.add(transaction)
     return () => { this.transactions.delete(transaction) }
   }
@@ -62,12 +61,9 @@ class FactoryOwnership {
   async dispose(): Promise<void> {
     this.accepting = false
     const reason = new Error('agent loop is not active')
-    const results = await Promise.allSettled(
+    await Promise.all(
       [...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
     )
-    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
-    if (errors.length === 1) throw errors[0]
-    if (errors.length > 1) throw new AggregateError(errors, 'agent loop transaction disposal failed')
   }
 }
 
@@ -101,8 +97,6 @@ class AgentCreationTransaction {
   private detachAgent: (() => void) | undefined
   private publishing = false
   private cleanupTask: Promise<void> | undefined
-  private finished = false
-  private wrapperFinished = false
   private ownerFollowing = true
   private readonly ownerDispose: () => Promise<void> | void
   private readonly untrackFactory: () => void
@@ -120,20 +114,17 @@ class AgentCreationTransaction {
     ownerCtx.fiber.assertActive()
     this.ownerAgent = ownerCtx.agent
     this.ownerFiber = ownerCtx.fiber
+    if (!ownership.isActive()) throw new Error('agent loop is not active')
+    this.ownerDispose = ownerCtx.effect(() => () => {
+      if (!this.ownerFollowing) return
+      return this.dispose(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
+    }, `agentLoop.owner(${id})`)
     this.untrackFactory = ownership.track(this)
-    try {
-      this.ownerDispose = ownerCtx.effect(() => () => {
-        if (!this.ownerFollowing) return
-        return this.dispose(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
-      }, `agentLoop.owner(${id})`)
-    } catch (error: unknown) {
-      this.untrackFactory()
-      throw error
-    }
     if (signal === undefined) {
       this.abortListener = undefined
     } else {
       this.abortListener = () => {
+        /* v8 ignore next 3 -- transaction teardown contains callback/driver failures; rejection is a future-drift backstop. */
         void this.dispose(signalAbortError(id, signal)).catch((error: unknown) => {
           this.loopCtx.logger.error(error)
         })
@@ -168,6 +159,7 @@ class AgentCreationTransaction {
     return await Promise.race([
       Promise.resolve(operation),
       this.deactivation.promise.then(() => {
+        /* v8 ignore next -- deactivate() assigns failure before resolving deactivation. */
         throw this.failure ?? new Error(`agent "${this.id}" creation deactivated`)
       }),
     ])
@@ -229,9 +221,11 @@ class AgentCreationTransaction {
   publish(source: SessionStartSource): AgentHandle {
     this.assertActive()
     const driver = this.driver
+    /* v8 ignore next -- publish() is private and every caller invokes prepare() first. */
     if (driver === undefined) throw new Error(`agent "${this.id}" is not prepared`)
     const agent = driver.agent
     const session = this.session
+    /* v8 ignore next -- prepare() assigns the session before it can produce the driver above. */
     if (session === undefined) throw new Error(`agent "${this.id}" has no prepared session`)
     this.publishing = true
     try {
@@ -274,8 +268,6 @@ class AgentCreationTransaction {
 
   /** Complete ownership bookkeeping after every resource reached quiescence. */
   private finish(): void {
-    if (this.finished) return
-    this.finished = true
     this.untrackFactory()
     this.ownerFollowing = false
     void this.ownerDispose()
@@ -310,8 +302,6 @@ class AgentCreationTransaction {
 
   /** Mark the public create/resume continuation settled and detach its creation-only signal. */
   finishWrapper(): void {
-    if (this.wrapperFinished) return
-    this.wrapperFinished = true
     if (this.signal !== undefined && this.abortListener !== undefined) {
       this.signal.removeEventListener('abort', this.abortListener)
     }

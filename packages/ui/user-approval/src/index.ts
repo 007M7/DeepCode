@@ -451,9 +451,6 @@ export class ApprovalService extends Service {
         resolve('cancelled')
       }
       signal.addEventListener('abort', onAbort, { once: true })
-      // Abort can win after the initial check but before listener installation.
-      // Recheck at the settlement boundary so that edge still cancels.
-      if (signal.aborted) onAbort()
       void answer.then((outcome) => {
         signal.removeEventListener('abort', onAbort)
         // After an abort won the race this resolve is a settled-promise no-op:

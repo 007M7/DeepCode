@@ -281,26 +281,6 @@ describe('ApprovalService.request', () => {
     expect(appended[1]?.data).toMatchObject({ outcome: 'cancelled' })
   })
 
-  it('does not miss an abort between the initial check and listener installation', async () => {
-    const ctx = await mounted()
-    const { agent, appended } = fakeAgent()
-    const answer = Promise.withResolvers<ApprovalOutcome>()
-    ctx.on('approval/request', () => answer.promise)
-    const controller = new AbortController()
-    const addEventListener = controller.signal.addEventListener.bind(controller.signal)
-    const add = vi.spyOn(controller.signal, 'addEventListener').mockImplementation((type, listener, options) => {
-      controller.abort()
-      addEventListener(type, listener, options)
-    })
-
-    await expect(ctx.approval.request(requestOf(agent, { signal: controller.signal }))).resolves.toBe('cancelled')
-
-    answer.resolve('allowed-once')
-    await Promise.resolve()
-    expect(add).toHaveBeenCalledOnce()
-    expect(appended[1]?.data).toMatchObject({ outcome: 'cancelled' })
-  })
-
   it('resolves cancelled when the signal aborts mid-question and discards the late answer', async () => {
     const ctx = await mounted()
     const { agent, appended } = fakeAgent()

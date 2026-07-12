@@ -32,6 +32,7 @@ describe('dsh-subagent-mock', () => {
       structured: undefined,
       stopReason: 'completed',
     })
+    await run.dispose()
   })
 
   it('registers under a configurable name', async () => {
@@ -73,6 +74,25 @@ describe('dsh-subagent-mock', () => {
     const run = await ctx.subagents.start('mock', baseRequest({ signal: controller.signal }))
     controller.abort()
     await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
+  })
+
+  it('rejects an already-aborted request before starting publication', async () => {
+    const ctx = await mount()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(ctx.subagents.start('mock', baseRequest({ signal: controller.signal })))
+      .rejects.toThrow('mock subagent start aborted before publication')
+  })
+
+  it('rejects when cancellation wins the asynchronous publication handoff', async () => {
+    const ctx = await mount()
+    const controller = new AbortController()
+    const pending = ctx.subagents.start('mock', baseRequest({ signal: controller.signal }))
+
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('mock subagent start aborted before publication')
   })
 
   it('unregisters the provider when the owning fiber is disposed (HMR safety)', async () => {

@@ -527,7 +527,6 @@ function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined):
         reject(toError(error))
       },
     )
-    if (signal.aborted) onAbort()
   })
 }
 

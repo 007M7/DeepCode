@@ -1049,6 +1049,67 @@ describe('dsh-workflow-workerthread', () => {
       await ctx.fiber.dispose()
     })
 
+    it('refuses and disposes a provider run that becomes ready after its real worker dies', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      const requested = Promise.withResolvers<SubagentStartRequest>()
+      const ready = Promise.withResolvers<SubagentRun>()
+      let disposeCalls = 0
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => ctx.logger)
+      const provider: SubagentProvider = {
+        name: 'late-ready',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
+        inheritsParentContext: false,
+        start: (request) => {
+          requested.resolve(request)
+          // Model a backend whose independent startup boundary cannot be
+          // interrupted promptly. The host must still reject ownership if the
+          // worker dies before this promise transfers the ready run.
+          return ready.promise
+        },
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(WorkerWorkflowEngine, { provider: 'late-ready', maxConcurrentAgents: 1 })
+      const lifecycle: string[] = []
+      ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
+      ctx.on('workflow/agent-end', () => { lifecycle.push('end') })
+
+      const handle = ctx.workflows.start({
+        ...scripted("return await agent('pending startup')"),
+        parent: fakeParent(),
+      })
+      const request = await requested.promise
+      const worker = (handle as unknown as { worker: Worker }).worker
+
+      // Kill the actual Worker while provider startup is independently
+      // pending. Death closes admission and aborts the shared signal, but this
+      // deliberately uncooperative provider still fulfills afterward.
+      await worker.terminate()
+      const result = await handle.result
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('exit code')
+      expect(request.signal.aborted).toBe(true)
+      expect(request.signal.reason).toBe('workflow worker gone')
+
+      ready.resolve({
+        id: AgentId('late-ready-child'),
+        result: Promise.resolve({ output: [], stopReason: 'aborted' }),
+        dispose: () => {
+          disposeCalls += 1
+          return Promise.reject(new Error('late ready dispose failed'))
+        },
+      })
+      await waitFor(() => {
+        expect(disposeCalls).toBe(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('refused child dispose failed: Error: late ready dispose failed'))
+      }, 1000)
+      expect(lifecycle).toEqual([])
+
+      await handle.dispose()
+      expect(disposeCalls).toBe(1)
+      await ctx.fiber.dispose()
+    })
+
     it('a worker that exits before settling reports an error result and reaps its children', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)

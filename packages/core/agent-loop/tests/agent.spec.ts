@@ -49,6 +49,20 @@ function send(agent: ReactLoopAgent, text: string) {
 }
 
 describe('ReactLoopAgent', () => {
+  it('rejects access before context binding and a second driver for one session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('exclusive-driver'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('first-driver'), { model: 'mock' }, session)
+
+    expect(() => prepared.agent.ctx).toThrow('context is not bound')
+    expect(() => prepareReactLoopAgent(ctx, AgentId('second-driver'), { model: 'mock' }, session))
+      .toThrow('already has a concrete agent driver')
+
+    await prepared.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('borrows caller options and binds its scoped context exactly once', async () => {
     const ctx = await harness(new MockAdapter([textResponse('unused')]))
     const options = { model: 'mock' }

@@ -468,13 +468,13 @@ export class WorkerRun implements WorkflowRun {
       .catch((error: unknown) => {
         this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
       })
-      .then(() => { this.finishChild(callId, record) })
+      .then(() => { this.finishChild(callId) })
     return record.disposal
   }
 
-  /** Drop an exact child record and release quiescence waiters when all work ends. */
-  private finishChild(callId: number, record: ChildRecord): void {
-    if (this.children.get(callId) === record) this.children.delete(callId)
+  /** Drop a child record and release quiescence waiters when all work ends. */
+  private finishChild(callId: number): void {
+    this.children.delete(callId)
     this.notifyChildQuiescence()
   }
 

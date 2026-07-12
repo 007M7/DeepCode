@@ -40,6 +40,11 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 
 const text = (t: string): ContentBlock[] => [{ type: 'text', text: t }]
 
+/** Throw an arbitrary callback value to exercise the public unknown-error boundary. */
+function throwUnknown(value: unknown): never {
+  throw value
+}
+
 /** Invoke the exact lifecycle effect to exercise same-stack reentrant teardown. */
 function disposeCurrentLifecycle(ownerCtx: Context): void {
   const lifecycle = [...ownerCtx.fiber._disposables]
@@ -52,6 +57,91 @@ function disposeCurrentLifecycle(ownerCtx: Context): void {
 }
 
 describe('agent scope lifecycle', () => {
+  it('rejects an already-aborted creation signal before publishing either identity', async () => {
+    const ctx = await harness()
+    const reason = new Error('cancelled before creation')
+    const controller = new AbortController()
+    controller.abort(reason)
+
+    await expect(ctx.agents.create({
+      agentId: AgentId('pre-aborted'),
+      sessionId: SessionId('pre-aborted-s'),
+      signal: controller.signal,
+    })).rejects.toBe(reason)
+
+    expect(ctx.agents.get(AgentId('pre-aborted'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('pre-aborted-s'))).toBeUndefined()
+
+    const valueController = new AbortController()
+    valueController.abort('plain cancellation reason')
+    await expect(ctx.agents.create({
+      agentId: AgentId('pre-aborted-value'),
+      sessionId: SessionId('pre-aborted-value-s'),
+      signal: valueController.signal,
+    })).rejects.toMatchObject({
+      message: 'agent "pre-aborted-value" creation aborted',
+      cause: 'plain cancellation reason',
+    })
+
+    expect(ctx.agents.get(AgentId('pre-aborted-value'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('pre-aborted-value-s'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('joins cleanup when an abort lands reentrantly during scope preparation', async () => {
+    const ctx = await harness()
+    const reason = new Error('cancelled while preparing')
+    const controller = new AbortController()
+    let aborted = false
+    ctx.on('internal/plugin', (fiber) => {
+      if (aborted || fiber.name !== 'scope') return
+      aborted = true
+      controller.abort(reason)
+    })
+
+    await expect(ctx.agents.create({
+      agentId: AgentId('prepare-abort'),
+      sessionId: SessionId('prepare-abort-s'),
+      signal: controller.signal,
+    })).rejects.toBe(reason)
+
+    expect(ctx.agents.get(AgentId('prepare-abort'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('prepare-abort-s'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('normalizes non-Error create failures for rollback while rethrowing the original value', async () => {
+    const ctx = await harness()
+    let thrown: unknown
+    ctx.on('session/created', () => {
+      if (thrown === undefined) return
+      const value = thrown
+      thrown = undefined
+      throwUnknown(value)
+    })
+
+    const createFailure = { source: 'create' }
+    thrown = createFailure
+    let createCaught: unknown
+    try {
+      ctx.agentLoop.create(AgentId('unknown-create'))
+    } catch (error: unknown) {
+      createCaught = error
+    }
+    expect(createCaught).toBe(createFailure)
+
+    const ownedFailure = { source: 'createAgent' }
+    thrown = ownedFailure
+    await expect(ctx.agents.create({
+      agentId: AgentId('unknown-owned-create'),
+      sessionId: SessionId('unknown-owned-create-s'),
+    })).rejects.toBe(ownedFailure)
+
+    expect(ctx.agents.get(AgentId('unknown-create'))).toBeUndefined()
+    expect(ctx.agents.get(AgentId('unknown-owned-create'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('wires agent.ctx: tagged with the agent, DX field set, ctx.agent safe elsewhere', async () => {
     const ctx = await harness()
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })

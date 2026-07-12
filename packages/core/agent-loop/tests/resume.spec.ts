@@ -69,7 +69,29 @@ async function promptly<T>(task: Promise<T>): Promise<T> {
   }
 }
 
+/** Throw an arbitrary callback value to exercise the public unknown-error boundary. */
+function throwUnknown(value: unknown): never {
+  throw value
+}
+
 describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
+  it('normalizes a non-Error resume publication failure for rollback and rethrows it', async () => {
+    const sessionId = SessionId('unknown-resume-failure-s')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const failure = { source: 'resume' }
+    ctx.on('session/created', () => throwUnknown(failure))
+
+    await expect(ctx.agents.resume({
+      agentId: AgentId('unknown-resume-failure'),
+      resumeSessionId: sessionId,
+    })).rejects.toBe(failure)
+
+    expect(ctx.agents.get(AgentId('unknown-resume-failure'))).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('createAgent uses the caller-supplied sessionId (not ${id}-session)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)

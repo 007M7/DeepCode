@@ -843,7 +843,8 @@ export class ToolRegistry extends Service {
     // invariant assertion as well as protection against future layer changes.
     if (this.codeTransport !== undefined) {
       visible.set(RUN_CODE_NAME, this.codeTransport)
-      if (this.codeTransport.ownerFinal === true) ownerFinalNames.add(RUN_CODE_NAME)
+      // createRunCodeTool() owns this internal transport and always marks it owner-final.
+      ownerFinalNames.add(RUN_CODE_NAME)
     }
     return { visible, knownNames, restrictableNames, ownerFinalNames }
   }

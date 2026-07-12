@@ -127,7 +127,9 @@ describe('dsh-subagent-acp', () => {
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('hello from acp child')
-    await run.dispose()
+    const disposal = run.dispose()
+    expect(run.dispose()).toBe(disposal)
+    await disposal
   })
 
   it('maps a max_tokens stop reason', async () => {
@@ -467,6 +469,19 @@ describe('dsh-subagent-acp', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.stopReason).toBe('error')
     expect(errors[0]!.message.length).toBeGreaterThan(0)
+    await run.dispose()
+  })
+
+  it('logs a flattened child failure through the registered provider', async () => {
+    const ctx = await setup({ MOCK_CRASH_ON_PROMPT: '1' })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const run = await ctx.subagents.start('acp', request())
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(warnings).toEqual([
+      expect.stringContaining('subagent-acp "acp": child run failed (error):'),
+    ])
     await run.dispose()
   })
 

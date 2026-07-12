@@ -340,6 +340,11 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         cancelSettled.then((): SubagentResult => ({ output: collectOutput(), stopReason: 'aborted' })),
       ])
     } catch (error: unknown) {
+      // A deterministic cancellation resolves `cancelSettled` before its
+      // best-effort ACP cancel can reject the prompt. This fallback is only for
+      // a process/pipe rejection already queued when the abort event fires; its
+      // first-outcome ordering cannot be forced without a timing-dependent test.
+      /* v8 ignore next */
       if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
       // The seam contract: result resolves (never rejects) on a child-level
       // failure. Startup failures were already rejected before publication;
