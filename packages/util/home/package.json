@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-skill-local",
-  "description": "Local filesystem skill provider for the DeepSeek Harness",
+  "name": "@deepseek-ai/dsh-home",
+  "description": "Canonical DeepSeek Harness home-directory resolver",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,19 +22,9 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-fs": "^0.0.1",
-    "@deepseek-ai/dsh-home": "^0.0.1",
-    "@deepseek-ai/dsh-skill": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
-  "dependencies": {
-    "schemastery": "^3.18.0",
-    "yaml": "^2.4.2"
-  },
   "devDependencies": {
-    "@deepseek-ai/dsh-fs": "workspace:^",
-    "@deepseek-ai/dsh-home": "workspace:^",
-    "@deepseek-ai/dsh-skill": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

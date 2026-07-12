@@ -57,8 +57,7 @@
 
 import { Service, type Context } from 'cordis'
 import z from 'schemastery'
-import { homedir } from 'node:os'
-import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -72,6 +71,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { BashTaskId, DSH_ENV_PREFIX, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
+import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
 
 declare module 'cordis' {
   interface Context {
@@ -125,12 +125,11 @@ export interface BashEnvVariableInfo extends BashEnvVariable {
   key: DshEnvironmentKey
 }
 
-const DSH_HOME_KEY = `${DSH_ENV_PREFIX}HOME` as const
 const DSH_SHELL_KEY = `${DSH_ENV_PREFIX}SHELL` as const
 const DSH_SESSION_ID_KEY = `${DSH_ENV_PREFIX}SESSION_ID` as const
 const DSH_SESSION_JSONL_KEY = `${DSH_ENV_PREFIX}SESSION_JSONL` as const
 const RESERVED_BASH_ENV_KEYS = new Set<DshEnvironmentKey>([
-  DSH_HOME_KEY,
+  DSH_HOME_ENV,
   DSH_SHELL_KEY,
   DSH_SESSION_ID_KEY,
 ])
@@ -156,7 +155,7 @@ export class BashEnvRegistry extends Service {
    */
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'bashEnv')
-    this.dshHome = resolvePath(config.dshHome ?? process.env[DSH_HOME_KEY] ?? join(homedir(), '.dsh'))
+    this.dshHome = resolveDshHome(config.dshHome)
   }
 
   /**
@@ -209,7 +208,7 @@ export class BashEnvRegistry extends Service {
    */
   collect(execution: ToolExecution): DshEnvironment {
     const values: Record<DshEnvironmentKey, string> = {
-      [DSH_HOME_KEY]: this.dshHome,
+      [DSH_HOME_ENV]: this.dshHome,
       [DSH_SHELL_KEY]: '1',
     }
     if (execution.agent !== undefined) {

@@ -30,6 +30,9 @@
       "path": "../../bash/bash"
     },
     {
+      "path": "../../util/home"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

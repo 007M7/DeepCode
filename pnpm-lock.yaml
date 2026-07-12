@@ -152,6 +152,9 @@ importers:
       '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:^
         version: link:../bash-sandbox
+      '@deepseek-ai/dsh-home':
+        specifier: workspace:^
+        version: link:../../util/home
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -311,6 +314,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../agent-loop
+      '@deepseek-ai/dsh-home':
+        specifier: workspace:^
+        version: link:../../util/home
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -773,6 +779,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../fs/fs
+      '@deepseek-ai/dsh-home':
+        specifier: workspace:^
+        version: link:../../util/home
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../skill
@@ -1345,6 +1354,12 @@ importers:
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
   packages/util/brand:
+    devDependencies:
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/util/home:
     devDependencies:
       cordis:
         specifier: ^4.0.0-rc.6

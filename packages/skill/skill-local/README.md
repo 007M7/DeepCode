@@ -12,7 +12,7 @@ Requires `ctx.skills` (`inject: ['skills']`).
 
 | Field | Default | Meaning |
 |---|---|---|
-| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root; scans `skills` under this directory. |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root resolved by [`@deepseek-ai/dsh-home`](../../util/home/README.md); scans `skills` under this directory. |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
 | `customSkillDirs` | `[]` | Additional local skill roots scanned after project roots and before user roots. |
 

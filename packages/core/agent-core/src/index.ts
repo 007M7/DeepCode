@@ -46,7 +46,6 @@
  */
 
 import type { Context } from 'cordis'
-import { resolve as resolvePath } from 'node:path'
 import Timer from '@cordisjs/plugin-timer'
 import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
@@ -60,6 +59,7 @@ import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
+import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-core'
 
@@ -127,10 +127,10 @@ export const Config = z.intersect([
 export function apply(ctx: Context, config: Config): void {
   const nestedDshHome = config.skills?.local?.dshHome
   if (config.dshHome !== undefined && nestedDshHome !== undefined
-    && resolvePath(config.dshHome) !== resolvePath(nestedDshHome)) {
+    && resolveDshHome(config.dshHome) !== resolveDshHome(nestedDshHome)) {
     throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
   }
-  const dshHome = config.dshHome ?? nestedDshHome
+  const dshHome = resolveDshHome(config.dshHome ?? nestedDshHome)
 
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
@@ -147,14 +147,10 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
   ctx.plugin(SkillService, config.skills?.registry ?? {})
-  ctx.plugin(SkillLocal, Object.assign(
-    {},
-    config.skills?.local,
-    dshHome === undefined ? {} : { dshHome },
-  ))
+  ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
-  ctx.plugin(toolBash, dshHome === undefined ? {} : { dshHome })
+  ctx.plugin(toolBash, { dshHome })
   ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }
