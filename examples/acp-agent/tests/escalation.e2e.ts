@@ -26,13 +26,13 @@ import {
  * model nor a sandbox runner is ever exercised.
  *
  * With-key escalation flow (self-skips without DEEPSEEK_API_KEY or a usable
- * platform runner): a scripted ACP client plays the human. The real model is
- * denied under `read-only`, escalates with `sandbox_permissions` +
+ * platform runner): a scripted ACP client plays the human. The prompt asserts
+ * a prior denial (the organic denial→marker path lives on the sandbox e2e
+ * legs and unit tiers), the real model escalates with `sandbox_permissions` +
  * `justification`, the bridge prompts THIS client over
  * `session/request_permission`, the client answers `allow-once`, and the
- * retried write must land ON DISK (world-verified). The session cwd is a temp
- * dir under the platform temp area, which `workspace-write` grants — so either
- * escalation target the model picks can land the write.
+ * retried write must land ON DISK (world-verified) — under the granted mode,
+ * a temp-dir session cwd is writable either way.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
@@ -130,34 +130,33 @@ describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)
     expect(sessionId.length).toBeGreaterThan(0)
   }, 30_000)
 
-  it('advertises both session config options and honors a switch end to end (no key, no model)', async () => {
+  it('advertises the Permissions select and honors a switch end to end (no key, no model)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
     spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // This tree composes bash-sandbox (mode: read-only) + approval → both
-    // knobs advertise, currents from composition config.
+    // This tree composes the permission presets over bash-sandbox + approval →
+    // ONE select advertises, current from the configured default preset.
     const created = await client.newSession({ cwd: workdir, mcpServers: [] })
     const advertised = created.configOptions ?? []
     expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['sandbox-mode', 'read-only'], ['approval-policy', 'ask']])
+      .toEqual([['permission', 'request']])
     // A switch responds with the COMPLETE refreshed state (the spec contract),
-    // and the new currents survive in the response of a second switch.
-    const afterSandbox = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'sandbox-mode', value: 'workspace-write',
+    // and the new current survives in the response of a second switch.
+    const afterYolo = await client.setSessionConfigOption({
+      sessionId: created.sessionId, configId: 'permission', value: 'yolo',
     })
-    const afterApproval = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'approval-policy', value: 'never',
+    expect(afterYolo.configOptions?.find(option => option.id === 'permission'))
+      .toMatchObject({ currentValue: 'yolo' })
+    const again = await client.setSessionConfigOption({
+      sessionId: created.sessionId, configId: 'permission', value: 'yolo',
     })
-    const currents = (afterApproval.configOptions ?? []).map(option =>
-      [option.id, 'currentValue' in option ? option.currentValue : undefined])
-    expect(afterSandbox.configOptions?.find(option => option.id === 'sandbox-mode'))
-      .toMatchObject({ currentValue: 'workspace-write' })
-    expect(currents).toEqual([['sandbox-mode', 'workspace-write'], ['approval-policy', 'never']])
+    expect((again.configOptions ?? []).map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
+      .toEqual([['permission', 'yolo']])
     // An out-of-vocabulary value is a protocol error, never a silent default.
     await expect(client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'sandbox-mode', value: 'yolo',
-    })).rejects.toThrow(/unknown sandbox-mode value/)
+      sessionId: created.sessionId, configId: 'permission', value: 'plan',
+    })).rejects.toThrow(/unknown permission value/)
   }, 30_000)
 })
 
@@ -171,12 +170,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox variant e2
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
     const res = await client.prompt({
       sessionId,
-      prompt: [{ type: 'text', text: `Use the bash tool to create the file ${workdir}/escalated.txt containing exactly "ACP_ESCALATION_OK". `
-        + 'If the sandbox denies it, retry once with sandbox_permissions and a one-sentence justification, then stop.' }],
+      prompt: [{ type: 'text', text: `The sandbox already denied writing ${workdir}/escalated.txt. Create it now containing exactly "ACP_ESCALATION_OK": `
+        + 'one single bash call with sandbox_permissions set to danger-full-access and a one-sentence justification, then stop.' }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // The WORLD: the approved escalated retry landed the write read-only denied.
+    // The WORLD: the approved escalated retry landed the write.
     const proof = await readFile(join(workdir, 'escalated.txt'), 'utf8')
     expect(proof).toContain('ACP_ESCALATION_OK')
 
@@ -200,8 +199,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox variant e2
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
     const res = await client.prompt({
       sessionId,
-      prompt: [{ type: 'text', text: `Use the bash tool to create the file ${workdir}/refused.txt containing "NO". `
-        + 'If the sandbox denies it, retry once with sandbox_permissions and a one-sentence justification. If that is rejected, stop and say so.' }],
+      prompt: [{ type: 'text', text: `The sandbox already denied writing ${workdir}/refused.txt. Create it now containing "NO": `
+        + 'one single bash call with sandbox_permissions set to danger-full-access and a one-sentence justification. If that is rejected, stop and say so.' }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 

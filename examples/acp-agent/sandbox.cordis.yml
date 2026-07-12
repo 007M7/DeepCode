@@ -23,8 +23,8 @@
 
 # The sandbox stack: the platform-runner provider (bwrap → per-platform
 # Landlock launcher → Seatbelt, functionally probed), then the confined bash executor.
-# read-only is the fail-safe default; the write boundary for an escalated
-# workspace-write run is workspaceRoot + the platform's temp area. NOTE: the
+# workspace-write is the default (the 'request' preset's bundle); the write
+# boundary is workspaceRoot + the platform's temp area. NOTE: the
 # workspace root is CONFIG-FIXED for the executor's lifetime (the launch dir
 # here), while each ACP session has its own cwd — a per-session root is config-
 # phase future work in the sandbox RFC.
@@ -33,7 +33,7 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-sandbox'
   config:
-    mode: read-only
+    mode: workspace-write
     workspaceRoot: !!js process.cwd()
 
 # The approval seam (ctx.approval — mechanism only, no config): with it
@@ -43,6 +43,14 @@
 # closed.
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
+
+# The user-facing permission presets: ONE `Permissions` select in the editor
+# (request/yolo), each bundling a sandbox mode and an approval policy, written
+# through to the two knob events. The defaults above (workspace-write + ask)
+# reverse-map to `request`, so a fresh session starts there; a knob state
+# outside the table derives the switch-away-only `custom` value.
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
 
 # The ACP server app: the agent-core spine + JSONL persistence + the ACP
 # bridge (whose approval answerer completes the loop).

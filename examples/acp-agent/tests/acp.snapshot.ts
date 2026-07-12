@@ -140,20 +140,24 @@ const SCENARIOS: Scenario[] = [
   // prior denial. config-options: the session config-option surface this
   // composition adds (both advertised selects, the refreshed state every
   // set_config_option answers with, both rejection shapes) — protocol-only,
-  // replays on runner-less hosts. mode-switching: the runtime switching arc
-  // and NECESSARILY this class's pinned-header scenario (an approval-policy
-  // switch rewrites its prompt section; the resulting request/header-delta is
-  // legal only in the pinning scenario) — the pin commits the full sandbox
-  // header (persona, tool schemas WITH the escalation fields) plus the
-  // approval delta and its "changed by the user" notice; the SANDBOX switch
-  // stays deliberately silent (the visibility asymmetry), proven by BEHAVIOR.
+  // replays on runner-less hosts. permission-switching: the runtime
+  // preset-switch arc (request → yolo: one permission/preset event written
+  // through to both knobs) and NECESSARILY this class's pinned-header
+  // scenario (yolo's approval=never rewrites the prompt section; the
+  // resulting request/header-delta is legal only in the pinning scenario) —
+  // the pin commits the full sandbox header (persona, tool schemas WITH the
+  // escalation fields) plus the approval delta and its "changed by the user"
+  // notice; the sandbox half of the bundle stays deliberately silent (the
+  // visibility asymmetry) and is pinned as its stamped knob event.
   // escalation-approved/rejected: the approval wire end-to-end under the
-  // default read-only/ask — the escalating call streams,
-  // session/request_permission attaches to it, and the scripted answer drives
-  // each branch (approved runs CONFINED under the granted workspace-write;
-  // rejected executes nothing, failing with the deterministic text).
+  // default request preset (workspace-write/ask) — the escalating call
+  // (danger-full-access for a user-asserted outside-workspace denial)
+  // streams, session/request_permission attaches to it, and the scripted
+  // answer drives each branch (approved runs under the granted mode and
+  // self-cleans its /tmp target; rejected executes nothing, failing with
+  // the deterministic text).
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
-  { name: 'mode-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
 ]
