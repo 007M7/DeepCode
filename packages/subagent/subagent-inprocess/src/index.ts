@@ -58,7 +58,8 @@ declare module '@deepseek-ai/dsh-agent' {
  * @returns 0 for a top-level agent, its parent's depth + 1 for a subagent.
  */
 export function depthOf(agent: Agent): number {
-  const depth = agent.options.subagentDepth ?? 0
+  const depth = agent.options.subagentDepth
+  if (depth === undefined) return 0
   if (!Number.isSafeInteger(depth) || depth < 0 || Object.is(depth, -0)) {
     throw new TypeError('agent subagentDepth must be a non-negative safe integer')
   }
@@ -123,7 +124,8 @@ async function quiesceFiber(fiber: Fiber): Promise<void> {
  * resolves `aborted`.
  *
  * Throws {@link SubagentDepthError} before creating anything when the child's
- * depth (parent depth + 1) would exceed `request.maxDepth`.
+ * depth (parent depth + 1) would exceed `request.maxDepth`, and throws a
+ * `RangeError` when a valid parent depth has no safe-integer successor.
  * @param ctx - the provider context that owns the live run as a second
  *   structured-concurrency boundary alongside the parent agent.
  * @param request - the start request (prompt, parent, signal, per-child options).
@@ -147,6 +149,9 @@ export function startInProcessRun(
   const inputAgentOptions = request.agentOptions
   const inputSeed = options.seed
   assertSubagentMaxDepth(inputMaxDepth)
+  if (persona !== undefined && typeof persona !== 'string') {
+    throw new TypeError('subagent persona must be a string')
+  }
   const toolFilter = inputToolFilter === undefined ? undefined : snapshotJsonValue(inputToolFilter)
   if (inputToolFilter !== undefined && toolFilter === undefined) {
     throw new TypeError('subagent tool filter must be losslessly JSON-serializable')
@@ -156,6 +161,9 @@ export function startInProcessRun(
     throw new TypeError('subagent seed must be losslessly JSON-serializable')
   }
   const childDepth = depthOf(parent) + 1
+  if (!Number.isSafeInteger(childDepth)) {
+    throw new RangeError('subagent child depth exceeds the safe-integer range')
+  }
   if (inputMaxDepth !== undefined && childDepth > inputMaxDepth) {
     throw new SubagentDepthError(childDepth, inputMaxDepth)
   }

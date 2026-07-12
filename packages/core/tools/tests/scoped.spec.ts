@@ -101,7 +101,7 @@ describe('scoped tool registration', () => {
 })
 
 describe('restrict()', () => {
-  it('masks global tools for the scope; grants bypass; assembly and execute agree', async () => {
+  it('masks global tools, merges scope-local tools afterward, and keeps assembly with execution', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
     ctx.tools.register(tool('read'))
@@ -109,13 +109,36 @@ describe('restrict()', () => {
     scope.ctx.tools.register(tool('capture'))
     scope.ctx.tools.restrict({ allow: ['read'] })
 
-    // The scoped grant survives the allow-list; the unlisted global is gone.
+    // The scope-local registration survives the allow-list; the unlisted global is gone.
     expect(ctx.tools.schemas(key).map(t => t.name).sort()).toEqual(['capture', 'read'])
     expect(await run(ctx, 'bash', key)).toBe('Error: unknown tool "bash"')
     expect(await run(ctx, 'read', key)).toBe('ran:read')
     expect(await run(ctx, 'capture', key)).toBe('ran:capture')
     // Other scopes and the global view are untouched.
     expect(ctx.tools.schemas().map(t => t.name).sort()).toEqual(['bash', 'read'])
+  })
+
+  it('applies snapshotted filters to the live global registry before merging later scope-local tools', async () => {
+    const ctx = await mount()
+    const denied = await mintAgentScope(ctx, 'denied')
+    const allowed = await mintAgentScope(ctx, 'allowed')
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('bash'))
+    denied.scope.ctx.tools.restrict({ deny: ['bash'] })
+    allowed.scope.ctx.tools.restrict({ allow: ['read'] })
+
+    ctx.tools.register(tool('web'))
+    denied.scope.ctx.tools.register(tool('denied-local'))
+    allowed.scope.ctx.tools.register(tool('allowed-local'))
+
+    expect(ctx.tools.schemas(denied.key).map(t => t.name).sort())
+      .toEqual(['denied-local', 'read', 'web'])
+    expect(ctx.tools.schemas(allowed.key).map(t => t.name).sort())
+      .toEqual(['allowed-local', 'read'])
+    expect(await run(ctx, 'web', denied.key)).toBe('ran:web')
+    expect(await run(ctx, 'web', allowed.key)).toBe('Error: unknown tool "web"')
+    expect(await run(ctx, 'denied-local', denied.key)).toBe('ran:denied-local')
+    expect(await run(ctx, 'allowed-local', allowed.key)).toBe('ran:allowed-local')
   })
 
   it('composes multiple restrictions by intersection and lifts each independently', async () => {

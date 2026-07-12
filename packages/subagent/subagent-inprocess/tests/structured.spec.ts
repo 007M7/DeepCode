@@ -36,7 +36,7 @@ const SCHEMA: StructuredOutputSchema = {
 }
 
 /**
- * Real loop + scripted mock model + an INLINE spawn-shaped provider over the
+ * Real loop + scripted mock model + an INLINE fresh-conversation provider over the
  * shared driver. The concrete backend plugins are deliberately NOT loaded —
  * they would devDep-cycle this package (spawn/fork already depend on the
  * driver), and the runtime under test is the driver's; plugin-level structured

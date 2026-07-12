@@ -69,9 +69,10 @@ export interface SubagentStartRequest {
    */
   outputSchema?: StructuredOutputSchema
   /**
-   * Optional recursion cap (max delegation depth below this child). Must be a
-   * non-negative safe integer. Requires {@link SubagentCapabilities.depthLimit};
-   * rejected at start otherwise.
+   * Optional absolute delegation-depth cap for the child being started: its
+   * computed depth must be less than or equal to this non-negative safe
+   * integer. Requires {@link SubagentCapabilities.depthLimit}; rejected at
+   * start otherwise.
    */
   maxDepth?: number
   /**
@@ -195,13 +196,15 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
-   * The provider's context contract: `true` when a child SEES the parent
+   * The provider's conversation-history descriptor: `true` when a child SEES the parent
    * conversation (fork — the child is seeded with the parent's completed-turn
    * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
    * not a start-time capability: the service validates nothing against it —
    * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
    * wording from it, so a tool bound to a fork provider stops telling the
-   * model the child "does not see this conversation".
+   * model the child "does not see this conversation". This descriptor concerns
+   * conversation history only; it says nothing about tool registrations,
+   * injected services, or authority inheritance.
    */
   readonly inheritsParentContext: boolean
   /**

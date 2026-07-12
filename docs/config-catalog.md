@@ -712,9 +712,11 @@ export interface Config {
   /** Which start-time capabilities to advertise (default: all `true`). */
   capabilities?: Partial<SubagentCapabilities>
   /**
-   * The context contract to declare ({@link SubagentProvider.inheritsParentContext});
-   * default `false` (spawn-like). Set `true` to exercise the fork-shaped tool
-   * wording in consumer tests.
+   * The conversation-history descriptor to declare
+   * ({@link SubagentProvider.inheritsParentContext}); default `false` (fresh
+   * conversation). Set `true` to exercise seeded/fork wording in consumer
+   * tests. This flag says nothing about tool, service, scope, or authority
+   * inheritance.
    */
   inheritsParentContext?: boolean
   /**
@@ -903,7 +905,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:45`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:47`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 

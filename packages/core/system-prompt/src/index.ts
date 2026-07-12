@@ -1,6 +1,6 @@
 /**
  * System prompt assembly registry. Plugins contribute ordered text sections,
- * tool schema providers, named prompt variables, and authoritative named
+ * tool schema providers, named prompt variables, and owner-final named
  * protections; `assemble(context)` collates them through a waterfall that
  * runs once per step, restores protected contributions, and `renderPrompt`
  * interpolates `{{variable}}` references into the final text.
@@ -138,9 +138,9 @@ export interface ToolProviderResult {
  * off the wire in Code Mode).
  */
 export interface PromptProtection {
-  /** Section names whose canonical registry output is authoritative. */
+  /** Section names whose canonical presence and definition are restored after the waterfall. */
   sections?: readonly string[]
-  /** Tool names whose canonical provider output is authoritative. */
+  /** Tool names whose canonical presence and definition are restored after the waterfall. */
   tools?: readonly string[]
 }
 
@@ -422,7 +422,7 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 
 /**
  * Registry service (`ctx.systemPrompt`): plugins contribute ordered text
- * sections, tool-schema providers, named prompt variables, and authoritative
+ * sections, tool-schema providers, named prompt variables, and owner-final
  * contribution protections; the agent loop calls `assemble(context)` once per
  * step. Registers the harness-owned `harness:identity` and
  * `deployment:persona` sections itself (see {@link Config.persona}).
@@ -682,7 +682,7 @@ export class SystemPrompt extends Service {
    * registration/unregistration. A global section protection also reserves the
    * name against scoped section shadows; registering protection when such a
    * shadow already exists fails loudly instead of protecting the wrong owner.
-   * @param protection - section and/or tool names whose canonical presence and definitions are authoritative.
+   * @param protection - section and/or tool names whose canonical presence and definitions are restored after the waterfall.
    * @returns the exact Cordis effect disposer that removes the protection.
    */
   protect(protection: PromptProtection): () => Promise<void> | void {
@@ -736,7 +736,7 @@ export class SystemPrompt extends Service {
     return dispose
   }
 
-  /** Resolve the authoritative names registered for one assembly scope. */
+  /** Resolve the owner-final names registered for one assembly scope. */
   private protectedNames(scope: ScopeKey | undefined): { sections: Set<string>; tools: Set<string> } {
     const records = [
       ...this.protections,

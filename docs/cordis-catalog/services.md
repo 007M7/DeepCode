@@ -254,7 +254,7 @@ Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative contribution protections; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contribution protections; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => Promise<void> | void
@@ -285,7 +285,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:481`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:484`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

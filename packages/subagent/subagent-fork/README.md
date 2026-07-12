@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-subagent-fork
 
-The in-process **fork** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a child [`Agent`](../../core/agent) **seeded with a prefix of the parent's session log** — so the child inherits the parent's conversation context instead of starting fresh. Shares the run driver (`startInProcessRun`) with [`dsh-subagent-spawn`](../subagent-spawn/README.md); the only difference is the seed. The shared `run.started` boundary resolves only after the seeded child is published, so `subagent/start` observers see a live registry entry.
+The in-process **fork** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a child [`Agent`](../../core/agent) **seeded with a prefix of the parent's session log** instead of starting with an empty conversation. The seed affects conversation history only. Tool registrations and restrictions follow the child's fresh flat scope; no parent/child authority relation is defined. Fork shares the run driver (`startInProcessRun`) with [`dsh-subagent-spawn`](../subagent-spawn/README.md); the only difference is the seed. The shared `run.started` boundary resolves only after the seeded child is published, so `subagent/start` observers see a live registry entry.
 
 ## The seed boundary (the crux)
 

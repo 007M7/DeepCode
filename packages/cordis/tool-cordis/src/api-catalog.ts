@@ -189,7 +189,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'systemPrompt',
-    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative contribution protections; the agent loop calls `assemble(context)` once per step.',
+    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contribution protections; the agent loop calls `assemble(context)` once per step.',
     methods: [
       'section(section: PromptSection): () => Promise<void> | void',
       'tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void',

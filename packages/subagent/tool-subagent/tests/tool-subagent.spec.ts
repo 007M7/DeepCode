@@ -220,7 +220,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    const backend = await ctx.plugin(mock, { name: 'mock' }) // spawn-shaped (inherits: false)
+    const backend = await ctx.plugin(mock, { name: 'mock' }) // fresh conversation (descriptor: false)
     await ctx.plugin(tool, { provider: 'mock' })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
 
@@ -228,7 +228,7 @@ describe('dsh-tool-subagent', () => {
     await backend.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
 
-    // Backend reloads with a DIFFERENT contract: the wording is re-derived
+    // Backend reloads with a DIFFERENT conversation-history descriptor: the wording is re-derived
     // from the fresh provider, not served stale from the first mount.
     await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
@@ -273,7 +273,7 @@ describe('dsh-tool-subagent', () => {
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
   })
 
-  it('derives spawn-shaped wording from a fresh-context provider (default mock)', async () => {
+  it('derives spawn-shaped wording from a fresh-conversation provider (default mock)', async () => {
     const ctx = await setup({ provider: 'mock' })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
     expect(schema.description).toContain('does not see this conversation')
@@ -281,7 +281,7 @@ describe('dsh-tool-subagent', () => {
     expect(props['prompt']!.description).toContain('include everything it needs')
   })
 
-  it('derives fork-shaped wording from an inheriting provider (the description stops lying)', async () => {
+  it('derives fork-shaped wording from a seeded-conversation provider (the description stops lying)', async () => {
     const ctx = await setup({ provider: 'mock', toolName: 'subagent' }, { inheritsParentContext: true })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
     expect(schema.description).toContain('INHERITS this conversation')
@@ -494,6 +494,8 @@ describe('dsh-tool-subagent', () => {
   })
 
   it.each([
+    { label: 'null', value: null as unknown as number },
+    { label: 'a string', value: '1' as unknown as number },
     { label: 'NaN', value: Number.NaN },
     { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
     { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
@@ -504,6 +506,16 @@ describe('dsh-tool-subagent', () => {
   ])('rejects maxDepth=$label when the plugin loads', async ({ value }) => {
     await expect(setup({ provider: 'mock', maxDepth: value }))
       .rejects.toThrow()
+  })
+
+  it('validates maxDepth when apply() is invoked directly without Schemastery', () => {
+    const ctx = new Context()
+    expect(() => {
+      tool.apply(ctx, {
+        provider: 'unused',
+        maxDepth: Number.NaN,
+      })
+    }).toThrow('subagent maxDepth must be a non-negative safe integer')
   })
 
   it('a partial toolFilter (deny only) does not materialize an empty allow-list (deny-all trap)', async () => {

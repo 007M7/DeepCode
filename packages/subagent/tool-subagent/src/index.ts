@@ -11,10 +11,12 @@
  * — there is no provider/type parameter in the model-facing schema. The model
  * sees only `{ description, prompt }`.
  *
- * The tool DESCRIPTION is derived from the bound provider's context contract
- * ({@link providerWording}): a fresh-context provider (spawn, ACP) gets the
- * standalone-prompt wording, an inheriting provider (fork) tells the model the
- * child already sees the conversation's completed turns. The tool MIRRORS the
+ * The tool DESCRIPTION is derived from the bound provider's conversation-history
+ * descriptor ({@link providerWording}): a fresh-conversation provider (spawn,
+ * ACP) gets the standalone-prompt wording, while a seeded-conversation provider
+ * (fork) tells the model the child already sees the conversation's completed
+ * turns. This descriptor says nothing about Cordis scope, services, tools, or
+ * authority. The tool MIRRORS the
  * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
  * when the provider is (or becomes) available and unregisters when the
  * provider goes away — so no load-order requirement exists and an HMR reload
@@ -154,16 +156,19 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /**
- * Model-facing wording per context contract ({@link SubagentProvider.inheritsParentContext}).
+ * Model-facing wording from the provider's conversation-history descriptor
+ * ({@link SubagentProvider.inheritsParentContext}).
  * A fresh child needs a standalone prompt; a forked child already sees the
  * conversation's completed turns — telling the model to restate everything
  * (or, worse, that the child "does not see this conversation") would be false
  * for a fork. Exported for tests.
- * @param inherits - the bound provider's context contract.
+ * @param inheritsConversation - whether the child's conversation is seeded
+ *   with the parent's completed turns; this says nothing about tool, service,
+ *   scope, or authority inheritance.
  * @returns the tool `description` and the `prompt` parameter description.
  */
-export function providerWording(inherits: boolean): { description: string; promptDescription: string } {
-  if (inherits) {
+export function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
+  if (inheritsConversation) {
     return {
       description:
         'Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all '

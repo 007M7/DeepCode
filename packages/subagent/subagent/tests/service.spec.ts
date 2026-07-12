@@ -226,7 +226,7 @@ describe('SubagentService', () => {
       patch: { capabilities: { ...NO_CAPS, persona: 'yes' } },
       message: 'capability "persona" must be a boolean',
     },
-    { label: 'a non-boolean context descriptor', patch: { inheritsParentContext: 'yes' }, message: 'inheritsParentContext must be a boolean' },
+    { label: 'a non-boolean conversation-history descriptor', patch: { inheritsParentContext: 'yes' }, message: 'inheritsParentContext must be a boolean' },
     { label: 'a non-callable start field', patch: { start: 42 }, message: 'start must be a function' },
   ])('rejects a provider registration with $label before entering the registry', async ({ patch, message }) => {
     const ctx = new Context()
@@ -431,6 +431,7 @@ describe('SubagentService', () => {
     })
 
     it.each([
+      { label: 'null', value: null as unknown as number },
       { label: 'a string', value: '1' as unknown as number },
       { label: 'NaN', value: Number.NaN },
       { label: 'positive infinity', value: Number.POSITIVE_INFINITY },

@@ -27,8 +27,8 @@ import { Context as CordisContext } from 'cordis'
 
 // Capture the invocation primordials once. A carrier holder can reach the
 // composed Context.filter function, so neither that function's mutable
-// property surface nor a base filter's own `.call` may choose how isolation
-// predicates are invoked.
+// property surface nor a base filter's own `.call` may choose how listener-
+// selection predicates are invoked.
 const reflectApply = Reflect.apply
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const functionCall = Function.prototype.call
@@ -131,7 +131,7 @@ function scope(): void {}
  * Service resolution through the scoped context flows through the minting
  * plugin's dependency chain (the fiber walk), regardless of what the eventual
  * holder's own fiber injected — handing out the scoped context hands out that
- * capability; see `Agent.ctx` in `@deepseek-ai/dsh-agent` for the harness's
+ * dependency surface; see `Agent.ctx` in `@deepseek-ai/dsh-agent` for the harness's
  * contract.
  * @param ctx - the context to mount the scope under; its fiber must be active
  *   (a disposing owner throws Cordis's INACTIVE_EFFECT), and its plugin's
@@ -201,7 +201,7 @@ function isConstructable(value: (...args: unknown[]) => unknown): boolean {
  *   compatibility default: plain plugin listeners see every subject), or
  * - its tag IS `key` (a scoped listener seeing exactly its own subject),
  *
- * AND `base`'s own filter (a Cordis `Service`'s isolation check) also admits
+ * AND `base`'s own filter (a Cordis `Service`'s listener-filter check) also admits
  * it. Both the captured base filter and the composed filter are invoked
  * through captured JavaScript primordials, so mutating either function's
  * public `.call` property cannot bypass either predicate. Dispatching with
@@ -263,7 +263,7 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
   // construction, a base-target proxy would therefore silently replace the
   // composed scope predicate with the caller's filter. The surrogate owns the
   // two immutable overlay slots, so later descriptor changes on `base` cannot
-  // affect isolation. It shares the base prototype and delegates ordinary
+  // affect listener selection. It shares the base prototype and delegates ordinary
   // reads/writes/keys to preserve the supported transparent shape. Callable
   // targets use native bound built-ins so V8 contributes no user-code surface;
   // the chosen built-in matches whether `base` has [[Construct]], and the traps

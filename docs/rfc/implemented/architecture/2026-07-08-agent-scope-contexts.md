@@ -6,26 +6,48 @@ Status: implemented
 
 One application can run many agents that share infrastructure but must not share every capability or policy. A child agent may need a different persona, fewer tools, its own structured-result schema, and listeners that govern only its work, while still using the deployment's model adapters, persistence backend, tool implementations, and user interface.
 
-This is a composition problem, not an application-isolation problem. Starting a separate service graph for every child would isolate too much; putting every registration in one global graph isolates too little.
+This is a composition problem, not an application-isolation or security-confinement problem. Starting a separate service graph for every child would isolate too much; putting every registration in one global graph isolates too little.
 
 | Surface | What varies by agent | Failure when it is only global |
 |---|---|---|
-| Tools | Available capabilities, a child-only tool, or a scoped replacement for one implementation | The model receives excess authority, or a child-specific tool leaks into every prompt |
+| Tools | Available capabilities, a child-only tool, or a scoped replacement for one implementation | The model receives the wrong tool view, or a child-specific tool leaks into every prompt |
 | Prompt state | Persona, instructions, variables, and [Code Mode](../feature/2026-06-15-code-mode.md) SDK declarations | Every agent receives the same instructions or runtime facts |
 | Live policy | Hooks, execution guards, result observers, and continuation rules | A listener intended for one agent can alter another agent's work |
 | Lifetime | Cleanup when the agent fails, is cancelled, is disposed, or loses its owner | Registrations outlive the agent or disappear before its final work settles |
 
-Two consistency requirements make the problem deeper than filtering a list. First, the model-visible and executable views must agree: a hidden tool must not remain callable, and an advertised tool must not fail merely because execution used a different registry view. This agreement must also cover Code Mode bindings and UI presentation.
+Three consistency requirements make the problem deeper than filtering a list. First, the model-visible and executable views must agree: a hidden tool must not remain callable, and an advertised tool must not fail merely because execution used a different registry view. This agreement must also cover Code Mode bindings and UI presentation.
 
 Second, some rules are invariants rather than cooperative extensions. An ordinary middleware listener may replace a prompt assembly, turn an allow into a deny, rewrite a result, force another model step, or short-circuit listeners registered after it. Structured output therefore cannot rely on being “first” or “last” in an extensible listener chain; the owning service needs a final boundary for rules that later listeners must not undo.
 
 Third, accepting a value must transfer ownership of the exact value that was checked. TypeScript `readonly` annotations disappear at runtime, callers and providers may expose stateful accessors, and a validation pass followed by a clone reads mutable input twice. Identity fields, schemas, session data, requests, and results therefore need runtime boundaries that capture each caller-owned field once, materialize data once, and expose only owner-controlled snapshots. Otherwise the checked, executed, logged, and observed views can diverge even when scope resolution itself is correct.
 
+The failure does not require TypeScript or threads. One JavaScript getter is enough to make a two-read boundary validate one name and store another:
+
+```js
+let reads = 0
+const input = {
+  get name() {
+    reads += 1
+    return reads === 1 ? 'safe_tool' : 'different_tool'
+  },
+}
+
+// Wrong: validation and storage observe different values.
+validateName(input.name)
+storeName(input.name)
+
+// Right: capture once, then validate and store that capture.
+reads = 0
+const acceptedName = input.name
+validateName(acceptedName)
+storeName(acceptedName)
+```
+
 The subagent API makes these requirements concrete. Two concurrent children can request different personas, tool filters, and output schemas. Those requests are honest only when each child receives an independently owned view and when its terminal-output protocol survives unrelated plugins.
 
 ## Decision
 
-Each live agent owns a registration context named `agent.ctx`, and services expose narrow owner-final policy boundaries where ordinary middleware ordering is not strong enough. Together these choices make one agent's world composable with normal plugin APIs while keeping authority, observation, and cleanup aligned.
+Each live agent owns a registration context named `agent.ctx`, and services expose narrow owner-final policy boundaries where ordinary middleware ordering is not strong enough. Together these choices make one agent's registration view composable with normal plugin APIs while keeping visibility, observation, and cleanup aligned.
 
 The design has five parts:
 
@@ -37,11 +59,90 @@ The design has five parts:
 | Owner-final policy | Prompt protection, tool guards, final tool-result observation, and terminal turn stopping run at service-owned boundaries | Invariants do not depend on listener registration order |
 | Boundary ownership | Services capture fixed fields once, materialize lossless-JSON data once, and publish owner-controlled views | Validation, execution, persistence, and telemetry cannot observe different values from one call |
 
+### One public call shows the composition model
+
+The common case uses ordinary registration APIs through the setup context. Code blocks in this RFC are focused examples and start from a fresh initialized application unless one explicitly continues another. Here `ctx` is a plugin's service context, `setup(agentCtx)` receives the unpublished agent's scoped context, and helpers such as `AgentId`, `SessionId`, and `CallId` construct opaque IDs. Assume the deployment already registered global `read` and `bash` tools; this creates a reviewer whose persona, global-tool filter, and extra reporting tool exist only for that agent and disappear with its handle:
+
+```js
+const reviewSummaryTool = {
+  name: 'review_summary',
+  description: 'Return the review summary.',
+  parameters: { type: 'object', properties: {} },
+  async execute() {
+    return [{ type: 'text', text: 'review complete' }]
+  },
+}
+
+const handle = await ctx.agents.create({
+  agentId: AgentId('reviewer'),
+  sessionId: SessionId('reviewer-session'),
+  agentOptions: { model: 'model-name' },
+  setup(agentCtx) {
+    agentCtx.systemPrompt.section({
+      name: 'deployment:persona',
+      order: 0,
+      text: 'Review code, but do not modify files.',
+    })
+    agentCtx.tools.restrict({ allow: ['read'] })
+    agentCtx.tools.register(reviewSummaryTool)
+  },
+})
+
+const reviewer = handle.agent
+ctx.tools.get('read', reviewer)            // global tool, visible
+ctx.tools.get('bash', reviewer)            // undefined: filtered global tool
+ctx.tools.get('review_summary')            // undefined: not global
+ctx.tools.get('review_summary', reviewer)  // child-only definition
+
+await handle.dispose()
+ctx.tools.get('review_summary', reviewer)  // undefined: scope was unwound
+```
+
+The rest of this RFC explains why the short setup above needs scope-aware resolution, unpublished construction, ordered teardown, and owner-final policy.
+
+### Security and authority are explicit non-goals
+
+Scoped contexts are trusted in-process registration composition, not a sandbox, authorization ledger, or parent-to-child authority lattice. A plugin with a Cordis context executes in the same process and can call the services injected into that context. Scope filtering decides which registered contribution participates in one operation and who cleans it up; it does not prove that a child can do no more than its parent.
+
+#### Flat scopes do not enforce a parent-to-child subset
+
+Flat lookup makes that boundary visible. Parent lifetime ownership does not cause the child to inherit the parent's restriction, and a child-local registration is merged after the global filter:
+
+```text
+global tools                  = { read, bash }
+parent restriction           = allow { read }
+parent scoped registrations  = { delegate }
+child restriction            = none
+child scoped registrations   = { deploy }
+
+visible(parent) = { read, delegate }
+visible(child)  = { read, bash, deploy }
+```
+
+Through `delegate`, a parent can deliberately start this child and indirectly obtain work performed with `bash` or `deploy`. This RFC neither prevents nor blesses that arrangement; deployments that need a non-escalation guarantee require a separate authority design and enforcement boundary.
+
+#### Restrictions are live views, not grant snapshots
+
+Restrictions also resolve against a live global registry rather than an immutable authorization snapshot. A deny-list names removals, while an allow-list names the complete retained global set:
+
+```text
+at time 0:
+  global tools       = { read, bash }
+  deny { bash } view = { read }
+  allow { read } view = { read }
+
+after registering global tool web:
+  deny { bash } view = { read, web }
+  allow { read } view = { read }
+```
+
+Scope-local tools are merged after either filter. There is no separate authority-versus-visibility ledger, frozen creation-time grant snapshot, parent-subset rule, future-tool grant API, or generic capability/output/terminal tag system here. `run_code` and `structured_output` have explicit protocol-owned treatment described below; they do not imply a general security taxonomy. Those questions are separate design work rather than hidden promises of scoped contexts.
+
 Three domain terms recur below. A **Session** is one agent run's append-only event log, from which model history and durable replay are derived. **Lossless JSON** means JSON primitives plus dense arrays and plain objects that can be copied without changing meaning; the boundary rejects sparse arrays, cycles, exotic prototypes, non-finite numbers, negative zero, `undefined`, `bigint`, functions, and symbols instead of coercing or erasing them. **Code Mode** presents the model with a generated software-development-kit interface and a reserved `run_code` transport, rather than advertising every end-capability as a native tool.
 
 Ownership stays with the component that can enforce each fact. The scope package owns scope tags and carrier construction; each registry owns acceptance snapshots and resolution; the caller owns the programmatic agent lifetime it requested; the concrete agent factory owns identity reservation, setup, publication, and structural invalidation of agents that still depend on it; the session owns accepted history; the tool and subagent services own their pipeline records; and each workflow run captures its holder-bound dependencies and owns its cancellation after the engine returns it. A caller never validates a value that another component later rereads from the caller's mutable object.
 
-The scope is flat. An agent resolves the deployment-global layer plus its own layer; a child does not inherit registrations from its parent's scope. Parent/child lineage remains explicit session data, and parent-owned disposal links lifetimes without silently inheriting authority.
+The scope is flat. An agent resolves the deployment-global layer plus its own layer; a child does not inherit registrations from its parent's scope. Parent/child lineage remains explicit session data, and parent-owned disposal links lifetimes without inheriting registrations.
 
 The core implementation lives in [`dsh-scope`](../../../../packages/core/scope/README.md), [`dsh-agent`](../../../../packages/core/agent/README.md), [`dsh-agent-loop`](../../../../packages/core/agent-loop/README.md), [`dsh-session`](../../../../packages/core/session/README.md), [`dsh-system-prompt`](../../../../packages/core/system-prompt/README.md), and [`dsh-tools`](../../../../packages/core/tools/README.md). The composition example spans [`dsh-subagent`](../../../../packages/subagent/subagent/README.md), [`dsh-subagent-inprocess`](../../../../packages/subagent/subagent-inprocess/README.md), and [`dsh-workflow-workerthread`](../../../../packages/workflow/workflow-workerthread/README.md). The [generated Cordis event catalog](../../../cordis-catalog/events.md) is the exhaustive event-signature reference; this RFC explains why the contracts have their current shape.
 
@@ -53,9 +154,28 @@ The design relies on four framework ideas: contexts, effects, waterfall events, 
 
 A Cordis `Context` is the object through which a plugin reaches services such as `ctx.tools`, `ctx.systemPrompt`, and `ctx.sessions`. A service method can recover the context through which it was accessed, so the service can tell whether a call came from an ordinary plugin context or from an agent's scoped context without adding a `scope` parameter to every registration API.
 
-A context also carries a capability view. A derived context reaches the services injected into the plugin that created it. Handing out `agent.ctx` therefore hands out the agent loop's injected service surface; it is not an ambient root context.
+A context also carries an injected dependency view. A derived context reaches the services injected into the plugin that created it. Handing out `agent.ctx` therefore hands out the agent loop's injected service surface; it is not an ambient root context or a security confinement boundary.
 
 Factory delegation uses two contexts whose jobs must remain separate. The registry derives a caller-bound context carrying the fiber and scope from which `ctx.agents.create()` or `resume()` was called and passes it explicitly as `ownerCtx`; those facts identify the fiber and optional parent agent that own the requested lifetime. When the registered factory is itself a Cordis service, the registry also invokes it through a traced receiver, which preserves the factory's own injected dependency origin. A plain object that merely implements the factory methods receives the same explicit `ownerCtx` without depending on Cordis tracing. Conflating these roles would either attach the agent to the factory registrant instead of the caller or make the concrete loop resolve dependencies from the wrong service view.
+
+The object before a service or event method selects the registration origin. The method itself does not need an extra agent parameter:
+
+```js
+ctx.tools.register(globalTool)
+agent.ctx.tools.register(agentOnlyTool)
+
+ctx.on('tools/result', globalObserver)
+agent.ctx.on('tools/result', agentObserver)
+```
+
+Factory calls preserve caller ownership and factory dependency lookup as separate values:
+
+```text
+callerCtx.agents.create(options)
+  ownerCtx    = context carrying callerCtx's fiber and scope
+  factoryThis = concrete factory traced through ownerCtx
+  Reflect.apply(capturedCreateAgent, factoryThis, [ownerCtx, options])
+```
 
 ### Effects give registrations an owner
 
@@ -65,11 +185,38 @@ Ownership must exist before effect setup can call arbitrary code. The vendored F
 
 `dsh-scope` mounts a no-op plugin fiber for each scope. The plugin contributes no behavior; its fiber is the ownership bucket for everything registered through the scoped context.
 
+In its simplest form, an effect is a setup function that returns its cleanup. Cordis also supports generator effects that compose child effects in a chosen order. In either form Cordis records the wrapper before calling setup, so even setup-triggered reentrant teardown can find and await it:
+
+```js
+ctx.effect(() => {
+  const resource = openResource()
+  return async () => {
+    await resource.close()
+  }
+})
+```
+
 ### A waterfall is ordered around-middleware
 
 A Cordis waterfall is an extensible middleware chain. A listener calls `next()` to delegate, can inspect or replace the downstream result, and can return without calling `next()` to short-circuit everything inside it.
 
 This flexibility is useful for cooperative transformations, but registration order is not an invariant boundary. A later plugin can prepend another listener, a wrapper can replace the downstream result after `next()` returns, and a short-circuit can prevent inner listeners from running at all.
+
+The code shape is ordinary around-middleware. Calling `next()` includes downstream work; returning directly skips that listener's downstream listeners and base implementation:
+
+```js
+ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+  const downstream = await next()
+  return {
+    ...downstream,
+    sections: [...downstream.sections, extraSection],
+  }
+})
+
+ctx.on('system-prompt/assemble', async () => replacementAssembly)
+// This listener skips its downstream/base. An outer listener that already
+// awaited next() still resumes around replacementAssembly.
+```
 
 ### The dispatch receiver selects scoped listeners
 
@@ -117,6 +264,18 @@ The scope key is an opaque object compared by identity. The harness uses the liv
 `agent.ctx` carries an own `agent` property for setup code and plugin ergonomics. Contexts derived from it inherit that association, while a plain context reads `undefined`.
 
 The property is deliberately not treated as the authoritative scope tag. A nested scope can install a nearer scope key while still inheriting the original `ctx.agent` association, so lower-level services resolve layers with `scopeOf(context)`. In normal agent composition the two point at the same live agent; the separation keeps the generic scope primitive independent of the agent package.
+
+The distinction appears when a plugin deliberately nests another scope:
+
+```js
+const auditKey = {}
+const auditScope = createScope(agent.ctx, auditKey)
+
+auditScope.ctx.agent === agent        // true: inherited ergonomic association
+scopeOf(auditScope.ctx) === auditKey  // true: authoritative nearest scope tag
+
+await auditScope.dispose()
+```
 
 ### The scope primitive has separate public and composite disposal forms
 
@@ -190,15 +349,32 @@ registerTool(context, definition):
 
 The reserved Code Mode transport uses the same frozen-definition contract even though it lives outside the ordinary layers.
 
-### Tool restrictions reduce end capabilities without removing transport
+### Tool restrictions filter the global view without removing transport
 
-A tool restriction masks the global end-capability layer for one agent, while tools registered in that agent's own layer are explicit grants. Multiple restrictions intersect, so separately installed policies can only reduce the global surface.
+A tool restriction masks the global end-capability layer for one agent, while tools registered in that agent's own layer are merged afterward. Multiple restrictions intersect, so separately installed filters can only reduce the global part of the view; they do not filter scope-local registrations.
 
 The restriction reads `allow` and `deny` once, snapshots those exact values, rejects an empty filter, and validates named tools against the pre-restriction capability universe. The same captured arrays are then enforced, so a stateful accessor cannot pass one policy through validation and install another. A restricted-away tool behaves like an unknown tool at execution, avoiding disclosure of a hidden global implementation.
 
 [Code Mode](../feature/2026-06-15-code-mode.md)'s `run_code` is not an end capability. It is a reserved presentation transport that carries calls to the visible end capabilities, so the registry keeps it outside both global and scoped registration layers: restrictions cannot remove it, a scoped tool cannot shadow it, and configuration cannot explicitly allow or deny it. Without this exception, a restriction could leave the generated SDK in the prompt but remove the only way to invoke it.
 
-The registry still uses one executable visibility view. It first resolves restricted global capabilities plus scoped grants, then appends the reserved transport in non-native modes; registry-owned prompt schemas, lookup, execution, Code Mode SDK bindings, timeout lookup, inspection, and UI presentation all consume that view.
+The registry still uses one executable visibility view. It first resolves filtered global capabilities plus scope-local registrations, then appends the reserved transport in non-native modes; registry-owned prompt schemas, lookup, execution, Code Mode SDK bindings, timeout lookup, inspection, and UI presentation all consume that view.
+
+The public lookup API exposes the exact same resolution used for prompt schemas and execution:
+
+```js
+ctx.tools.register(readTool)
+ctx.tools.register(bashTool)
+
+agent.ctx.tools.restrict({ allow: ['read'] })
+agent.ctx.tools.register(reviewSummaryTool)
+
+ctx.tools.get('read', agent)                  // visible global definition
+ctx.tools.get('bash', agent)                  // undefined: filtered global definition
+ctx.tools.get('review_summary', agent)        // visible scope-local definition
+ctx.tools.get('review_summary')               // undefined: absent from global view
+```
+
+Executing `bash` for this agent follows the same lookup and produces the ordinary unknown-tool error; it does not bypass the filter through a separate execution registry. The [security non-goal](#security-and-authority-are-explicit-non-goals) explains why later global registrations and scope-local registrations are not an authorization snapshot.
 
 The guarantee covers the tool registry's contribution. A plugin can deliberately use the lower-level `systemPrompt.tools()` API or assembly waterfall to add an unrelated wire schema; that plugin owns the matching executable behavior and any ordering it introduces. Owner protection preserves reserved named infrastructure without turning the system-prompt service into a validator for unrelated contributions.
 
@@ -227,6 +403,24 @@ The operation being described determines the key; callers cannot attach an unrel
 | `session/created`, `session/disposed`, `session/event`, `session/flush` | The owner scope captured when the session enters the store |
 | `subagent/start`, `subagent/end` | The delegating parent agent |
 
+The observable rule is global plus matching, not global plus every scoped listener. This example drives a real tool execution so routing and notification use the same accepted `agent` subject:
+
+```js
+const seen = []
+ctx.tools.register(readTool)
+ctx.on('tools/result', () => seen.push('global'))
+agentA.ctx.on('tools/result', () => seen.push('A'))
+agentB.ctx.on('tools/result', () => seen.push('B'))
+
+await ctx.tools.execute({
+  callId: CallId('read-1'),
+  name: 'read',
+  arguments: {},
+  agent: agentA,
+})
+seen  // ['global', 'A']
+```
+
 Approval requests cross an asynchronous answer boundary, so the service snapshots the accepted record synchronously. It preserves the exact agent and abort-signal identities but copies the scalar fields, captures the agent's session once, and uses that one snapshot for `approval/asked`, scoped dispatch, cancellation, policy, and `approval/decided`. Mutating the caller-owned record after `request()` returns therefore cannot split the audit pair or redirect the question to another agent's listeners.
 
 The dispatch rule can be read independently of Cordis internals:
@@ -252,15 +446,64 @@ Function-style listeners receive the carrier as `this`, and agent event APIs all
 
 Binding matters for classes with JavaScript private fields: a method called with the proxy itself as receiver would fail the runtime private-field identity check. The carrier therefore uses a dedicated surrogate proxy target with its own immutable composed-filter slot, while ordinary property access, writes, own-key visibility, methods, invocation, and construction delegate to the real subject; callable carriers also preserve whether the subject is constructable.
 
-The composed filter is an authorization boundary, not an ordinary exposed callback. It invokes a subject's pre-existing filter with stable references to the built-in `Reflect.apply` and `Function.prototype.call` operations, pins its own `.call` to that captured built-in, and freezes the callable. Code holding the subject or carrier therefore cannot replace either `.call` property to turn a scoped predicate into an always-allow predicate. Keeping the filter on the surrogate also means a filter property pinned on the subject before, during, or after carrier construction cannot trigger a Proxy invariant that silently replaces scope isolation with the subject's raw filter.
+A minimal JavaScript example shows why method binding is observable rather than a TypeScript detail:
+
+```js
+class Subject {
+  #count = 0
+  increment() { this.#count += 1 }
+}
+
+const subject = new Subject()
+new Proxy(subject, {}).increment()        // TypeError: proxy lacks Subject's private identity
+
+const carrier = scopeTarget(subject, subject)
+carrier.increment()                      // works: method is bound to subject
+carrier === subject                      // false: dispatch carrier has distinct identity
+```
+
+The composed filter is a listener-selection correctness boundary, not an ordinary exposed callback. It invokes a subject's pre-existing filter with stable references to the built-in `Reflect.apply` and `Function.prototype.call` operations, pins its own `.call` to that captured built-in, and freezes the callable. Code holding the subject or carrier therefore cannot accidentally replace either `.call` property and turn the scoped predicate into an always-admit predicate. Keeping the filter on the surrogate also means a filter property pinned on the subject before, during, or after carrier construction cannot trigger a Proxy invariant that silently replaces scope filtering with the subject's raw filter.
 
 The surrogate must remain extensible so its reported own-key view can follow the subject. For non-overlay properties owned by the subject, descriptor queries preserve values and flags except that `configurable` is reported as `true`, which is the only Proxy-safe description of a property the extensible surrogate does not itself own. For the same reason, defining a property through the carrier is supported only when the descriptor explicitly says `configurable: true`; an omitted or false flag is rejected before the subject is touched. The carrier is intentionally not identity-equal to the subject; event arguments carry the real object whenever identity matters.
 
-`Scoped<T>` is a TypeScript-only marker that requires this carrier at declared scoped dispatch sites. It improves authoring but adds no runtime security, so runtime marks and development invariants check the same contract for JavaScript, casts, and hand-written dispatches.
+`Scoped<T>` is a TypeScript-only marker that requires this carrier at declared scoped dispatch sites. It improves authoring but adds no runtime enforcement by itself, so runtime marks and development invariants check the same contract for JavaScript, casts, and hand-written dispatches. These checks detect routing mistakes; they do not confine a hostile in-process plugin.
 
 ## Agent creation and teardown
 
 An agent's scope, session, registry entry, and driver form one transaction with two ownership edges. The caller context owns the work it requested and receives the only consumer-facing teardown capability; the concrete `AgentLoop` provider is a structural co-owner because the live agent continues to use the provider's injected services. Either edge deactivates the transaction and converges on the same ordered, memoized quiescence boundary. Setup finishes before publication, and publication is synchronous and rollback-covered rather than magically atomic.
+
+The public contract is simple: setup may await while both identities remain absent from their registries; fulfillment publishes the complete agent; disposal removes it again.
+
+```js
+const setupGate = Promise.withResolvers()
+const agentId = AgentId('reviewer')
+const sessionId = SessionId('reviewer-session')
+const creating = ctx.agents.create({
+  agentId,
+  sessionId,
+  agentOptions: { model: 'model-name' },
+  async setup(agentCtx) {
+    await setupGate.promise
+    agentCtx.systemPrompt.section({
+      name: 'deployment:persona',
+      order: 0,
+      text: 'Review the change.',
+    })
+  },
+})
+
+ctx.agents.get(agentId)      // undefined while setup is pending
+ctx.sessions.get(sessionId)  // undefined while setup is pending
+setupGate.resolve()
+
+const handle = await creating
+ctx.agents.get(agentId) === handle.agent             // true after publication
+ctx.sessions.get(sessionId) === handle.agent.session  // true after publication
+
+await handle.dispose()
+ctx.agents.get(agentId)      // undefined after quiescent teardown
+ctx.sessions.get(sessionId)  // undefined after quiescent teardown
+```
 
 ### Create and resume reserve identities before asynchronous work
 
@@ -421,7 +664,7 @@ For the concrete AgentLoop transaction, `agent/disposed` runs after the driver i
 
 Provider co-ownership is specific to resources that remain structurally dependent on their provider. An AgentLoop-created agent continues to resolve the loop's injected services, so loop unload must stop it. A worker workflow run instead captures its holder-bound `SubagentService` handle synchronously at `start()` and stores that independent dependency on the run; unloading `WorkerWorkflowEngine` removes the ability to start new runs but does not revoke an already returned run or prevent its later worker message from starting a child. The two lifetimes differ by dependency shape, not by a blanket rule that every service must own every value it creates.
 
-Parent-owned subagents use explicit ownership rather than capability inheritance. The driver creates one run-owner fiber under `parent.ctx` and invokes the child factory through that fiber, so lifecycle ownership exists before setup or publication begins; disposing a parent reaches its descendants even if a delegating tool never reaches its own `finally`. The child still receives a newly minted scope and resolves only global plus child-scoped capabilities.
+Parent-owned subagents use explicit ownership rather than registration inheritance. The driver creates one run-owner fiber under `parent.ctx` and invokes the child factory through that fiber, so lifecycle ownership exists before setup or publication begins; disposing a parent reaches its descendants even if a delegating tool never reaches its own `finally`. The child still receives a newly minted scope and resolves only global plus child-scoped registrations.
 
 ## Owner-final policy boundaries
 
@@ -475,7 +718,7 @@ The registry materializes `arguments` in one lossless-JSON traversal and deep-fr
 
 The registry assigns each pipeline trip a frozen, property-free `ToolExecutionToken`; callers cannot choose that token. The execution is identity-stable, not fully immutable, while the pipeline runs: its `token`, `callId`, `name`, `agent`, optional opaque `parent` token, and detached `arguments` are non-writable and non-configurable from the first policy listener onward. `signal` is the only operational field; an around-dispatch wrapper may add, replace, or remove it. The registry freezes the complete execution before outcome observation.
 
-Stable identity prevents a listener from changing which capability or scope was authorized after policy ran. It also gives commit-style observers a safe `WeakMap` key even when an adapter reuses a model call ID.
+Stable identity prevents a listener from changing which tool or scope the pipeline accepted after policy ran. It also gives commit-style observers a safe `WeakMap` key even when an adapter reuses a model call ID.
 
 For a nested transport dispatch, `parent` carries only the enclosing execution's opaque token rather than its live object. Code Mode sets an SDK sub-call's `parent` to the outer `run_code` execution's `token`, so an observer can correlate the two outcomes without receiving a reference that could mutate the still-running outer wrapper.
 
@@ -512,6 +755,24 @@ prepareExecution(input):
 
 This one-way result makes the boundary monotonic. Pre-execution hooks can still compose ordinary allow, deny, and ask decisions; an ask resolves through the optional `ctx.approval` seam, where only `allowed-once` becomes allow and an absent channel or any non-grant becomes deny before guards run. No listener ordering can convert a guard denial back into dispatched work. A denied call still continues through result transformation and final observation as an error outcome.
 
+The two APIs have deliberately different strength. A waterfall listener may return an allow decision, but the later guard has no corresponding allow result:
+
+```js
+agent.ctx.on(
+  'tools/pre-execute',
+  async () => ({ kind: 'allow' }),
+  { prepend: true },
+)
+
+agent.ctx.tools.guard(execution =>
+  execution.name === 'bash'
+    ? 'reviewer agents are read-only'
+    : undefined,
+)
+```
+
+Even a later prepended allow listener cannot bypass this guard because the registry evaluates guards after the complete waterfall.
+
 ### `tools/result` observes the authoritative live outcome
 
 The complete live pipeline is `tools/pre-execute` → monotonic guards → `tools/execute` → `tools/post-execute` → `tools/result`. The first three named events are transformable waterfalls; `tools/result` is an awaited, observe-only notification after all transforms and the registry's outer error normalization. At each untrusted result boundary, the registry captures every top-level field once and materializes the complete authoritative outcome as detached lossless JSON. Immediately before observation it materializes that owned outcome again and deep-freezes the shared listener snapshot. An invalid tool or listener result becomes a normal JSON-safe `isError` outcome instead of reaching observers as apparent success and failing later at the session log.
@@ -520,7 +781,7 @@ Every `tools/result` listener receives the same frozen execution and deep-frozen
 
 `tools/result` is not the durable session event `tool/result`. The live notification belongs to the registry and also fires for direct programmatic executions; the agent loop subsequently appends `tool/result` to the session log for replay, UI reconstruction, and model history. A policy that needs the final in-process verdict uses the former, while a consumer that needs persisted transcript state uses the latter.
 
-The entire registry method reads like one authority ladder:
+The entire registry method reads like one execution-decision pipeline:
 
 ```text
 execute(input):
@@ -575,7 +836,7 @@ Ordinary continuation remains extensible. The loop computes a default, runs the 
 
 The scoped serial `agent/turn-stop` checkpoint runs after that folding. Its strict serial helper consults listeners in order until one returns a non-`undefined` value; a listener returns `{ action: 'stop' }` or abstains with `undefined`. The dedicated helper exists because ordinary Cordis serial dispatch treats `null` and `false` as framework abstentions, while this public contract has exactly one abstention value. A stop is terminal, so later listeners and pending steering cannot restore continuation. A malformed result, including `null` or `false`, or a throwing policy closes the current turn with an error while leaving the driver available for later work.
 
-Terminal stop deliberately discards steering while preserving ordinary queued prompts. Its terminal state remains in force through `turn/end` and the durability flush, so steering added by continuation, turn-close, or flush listeners cannot escape through the loop's late-steering fallback into another step or turn. This is the explicit exception to the normal rule that leftover steering becomes input for another turn. The authority is reserved for protocols, such as a completed structured child, where further model work would violate the result contract.
+Terminal stop deliberately discards steering while preserving ordinary queued prompts. Its terminal state remains in force through `turn/end` and the durability flush, so steering added by continuation, turn-close, or flush listeners cannot escape through the loop's late-steering fallback into another step or turn. This is the explicit exception to the normal rule that leftover steering becomes input for another turn. The stronger terminal control is reserved for protocols, such as a completed structured child, where further model work would violate the result contract.
 
 ```text
 afterSuccessfulStep(turn):
@@ -605,13 +866,67 @@ The queued-prompt FIFO is separate and is never drained by terminal stop.
 
 In-process subagents demonstrate how the scope, lifecycle, and final-policy pieces compose. A provider builds the child's world during unpublished setup, then lets the ordinary agent lifecycle own it.
 
+The caller-facing seam separates acceptance, readiness, result settlement, cancellation, and disposal. This example assumes the spawn backend is loaded under its configurable default provider name, `spawn`, `parent` is top-level (depth 0), and a global `read` tool has already been registered. A caller observes readiness before treating the child as live and always disposes the run:
+
+```js
+const run = ctx.subagents.start('spawn', {
+  parent,
+  prompt: [{ type: 'text', text: 'Review this change.' }],
+  persona: 'You are a careful code reviewer.',
+  toolFilter: { allow: ['read'] },
+  maxDepth: 2,
+  outputSchema: {
+    type: 'object',
+    properties: { summary: { type: 'string' } },
+    required: ['summary'],
+    additionalProperties: false,
+  },
+})
+
+try {
+  await run.started
+  const result = await run.result
+  // result.structured exists only after a successful committed capture.
+} finally {
+  await run.dispose()
+}
+```
+
 ### Inputs and ownership are fixed before asynchronous creation
+
+This section follows a child from provider/request acceptance through the service wrapper and then through the workflow bridge. Each layer captures its boundary before arbitrary asynchronous work and owns the cleanup it may need to start.
+
+#### Provider and request acceptance own the child boundary
 
 Provider registration first freezes an acceptance snapshot of the provider name, capability flags, parent-context descriptor, and `start` callback; the callback is bound to the original provider object so its intentional internal state stays live. Lookup, validation, model-facing wording, dispatch, lifecycle notifications, and hot-reload cleanup all use that snapshot. Mutating or reusing the caller's provider object later therefore cannot rename a live entry, change its advertised powers, replace its callback, or make its disposer delete the wrong key.
 
 Starting a run reads every top-level request field once before capability validation, then snapshots every accepted field before asynchronous owner setup. This order makes checked and delegated capabilities identical even for a JavaScript caller with stateful accessors. Fixed scalars are checked at the same boundary: `maxDepth` must be a non-negative safe integer and `persona` must be a string. The parent and abort signal are retained as identity capabilities but never reread from the mutable request record; tool filters, seed events, agent options, output schema, and prompt are detached through the one-pass lossless-JSON materializer. The exported in-process driver repeats this boundary for direct callers before it awaits run-owner activation, including taking one seed snapshot from which it derives both the child prefix and `seedLength`. Later caller mutation therefore cannot change lifecycle scope, configuration, the schema enforced by the capture tool, or the prompt eventually logged and sent.
 
-The driver first installs provider ownership. Only after that succeeds does it attach the request's abort listener and create one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves neither a child nor an orphaned listener. Calling `runOwner.ctx.agents.create()` gives the child factory an explicit `ownerCtx` carrying the run-owner fiber and scope, while the registry's traced factory receiver preserves AgentLoop's injected dependency origin. Parent teardown, provider teardown, and manual run disposal all dispose this same run-owner node; moving it out of the active state synchronously prevents an unpublished setup from publishing afterward, while all three paths follow one quiescence promise. This structured ownership does not change the child's flat capability view.
+Depth validation is intentionally repeated at every public entry path, while one seam-owned helper keeps the accepted domain identical:
+
+```text
+tool-subagent plugin load:
+  schema requires natural <= Number.MAX_SAFE_INTEGER
+  assertSubagentMaxDepth(config.maxDepth)
+
+SubagentService.start(request):
+  capture request.maxDepth once
+  assertSubagentMaxDepth(captured maxDepth)
+
+startInProcessRun(request):
+  capture request.maxDepth once
+  assertSubagentMaxDepth(captured maxDepth)
+  parentDepth = depthOf(parent)  # also a non-negative safe integer
+  childDepth = parentDepth + 1
+  if childDepth is not a safe integer: throw RangeError
+  if maxDepth is defined and childDepth > maxDepth: throw SubagentDepthError
+```
+
+The derived-value check is separate from validating either input: `Number.MAX_SAFE_INTEGER` is a valid stored parent depth, but adding one cannot produce a contract-valid child depth. The driver rejects that overflow even when no request-level `maxDepth` cap was supplied.
+
+The driver first installs provider ownership. Only after that succeeds does it attach the request's abort listener and create one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves neither a child nor an orphaned listener. Calling `runOwner.ctx.agents.create()` gives the child factory an explicit `ownerCtx` carrying the run-owner fiber and scope, while the registry's traced factory receiver preserves AgentLoop's injected dependency origin. Parent teardown, provider teardown, and manual run disposal all dispose this same run-owner node; moving it out of the active state synchronously prevents an unpublished setup from publishing afterward, while all three paths follow one quiescence promise. This structured ownership does not change the child's flat registration view.
+
+#### The service wrapper orders readiness, results, and lifecycle
 
 The provider's run separates acceptance from publication with `started: Promise<void>`, but the service does not expose that caller-owned handle directly. It captures `id`, `started`, `result`, and each method once, binds methods to the provider-owned run handle, and returns a frozen service-owned wrapper. Capturing `dispose` first also preserves a rollback capability if a later accessor or method check reveals a malformed handle. The wrapper installs its shared disposal promise before invoking the raw provider callback, so synchronous reentry through the returned wrapper and ordinary repeat calls join one provider disposal rather than slipping through a not-yet-assigned memo. If the raw disposer directly returns that same reentrant wrapper promise, the service rejects the cyclic provider contract instead of awaiting a promise that depends on itself forever.
 
@@ -654,7 +969,13 @@ SubagentService.start(...):
     on fulfillment, emit subagent/start and then buffered or eventual subagent/end
     on rejection, discard buffered lifecycle telemetry
   return serviceRun immediately
+```
 
+#### The workflow bridge closes readiness and settlement races
+
+Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, and sends `ChildStarted` only after `started` fulfills while admission remains open. A readiness rejection is refused and host-disposed; `ChildStartError` is sent while worker-message admission remains open, and an already-retired exact run is not cleaned twice. Provider `start()` is itself arbitrary code and may synchronously reenter workflow cancellation before its returned run reaches that registry. The bridge attaches both promise observers, re-checks terminal admission immediately after `start()` returns and again at readiness, and turns a closed boundary into identity-guarded cancellation, disposal, and refusal rather than late worker admission or lifecycle announcement. An arbitrary provider may still fulfill its own `started` promise after the workflow boundary; the bridge refuses and cleans up that attempt instead of claiming it can undo provider-side publication.
+
+```text
 Workflow worker bridge after receiving returnedRun:
   register the run so cancellation can reach pre-publication work
   attach result settlement handlers immediately and snapshot the outcome
@@ -700,8 +1021,6 @@ Host at physical worker exit:
   do not repeat explicit child cancellation
 ```
 
-Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, and sends `ChildStarted` only after `started` fulfills while admission remains open. A readiness rejection is refused and host-disposed; `ChildStartError` is sent while worker-message admission remains open, and an already-retired exact run is not cleaned twice. Provider `start()` is itself arbitrary code and may synchronously reenter workflow cancellation before its returned run reaches that registry. The bridge attaches both promise observers, re-checks terminal admission immediately after `start()` returns and again at readiness, and turns a closed boundary into identity-guarded cancellation, disposal, and refusal rather than late worker admission or lifecycle announcement. An arbitrary provider may still fulfill its own `started` promise after the workflow boundary; the bridge refuses and cleans up that attempt instead of claiming it can undo provider-side publication.
-
 Cancellation before readiness is a publication decision, not merely a flag for later result mapping. The in-process run synchronously deactivates its owner fiber. If cancellation lands before publication, the factory's liveness check prevents either creation edge. If it begins synchronously inside `session/created`, `agent/created`, or `agent/session-start`, the publication barrier lets the current notification phase unwind without revoking its world, the next liveness check prevents every later phase and driver start, and rollback pairs every creation edge that already began. In either case `started` rejects, no `subagent/start` or `subagent/end` is emitted, and the run result settles as `aborted`.
 
 Receipt of the worker's `Result` message is the workflow host's atomic first-wins boundary. The worker queues that message before its own settlement-reap `ChildCancel` messages, so same-port FIFO prevents an internal child callback from masquerading as earlier run cancellation. Each contender records its claim before its own callback fanout: external `cancel()` records its reason first, while Result receipt snapshots any earlier cancellation and claims the resulting terminal outcome before invoking settlement-cleanup provider code. A caller, signal, or dispose cancellation already in flight therefore overrides a non-cancelled worker report, while the report wins otherwise. Before exposing that chosen result, the host drives both permitted child-cancellation channels by aborting the shared request signal and calling every registered run's `cancel()`, including runs still waiting on readiness. Those calls are settlement-only cleanup, and the terminal claim makes a reentrant `WorkerRun.cancel()` a side-effect-free loser rather than merely repairing its result afterward. Host fanout and the worker's FIFO-later `ChildCancel` can both reach the explicit channel, so a per-call gate invokes each provider `cancel()` at most once; the seam does not require that callback to be idempotent. Explicit child cancel callbacks are contained independently so one throwing callback cannot starve peers or alter settlement.
@@ -716,7 +1035,26 @@ Parent teardown reaches `runOwner` by nesting; the provider and returned run han
 
 A child persona is a scoped `deployment:persona` section that shadows the deployment-wide section. A child tool filter is a scoped restriction over global end capabilities. Omitted filters remain omitted; a materialized empty `allow` list means “allow nothing” and is not confused with absence.
 
-The child's persona, filter, and structured runtime are installed inside factory setup. The common run-owner fiber gives structured-concurrency-style teardown without importing the parent's capability layer into the child.
+The child's persona, filter, and structured runtime are installed inside factory setup. Persona and filtering use public registration methods directly. The package-internal structured helper groups the public tool, prompt, protection, guard, and listener registrations that form one terminal protocol:
+
+```js
+let structured
+const setup = childCtx => {
+  if (persona !== undefined) {
+    childCtx.systemPrompt.section({
+      name: 'deployment:persona',
+      order: 0,
+      text: persona,
+    })
+  }
+  if (toolFilter !== undefined) childCtx.tools.restrict(toolFilter)
+  if (schema !== undefined) {
+    structured = attachStructuredRuntime(childCtx, schema)
+  }
+}
+```
+
+The common run-owner fiber gives structured-concurrency-style teardown without importing the parent's registration layer into the child. The filter affects the child's global tool view; it is not a parent-derived authority ceiling.
 
 ### Structured output is a child-owned terminal protocol
 
@@ -784,6 +1122,17 @@ Scope mistakes are fail-open if they merely omit a carrier, so the implementatio
 
 `agentEvents(context, agent)` couples the dispatch carrier to the agent argument, `assembleContextFor(agent)` couples prompt facts to the scope selector, and `SessionStore.flush(session)` owns lookup of the carrier captured when the session entered the store. These helpers make a mismatched subject harder to express than the correct spelling.
 
+Their essential construction makes the coupling explicit:
+
+```text
+assembleContextFor(agent):
+  return { agent, scope: agent }
+
+agentEvents(context, agent):
+  carrier = scopeTarget(agent, agent)
+  return dispatcher that always injects agent as the event subject
+```
+
 ### Type markers cover every scoped event declaration
 
 Scoped agent, approval, tool, prompt, session, and subagent lifecycle events declare a `Scoped<T>` receiver. TypeScript therefore rejects a bare subject at typed dispatch sites, including the `subagent/start` and `subagent/end` paths whose scope is the delegating parent.
@@ -814,9 +1163,9 @@ Service isolation chooses one registry instance for a context, while agent compo
 
 Isolation remains appropriate for independent applications. It is too coarse for collaborating agents inside one deployment.
 
-### Inherit the parent's scope into a child
+### Inherit the parent's registrations into a child
 
-Hierarchical capability inheritance makes lifetime convenient but silently grants every child the parent's scoped tools and policies. A flat view plus an explicit parent-owned disposer separates the two questions: the parent owns the child without conferring its authority.
+Hierarchical registration inheritance makes lifetime convenient but silently copies every parent-scoped tool and policy into each child. A flat view plus an explicit parent-owned disposer separates lifetime from registration composition: the parent owns the child without importing the parent's layer. As the [security non-goal](#security-and-authority-are-explicit-non-goals) states, flat lookup does not by itself impose a child-within-parent authority relationship.
 
 ### Publish the agent before running setup
 
@@ -832,7 +1181,7 @@ Awaited setup makes the transaction explicit and keeps the first assembly behind
 
 ### Enforce invariants with prepended waterfall listeners
 
-A prepended listener is not necessarily outermost: another plugin can prepend later, a short-circuit can skip inner work, and an outer wrapper can replace the result after delegation. The same issue appears in prompt assembly, tool authorization, result commit, and turn continuation.
+A prepended listener is not necessarily outermost: another plugin can prepend later, a short-circuit can skip inner work, and an outer wrapper can replace the result after delegation. The same issue appears in prompt assembly, tool decisions, result commit, and turn continuation.
 
 The owner-final APIs express the actual strength required by each rule: restore named canonical data, deny monotonically, observe the immutable final outcome, or stop after all ordinary continuation inputs are folded.
 
@@ -861,16 +1210,16 @@ The main benefit is one composition model across data, behavior, and lifetime: r
 
 ### Costs and constraints
 
-The costs are concentrated in dispatch discipline, per-scope registry state, and explicit authority boundaries that are intentionally stronger than ordinary middleware.
+The costs are concentrated in dispatch discipline, per-scope registry state, and owner-final decision boundaries that are intentionally stronger than ordinary middleware.
 
 - Every scoped event dispatcher must carry the correct receiver; fused helpers, type markers, invariants, and gates exist because omission would otherwise deliver only to global listeners.
-- `agent.ctx` is capability-bearing. Its available services come from the agent loop's injected context, so holders receive that deliberate service surface.
+- `agent.ctx` is service-bearing. Its available services come from the agent loop's injected context, so holders receive that deliberate dependency surface; this is not confinement.
 - Registries maintain per-scope maps and perform a global-plus-one-layer merge for the agent lifetime.
 - The dispatch carrier is proxy-shaped and not identity-equal to its subject, even though method calls and property access behave like the subject. Its composed filter is frozen, and defining a property through the carrier requires an explicitly configurable descriptor because the extensible surrogate cannot truthfully expose a new non-configurable subject property.
-- Flat scopes do not inherit parent capabilities; a desired child capability must be global or explicitly registered for the child.
+- Flat scopes do not inherit parent registrations; a desired child-local contribution must be global or explicitly registered for the child.
 - `run_code` is protected transport infrastructure rather than a filterable end capability, so a policy that must forbid programs denies execution at the tool-policy layer instead of removing the transport from a Code Mode prompt.
 - Prompt protection restores named canonical contributions and their anchor placement, not the entire assembly; unprotected output remains extensible, while a globally protected section name is deliberately unavailable for scoped shadowing.
-- Terminal turn stopping has authority to discard pending steering. That power is appropriate for owner-enforced terminal protocols and too strong for ordinary cooperative continuation policy.
+- Terminal turn stopping can discard pending steering. That control is appropriate for owner-enforced terminal protocols and too strong for ordinary cooperative continuation policy.
 - Programmatic `ctx.agents.create()` and `ctx.agents.resume()` are asynchronous because they await setup. The direct no-setup `ctx.agentLoop.create()` path, used by configuration and programmatic callers that already have complete options, remains synchronous.
 - A programmatic agent is caller-owned but also structurally owned by its concrete AgentLoop provider. Reloading that provider tears the agent down even if a consumer still holds its handle, because the handle cannot keep the provider's dependency surface valid.
 - Ordered composition requires exact raw effect identities plus shared public quiescence promises; the dual surfaces and lifecycle-long owner sentinels reflect distinct Cordis nesting and repeated-caller requirements.
@@ -878,3 +1227,5 @@ The costs are concentrated in dispatch discipline, per-scope registry state, and
 ### Deliberate boundaries
 
 The scope primitive is generic, but this decision applies it only where one agent needs a coherent registration view: tools, prompt state, scoped events, sessions, and in-process subagent composition. `agent.ctx` does not automatically scope every service call; filesystem policy, LLM interception, background subagent state, and other registries retain their existing seams until their own designs explicitly adopt the context rule.
+
+Security hardening remains separate design work; the [security and authority non-goals](#security-and-authority-are-explicit-non-goals) define this RFC's trust boundary without turning registration scope into an authorization model.

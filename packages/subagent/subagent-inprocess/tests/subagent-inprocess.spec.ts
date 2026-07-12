@@ -48,6 +48,7 @@ describe('depthOf', () => {
   })
 
   it.each([
+    { label: 'null', value: null as unknown as number },
     { label: 'a string', value: '1' as unknown as number },
     { label: 'NaN', value: Number.NaN },
     { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
@@ -64,6 +65,7 @@ describe('depthOf', () => {
 
 describe('startInProcessRun', () => {
   it.each([
+    { label: 'null', value: null as unknown as number },
     { label: 'a string', value: '1' as unknown as number },
     { label: 'NaN', value: Number.NaN },
     { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
@@ -79,6 +81,27 @@ describe('startInProcessRun', () => {
       parent,
       maxDepth: value,
     }, {})).toThrow('subagent maxDepth must be a non-negative safe integer')
+  })
+
+  it('rejects a non-string persona before acquiring run ownership', async () => {
+    const { ctx, parent } = await setup([])
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent,
+      persona: 42 as unknown as string,
+    }, {})).toThrow('subagent persona must be a string')
+  })
+
+  it('rejects a child depth with no safe-integer representation before acquiring run ownership', async () => {
+    const { ctx } = await setup([])
+    const parent = {
+      options: { subagentDepth: Number.MAX_SAFE_INTEGER },
+    } as unknown as Agent
+
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent,
+    }, {})).toThrow(RangeError)
   })
 
   it('rejects a non-JSON prompt before acquiring any run ownership', async () => {

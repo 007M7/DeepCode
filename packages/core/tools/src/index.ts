@@ -115,8 +115,8 @@ declare module 'cordis' {
      * set or replace the one mutable field, `exec.signal` (e.g. with a per-call
      * deadline), BEFORE `next()`, restore/delete it afterward, and inspect the result AFTER. Call identity
      * (`token`, `callId`, `name`, `arguments`, `agent`, and `parent`) is immutable throughout the
-     * pipeline so a wrapper cannot change which capability or scope was
-     * authorized. (Cordis `next()` ignores passed arguments and re-invokes
+     * pipeline so a wrapper cannot change which tool and scope the pipeline
+     * accepted. (Cordis `next()` ignores passed arguments and re-invokes
      * downstream with the shared payload, so a wrapper changes `exec.signal` in
      * place rather than passing a new object to `next()`.)
      * Multiple listeners compose by registration order — an outer one wraps the
@@ -429,8 +429,11 @@ export interface Config {
  * {@link ToolRegistry.restrict}. `allow` keeps only the listed global tools;
  * `deny` removes the listed ones; both present = allow first, then deny.
  * Restrictions never touch scoped registrations — a tool registered through
- * the same scope is an explicit grant that bypasses them (which is what keeps
- * e.g. a structured-output capture tool alive under an allow-list). The
+ * the same scope is merged after the global filter (which is what keeps e.g. a
+ * structured-output capture tool alive under an allow-list). The filter values
+ * are snapshotted at registration, but resolution uses the live global registry:
+ * a later global name passes a deny-only filter unless explicitly denied and
+ * fails an allow-list unless explicitly allowed. The
  * reserved `run_code` presentation transport is likewise outside capability
  * filtering, and naming it explicitly is rejected. Multiple restrictions on
  * one scope compose by intersection: every one must admit.
@@ -705,11 +708,14 @@ export class ToolRegistry extends Service {
    * this). A non-native mode's reserved `run_code` presentation transport is
    * not a filterable capability; naming it explicitly throws, while omitting
    * it from an allow-list cannot remove it. `allow` and `deny` are each read
-   * once, then the filter is SNAPSHOT at registration: the values checked are
-   * the values enforced, and later caller mutation of the arrays changes nothing.
-   * Multiple restrictions compose by intersection. Scoped registrations
-   * bypass restrictions (explicit grants win). Disposed with the calling
-   * fiber (revocable independently); emits `tools/change`.
+   * once, then the filter VALUES are snapshotted at registration: the values
+   * checked are the values enforced, and later caller mutation of the arrays
+   * changes nothing. Resolution still uses the live global registry, so a later
+   * global name passes a deny-only filter unless named and fails an allow-list
+   * unless named. Multiple restrictions compose by intersection. Scoped
+   * registrations are merged after restrictions and therefore remain visible.
+   * Disposed with the calling fiber (revocable independently); emits
+   * `tools/change`.
    * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
    * @returns the disposer that lifts this restriction. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -863,7 +869,7 @@ export class ToolRegistry extends Service {
       if (this.admits(scope, name)) result.set(name, definition)
     }
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
-    // and grants bypass restrictions by construction (never filtered above).
+    // and scope-local registrations are never part of the global filter above.
     for (const [name, definition] of layer ?? []) result.set(name, definition)
     // Presentation infrastructure is resolved last and outside capability
     // filtering. Registration rejects this reserved name, so this set is an
