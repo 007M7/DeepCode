@@ -12,8 +12,14 @@ import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 /** Identifies one background task within an executor (generated `bash-N`). */
 export type BashTaskId = Branded<'BashTaskId'>
 
+/** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
+export const DSH_ENV_PREFIX = 'DSH_' as const
+
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+
 /** Trusted DeepSeek Harness variables for one bash execution. */
-export type DshEnvironment = Readonly<Record<`DSH_${string}`, string>>
+export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
 
 /**
  * Brand a string as a {@link BashTaskId}.

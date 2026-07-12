@@ -27,6 +27,7 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 /**
@@ -69,10 +70,10 @@ export function childEnv(
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith('DSH_')) env[key] = value
+    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
   for (const key of Object.keys(extra ?? {})) {
-    if (key.startsWith('DSH_')) {
+    if (key.startsWith(DSH_ENV_PREFIX)) {
       throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
     }
   }
