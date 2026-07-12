@@ -1,6 +1,6 @@
 # AGENTS.md — Harness Packages
 
-This directory contains all `@deepseek-ai/dsh-*` harness packages. Repo-wide conventions (effects, declaration merging, waterfall semantics, ESM, testing policy) are in the root [AGENTS.md](../AGENTS.md) § Conventions; the points below are packages-specific.
+These package-specific rules supplement the repo-wide [conventions](../AGENTS.md#conventions).
 
 - **Plugin export shape — namespace OR default, never both.** A *service* package exports the service class as `export default` (the Loader instantiates it). A *function/namespace* plugin exports `name` / `inject` / `Config` / `apply` as separate named exports and **must NOT add `export default`** — the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default export collapses the module to the bare `apply` function and silently discards the `inject`/`name`/`Config` namespace, leaving the plugin with no injected services (it then throws `cannot get property … without inject` at load). See [docs/postmortem/0001](../docs/postmortem/0001-acp-default-export-drops-inject.md).
 - **Read an optional (non-injected) service via `ctx.get(name)`, not `ctx.<name>`.** For a service a plugin reads opportunistically but deliberately leaves out of `static inject` (e.g. `AgentLoop` reading `sessionPersistence`), the `ctx.<name>` property proxy resolves by an ancestor-only fiber walk that throws when the call arrives through a foreign traceable shadow (the service lives on a sibling fiber). `ctx.get(name)` is the topology-independent global-store lookup, strict by default (an inactive/absent backend reads as `undefined` — prefer it over the `ctx.get(name, false)` overload, which also skips the active-state check). Services that ARE in `static inject` resolve fine via `ctx.<name>`. See [docs/postmortem/0001](../docs/postmortem/0001-acp-default-export-drops-inject.md).
@@ -14,6 +14,4 @@ Naming notes:
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; prose accuracy stays on the author ([the documentation standard](../docs/AGENTS.md)).
-- Every package README carries a `## Known Limitations and Deferred Work` section — condensed bullets for consumer-visible gaps and consciously postponed work; `verify-readme-limitations` (in `doc-sync`) gates it. A package with genuinely nothing to declare is instead whitelisted in [scripts/verify-readme-limitations.ts](../scripts/verify-readme-limitations.ts) and must not carry the section ([rationale](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md)).
-
-Read the per-package README.md for package-specific details: service API, events, extension points, known limitations.
+- Package READMEs carry `## Known Limitations and Deferred Work` or a justified [allowlist entry](../scripts/verify-readme-limitations.ts) ([rationale](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md)).
