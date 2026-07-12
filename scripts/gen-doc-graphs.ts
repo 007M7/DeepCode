@@ -171,6 +171,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
   },
   {
+    key: 'bashEnv',
+    pkg: 'tool-bash',
+    title: 'Managed bash environment registry',
+    mode: 'core',
+    note: 'Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace.',
+  },
+  {
     key: 'sandbox',
     pkg: 'sandbox',
     title: 'Process-sandbox seam',

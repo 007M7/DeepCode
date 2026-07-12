@@ -129,7 +129,8 @@ describe('dsh-stdio-agent app', () => {
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    const skills = await isolatedSkillsConfig(6)
+    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()

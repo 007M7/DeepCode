@@ -104,7 +104,8 @@ describe('dsh-acp-agent composition', () => {
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    const skills = await isolatedSkillsConfig(6)
+    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()

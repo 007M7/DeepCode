@@ -27,7 +27,7 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -50,27 +50,33 @@ export const ENV_OVERRIDES = {
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
- * `process.env` minus credential-shaped vars, plus the model-friendly
- * overrides, plus any caller-supplied `extra` entries.
+ * Build a child environment from scrubbed ambient values, terminal overrides,
+ * ordinary caller entries, and a trusted managed `DSH_*` snapshot.
  *
- * Layering matters: the scrub drops `process.env` credentials, then
- * `ENV_OVERRIDES` forces the model-friendly terminal vars, then `extra` is
- * merged LAST so an explicit caller entry wins even when its name matches the
- * scrub pattern (the scrub is the control that stops the HARNESS's ambient
- * credentials leaking into a spawned command; a caller that explicitly sets a
- * var named a value it already holds, not that ambient secret). `extra` is set
- * by in-process plugins (the hooks bridges), not the model — `dsh-tool-bash`
- * builds its request from named fields only and does not forward model input
- * here (see its README, § "The tool builds its request from named args only").
- * @param extra - caller-supplied entries merged last; an explicit entry wins even against the scrub and the overrides.
+ * Ambient credentials and all ambient `DSH_*` are removed first;
+ * `ENV_OVERRIDES` then forces model-friendly terminal values, ordinary `extra`
+ * follows, and `dshEnv` merges last. Ordinary `extra` may restore a
+ * credential-shaped name whose value the caller already holds, but cannot set
+ * the managed namespace. `dsh-tool-bash` builds both channels from trusted
+ * named fields and never forwards model-provided environment objects.
+ * @param extra - ordinary caller-supplied entries; `DSH_*` names are rejected.
+ * @param dshEnv - trusted managed `DSH_*` entries for the current execution.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+export function childEnv(
+  extra?: Readonly<Record<string, string>>,
+  dshEnv?: DshEnvironment,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
+    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith('DSH_')) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES, ...extra }
+  for (const key of Object.keys(extra ?? {})) {
+    if (key.startsWith('DSH_')) {
+      throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+    }
+  }
+  return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
@@ -96,12 +102,12 @@ export interface SpawnSpec {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries, merged onto the scrubbed env AFTER the
-   * credential scrub and the model-friendly overrides (so an explicit entry
-   * wins). Set by in-process plugins; the model-facing tool does not forward
-   * model input here.
+   * Ordinary environment entries merged after the credential scrub and
+   * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
    */
   env?: Record<string, string> | undefined
+  /** Harness-owned `DSH_*` entries merged after ambient `DSH_*` removal. */
+  dshEnv?: DshEnvironment | undefined
 }
 
 /**
@@ -346,7 +352,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   // typed `spawn` overload infer non-null stdout/stderr, which the
   // `ChildProcessByStdio` annotation captures (stdin `Writable | null`; stdout/
   // stderr the non-null `Readable` the collectors attach to without a cast).
-  const env = childEnv(spec.env)
+  const env = childEnv(spec.env, spec.dshEnv)
   const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
     : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })

@@ -39,11 +39,11 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-core'
-// { agents?, persona?, toolOrder?, tools?, skills? } — the schema intersects the owner schemas,
+// { agents?, persona?, toolOrder?, tools?, dshHome?, skills? } — the schema intersects the owner schemas,
 // so validation and defaulting can never drift from the owners.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; and `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry; `dshHome` to tool-bash's managed environment and the local skill provider; and `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly.
 
 ## Why a code bundle, not a shared YAML include
 

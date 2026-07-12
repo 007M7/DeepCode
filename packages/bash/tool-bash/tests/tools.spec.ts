@@ -892,6 +892,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
 })
 
 describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
+  const recordingDshHome = join(spillDir, 'dsh-home')
+
   /**
    * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
    * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
@@ -899,7 +901,7 @@ describe('the model-facing bash tool builds its request from named args only (no
    * model that power), so it must build its request from named args only and
    * never spread unknown tool-call keys into it. This guard's job is to catch a
    * future refactor that blindly forwards `...args` — which would silently thread
-   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * model input into the ordinary `env` channel — NOT to defend a trust boundary
    * (the credential scrub in dsh-bash-local is the security control; see the
    * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()` is
    * unused here.
@@ -915,6 +917,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
+        ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
         owner: request.owner,
         sandboxMode: request.sandboxMode,
       }
@@ -943,15 +946,15 @@ describe('the model-facing bash tool builds its request from named args only (no
       await ctx.plugin(SessionPersistenceJsonl, { root: join(spillDir, 'jsonl') })
     }
     await ctx.plugin(RecordingBashExecutor)
-    await ctx.plugin(ToolBash)
+    await ctx.plugin(ToolBash, { dshHome: recordingDshHome })
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
 
-  it('describes the trusted session variables to the model', async () => {
+  it('describes the managed harness environment namespace to the model', async () => {
     const { ctx } = await setupRecording()
     const description = ctx.tools.get('bash')?.description ?? ''
-    expect(description).toContain('DSH_SESSION_ID')
-    expect(description).toContain('DSH_SESSION_JSONL')
+    expect(description).toContain('$DSH_*')
+    expect(description).not.toContain('DSH_SESSION_JSONL')
   })
 
   it('injects the session id and JSONL target path into a foreground request', async () => {
@@ -966,9 +969,11 @@ describe('the model-facing bash tool builds its request from named args only (no
       agent,
     })
 
-    expect(bash.requests[0]?.env).toEqual({
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
       DSH_SESSION_ID: 'request-fg',
       DSH_SESSION_JSONL: path,
+      DSH_SHELL: '1',
     })
   })
 
@@ -989,13 +994,16 @@ describe('the model-facing bash tool builds its request from named args only (no
       agent,
     })
 
-    expect(bash.requests[0]?.env).toEqual({
+    expect(bash.requests[0]?.env).toBeUndefined()
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
       DSH_SESSION_ID: 'request-bg',
       DSH_SESSION_JSONL: path,
+      DSH_SHELL: '1',
     })
   })
 
-  it('injects only the stable session id when no JSONL locator is available', async () => {
+  it('injects built-ins and the stable session id when no JSONL locator is available', async () => {
     const { ctx, bash } = await setupRecording()
     const agent = registerFakeAgent(ctx, 'request-id-only', () => undefined)
     const ambient = process.env.DSH_SESSION_ID
@@ -1007,7 +1015,11 @@ describe('the model-facing bash tool builds its request from named args only (no
       agent,
     })
 
-    expect(bash.requests[0]?.env).toEqual({ DSH_SESSION_ID: 'request-id-only' })
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
+      DSH_SESSION_ID: 'request-id-only',
+      DSH_SHELL: '1',
+    })
     expect(process.env.DSH_SESSION_ID).toBe(ambient)
   })
 
@@ -1025,17 +1037,21 @@ describe('the model-facing bash tool builds its request from named args only (no
       })
     }
 
-    expect(bash.requests.map(request => request.env)).toEqual([
+    expect(bash.requests.map(request => request.dshEnv)).toEqual([
       {
+        DSH_HOME: recordingDshHome,
         DSH_SESSION_ID: 'request-parent',
         DSH_SESSION_JSONL: ctx.sessionPersistence.locate(parent.session.header)?.path,
+        DSH_SHELL: '1',
       },
       {
+        DSH_HOME: recordingDshHome,
         DSH_SESSION_ID: 'request-child',
         DSH_SESSION_JSONL: ctx.sessionPersistence.locate(child.session.header)?.path,
+        DSH_SHELL: '1',
       },
     ])
-    expect(bash.requests[0]?.env?.DSH_SESSION_JSONL).not.toBe(bash.requests[1]?.env?.DSH_SESSION_JSONL)
+    expect(bash.requests[0]?.dshEnv?.DSH_SESSION_JSONL).not.toBe(bash.requests[1]?.dshEnv?.DSH_SESSION_JSONL)
   })
 
   it('does not forward env/stdin even when the model includes them as extra arguments', async () => {

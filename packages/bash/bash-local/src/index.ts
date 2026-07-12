@@ -126,10 +126,11 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
-      // Carry stdin/env through verbatim — optional, no config default (absent
-      // means none). env merges AFTER the scrub in run.ts.
+      // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
+      // no config default. run.ts owns the scrub and merge order.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
+      ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
@@ -153,6 +154,7 @@ export class LocalBashExecutor extends BashExecutor {
       signal: d.signal,
       stdin: spec.stdin,
       env: spec.env,
+      dshEnv: spec.dshEnv,
     }, this.internals).done
     // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our
     // timeout cut the command short; any other abort — an upstream cancel, or a
@@ -179,6 +181,7 @@ export class LocalBashExecutor extends BashExecutor {
       signal: spec.signal,
       stdin: spec.stdin,
       env: spec.env,
+      dshEnv: spec.dshEnv,
     }, this.internals)
 
     const id = BashTaskId(`bash-${this.nextTaskId++}`)

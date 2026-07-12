@@ -2,12 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { Context } from 'cordis'
+import { Context, Service } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+
+/** Minimal service that lets the executor-less bundle activate tool-bash in config-forwarding tests. */
+class StubBashService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'bash')
+  }
+
+  onTaskDone(): () => void {
+    return () => undefined
+  }
+}
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const empty: Message[] = []
@@ -150,6 +162,39 @@ describe('dsh-agent-core bundle', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['custom-skill'])
     expect(JSON.stringify(await composePrefix(ctx, '/tmp'))).toContain('- `custom-skill`: Cus...')
     await ctx.fiber.dispose()
+  })
+
+  it('shares top-level dshHome between local skills and the managed bash environment', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-home-'))
+    const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-agents-'))
+    await mkdir(join(home, 'skills'), { recursive: true })
+    await writeFile(join(home, 'skills', 'shared-skill.md'), '---\nname: shared-skill\ndescription: Shared home skill\n---\n\nShared body.\n')
+
+    const ctx = new Context()
+    await ctx.plugin(StubBashService)
+    await ctx.plugin(agentCore, {
+      dshHome: home,
+      skills: { local: { agentsHome } },
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
+    const execution: ToolExecution = {
+      callId: CallId('agent-core-dsh-home'),
+      name: 'bash',
+      arguments: { command: 'true' },
+    }
+    expect(ctx.bashEnv.collect(execution)).toMatchObject({ DSH_HOME: home, DSH_SHELL: '1' })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects conflicting global and nested DSH home directories', () => {
+    expect(() => {
+      agentCore.apply(new Context(), {
+        dshHome: '/global-dsh-home',
+        skills: { local: { dshHome: '/nested-dsh-home' } },
+      })
+    }).toThrow(/must resolve to the same directory/)
   })
 
   it('uses the default skill config when apply is called directly without skills', async () => {

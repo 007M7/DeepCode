@@ -12,6 +12,9 @@ import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 /** Identifies one background task within an executor (generated `bash-N`). */
 export type BashTaskId = Branded<'BashTaskId'>
 
+/** Trusted DeepSeek Harness variables for one bash execution. */
+export type DshEnvironment = Readonly<Record<`DSH_${string}`, string>>
+
 /**
  * Brand a string as a {@link BashTaskId}.
  * @param id - the raw task-id string (the executor generates `bash-N`).
@@ -106,15 +109,19 @@ export interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
+  /**
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process.
+   */
+  dshEnv?: DshEnvironment | undefined
   /**
    * Opaque OWNER token for a background task — the consumer's isolation key
    * (the tool layer passes the owning agent's `session.header.id`). The
@@ -163,13 +170,14 @@ export interface BashExecSpec {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
+  /** Trusted `DSH_*` snapshot carried through from {@link BashExecRequest.dshEnv}. */
+  dshEnv?: DshEnvironment | undefined
   /**
    * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
    * being required on the resolved spec): {@link BashExecutor.resolve} carries

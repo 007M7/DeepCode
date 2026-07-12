@@ -26,6 +26,7 @@ Composition is preferred over inheritance. `packages/core/` is a repository grou
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.bashEnv` | [`dsh-tool-bash`](../packages/bash/tool-bash/README.md) | declared, per-execution `DSH_*` environment facts for model bash |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
@@ -144,6 +145,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
+| Expose a Harness fact to model bash | register a declared `DSH_*` contributor on `ctx.bashEnv` |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |

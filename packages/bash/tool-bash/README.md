@@ -22,11 +22,26 @@ The plugin also contributes the `tool:bash` prompt section (order 105) — the c
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
-### Session identity environment
+### Managed shell environment
 
-Every foreground and background call made for an agent receives `DSH_SESSION_ID=agent.session.header.id`. When the active persistence backend locates a JSONL artifact, the call also receives `DSH_SESSION_JSONL=<absolute target path>`; absent persistence and non-file backends still provide the id but omit the JSONL variable. The path is a location hint: lazy materialization means it may not exist on the first turn, and during an open turn it can omit buffered events that have not reached `session/flush`. Neither value is an authorization credential.
+Every foreground and background model bash call receives a newly collected trusted `DSH_*` environment. `DSH_HOME` is the absolute Harness home (`dshHome` config, then ambient `$DSH_HOME`, then `~/.dsh`) and `DSH_SHELL=1` identifies the managed child. Agent calls additionally receive `DSH_SESSION_ID=agent.session.header.id`; when the active persistence seam locates a JSONL artifact they also receive `DSH_SESSION_JSONL=<absolute target path>`. The JSONL path is a location hint: it may not exist before the first flush or contain the current buffered turn, and it is not an authorization credential.
 
-The overlay is computed from `ToolExecution.agent` for each call and passed through `BashExecRequest.env`; `process.env` is never modified, so concurrent parent/child agents keep separate values. The tool description names both variables so the model can inspect them without a permanent system-prompt section.
+`ctx.bashEnv` owns collection. Other plugins can register an effect-scoped contributor with a stable name, declared keys/descriptions, and `resolve(execution: ToolExecution)`; duplicate ownership and undeclared runtime keys fail loudly, while `list()` enumerates declarations without executing providers. Harness built-ins reserve `DSH_HOME`, `DSH_SHELL`, and `DSH_SESSION_ID`; tool-bash's persistence translator owns `DSH_SESSION_JSONL` by reading the backend-neutral `sessionPersistence.locate()` seam.
+
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-tool-bash'
+
+export function apply(ctx: Context): void {
+  ctx.bashEnv.register({
+    name: 'deployment-region',
+    variables: { DSH_DEPLOYMENT_REGION: { description: 'Current deployment region.' } },
+    resolve: execution => execution.agent === undefined ? {} : { DSH_DEPLOYMENT_REGION: 'cn-north' },
+  })
+}
+```
+
+The overlay is computed from the current `ToolExecution` and passed through the dedicated `BashExecRequest.dshEnv` channel. The local executor removes all inherited `DSH_*` before merging that snapshot, so nested harnesses and concurrent parent/child agents cannot leak stale identities. `process.env` is never modified. The tool description teaches the generic `$DSH_*` convention rather than naming persistence-specific variables or adding a permanent system-prompt section.
 
 Result text: stdout, then a `[stderr]` section, then status markers — `[sandbox: file access denied under <mode> mode]` when a sandboxing executor classified the failure as a policy denial (reported first so `[exit code: N]` stays the last line; the static description tells the model a denial is policy, not a command bug, and forbids retrying around it), `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
 
@@ -52,7 +67,7 @@ When a background task finishes, a short notice is injected into the owning agen
 
 ## The tool builds its request from named args only
 
-The `BashExecRequest` seam carries optional `stdin` and `env`, used by trusted consumers. This tool does **not** expose them as model parameters: it builds the request from named schema fields and adds only the session overlay above, so model-supplied `env`/`stdin` keys are ignored and cannot replace the trusted values. This is not a trust boundary — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), and the real defense against leaking ambient secrets is `dsh-bash-local`'s credential scrub. Regression guards assert extra model fields never enter the request while the trusted overlay still does. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+The `BashExecRequest` seam carries optional `stdin` and ordinary `env` for in-process consumers plus the harness-owned `dshEnv` channel above. This tool does **not** expose any of them as model parameters: it builds the request from named schema fields, so model-supplied `env`/`stdin` keys are ignored and cannot replace the managed values. A model already has equivalent command-local power through shell syntax (`FOO=bar cmd`, a heredoc); ambient-secret protection comes from `dsh-bash-local`'s credential scrub, while `dshEnv` ownership prevents stale or spoofed Harness context. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
 ## Permissions and escalation
 

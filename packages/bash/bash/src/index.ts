@@ -30,6 +30,7 @@ export type {
   BashTaskRead,
   BashTaskStatus,
   CollectedOutput,
+  DshEnvironment,
 } from './types.ts'
 
 declare module 'cordis' {

@@ -58,6 +58,8 @@ export interface Config {
   toolOrder?: string[]
   /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
@@ -72,6 +74,7 @@ export const Config: z<Config> = z.object({
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
+  dshHome: z.string(),
   persistenceRoot: z.string().default('./.sessions'),
   skills: agentCore.SkillConfigSchema,
 })
@@ -88,6 +91,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...config.dshHome !== undefined ? { dshHome: config.dshHome } : {},
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(UserInteractionService)

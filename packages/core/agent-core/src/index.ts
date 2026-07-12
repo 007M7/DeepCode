@@ -46,6 +46,7 @@
  */
 
 import type { Context } from 'cordis'
+import { resolve as resolvePath } from 'node:path'
 import Timer from '@cordisjs/plugin-timer'
 import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
@@ -78,7 +79,8 @@ export interface SkillConfig {
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * and `skills` to the skill registry/local provider/tool consumer. Every field
+ * `dshHome` to the bash environment registry and local skill provider, and
+ * `skills` to the skill registry/local provider/tool consumer. Every field
  * is optional INPUT here because each owner's schema supplies the default;
  * the schema is the INTERSECTION of the owners' own schemas (with registry
  * schemas nested under their bundle keys), so validation and defaulting can
@@ -93,6 +95,8 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
+  dshHome?: string
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
 }
@@ -108,7 +112,7 @@ export const SkillConfigSchema: z<SkillConfig> = z.object({
 export const Config = z.intersect([
   AgentLoop.Config,
   SystemPrompt.Config,
-  z.object({ tools: ToolRegistry.Config, skills: SkillConfigSchema }),
+  z.object({ tools: ToolRegistry.Config, dshHome: z.string(), skills: SkillConfigSchema }),
 ]) as unknown as z<Config>
 
 /**
@@ -121,6 +125,13 @@ export const Config = z.intersect([
  * then the loop that drives them.
  */
 export function apply(ctx: Context, config: Config): void {
+  const nestedDshHome = config.skills?.local?.dshHome
+  if (config.dshHome !== undefined && nestedDshHome !== undefined
+    && resolvePath(config.dshHome) !== resolvePath(nestedDshHome)) {
+    throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
+  }
+  const dshHome = config.dshHome ?? nestedDshHome
+
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
@@ -136,10 +147,14 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
   ctx.plugin(SkillService, config.skills?.registry ?? {})
-  ctx.plugin(SkillLocal, config.skills?.local ?? {})
+  ctx.plugin(SkillLocal, Object.assign(
+    {},
+    config.skills?.local,
+    dshHome === undefined ? {} : { dshHome },
+  ))
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
-  ctx.plugin(toolBash)
+  ctx.plugin(toolBash, dshHome === undefined ? {} : { dshHome })
   ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

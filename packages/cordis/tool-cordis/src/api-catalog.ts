@@ -96,6 +96,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'bashEnv',
+    summary: 'Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables.',
+    methods: [
+      'register(contributor: BashEnvContributor): () => void',
+      'collect(execution: ToolExecution): DshEnvironment',
+      'list(): BashEnvVariableInfo[]',
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Abstract code-execution service.',
     methods: [
@@ -525,12 +534,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AssembledSection {\n    name: string;\n    order: number;\n    text: string;\n}',
   },
   {
+    name: 'BashEnvContributor',
+    declaration: 'export interface BashEnvContributor {\n    name: string;\n    variables: Readonly<Record<`DSH_${string}`, BashEnvVariable>>;\n    resolve(execution: ToolExecution): Readonly<Partial<Record<`DSH_${string}`, string>>>;\n}',
+  },
+  {
+    name: 'BashEnvVariable',
+    declaration: 'export interface BashEnvVariable {\n    description: string;\n}',
+  },
+  {
+    name: 'BashEnvVariableInfo',
+    declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: `DSH_${string}`;\n}',
+  },
+  {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashRunResult',
@@ -635,6 +656,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DiffResultView',
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
+  },
+  {
+    name: 'DshEnvironment',
+    declaration: 'export type DshEnvironment = Readonly<Record<`DSH_${string}`, string>>;',
   },
   {
     name: 'FileDiff',

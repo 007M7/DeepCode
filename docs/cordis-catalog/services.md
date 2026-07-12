@@ -79,7 +79,21 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:63`](../../packages/bash/bash/src/index.ts)
+
+## `ctx.bashEnv` — `BashEnvRegistry`
+
+Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
+
+```ts cordis-catalog
+register(contributor: BashEnvContributor): () => void
+collect(execution: ToolExecution): DshEnvironment
+list(): BashEnvVariableInfo[]
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md)
+
+Source: [`packages/bash/tool-bash/src/index.ts:143`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
