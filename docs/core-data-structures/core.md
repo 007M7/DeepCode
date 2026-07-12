@@ -267,12 +267,21 @@ interface Agent {
    */
   readonly ctx: Context
 
-  /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
+  /**
+   * Queue a user message. Starts a turn when idle; otherwise waits for the next
+   * turn. Content and the resolved source are accepted as one detached,
+   * deeply-frozen lossless-JSON record before notification or enqueue, so
+   * caller or `agent/queued` listener in-place mutation cannot change later
+   * log/model input. Throws synchronously when either value is not losslessly
+   * JSON-serializable; `agent/prompt-submit` may still return an explicit
+   * replacement.
+   */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
    * Steer a running turn: content is injected between steps of the current
-   * turn. When idle, behaves like {@link send}.
+   * turn. Uses the same owned-value and synchronous-validation boundary as
+   * {@link send}; when idle, behaves exactly like that method.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 

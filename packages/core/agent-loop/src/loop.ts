@@ -291,11 +291,15 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
       // the previous turn/end), where the persistence backend drops it as a
       // crash tail (the turn-enclosure RFC). Report via agent/error + the logger only; the
       // driver survives and moves on.
+      /* v8 ignore start -- defensive internal-corruption backstop: public
+       * send/steer input is accepted as lossless JSON before enqueue, and
+       * runTurn contains every failure after turn/start. */
       const err = toError(error)
       ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
       try {
         events.emit('agent/error', turn, 0, err)
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
+      /* v8 ignore stop */
     }
 
     // Reset the cancel marker UNCONDITIONALLY here, after the turn returns and
@@ -730,9 +734,10 @@ async function runTurn(
     // `closeStep()` IS idempotent (guarded by `stepOpen`) — it may have run
     // already in a step branch, so running it again is a safe no-op. Absent
     // turn/start means the append threw BEFORE its push (a non-serializable
-    // trigger — impossible for our fixed trigger); nothing was opened, so rethrow
+    // trigger outside the public lossless-JSON boundary); nothing was opened, so rethrow
     // to the runLoop backstop.
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
+    /* v8 ignore next -- defensive internal-corruption path; public inbox input is lossless JSON */
     if (!turnStartLogged) throw error
     closeStep()
     // Choose the close reason. Disposal wins only if no error was already

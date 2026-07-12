@@ -23,7 +23,7 @@ An agent's fully composed scoped world was published in the AgentRegistry. Its s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:307`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:316`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was removed from the registry. The concrete AgentLoop lifecycle emits t
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:322`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:331`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:596`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:608`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:428`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:440`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,11 +73,11 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:446`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:458`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
-A message entered the agent's inbox (queued or steering). `source` is the resolved source (defaults applied), not the caller's raw options.
+A message entered the agent's inbox (queued or steering). Content and the resolved source are the detached, deeply-frozen values retained by the inbox; the `info` wrapper is frozen too, so one listener cannot rewrite what another listener observes. `source` has defaults applied and is not the caller's raw options.
 
 ```ts cordis-catalog
 'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:350`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:362`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:475`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:487`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:527`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:539`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -125,7 +125,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:371`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:383`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:336`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:542`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:554`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:560`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:572`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -173,7 +173,7 @@ Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` wat
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:579`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:591`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 

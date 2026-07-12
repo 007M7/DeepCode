@@ -419,12 +419,15 @@ Capture does not imply uniform eager callback type-checking. Agent `setup` is ca
 |---|---|---|
 | Tool and `SubagentProvider` registration | Original callback receiver | Name, flags, schemas, scalar config |
 | Agent create/resume | Caller context, setup callback | IDs, options, session metadata and seed |
+| Agent send/steer | None | Content blocks and resolved message source |
 | Approval request | Agent and abort signal | Tool name, call ID, and reason |
 | Tool execution | Agent, signal, registry-minted parent token | Call identity and arguments |
 | Session append/load | Session identity | Header and event envelopes |
 | Subagent start/result | Parent and signal | Prompt, filters, schema, options, result |
 
 Before agent setup can run, the concrete agent pins its accepted ID, options, and session and binds `ctx` once. Registry detach closures likewise close over their accepted keys instead of rereading mutable public fields.
+
+`send()` and running `steer()` resolve the message source once and materialize `{ content, source }` as one detached, deeply frozen lossless-JSON record before `agent/queued` or inbox insertion. The notification and FIFO share that accepted content and source; its metadata wrapper is frozen separately, so neither retained caller references nor an earlier notification listener can rewrite what a later listener, the session log, or the model sees. Invalid content or source throws synchronously without notification, enqueue, or loop wakeup; idle `steer()` delegates to the same `send()` boundary. The later `agent/prompt-submit` waterfall can still replace a queued prompt by returning new content; ownership forbids in-place mutation, not the explicit rewrite protocol.
 
 A stateful getter shows why validation and ownership must use the same capture:
 

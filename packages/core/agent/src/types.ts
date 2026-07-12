@@ -202,12 +202,21 @@ export interface Agent {
    */
   readonly ctx: Context
 
-  /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
+  /**
+   * Queue a user message. Starts a turn when idle; otherwise waits for the next
+   * turn. Content and the resolved source are accepted as one detached,
+   * deeply-frozen lossless-JSON record before notification or enqueue, so
+   * caller or `agent/queued` listener in-place mutation cannot change later
+   * log/model input. Throws synchronously when either value is not losslessly
+   * JSON-serializable; `agent/prompt-submit` may still return an explicit
+   * replacement.
+   */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
    * Steer a running turn: content is injected between steps of the current
-   * turn. When idle, behaves like {@link send}.
+   * turn. Uses the same owned-value and synchronous-validation boundary as
+   * {@link send}; when idle, behaves exactly like that method.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 
@@ -335,11 +344,14 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * A message entered the agent's inbox (queued or steering). `source` is
-     * the resolved source (defaults applied), not the caller's raw options.
+     * A message entered the agent's inbox (queued or steering). Content and the
+     * resolved source are the detached, deeply-frozen values retained by the
+     * inbox; the `info` wrapper is frozen too, so one listener cannot rewrite
+     * what another listener observes. `source` has defaults applied and is not
+     * the caller's raw options.
      * @param agent - the agent whose inbox received the message.
-     * @param content - the enqueued content blocks, verbatim.
-     * @param info - the resolved source plus whether it entered as steering.
+     * @param content - the accepted content blocks retained by the inbox.
+     * @param info - the accepted source plus whether it entered as steering.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a
      * plain plugin context fires for every agent. The dispatch `this` is the

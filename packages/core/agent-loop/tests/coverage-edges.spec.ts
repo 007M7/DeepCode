@@ -35,31 +35,24 @@ function send(agent: ReactLoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('turn boundary listener throws (handled in-turn, loop survives)', () => {
-  it('a pre-push turn/start failure (non-serializable source) is rethrown to the runLoop backstop', async () => {
-    // A non-serializable message source makes the turn/start append throw BEFORE
-    // the event is pushed (Session.append validates before push), so turn/start
-    // never enters the log. runTurn sees no logged turn/start and rethrows; the
-    // runLoop backstop reports via agent/error (step 0) + the logger and the
-    // driver survives. This is the ONLY path that reaches the backstop.
-    const adapter = new MockAdapter([textResponse('turn 2')])
+describe('inbox acceptance', () => {
+  it('rejects non-serializable content or source synchronously before notification or enqueue', async () => {
+    const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    let queued = 0
+    ctx.on('agent/queued', () => { queued += 1 })
 
-    const errors: { turn: number; step: number; message: string }[] = []
-    ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
+    expect(() => {
+      agent.send([{ type: 'text', text: 'first', bad: 1n } as never])
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(() => {
+      agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(queued).toBe(0)
+    expect(agent.session.events).toHaveLength(0)
 
-    // A non-serializable source (BigInt) on the queued message.
-    agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
-    await waitForIdle(ctx, agent)
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.step).toBe(0)
-    expect(errors[0]!.message).toMatch(/non-JSON-serializable/)
-    // No turn boundary was written (the turn/start append threw before push).
-    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
-
-    // loop survives: a well-formed second turn runs normally.
+    // The rejected value never woke or poisoned the loop; a valid message runs.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)

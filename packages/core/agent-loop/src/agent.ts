@@ -12,8 +12,8 @@ import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session } from '@deepseek-ai/dsh-session'
-import { Inbox } from './inbox.ts'
+import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
 /** Agents whose rollback-covered publication enabled driving. */
@@ -213,6 +213,26 @@ export class ReactLoopAgent implements Agent {
     return options?.source ?? { kind: 'user' }
   }
 
+  /**
+   * Accept one public send/steer payload as the exact detached record shared by
+   * the live notification and inbox. Lossless-JSON materialization reads every
+   * nested field once; deep freeze prevents an observer from rewriting queued
+   * work before the loop drains it.
+   */
+  private acceptInboxMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
+    const source = this.resolveSource(options)
+    const accepted = snapshotJsonValue({ content, source })
+    if (accepted === undefined) {
+      throw new TypeError('agent message content and source must be losslessly JSON-serializable')
+    }
+    return deepFreeze(accepted)
+  }
+
+  /** Reject a driving operation once teardown has synchronously closed the agent. */
+  private assertNotDisposed(): void {
+    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+  }
+
   /** Reject every driving verb while creation setup still owns the agent. */
   private assertDriveEnabled(action: string): void {
     if (driveEnabledAgents.has(this)) return
@@ -221,24 +241,29 @@ export class ReactLoopAgent implements Agent {
 
   send(content: ContentBlock[], options?: SendOptions): void {
     this.assertDriveEnabled('send')
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
-    const source = this.resolveSource(options)
-    this.#inbox.enqueue({ content, source })
-    agentEvents(this.loopCtx, this).emit('agent/queued', content, { source, steering: false })
+    this.assertNotDisposed()
+    const accepted = this.acceptInboxMessage(content, options)
+    // Materialization invokes caller getters, which may reenter handle disposal.
+    this.assertNotDisposed()
+    this.#inbox.enqueue(accepted)
+    const info = deepFreeze({ source: accepted.source, steering: false })
+    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
     this.assertDriveEnabled('steer')
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+    this.assertNotDisposed()
     if (this._status !== 'running') { this.send(content, options); return }
-    const source = this.resolveSource(options)
-    this.#inbox.steer({ content, source })
-    agentEvents(this.loopCtx, this).emit('agent/queued', content, { source, steering: true })
+    const accepted = this.acceptInboxMessage(content, options)
+    this.assertNotDisposed()
+    this.#inbox.steer(accepted)
+    const info = deepFreeze({ source: accepted.source, steering: true })
+    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
     this.assertDriveEnabled('inject')
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+    this.assertNotDisposed()
     const source = this.resolveSource(options)
     if (isTurnOpen(this.session)) {
       // A turn is open in the LOG (decided from the log, not agent status —

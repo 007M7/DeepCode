@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -436,6 +436,127 @@ describe('MEDIUM: misc registry and config fixes', () => {
     // intact — the log, not a transient emit, is where consumers read it.
     const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
     expect(steeringSources).toEqual([{ kind: 'plugin', plugin: 'goal' }])
+  })
+
+  it('send() owns content and source before notification and delivery', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('owned-send'), { model: 'mock' })
+    const content = [{ type: 'text' as const, text: 'accepted-send' }]
+    const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
+    let notifiedContent: ContentBlock[] | undefined
+    let notifiedSource: MessageSource | undefined
+    let notifiedInfoFrozen = false
+    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+      if (subject !== agent || info.steering) return
+      // Retain the exact notification references: cloning here would test the
+      // listener's copy rather than the event/inbox ownership boundary.
+      notifiedContent = acceptedContent
+      notifiedSource = info.source
+      notifiedInfoFrozen = Object.isFrozen(info)
+    })
+
+    agent.send(content, { source })
+    content[0]!.text = 'caller-mutated-send'
+    source.plugin = 'caller-mutated-source'
+    await waitForIdle(ctx, agent)
+
+    expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-send' }])
+    expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(Object.isFrozen(notifiedContent)).toBe(true)
+    expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
+    expect(Object.isFrozen(notifiedSource)).toBe(true)
+    expect(notifiedInfoFrozen).toBe(true)
+    const recorded = agent.session.events.flatMap(event => event.type === 'user/message' ? [event.data] : [])
+    expect(recorded).toContainEqual({
+      content: [{ type: 'text', text: 'accepted-send' }],
+      source: { kind: 'plugin', plugin: 'accepted-source' },
+    })
+    const request = JSON.stringify(adapter.requests[0]!.messages)
+    expect(request).toContain('accepted-send')
+    expect(request).not.toContain('caller-mutated-send')
+  })
+
+  it('send() rechecks disposal after materializing caller getters', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      agentId: AgentId('reentrant-send-dispose'),
+      sessionId: SessionId('reentrant-send-dispose-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const { agent } = handle
+    let queued = 0
+    ctx.on('agent/queued', subject => void (queued += Number(subject === agent)))
+    const content = [{
+      type: 'text' as const,
+      get text() {
+        void handle.dispose()
+        return 'accepted-after-dispose'
+      },
+    }]
+
+    expect(() => { agent.send(content) }).toThrow(/agent "reentrant-send-dispose" is disposed/)
+    await handle.dispose()
+
+    expect(queued).toBe(0)
+    expect(agent.session.events).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+  })
+
+  it('running steer() owns content and source before notification and delivery', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'gate', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('owned-steer'), { model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.tools.register(defineTool({
+      name: 'gate',
+      description: '',
+      parameters: {},
+      async execute() {
+        entered.resolve(undefined)
+        await release.promise
+        return [{ type: 'text', text: 'tool done' }]
+      },
+    }))
+    let notifiedContent: ContentBlock[] | undefined
+    let notifiedSource: MessageSource | undefined
+    let notifiedInfoFrozen = false
+    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+      if (subject !== agent || !info.steering) return
+      notifiedContent = acceptedContent
+      notifiedSource = info.source
+      notifiedInfoFrozen = Object.isFrozen(info)
+    })
+
+    agent.send([{ type: 'text', text: 'start' }])
+    await entered.promise
+    expect(agent.status).toBe('running')
+    const content = [{ type: 'text' as const, text: 'accepted-steer' }]
+    const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
+    agent.steer(content, { source })
+    content[0]!.text = 'caller-mutated-steer'
+    source.plugin = 'caller-mutated-source'
+    const idle = waitForIdle(ctx, agent)
+    release.resolve(undefined)
+    await idle
+
+    expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-steer' }])
+    expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(Object.isFrozen(notifiedContent)).toBe(true)
+    expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
+    expect(Object.isFrozen(notifiedSource)).toBe(true)
+    expect(notifiedInfoFrozen).toBe(true)
+    const recorded = agent.session.events.flatMap(event => event.type === 'steering/message' ? [event.data] : [])
+    expect(recorded).toContainEqual({
+      turn: 1,
+      content: [{ type: 'text', text: 'accepted-steer' }],
+      source: { kind: 'plugin', plugin: 'accepted-source' },
+    })
+    const request = JSON.stringify(adapter.requests[1]!.messages)
+    expect(request).toContain('accepted-steer')
+    expect(request).not.toContain('caller-mutated-steer')
   })
 })
 
