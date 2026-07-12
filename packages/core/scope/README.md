@@ -23,7 +23,7 @@ Handing out a scoped context hands out the minting plugin's service-resolution s
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Per-agent visibility control | This package emits no text or schema. It decides whether agent-scoped prompt sections, variables, tools, restrictions, and listeners apply to one agent, can shadow same-named global contributions, and removes them with that agent. | Zero direct tokens. It can add, replace, or remove whole contributions for one agent without changing another agent's request. |
+| Per-agent visibility control | This package emits no text or schema. It routes scoped prompt sections, variables, tools, restrictions, and listeners to one agent: scoped registrations can shadow same-named globals, while restrictions filter global tools before scope-local tools are merged. All disappear with that agent. This is request composition, not authority confinement. | Zero direct tokens. It can add, replace, or remove whole contributions for one agent without changing another agent's request. |
 
 ## Known Limitations and Deferred Work
 

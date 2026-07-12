@@ -44,7 +44,7 @@ A clean turn that never commits the required structured value reports `error`; t
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Child-agent request | The shared driver sends the task as the child's user message and composes per-child scoped persona and tool restrictions. Structured runs add a scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. Structured output adds fixed instruction and capability tokens only to that child for that run. |
+| Child-agent request | The shared driver sends the task as the child's user message and, when requested, composes persona and global-tool restrictions in the unpublished child's fresh scope; parent restrictions are not inherited. Structured runs add an owner-final scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. Optional persona, filtering, and structured-output changes affect only that child; structured output adds fixed instruction and capability tokens for the run. |
 | Parent result, indirectly | The driver extracts only the child's own last assistant output or captured structured value; seeded parent messages and intermediate child work do not become the result. | The parent receives one data-dependent result through the consumer; all other child tokens stay in the child session. |
 
 ## Known Limitations and Deferred Work

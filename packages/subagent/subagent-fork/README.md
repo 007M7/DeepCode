@@ -27,7 +27,7 @@ See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, m
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Child-agent history | The child receives the parent's balanced completed-turn surface prefix, then the new task, along with its own scoped persona, tool filter, and optional structured-output contract. The parent's current in-flight turn is excluded. | Forking duplicates the retained completed history into a separate child's requests; the child then accumulates its own tokens independently. A first-turn fork has no inherited history. |
+| Child-agent history | The child receives the parent's balanced completed-turn surface prefix, then the new task. Configured persona and tool restrictions compose only in the child's fresh scope; the parent's tool view and authority are not inherited. An optional structured-output request adds its child-only contract. The parent's current in-flight turn is excluded. | Forking duplicates the retained completed history into a separate child's requests; the child then accumulates its own tokens independently. A first-turn fork has no inherited history. |
 | Parent tool result, indirectly | The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work. | Parent input grows by one data-dependent final result retained until compaction. |
 
 ## Known Limitations and Deferred Work

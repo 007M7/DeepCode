@@ -1,10 +1,10 @@
 # AGENTS.md — The documentation standard
 
-This file is the contract for every Markdown files in the repo: each tier's job, the writing rules, and the word budgets that `verify-doc-budgets` enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This is the repo's Markdown placement, writing, and budget contract. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) to apply it; the [doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) records the rationale.
 
 ## The tier taxonomy: one home per fact
 
-Every fact has exactly one home — the tier whose job it is — and every other place that needs it links there instead of restating it. A rule restated in two files drifts word-by-word until the copies disagree; a link cannot drift, and `verify-md-links` keeps it resolving.
+Each fact has one owning tier; other tiers link to it. Restated rules drift, while `verify-md-links` keeps links resolving.
 
 | Tier | Job | Does NOT belong there |
 |---|---|---|
@@ -20,7 +20,7 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 
-Placement test: a story about a bug → postmortem. Why we chose X → RFC. How to do task Y → cookbook. What type Z looks like → core-data-structures. What package P promises → its README. A rule every agent must always obey → root AGENTS.md, one line, linking the home that holds the why.
+Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; type shapes → core data; package promises → READMEs; standing orders → root `AGENTS.md` with a link to their rationale.
 
 ## Writing rules
 
@@ -35,12 +35,12 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 
 ## Package Model Experience
 
-Every package README ends with this table followed by `## Known Limitations and Deferred Work`; [allowlisted packages](../scripts/verify-readme-limitations.ts) end after the table:
+Every package README ends with this table immediately before `## Known Limitations and Deferred Work`; [allowlisted packages](../scripts/verify-readme-limitations.ts) end after it:
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 
-Rows name request surface, condition, and agent scope, then classify tokens as fixed per request, conditional per call, retained, replaced, capped, or zero-direct. Separate conversation and auxiliary calls; zero-direct rows name the indirect path. `verify-package-readme-model-experience` enforces shape and order; review owns accuracy.
+Rows state what reaches which model and classify token cost or lifetime; zero-direct rows name the indirect path. `verify-package-readme-model-experience` gates shape and order, while review owns accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
 
 ## Wordcount Budgets
 

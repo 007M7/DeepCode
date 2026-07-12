@@ -31,7 +31,7 @@ A non-`completed` stop reason becomes an `isError` tool result; partial child ou
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Tool schema | While the configured provider exists, the parent model sees one `{ description, prompt }` tool under `toolName`. Its description explicitly says whether the child inherits completed turns or needs a standalone prompt; persona, model, filter, depth, and provider choice remain deployment config. | Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema; exposing multiple providers adds one independently named schema per load. |
+| Tool schema | While the configured provider exists, the parent model sees one `{ description, prompt }` tool under `toolName`. Its description explicitly says whether the child inherits completed turns or needs a standalone prompt; persona, model, filter, depth, and provider choice remain deployment config. The filter changes the child's visible global tools, not an inherited authority ceiling. | Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema; exposing multiple providers adds one independently named schema per load. |
 | Tool-call history and result | The task description and full prompt remain in the parent assistant tool call. The result contains only the child's final text or a stop-reason error, never intermediate child steps. | Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent. |
 
 ## Known Limitations and Deferred Work

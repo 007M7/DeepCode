@@ -61,7 +61,7 @@ Keyless tests drive a scripted ACP subprocess over real stdio. The with-key e2e 
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Child-agent request | The remote child receives the standalone task through ACP plus its own process's configured system prompt, tools, and fresh session. It receives no parent conversation and cannot enforce the parent's scoped persona or tool filter. | The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context. |
+| Child-agent request | The remote child receives the standalone task through ACP plus its own process's configured system prompt, tools, and fresh session. It receives no parent conversation. This provider advertises no optional start-time capabilities, so the local service rejects requests for persona, tool filtering, depth enforcement, or structured output instead of silently omitting them. | The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context. |
 | Parent tool result, indirectly | Through `dsh-tool-subagent`, the parent receives only the child's final streamed assistant text or a stop-reason error, not intermediate messages or tool traffic. | Parent input grows only by the final result, which is data-dependent and retained until compaction. This provider adds no parent schema itself. |
 
 ## Known Limitations and Deferred Work
