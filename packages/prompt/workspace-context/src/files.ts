@@ -1,8 +1,15 @@
+/**
+ * Instruction-file discovery, provider reads, and content-aware caching.
+ *
+ * @module @deepseek-ai/dsh-workspace-context/files
+ */
+
 import { lstat, readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { FileSystem, FsInfo, FsPathInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome } from '@deepseek-ai/dsh-paths'
-import { resolveConfig, type ResolvedConfig } from './config.ts'
+import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
+import { instructionContentSha1 } from './digest.ts'
 import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
@@ -18,10 +25,10 @@ export interface LoadedInstructionFile extends InstructionFile {
 
 interface FileSignature {
   version: string
-  size: number | undefined
 }
 
 interface CachedContent extends FileSignature {
+  sha1: string
   content: string
 }
 
@@ -30,7 +37,7 @@ interface DiscoveredInstructionFile extends InstructionFile {
   target?: FsTarget
 }
 
-/** Provider-signature-keyed content cache shared across plugin hooks. */
+/** Provider-version and SHA-1 keyed content cache shared across plugin hooks. */
 export type InstructionContentCache = Map<string, CachedContent>
 
 interface DiscoverOptions {
@@ -41,7 +48,7 @@ interface DiscoverOptions {
 }
 
 interface LoadOptions extends DiscoverOptions {
-  maxBytes?: number
+  maxBytes: number
   cache?: InstructionContentCache
 }
 
@@ -61,7 +68,7 @@ async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
   try {
     const info = await lstat(path)
     if (!info.isFile()) return undefined
-    return { version: `${info.mtimeMs}:${info.size}`, size: info.size }
+    return { version: String(info.mtimeMs) }
   } catch {
     // Candidates can disappear while discovery is in progress.
     return undefined
@@ -78,7 +85,7 @@ async function fsStatFile(
     const target = await fileSystem.resolve(path)
     const info = await fileSystem.stat(target)
     if (info?.type !== 'file') return undefined
-    return { version: info.version, size: info.size, target }
+    return { version: info.version, target }
   } catch {
     // Provider absence and discovery races are both non-fatal.
     return undefined
@@ -204,7 +211,7 @@ async function discoverInstructionFiles(
   options: DiscoverOptions,
   fileSystem?: FileSystem,
 ): Promise<DiscoveredInstructionFile[]> {
-  const config = resolveConfig(options)
+  const config = resolveDiscoveryConfig(options)
   const files: DiscoveredInstructionFile[] = []
   const seen = new Set<string>()
   const addFile = (file: DiscoveredInstructionFile): void => {
@@ -250,15 +257,14 @@ async function readCached(
 ): Promise<string | undefined> {
   const path = file.absolutePath
   const { signature } = file
-  const cached = cache.get(path)
-  if (cached !== undefined && cached.version === signature.version && cached.size === signature.size) {
-    return cached.content
-  }
   try {
     const content = fileSystem === undefined || file.target === undefined
       ? await readFile(path, 'utf8')
       : await fileSystem.readText(file.target)
-    cache.set(path, { ...signature, content })
+    const sha1 = instructionContentSha1(content)
+    const cached = cache.get(path)
+    if (cached !== undefined && cached.version === signature.version && cached.sha1 === sha1) return cached.content
+    cache.set(path, { ...signature, sha1, content })
     return content
   } catch {
     // A file may disappear or become unreadable after its metadata probe.
@@ -345,7 +351,7 @@ export async function loadScopeInstruction(
     const discovered: DiscoveredInstructionFile = {
       absolutePath,
       displayPath: scope === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
-      signature: { version: info.version, size: info.size },
+      signature: { version: info.version },
       target,
     }
     const content = await readCached(discovered, cache, fileSystem)

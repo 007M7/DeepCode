@@ -61,6 +61,8 @@
     model: deepseek-v4-flash
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     welcome: 'cordis-agent ready. Ask it to inspect its runtime, mount a listener, or invent a tool for itself.'
     persona: |
       You are cordis-agent, a self-referential harness demo powered by the

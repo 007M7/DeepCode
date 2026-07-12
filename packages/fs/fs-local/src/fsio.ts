@@ -76,7 +76,7 @@ async function readFileAbortable(absolutePath: string, verb: 'read' | 'edit', si
   }
 }
 
-/** Opaque version token from a stat: mtime (ns precision) + size. */
+/** Opaque version token from a stat: millisecond mtime plus byte size. */
 function versionOf(info: Stats): FsVersion {
   return FsVersion(`${info.mtimeMs}:${info.size}`)
 }

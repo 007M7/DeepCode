@@ -48,7 +48,7 @@ The core `context/message` envelope is disabled for these messages because the p
 
 Model-visible text contains no hidden state markers. Each dynamic context event instead carries JSON metadata with a versioned list of `{ action, scope, path, previousPath?, digest? }` changes. On every relevant tool touch, the plugin reconstructs loaded state from its visible session events and overlays a short in-memory pending window for context returned by `tools/post-execute` but not yet appended by the loop.
 
-An unchanged path and SHA-256 content digest is not injected again. Resume works because visible metadata is persisted in the session log. Compaction re-arms a scope after its context event leaves the visible surface. A removal is a tombstone, so a later candidate reappearance is loaded again. Only changes actually rendered within the byte budget enter metadata and pending state; an omitted change remains eligible for a later touch.
+An unchanged path and SHA-1 content digest is not injected again. Resume works because visible metadata is persisted in the session log. Compaction re-arms a scope after its context event leaves the visible surface. A removal is a tombstone, so a later candidate reappearance is loaded again. Only changes actually rendered within the byte budget enter metadata and pending state; an omitted change remains eligible for a later touch.
 
 The frozen baseline itself is not rewritten mid-instance. Its initial path/digest map is retained as comparison state; the next successful filesystem touch appends any baseline replacement or removal. A resumed loop recomposes the current baseline and also reconciles still-visible dynamic scopes during prefix composition. There is no file watcher, so an on-disk change becomes visible at the next successful `read`, `write`, or `edit` touch, or when a resumed loop composes its prefix.
 
@@ -58,12 +58,12 @@ The frozen baseline itself is not rewritten mid-instance. Its initial path/diges
 export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
-  maxBytes?: number
+  maxBytes: number
   instructionFileCandidates?: string[]
 }
 ```
 
-`projectRootMarkers` defaults to `['.git']`, `maxBytes` to `65536`, and `instructionFileCandidates` to `['AGENTS.md', 'CLAUDE.md']`. In each project directory, the first existing candidate wins; with defaults, `AGENTS.md` is native and `CLAUDE.md` is the compatibility fallback. Candidate entries must be same-directory file names, so empty entries, `.`/`..`, and entries containing `/` or `\` are ignored.
+`maxBytes` is required so each deployment makes its prompt-budget choice explicitly. `projectRootMarkers` defaults to `['.git']`, and `instructionFileCandidates` defaults to `['AGENTS.md', 'CLAUDE.md']`. In each project directory, the first existing candidate wins; with defaults, `AGENTS.md` is native and `CLAUDE.md` is the compatibility fallback. Candidate entries must be same-directory file names, so empty entries, `.`/`..`, and entries containing `/` or `\` are ignored.
 
 The user-global file is always `$DSH_HOME/AGENTS.md`; the candidate list only controls project scopes. `$DSH_HOME` defaults to `~/.dsh`, and configured `~`, `~/...`, and Windows-style `~\...` prefixes are expanded against the operating-system home directory. A non-positive or non-finite byte budget disables both baseline and dynamic loading.
 
@@ -71,7 +71,7 @@ The user-global file is always `$DSH_HOME/AGENTS.md`; the candidate list only co
 
 Rendering preserves the most specific instruction files first. It drops whole broader files before truncating the most-specific file and emits a visible `Workspace instruction budget ...` notice naming omitted and truncated paths. The rendered bytes never exceed `maxBytes`.
 
-File text is cached by normalized absolute path plus the provider's opaque version and optional size. A signature change causes a re-read. Discovery carries the signature into reading so a cache hit does not stat the same file twice in one pass. Cache identity is separate from loaded-state identity: persisted structured metadata, not cached prose, controls duplicate suppression.
+Each discovered candidate is read and identified by normalized absolute path, the provider's opaque version, and a SHA-1 content digest. Comparing the digest after reading prevents a same-version, same-size rewrite from returning stale cached text. Discovery carries the provider version into reading so one pass does not stat the same file twice. Cache identity is separate from loaded-state identity: persisted structured metadata, not cached prose, controls duplicate suppression.
 
 ## Non-goals
 

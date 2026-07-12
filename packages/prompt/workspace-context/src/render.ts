@@ -1,3 +1,9 @@
+/**
+ * Model-facing workspace instruction rendering within an explicit byte budget.
+ *
+ * @module @deepseek-ai/dsh-workspace-context/render
+ */
+
 import { dirname } from 'node:path'
 import type { InstructionFile, LoadedInstructionFile } from './files.ts'
 
@@ -15,7 +21,7 @@ export interface TruncatedInstruction {
   includedBytes: number
 }
 
-/** Bounded model-facing text plus omitted and truncated source records. */
+/** Model-facing text plus omitted and truncated source records. */
 export interface RenderedWorkspaceContext {
   text: string
   omitted: InstructionFile[]
@@ -232,7 +238,7 @@ function renderInstructionContext(
 /**
  * Render the baseline instruction chain with deterministic precedence budgeting.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - rendering byte budget.
+ * @param options - required rendering byte budget.
  * @returns bounded baseline prompt text and budget diagnostics.
  */
 export function renderWorkspaceContext(

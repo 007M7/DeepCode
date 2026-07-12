@@ -45,6 +45,8 @@
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     welcome: 'agent REPL ready. Give it a coding task.'
     # The persona: identity + behavior only, nothing about transports or
     # tooling — tool guidance lives with each tool plugin (descriptions +

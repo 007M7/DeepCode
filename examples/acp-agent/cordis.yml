@@ -38,6 +38,8 @@
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     # The persona: identity + behavior only, nothing about transports or
     # tooling — tool guidance lives with each tool plugin (descriptions +
     # prompt sections). {{model}} and {{cwd}} are prompt variables the agent

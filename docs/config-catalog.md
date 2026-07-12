@@ -56,8 +56,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  workspaceContext?: agentCore.Config['workspaceContext']
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
 }
@@ -77,10 +77,11 @@ Source: [`packages/ui/acp-agent/src/index.ts:53`](../packages/ui/acp-agent/src/i
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
  * `skills` to the skill registry/local provider/tool consumer, and
- * `workspaceContext` to the workspace-context plugin. Every field is optional
- * INPUT here because each owner's schema supplies the default; the schema is
- * the INTERSECTION of the owners' own schemas (with child schemas nested under
- * their bundle keys), so validation and defaulting can never drift from them.
+ * `workspaceContext` to the workspace-context plugin. Workspace context must
+ * be configured explicitly with a byte budget or disabled with `false`; the
+ * other fields remain optional inputs whose owner schemas supply defaults. The
+ * schema is the INTERSECTION of the owners' own schemas (with child schemas
+ * nested under their bundle keys), so validation and defaulting cannot drift.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -91,8 +92,8 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
-  /** Workspace-context loader controls; set `false` for hermetic prompts. */
-  workspaceContext?: workspaceContext.Config | false
+  /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
+  workspaceContext: workspaceContext.Config | false
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
 }
@@ -110,7 +111,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`workspaceContext`](../packages/prompt/workspace-context/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:88`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:89`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -641,8 +642,8 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  workspaceContext?: agentCore.Config['workspaceContext']
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 ```
 
@@ -1145,14 +1146,14 @@ export interface Config {
   dshHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]
-  /** Maximum UTF-8 bytes in one rendered baseline or dynamic instruction batch; non-positive disables loading. */
-  maxBytes?: number
+  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
+  maxBytes: number
   /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
   instructionFileCandidates?: string[]
 }
 ```
 
-Source: [`packages/prompt/workspace-context/src/config.ts:10`](../packages/prompt/workspace-context/src/config.ts)
+Source: [`packages/prompt/workspace-context/src/config.ts:15`](../packages/prompt/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 

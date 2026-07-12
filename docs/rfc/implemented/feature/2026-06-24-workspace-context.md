@@ -46,7 +46,7 @@ Shell commands are not discovery triggers. Local bash calls start fresh shells, 
 
 ### Duplicate Suppression And Change Detection
 
-Every dynamic workspace context event stores versioned metadata with `{ action, scope, path, previousPath?, digest? }`, where `digest` is SHA-256 over the loaded content. The model-facing prompt has no HTML comments, hidden markers, or headings that are parsed back into state.
+Every dynamic workspace context event stores versioned metadata with `{ action, scope, path, previousPath?, digest? }`, where `digest` is SHA-1 over the loaded content. The model-facing prompt has no HTML comments, hidden markers, or headings that are parsed back into state.
 
 At reconciliation time the plugin scans plugin-owned `context/message` events and derives the latest state for each visible scope. A short per-session pending map covers the interval after `tools/post-execute` returns `additionalContext` but before the loop appends that context to the log. Once an equal event appears at or after the pending sequence boundary, the pending entry is removed.
 
@@ -58,9 +58,9 @@ There is intentionally no watcher. Detection occurs at the next successful struc
 
 ### Byte Budget And Cache
 
-`maxBytes` defaults to 64 KiB and applies separately to a rendered baseline or one dynamic reconciliation batch. Non-positive and non-finite values disable loading. When content exceeds the budget, broader files are omitted before the most-specific file is truncated. A visible `Workspace instruction budget ...` notice names omitted and truncated paths and byte counts, and output never exceeds the configured bytes.
+`maxBytes` is required and applies separately to a rendered baseline or one dynamic reconciliation batch; there is no implicit or unbounded budget. Non-positive and non-finite values disable loading. When content exceeds the budget, broader files are omitted before the most-specific file is truncated. A visible `Workspace instruction budget ...` notice names omitted and truncated paths and byte counts, and output never exceeds the configured bytes.
 
-File content is cached by normalized absolute path plus the provider's opaque version and optional size. A signature change causes a re-read. Discovery carries the signature into the read pass so one pass does not stat the same instruction twice. The cache is an I/O optimization only; visible structured metadata is the source of duplicate-suppression state.
+Each discovered candidate is read and identified by normalized absolute path, the provider's opaque version, and a SHA-1 content digest. Hashing the read content prevents same-version, same-size rewrites from staying stale. Discovery carries the provider version into the read pass so one pass does not stat the same instruction twice. Visible structured metadata remains the source of duplicate-suppression state.
 
 ## Alternatives considered
 

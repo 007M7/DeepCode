@@ -43,3 +43,5 @@
     persona: 'You are echo-agent, a demo agent.'
     welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536

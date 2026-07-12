@@ -80,10 +80,11 @@ export interface SkillConfig {
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
  * `skills` to the skill registry/local provider/tool consumer, and
- * `workspaceContext` to the workspace-context plugin. Every field is optional
- * INPUT here because each owner's schema supplies the default; the schema is
- * the INTERSECTION of the owners' own schemas (with child schemas nested under
- * their bundle keys), so validation and defaulting can never drift from them.
+ * `workspaceContext` to the workspace-context plugin. Workspace context must
+ * be configured explicitly with a byte budget or disabled with `false`; the
+ * other fields remain optional inputs whose owner schemas supply defaults. The
+ * schema is the INTERSECTION of the owners' own schemas (with child schemas
+ * nested under their bundle keys), so validation and defaulting cannot drift.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -94,8 +95,8 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
-  /** Workspace-context loader controls; set `false` for hermetic prompts. */
-  workspaceContext?: workspaceContext.Config | false
+  /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
+  workspaceContext: workspaceContext.Config | false
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
 }
@@ -114,7 +115,7 @@ export const Config = z.intersect([
   z.object({
     tools: ToolRegistry.Config,
     skills: SkillConfigSchema,
-    workspaceContext: z.union([z.const(false), workspaceContext.Config]),
+    workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   }) as unknown as z<Pick<Config, 'tools' | 'skills' | 'workspaceContext'>>,
 ]) as unknown as z<Config>
 
@@ -122,7 +123,7 @@ export const Config = z.intersect([
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
  * `agent-loop` receives the forwarded `agents` list and `system-prompt` the
  * forwarded `persona` and `toolOrder`. Workspace-context receives its own
- * forwarded config or loads with defaults. Load order is irrelevant (cordis
+ * explicitly forwarded config. Load order is irrelevant (cordis
  * pends each fiber on its `inject` until the services it needs exist), but the
  * listing mirrors the dependency layering for readability: the LLM vocabulary
  * and core registries first, then extension plugins that wrap request/tool
@@ -149,7 +150,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   if (config.workspaceContext !== false) {
-    ctx.plugin(workspaceContext, config.workspaceContext ?? {})
+    ctx.plugin(workspaceContext, config.workspaceContext)
   }
   // Both plugins prepend session-prefix messages. Registration order is the
   // rendered order, so workspace instructions must precede the skill catalog.

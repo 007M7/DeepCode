@@ -74,7 +74,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
     // The spine services (brought up by the agent-core bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -95,7 +95,7 @@ describe('dsh-stdio-agent app', () => {
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
+    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
@@ -116,7 +116,7 @@ describe('dsh-stdio-agent app', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      stdioAgent.apply(ctx, { model: 'mock' })
+      stdioAgent.apply(ctx, { model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -134,13 +134,14 @@ describe('dsh-stdio-agent app', () => {
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-resume',
       resumeSessionId: 'no-such-session',
       skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6), workspaceContext: false })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()
@@ -156,6 +157,7 @@ describe('dsh-stdio-agent app', () => {
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-tool-order',
+      workspaceContext: false,
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in
     // this providerless mount, so register two plain tools to order.

@@ -1,7 +1,12 @@
+/**
+ * Configuration normalization for workspace instruction discovery and rendering.
+ *
+ * @module @deepseek-ai/dsh-workspace-context/config
+ */
+
 import z from 'schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
-const DEFAULT_MAX_BYTES = 64 * 1024
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
 const DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md'] as const
 const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
@@ -12,8 +17,8 @@ export interface Config {
   dshHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]
-  /** Maximum UTF-8 bytes in one rendered baseline or dynamic instruction batch; non-positive disables loading. */
-  maxBytes?: number
+  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
+  maxBytes: number
   /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
   instructionFileCandidates?: string[]
 }
@@ -21,16 +26,20 @@ export interface Config {
 export const Config: z<Config> = z.object({
   dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
-  maxBytes: z.number().default(DEFAULT_MAX_BYTES),
+  maxBytes: z.number().required(),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
 })
 
-/** Fully defaulted configuration used by discovery and reconciliation. */
-export interface ResolvedConfig {
+/** Normalized instruction discovery configuration. */
+export interface ResolvedDiscoveryConfig {
   dshHome: string
   projectRootMarkers: string[]
-  maxBytes: number
   instructionFileCandidates: string[]
+}
+
+/** Normalized configuration used by discovery and reconciliation. */
+export interface ResolvedConfig extends ResolvedDiscoveryConfig {
+  maxBytes: number
 }
 
 /**
@@ -40,9 +49,22 @@ export interface ResolvedConfig {
  */
 export function resolveConfig(config: Config): ResolvedConfig {
   return {
+    ...resolveDiscoveryConfig(config),
+    maxBytes: config.maxBytes,
+  }
+}
+
+/**
+ * Resolve the subset of configuration used before instruction content is rendered.
+ * @param config - optional discovery controls.
+ * @returns normalized home, root markers, and instruction candidates.
+ */
+export function resolveDiscoveryConfig(
+  config: Pick<Config, 'dshHome' | 'projectRootMarkers' | 'instructionFileCandidates'>,
+): ResolvedDiscoveryConfig {
+  return {
     dshHome: resolveDshHome(config.dshHome),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
-    maxBytes: config.maxBytes ?? DEFAULT_MAX_BYTES,
     instructionFileCandidates: resolveInstructionFileCandidates(config.instructionFileCandidates),
   }
 }

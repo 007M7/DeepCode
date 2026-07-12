@@ -61,8 +61,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  workspaceContext?: agentCore.Config['workspaceContext']
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
 }
@@ -76,9 +76,9 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
-  workspaceContext: z.union([z.const(false), workspaceContext.Config]),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
-}) as unknown as z<Config>
+})
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
@@ -92,7 +92,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
-    ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
+    workspaceContext: config.workspaceContext,
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(UserInteractionService)

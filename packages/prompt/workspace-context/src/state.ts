@@ -1,10 +1,16 @@
-import { createHash } from 'node:crypto'
+/**
+ * Session-visible workspace instruction state and dynamic reconciliation.
+ *
+ * @module @deepseek-ai/dsh-workspace-context/state
+ */
+
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { renderContextContent, type JsonValue } from '@deepseek-ai/dsh-session'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
+import { instructionContentSha1 } from './digest.ts'
 import {
   ancestorChain,
   descendantDirsBetween,
@@ -36,10 +42,6 @@ export interface PendingInstructionChange {
 export interface WorkspaceHookContext extends HookContext {
   envelope: 'raw'
   meta: JsonValue
-}
-
-function digest(content: string): string {
-  return createHash('sha256').update(content).digest('hex')
 }
 
 function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): WorkspaceHookContext {
@@ -154,7 +156,7 @@ export function baselineInstructionChanges(files: LoadedInstructionFile[]): Map<
       action: 'set',
       scope: scopeForDisplayPath(file.displayPath),
       path: file.displayPath,
-      digest: digest(file.content),
+      digest: instructionContentSha1(file.content),
     }
     return [change.scope, change]
   }))
@@ -181,7 +183,7 @@ function relativeScope(projectRoot: string, dir: string): string {
  * Compare visible/pending state with provider-visible files and render transitions.
  * @param agent - session owner whose visible surface supplies durable state.
  * @param resolved - normalized plugin configuration.
- * @param cache - shared provider-signature content cache.
+ * @param cache - shared provider-version and content-digest cache.
  * @param pendingBySession - short pending window before returned context is logged.
  * @param baselineBySession - frozen baseline comparison state per session.
  * @param fileSystem - provider used for current file probes.
@@ -245,7 +247,7 @@ export async function reconcileInstructionContext(
       }
       continue
     }
-    const currentDigest = digest(file.content)
+    const currentDigest = instructionContentSha1(file.content)
     if (previous !== undefined && previous.action !== 'remove' && previous.path === file.displayPath && previous.digest === currentDigest) continue
     const action = previous === undefined || previous.action === 'remove' ? 'set' : 'replace'
     const previousPath = action === 'replace' && previous !== undefined && previous.path !== file.displayPath
@@ -275,7 +277,7 @@ export async function reconcileInstructionContext(
  * @param exec - completed tool execution descriptor.
  * @param result - original tool result before post-execute decisions.
  * @param resolved - normalized plugin configuration.
- * @param cache - shared provider-signature content cache.
+ * @param cache - shared provider-version and content-digest cache.
  * @param pendingNestedChanges - per-session pending transition maps.
  * @param baselineInstructionStates - retained baseline comparison state.
  * @param fileSystem - provider used for current file probes.

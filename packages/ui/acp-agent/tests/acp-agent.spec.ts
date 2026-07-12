@@ -67,7 +67,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-acp-agent composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test', skills: await isolatedSkillsConfig() })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test', skills: await isolatedSkillsConfig(), workspaceContext: false })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
@@ -86,7 +86,7 @@ describe('dsh-acp-agent composition', () => {
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
+    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()
@@ -107,7 +107,7 @@ describe('dsh-acp-agent composition', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      acpAgent.apply(ctx, { model: 'mock' })
+      acpAgent.apply(ctx, { model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -116,7 +116,7 @@ describe('dsh-acp-agent composition', () => {
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6), workspaceContext: false })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()
@@ -132,6 +132,7 @@ describe('dsh-acp-agent composition', () => {
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-acp-agent-test-tool-order',
+      workspaceContext: false,
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in
     // this providerless mount, so register two plain tools to order.

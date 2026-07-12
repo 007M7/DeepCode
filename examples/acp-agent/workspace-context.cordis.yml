@@ -12,12 +12,11 @@
           model: deepseek-v4-flash
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
           workspaceContext:
+            maxBytes: 65536
             dshHome: !!js process.cwd() + '/.dsh'
             projectRootMarkers:
               - .dsh-project
           persona: |
-            You are a coding assistant powered by the {{model}} model. Your working
-            directory is {{cwd}}.
+            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
-            Verify your work by running the code or tests. Keep answers brief and
-            factual.
+            Verify your work by running the code or tests. Keep answers brief and factual.

@@ -84,8 +84,8 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
-  workspaceContext?: agentCore.Config['workspaceContext']
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
@@ -100,8 +100,8 @@ export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,
   resumeSessionId: z.string(),
-  workspaceContext: z.union([z.const(false), workspaceContext.Config]),
-}) as unknown as z<Config>
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
+})
 
 /**
  * Compose the spine with the stdio front door. The console logger comes first
@@ -122,7 +122,7 @@ export function apply(ctx: Context, config: Config): void {
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
-    ...config.workspaceContext !== undefined ? { workspaceContext: config.workspaceContext } : {},
+    workspaceContext: config.workspaceContext,
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
