@@ -279,7 +279,12 @@ export class WorkerRun implements WorkflowRun {
     void (async () => {
       this.detachInputSignal()
       this.cancel('workflow disposed')
-      for (const [callId, run] of [...this.children]) void this.disposeChild(callId, run)
+      // cancel() deliberately becomes a no-op after terminal settlement, but
+      // disposal still owns every registered child. Reap independently so an
+      // already-settled workflow cannot wait on child quiescence before it has
+      // started the surviving children's disposals. On an unsettled run this
+      // joins the cancel path through the per-call cancellation/disposal gates.
+      this.reapChildren('workflow disposed')
       await Promise.race([
         (async () => {
           await this.result

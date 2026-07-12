@@ -755,6 +755,38 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.disposed).toBe(true)
     })
 
+    it('dispose() reaps a registered stray after result settlement even when the worker cannot relay disposal', async () => {
+      const { ctx, parent, provider } = await setup({
+        manual: true,
+        config: { provider: 'stub', disposeGraceMs: 30_000 },
+      })
+      const handle = ctx.workflows.start({
+        ...scripted("agent('stray')\nawait new Promise(() => {})"),
+        parent,
+      })
+      await waitFor(() => { expect(provider.runs).toHaveLength(1) })
+
+      // Claim the host result while the real worker remains wedged, so it can
+      // send neither ChildDispose nor an exit. This leaves the accepted child
+      // in the host registry when public disposal begins.
+      const worker = (handle as unknown as { worker: Worker }).worker
+      worker.emit('message', {
+        type: WorkerToHostType.Result,
+        result: { value: 'synthetic completion', stopReason: 'completed', agentsStarted: 1 },
+      })
+      await expect(handle.result).resolves.toMatchObject({ stopReason: 'completed' })
+      expect(provider.runs[0]!.disposed).toBe(false)
+
+      const disposal = handle.dispose()
+      // A 30-second grace makes this assertion mutation-sensitive: without the
+      // settled-path host reap, no worker message can start child disposal and
+      // this bounded wait fails long before the grace fallback.
+      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
+      await disposal
+      expect(provider.runs[0]!.disposeCalls).toBe(1)
+      await ctx.fiber.dispose()
+    })
+
     it('the settle-reap fires the request signal too: a provider honoring ONLY the signal winds its stray down promptly', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
