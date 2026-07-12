@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -6,12 +6,12 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 
-function stubAgent(rawId: string): Agent {
+function stubAgent(rawId: string, rawSessionId = `${rawId}-session`): Agent {
   const id = AgentId(rawId)
   return {
     id,
     options: {},
-    session: new Session(SessionId(`${id}-session`)),
+    session: new Session(SessionId(rawSessionId)),
     status: 'idle',
     send() {},
     steer() {},
@@ -48,6 +48,10 @@ async function harness() {
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
 describe('TaskService.start', () => {
+  it('preserves the SessionId brand on public owner snapshots', () => {
+    expectTypeOf<TaskSnapshot['ownerSession']>().toEqualTypeOf<SessionId | undefined>()
+  })
+
   it('refuses to register while no control surface is attached', async () => {
     const ctx = new Context()
     await ctx.plugin(TaskService)
@@ -365,9 +369,10 @@ describe('TaskService owner isolation', () => {
     const ctx = await harness()
     const ghost = stubAgent('ghost') // never registered in ctx.agents
 
-    // onCleanup rejects the unregistered agent BEFORE any registry mutation.
+    // Exact-instance preflight rejects the unregistered agent BEFORE any
+    // registry mutation or owner-cleanup attachment.
     expect(() => ctx.tasks.start(producer({ owner: ghost }).spec))
-      .toThrow('is not registered')
+      .toThrow('is not the registered agent instance')
     expect(ctx.tasks.list(ghost)).toEqual([])
 
     // Once the agent actually exists, the same owner gets a WORKING cleanup —
@@ -388,6 +393,30 @@ describe('TaskService owner isolation', () => {
     await ctx.agents.drainCleanups(ghost.id)
     expect(cancels).toEqual(['owner disposed'])
     expect(ctx.tasks.list(ghost)).toEqual([])
+  })
+
+  it('rejects a stale owner instance after another agent reuses its id', async () => {
+    const ctx = await harness()
+    const staleOwner = stubAgent('owner', 'stale-session')
+    const unregisterStale = ctx.agents.register(staleOwner)
+    unregisterStale()
+
+    const currentOwner = stubAgent('owner', 'current-session')
+    ctx.agents.register(currentOwner)
+    const current = producer({ owner: currentOwner })
+    ctx.tasks.start(current.spec) // Attach the current owner's cleanup first.
+
+    const stale = producer({ owner: staleOwner })
+    const staleRun = vi.fn(() => stale.spec.run())
+    expect(() => ctx.tasks.start({ ...stale.spec, run: staleRun }))
+      .toThrow('is not the registered agent instance')
+    expect(staleRun).not.toHaveBeenCalled()
+    expect(ctx.tasks.list(staleOwner)).toEqual([])
+    expect(ctx.tasks.list(currentOwner)).toHaveLength(1)
+
+    current.settle({ status: 'completed' })
+    await tick()
+    await ctx.agents.drainCleanups(currentOwner.id)
   })
 })
 

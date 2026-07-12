@@ -883,7 +883,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: string;\n    label: string;\n    ownerSession?: string;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: string;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',

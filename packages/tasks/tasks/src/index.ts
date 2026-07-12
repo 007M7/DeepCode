@@ -32,6 +32,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
 import type { TaskDoneListener, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from './types.ts'
@@ -67,7 +68,7 @@ interface TrackedTask {
   kind: string
   label: string
   /** The owner's session id (`session.header.id`), or undefined for an unowned task. */
-  ownerSession: string | undefined
+  ownerSession: SessionId | undefined
   cancel: (reason?: string) => void
   readOutput: (() => string) | undefined
   status: TaskStatus
@@ -121,8 +122,9 @@ export class TaskService extends Service {
    * task id (`<kind>-N`, per-kind counter). Every check that can fail — the
    * control-surface fence ({@link attachSurface}; a task the model could
    * never read or stop must fail loud before it exists), kind/label
-   * validation, and the owner's awaited disposal-cleanup attach (once per
-   * owner agent, through `ctx.agents.onCleanup`) — runs BEFORE
+   * validation, exact live owner-instance identity, and the owner's awaited
+   * disposal-cleanup attach (once per owner agent, through
+   * `ctx.agents.onCleanup`) — runs BEFORE
    * `spec.run()` starts the actual work, and nothing in the runtime can fail
    * after it returns: "work started but never got a collectable id" is
    * structurally impossible, not a producer rollback obligation. The runtime
@@ -450,16 +452,21 @@ export class TaskService extends Service {
    * fiber. A narrow race remains if new work starts on an agent already being
    * drained: before this callback clears the owner entry, that start can reuse
    * the in-flight cleanup after its task snapshot was taken.
-   * Fails loud when no agent registry is mounted — an owned background task
-   * without the cleanup seam would outlive its owner silently.
+   * Fails loud when no agent registry is mounted or when `owner` is not the
+   * exact live instance currently registered under its id — accepting a stale
+   * object after id reuse would attach its session's task to another agent's
+   * lifecycle.
    */
   private ensureOwnerCleanup(owner: Agent): void {
     const ownerId = owner.id
-    if (this.ownerCleanups.has(ownerId)) return
     const agents = this.selfCtx.get('agents')
     if (agents === undefined) {
       throw new Error('background task ownership requires the agent registry (load @deepseek-ai/dsh-agent)')
     }
+    if (agents.get(ownerId) !== owner) {
+      throw new Error(`agent "${ownerId}" is not the registered agent instance (background task owner must be live)`)
+    }
+    if (this.ownerCleanups.has(ownerId)) return
     const ownerSession = owner.session.header.id
     // Attach FIRST, record after: onCleanup throws for an unregistered agent,
     // and marking the owner as covered before that would make every later
@@ -476,7 +483,7 @@ export class TaskService extends Service {
   }
 
   /** Cancel, await terminal records, and drop every task owned by one session. */
-  private async disposeOwned(ownerSession: string): Promise<void> {
+  private async disposeOwned(ownerSession: SessionId): Promise<void> {
     const owned = [...this.store.values()].filter(task => task.ownerSession === ownerSession)
     this.cancelForTeardown(owned, 'owner disposed')
     await Promise.all(owned.map(task => task.settled))
