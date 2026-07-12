@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { AgentId, agentEvents } from '@deepseek-ai/dsh-agent'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
   errorResponse,
@@ -267,37 +267,6 @@ describe('acp bridge — turn outcomes', () => {
       if (event.type === 'turn/start') throw new Error('peer listener boom on start')
     }, { prepend: true })
     const sessionId = await newSession(harness)
-    const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('end_turn')
-  })
-
-  it('status reconciliation infers the owning message turn when teardown wins after turn/start', async () => {
-    harness = await makeBridgeHarness({ storageDir, script: [textResponse('background completion')] })
-    const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
-    harness.ctx.on('session/event', (session, event) => {
-      if (session !== agent.session || event.type !== 'turn/start') return
-      // Inject the signal ordering the defensive fallback handles: disposal
-      // status after turn/start commits but before ACP's later live observer.
-      // This is event-level simulation; it does not mutate the test agent.
-      agentEvents(harness!.ctx, agent).emit('agent/status', 'disposed')
-    }, { prepend: true })
-
-    const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('cancelled')
-  })
-
-  it('status reconciliation can settle from a committed turn/end before live delivery', async () => {
-    harness = await makeBridgeHarness({ storageDir, script: [textResponse('answer')] })
-    const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
-    harness.ctx.on('session/event', (session, event) => {
-      if (session !== agent.session || event.type !== 'turn/end') return
-      // Inject a reentrant status signal after the boundary commits to exercise
-      // the defensive log path before ACP's captured callback runs.
-      agentEvents(harness!.ctx, agent).emit('agent/status', 'idle')
-    }, { prepend: true })
-
     const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
     expect(result.stopReason).toBe('end_turn')
   })

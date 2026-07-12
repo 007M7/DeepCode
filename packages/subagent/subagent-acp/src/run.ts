@@ -180,35 +180,19 @@ function toError(value: unknown): Error {
  * and drives one session: `initialize` → `newSession` → `prompt`. The accumulated
  * `agent_message_chunk` text is the result output; the prompt's terminal
  * `StopReason` maps to the stop reason. `result` never REJECTS on a child-level
- * failure (a spawn/transport/RPC error resolves with `stopReason: 'error'`), per
- * the seam contract. `cancel()` sends `session/cancel`; `dispose()` kills the
- * subprocess and awaits its exit (quiescent teardown).
- * @param request - the start request; the driver consumes `prompt` and `signal`
- * (an already-aborted signal yields an inert `aborted` run with no spawn).
+ * failure after publication resolves with `stopReason: 'error'`. A spawn,
+ * initialize, new-session, or pre-publication cancellation failure instead
+ * rejects only after the process has been reaped. `dispose()` requests ACP
+ * cancellation, then kills and reaps the subprocess.
+ * @param request - the start request; its signal is the cancellation channel.
  * @param spec - the resolved spawn spec: command/args/cwd, env, permission
  * policy, dispose graces, and the optional error sink.
- * @returns the live run handle for the child subprocess.
+ * @returns the ready run handle for the child subprocess.
  */
-export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): SubagentRun {
+export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Promise<SubagentRun> {
   const id = AgentId(randomUUID())
 
-  // A request already aborted before it starts never spawns the child at all —
-  // return an inert run that settled `aborted`, rather than launching the
-  // configured binary just to tear it down. `dispose`/`cancel` are no-ops.
-  if (request.signal?.aborted) {
-    const started = Promise.reject(new Error('subagent request was aborted before the ACP child started'))
-    // The result is derived from the same boundary so the readiness rejection
-    // is observed even when this provider is driven directly rather than
-    // through SubagentService.
-    const result: Promise<SubagentResult> = started.catch(() => ({ output: [], stopReason: 'aborted' }))
-    return {
-      id,
-      started,
-      result,
-      cancel(_reason?: string): void { /* nothing was started */ },
-      dispose(): Promise<void> { return Promise.resolve() },
-    }
-  }
+  if (request.signal.aborted) throw new Error('subagent request was aborted before the ACP child started')
 
   // Spawn the child ACP agent. stdin = ACP request channel, stdout = ACP
   // response channel, stderr = INHERIT so the child's diagnostics surface on the
@@ -225,9 +209,18 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   // `error` like any child failure.
   const spawnFailed = spawnFailure(child)
 
+  // One memoized quiescence transaction is shared by startup rollback and the
+  // published run's disposer. Once start fulfills, only the holder can invoke
+  // it; before fulfillment the provider invokes it on every failure path.
+  let processDisposal: Promise<void> | undefined
+  const disposeProcess = (): Promise<void> => (processDisposal ??= disposeChildProcess(child, {
+    disposeEofGraceMs: spec.disposeEofGraceMs,
+    disposeGraceMs: spec.disposeGraceMs,
+  }))
+
   // Accumulate the child's streamed assistant text — the SubagentResult output.
   const output: string[] = []
-  // `cancelled` records that a cancel was requested (signal or cancel()), so a
+  // `cancelled` records that the required signal or disposal requested cancel, so a
   // run torn down before the prompt resolves settles `aborted` rather than the
   // generic error mapping. Held on a mutable object so the async closures that
   // set it (the abort listener) and the IIFE that reads it don't fight TS's
@@ -271,7 +264,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   // Resolves when a cancel is requested, so `result` can settle `aborted` even
   // if the child never cooperates with `session/cancel` (it ignores the notify,
   // or the prompt wedges). The result path races this against the ACP drive: the
-  // FIRST to settle wins, so `cancel()` always honors the contract (`result`
+  // FIRST to settle wins, so signal/dispose cancellation always honors the contract (`result`
   // settles `aborted`) without waiting on a non-cooperative child. `dispose`
   // still kills the process and reaps it; this only unblocks `result`. The
   // executor runs synchronously, so `signalCancelSettled` is assigned before the
@@ -279,6 +272,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   let signalCancelSettled!: () => void
   const cancelSettled = new Promise<void>((resolve) => { signalCancelSettled = resolve })
   const requestCancel = (): void => {
+    if (flags.cancelled) return
     flags.cancelled = true
     signalCancelSettled()
     // Best-effort: tell the child to cancel the in-flight turn. Swallows a
@@ -293,7 +287,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     if (sessionId !== undefined) void conn.cancel({ sessionId }).catch(() => { /* child gone / no session */ })
   }
   const onAbort = (): void => { requestCancel() }
-  request.signal?.addEventListener('abort', onAbort, { once: true })
+  request.signal.addEventListener('abort', onAbort, { once: true })
 
   // The accumulated child text as harness ContentBlocks (empty array when the
   // child streamed nothing). Read at every return so a partial answer survives
@@ -303,47 +297,41 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     return text.length > 0 ? [{ type: 'text', text }] : []
   }
 
-  // A provider is "started" only once the remote child has completed ACP
-  // initialization and published a session. SubagentService gates its
-  // `subagent/start` notification on this boundary, just as the in-process
-  // provider gates it on local Agent publication. Failure or cancellation
-  // before this point rejects readiness and therefore produces no paired
-  // lifecycle events for a child that never became live.
-  const started: Promise<void> = Promise.race([
-    (async (): Promise<void> => {
-      await conn.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        // Advertise NO optional client capabilities (no fs, no terminal): the
-        // child self-serves in its own process.
-        clientCapabilities: {},
-      })
-      const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-      sessionId = session.sessionId
-      if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
-    })(),
-    spawnFailed.then((err): never => { throw err }),
-    cancelSettled.then((): never => { throw new Error('subagent cancelled before the ACP session started') }),
-  ])
+  // Establish the remote session before publishing a handle. Any failure owns
+  // the still-private process and therefore reaps it before rejecting.
+  try {
+    await Promise.race([
+      (async (): Promise<void> => {
+        await conn.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          // Advertise NO optional client capabilities (no fs, no terminal): the
+          // child self-serves in its own process.
+          clientCapabilities: {},
+        })
+        const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
+        sessionId = session.sessionId
+        if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
+      })(),
+      spawnFailed.then((err): never => { throw err }),
+      cancelSettled.then((): never => { throw new Error('subagent cancelled before the ACP session started') }),
+    ])
+  } catch (error: unknown) {
+    request.signal.removeEventListener('abort', onAbort)
+    await disposeProcess()
+    if (flags.cancelled) throw new Error('subagent request was aborted before the ACP child started')
+    throw toError(error)
+  }
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
     try {
-      // Readiness is the initialize → newSession phase above. Awaiting the SAME
-      // promise immediately observes its rejection even without the service,
-      // and guarantees the prompt phase never starts before the provider can
-      // truthfully announce a live child.
-      await started
-
-      // Race two post-start outcomes, first to settle wins:
+      // Race two post-publication outcomes, first to settle wins:
       //  - prompt: the normal remote turn;
       //  - cancelSettled: a cancel was requested — settle `aborted` immediately
       //    rather than waiting on a child that may ignore `session/cancel` or
-      //    wedge the prompt (the `cancel()` contract: `result` settles `aborted`).
-      // A spawn error can only precede readiness and is already one arm of
-      // `started`; after `newSession` succeeds, transport/process failure rejects
-      // the in-flight prompt RPC through the connection.
+      //    wedge the prompt (`result` settles `aborted`). After `newSession`
+      // succeeds, transport/process failure rejects the in-flight prompt RPC.
       const prompt = async (): Promise<SubagentResult> => {
-        // `started` cannot fulfill without assigning the session id; the cast
-        // records that local invariant without an unreachable defensive arm.
+        // The startup phase cannot fulfill without assigning the session id.
         const promptResult = await conn.prompt({ sessionId: sessionId as string, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
@@ -354,9 +342,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     } catch (error: unknown) {
       if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
       // The seam contract: result resolves (never rejects) on a child-level
-      // failure. A cancellation is recognized by the flag above even when it
-      // wins during readiness; every other rejection is a genuine child-level
-      // error — initialize/newSession/prompt transport/RPC failure or ENOENT.
+      // failure. Startup failures were already rejected before publication;
+      // every rejection here is a prompt transport/RPC failure.
       // Flatten to `error` and surface the original via onError so a real fault
       // is preserved rather than silently lost.
       try {
@@ -367,18 +354,19 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
         // The child-level failure being reported still settles as `error`.
       }
       return { output: collectOutput(), stopReason: 'error' }
+    } finally {
+      request.signal.removeEventListener('abort', onAbort)
     }
   })()
 
+  let disposal: Promise<void> | undefined
   return {
     id,
-    started,
     result,
-    cancel(_reason?: string): void {
+    dispose(): Promise<void> {
+      if (disposal !== undefined) return disposal
+      request.signal.removeEventListener('abort', onAbort)
       requestCancel()
-    },
-    async dispose(): Promise<void> {
-      request.signal?.removeEventListener('abort', onAbort)
       // Quiescent teardown via the shared ladder (stdin EOF → SIGTERM →
       // SIGKILL, awaiting the actual exit). For THIS child the EOF tier is the
       // one that matters: our acp-agent has NO SIGTERM handler in a normal
@@ -388,10 +376,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // turn/end BEFORE that post-turn flush lands, so the child still has
       // durable work owed when dispose runs (hence the wide EOF grace; see
       // DEFAULT_DISPOSE_EOF_GRACE_MS).
-      await disposeChildProcess(child, {
-        disposeEofGraceMs: spec.disposeEofGraceMs,
-        disposeGraceMs: spec.disposeGraceMs,
-      })
+      disposal = disposeProcess()
+      return disposal
     },
   }
 }

@@ -16,12 +16,12 @@
  *
  * The child scope's registrations enforce the contract:
  *
- * - `systemPrompt.protect()` declaratively protects the capture tool and its
- *   instruction. The service restores their canonical pre-waterfall state
+ * - `ownerFinal: true` on the capture tool and instruction declares that the
+ *   owning registrations control their final presence. Prompt assembly restores their canonical state
  *   after EVERY assembly listener. Canonical absence is protected too: pure
  *   Code Mode keeps `structured_output` in the SDK only and never grows a
- *   second native wire tool. Code Mode's owner independently protects its SDK
- *   and `run_code` transport. The loop logs the finalized assembly as the
+ *   second native wire tool. Code Mode independently declares its SDK section
+ *   and `run_code` transport owner-final. The loop logs the finalized assembly as the
  *   request header, so the demand is reconstructable log state, never a
  *   wire-only mutation.
  * - `agent/turn-stop` (serial, scoped): stop the child's turn once its output
@@ -79,7 +79,7 @@ export interface StructuredAttachment {
  * agent-creation `setup` window with the child's scope context — every
  * registration rides the child's fiber and unwinds with the child.
  * @param childCtx - the child agent's scope context (`setup`'s argument).
- * @param schema - the detached, already-asserted schema subset to enforce (see
+ * @param schema - the trusted, already-asserted schema subset to enforce (see
  *   `assertSupportedOutputSchema` in dsh-tools).
  * @returns the attachment handle (read `captured()` after the child settles).
  */
@@ -110,15 +110,16 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
 
   childCtx.tools.register({
     ...schemaEntry,
+    ownerFinal: true,
     execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
       const violations = validateStructuredValue(schema, args)
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
       if (violations.length > 0) throw new ToolArgsError(violations)
       // Two-phase commit, keyed by THIS execution: later transformable
-      // waterfalls may still turn the success into an error. Snapshot the
-      // validated value independently of the already-frozen pipeline arguments.
-      staged.set(exec, { value: structuredClone(args) })
+      // waterfalls may still turn the success into an error. ToolRegistry has
+      // already frozen model-bound arguments at the actual input boundary.
+      staged.set(exec, { value: args })
       return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
     },
   })
@@ -127,16 +128,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     name: `tool:${STRUCTURED_OUTPUT_TOOL}`,
     order: 190,
     text: STRUCTURED_OUTPUT_INSTRUCTION,
-  })
-
-  // Service-owned finalization, not waterfall ordering. The canonical
-  // assembly determines both presence and absence: native/both modes restore
-  // the capture schema on the wire, while pure Code Mode removes any injected
-  // native entry. ToolRegistry's own protection independently restores the SDK
-  // section and run_code transport that carry the same schema.
-  childCtx.systemPrompt.protect({
-    sections: [`tool:${STRUCTURED_OUTPUT_TOOL}`],
-    tools: [STRUCTURED_OUTPUT_TOOL],
+    ownerFinal: true,
   })
 
   // Stop the child's turn once its output is captured. This monotonic serial

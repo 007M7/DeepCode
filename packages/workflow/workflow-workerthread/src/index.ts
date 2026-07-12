@@ -151,9 +151,7 @@ export class WorkerWorkflowEngine extends WorkflowService {
     const meta = validateMeta(request.meta)
     assertBodyParses(request.script, meta.name)
     const id = WorkflowRunId(randomUUID())
-    // The event payloads and the run handle get SEPARATE meta clones: a
-    // listener mutating its snapshot must not corrupt the holder's view.
-    const info: WorkflowRunInfo = { id, meta: structuredClone(meta) }
+    const info: WorkflowRunInfo = { id, meta }
     const limits: WorkerLimits = {
       maxConcurrentAgents: this.config.maxConcurrentAgents === 0
         ? Math.min(16, Math.max(1, availableParallelism() - 2))
@@ -180,7 +178,7 @@ export class WorkerWorkflowEngine extends WorkflowService {
       runCtx,
       subagents,
       id,
-      structuredClone(meta),
+      meta,
       request.parent,
       init,
       this.config.provider,

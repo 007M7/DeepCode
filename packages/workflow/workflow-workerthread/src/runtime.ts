@@ -20,7 +20,7 @@
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
  * unsupported options/schemas, tripped caps, synchronous start refusal,
- * pre-publication readiness failure, ready-child result rejection, and
+ * provider-start failure, ready-child result rejection, and
  * cancellation) ALWAYS propagate through
  * `parallel`/`pipeline` — recognized by `instanceof` against this realm's
  * class, which a script inside the vm context cannot forge — and the per-item
@@ -83,9 +83,8 @@ function defaultLabel(prompt: string): string {
 /**
  * One live script execution inside the worker. Constructed per run by the
  * session; `drive()` is called exactly once and NEVER rejects — every failure
- * becomes a {@link WorkflowResult} with a non-`completed` stop reason. After
- * the session publishes that result it calls {@link reapAfterResult} exactly
- * once to cancel any dropped child work without racing terminal publication.
+ * becomes a {@link WorkflowResult} with a non-`completed` stop reason. The
+ * host owns cancellation and cleanup of any dropped child work.
  */
 export class WorkflowExecution {
   /** 1-based count of `agent()` calls started (the `agentsStarted` result field). */
@@ -94,7 +93,6 @@ export class WorkflowExecution {
   private readonly slotWaiters: { resolve(): void; reject(error: unknown): void }[] = []
   private cancelReason: string | undefined
   private cancelError: WorkflowError | undefined
-  private readonly controller = new AbortController()
   private currentPhase: string | undefined
   private readonly context: vm.Context
   private readonly compiled: vm.Script
@@ -130,11 +128,8 @@ export class WorkflowExecution {
       pipeline: (items: unknown, ...stages: unknown[]) => this.contain(this.pipeline(items, stages)),
       phase: (title: unknown) => { this.phase(title) },
       log: (message: unknown) => { this.log(message) },
-      // Cloned once: a script scribbling on args must not mutate the
-      // session's init object (a benign-bug guard; args is plain JSON by the
-      // seam contract and already crossed one structured clone as workerData,
-      // so this clone is total).
-      args: args === undefined ? undefined : structuredClone(args),
+      // workerData already performed the real cross-thread structured clone.
+      args,
     }
     for (const [key, value] of Object.entries(globals)) {
       // Data properties on the contextified global; frozen shape not required —
@@ -165,22 +160,18 @@ export class WorkflowExecution {
   }
 
   /**
-   * Cancel the run: in-flight children get a cancel RPC (the shared abort
-   * fanout), waiting `agent()` slots reject, and every future hook call
+   * Cancel the run: waiting `agent()` slots reject and every future hook call
    * throws `CANCELLED` — the script dies at its next await. A script that
    * never settles anyway (parked on a promise no hook owns) is the HOST's
    * problem: its grace timer force-settles the run and terminates the
    * worker. Idempotent; the first reason wins.
-   * @param reason - human-readable cause, carried on the CANCELLED error and
-   * into child cancel RPCs. Required: every caller (the session's cancel
-   * message and its post-result {@link reapAfterResult} call) has a concrete
-   * reason.
+   * @param reason - human-readable cause carried on the CANCELLED error. The
+   * host independently aborts the required signal shared by every child.
    */
   cancel(reason: string): void {
     if (this.cancelReason !== undefined) return
     this.cancelReason = reason
     this.cancelError = new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
-    this.controller.abort(this.cancelReason)
     for (const waiter of this.slotWaiters.splice(0)) waiter.reject(this.cancelledError())
   }
 
@@ -188,9 +179,8 @@ export class WorkflowExecution {
    * Run the script to settlement. Resolves — never rejects — with the run's
    * {@link WorkflowResult}: the materialized return value on `completed`, the
    * failure message on `error`, and `cancelled` when the script died of
-   * cancellation. This method only chooses the result; the session must publish
-   * it and then call {@link reapAfterResult}, so the terminal message precedes
-   * settlement-only child cancellation on the worker-to-host FIFO channel.
+   * cancellation. This method only chooses the result; the session publishes
+   * it and the host owns terminal child cancellation.
    * @returns the settled outcome — this promise NEVER rejects (the seam's
    * `result`-never-rejects contract); every failure maps to a variant.
    */
@@ -219,16 +209,6 @@ export class WorkflowExecution {
       // contract.
       return { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
     }
-  }
-
-  /**
-   * Reap strays only after the caller publishes the chosen terminal result.
-   * Aborting the controller synchronously sends child-cancel RPCs, so calling
-   * this before publication would let a provider callback reenter host
-   * cancellation and misclassify a result the script had already chosen.
-   */
-  reapAfterResult(): void {
-    if (this.cancelReason === undefined) this.cancel('workflow settled')
   }
 
   /**
@@ -336,17 +316,11 @@ export class WorkflowExecution {
       // wind the fresh child down instead of leaving it live behind a dead
       // script.
       if (this.isCancelled()) {
-        run.cancel(this.cancelReason)
         await run.dispose()
         throw this.cancelledError()
       }
       const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: AgentId(run.id) }
       this.observer.agentStart(info)
-      // Cancellation reaches the child through an explicit cancel RPC per
-      // child (the host also aborts its own per-run signal, but the seam
-      // leaves a provider free to honor either channel, so both are driven).
-      const onAbort = (): void => { run.cancel(this.cancelReason) }
-      this.controller.signal.addEventListener('abort', onAbort, { once: true })
       try {
         let result
         try {
@@ -387,7 +361,6 @@ export class WorkflowExecution {
         this.observer.agentEnd({ ...info, outcome: 'failed' })
         return null
       } finally {
-        this.controller.signal.removeEventListener('abort', onAbort)
         await run.dispose()
       }
     } finally {

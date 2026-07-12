@@ -128,7 +128,7 @@ export interface WorkflowRun {
   dispose(): Promise<void>
 }
 
-/** Identifying detail for a run, carried by every `workflow/*` event (a data snapshot, never the live run). */
+/** Identifying detail for a run, carried by every `workflow/*` event as borrowed immutable data, never the live run. */
 export interface WorkflowRunInfo {
   /** The run's id. */
   id: WorkflowRunId
