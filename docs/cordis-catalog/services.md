@@ -17,11 +17,11 @@ The loop itself is deliberately thin — every behavior beyond "call the model, 
 
 ```ts cordis-catalog
 create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
-async createAgent(options: CreateAgentOptions): Promise<AgentHandle>
-async resume(options: ResumeAgentOptions): Promise<AgentHandle>
+async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
+async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:78`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:153`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -39,9 +39,9 @@ get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [AgentRegistrationReservation](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:202`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:250`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -222,7 +222,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:663`](../../packages/core/session/src/index.ts)
+Types: [SessionRegistrationReservation](../core-data-structures/session.md)
+
+Source: [`packages/core/session/src/index.ts:667`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

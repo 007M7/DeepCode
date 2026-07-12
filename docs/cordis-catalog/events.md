@@ -15,7 +15,7 @@ Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `n
 
 ### `agent/created` — emit
 
-An agent's fully composed scoped world was published in the AgentRegistry. Its session is already live in the session store, but concrete factories may keep driving verbs locked until the subsequent `agent/session-start` boundary; that event is the first supported place to inject or queue work during startup. A synchronous listener throw vetoes publication and rollback emits the matching disposal edges; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary.
+An agent's fully composed scoped world was published in the AgentRegistry. Its session is already live in the session store, but concrete factories may keep driving verbs locked until the subsequent `agent/session-start` boundary; that event is the first supported place to inject or queue work during startup. A synchronous listener throw vetoes publication and rollback emits the matching disposal edges; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary. A synchronous listener that requests the advanced registry detach does not remove the entry immediately: removal and the paired `agent/disposed` edge wait until the creation dispatch unwinds, so no later creation listener observes a disposal that preceded its own creation callback.
 
 ```ts cordis-catalog
 'agent/created'(this: Scoped<Agent>, agent: Agent): void
@@ -23,11 +23,11 @@ An agent's fully composed scoped world was published in the AgentRegistry. Its s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:303`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:307`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
-An agent was removed from the registry after its driver and any in-flight turn reached quiescence. Ordered teardown may still be detaching the session and unwinding the agent's scoped registrations when this notification runs.
+An agent was removed from the registry. The concrete AgentLoop lifecycle emits this only after its driver and any in-flight turn reach quiescence; a custom agent registered through the public registry owns its own driver contract, which the registry cannot infer. Ordered teardown may still be detaching the session and unwinding scoped registrations when this runs.
 
 ```ts cordis-catalog
 'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
@@ -35,7 +35,7 @@ An agent was removed from the registry after its driver and any in-flight turn r
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:317`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:322`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:590`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:596`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:422`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:428`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:440`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:446`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:350`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:469`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:475`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -113,19 +113,19 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:521`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:527`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
-The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): it carries no veto — a session-start listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees), not by returning a decision. Cannot block the session from starting; that gap is deliberate (a bridge logs/injects, it does not gate startup).
+The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): a listener cannot veto by returning a decision or throwing. A listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees). A lifecycle owner can still dispose its structural ownership edge during this notification; publication rechecks liveness and then aborts before the driver starts.
 
 ```ts cordis-catalog
 'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:365`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:371`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:331`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:336`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:536`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:542`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:554`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:560`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -173,7 +173,7 @@ Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` wat
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:573`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:579`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -245,13 +245,13 @@ Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts
 
 ### `session/created` — emit
 
-A session was created in the store. A synchronous listener throw vetoes publication and rollback emits the matching `session/disposed` edge; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
+A session was created in the store. A synchronous listener throw vetoes publication and rollback emits the matching `session/disposed` edge; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary. A synchronous listener that requests the advanced detach does not remove the entry immediately: removal and the paired `session/disposed` edge wait until the creation dispatch unwinds. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
 
 ```ts cordis-catalog
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:50`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:52`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -261,7 +261,7 @@ A previously announced session left the store. Emitted exactly once on normal de
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:62`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -273,7 +273,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:76`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -283,7 +283,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:94`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 

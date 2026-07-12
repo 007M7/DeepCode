@@ -249,6 +249,9 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // Creation notifications preserve synchronous veto/rollback but observe
   // returned promises explicitly so async listener rejection is not unhandled.
   { event: 'agent/created', pkg: 'agent', method: 'events.dispatch' },
+  // Registry disposal reuses the stable carrier captured before entry commit
+  // and contains each listener directly rather than rebuilding via agentEvents.
+  { event: 'agent/disposed', pkg: 'agent', method: 'events.dispatch' },
   { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
   // Session disposal uses direct callback resolution so teardown contains each
   // synchronous throw and returned-promise rejection independently.

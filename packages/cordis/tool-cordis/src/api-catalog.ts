@@ -57,8 +57,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`.',
     methods: [
       'create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
-      'async createAgent(options: CreateAgentOptions): Promise<AgentHandle>',
-      'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
+      'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
+      'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
   },
   {
@@ -251,7 +251,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent was removed from the registry after its driver and any in-flight turn reached quiescence.',
+    summary: 'An agent was removed from the registry.',
   },
   {
     name: 'agent/error',
@@ -497,7 +497,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentFactory',
-    declaration: 'export interface AgentFactory {\n    createAgent(options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
+    declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
   {
     name: 'AgentHandle',

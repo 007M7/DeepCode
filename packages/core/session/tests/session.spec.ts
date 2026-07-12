@@ -740,6 +740,79 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('racy'))).toBe(live)
   })
 
+  it('claims an id across Context.filter evaluation before committing the exact session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const id = SessionId('reentrant-enter')
+    const nested = new Session(id)
+    const outer = new Session(id)
+    let nestedError = ''
+    let attempted = false
+    Object.defineProperty(outer, Context.filter, {
+      configurable: true,
+      get() {
+        if (!attempted) {
+          attempted = true
+          try {
+            ctx.sessions.enter(nested)
+          } catch (error: unknown) {
+            nestedError = String(error)
+          }
+        }
+        return undefined
+      },
+    })
+
+    const detach = ctx.sessions.enter(outer)
+    expect(nestedError).toMatch(/already exists/)
+    expect(ctx.sessions.get(id)).toBe(outer)
+    detach()
+    expect(ctx.sessions.get(id)).toBeUndefined()
+  })
+
+  it('revalidates reservation ownership after carrier construction runs caller code', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const id = SessionId('released-during-enter')
+    const reservation = ctx.sessions.reserve(id)
+    const session = reservation.prepare()
+    Object.defineProperty(session, Context.filter, {
+      configurable: true,
+      get() {
+        reservation.release()
+        return undefined
+      },
+    })
+
+    expect(() => ctx.sessions.enter(session, reservation)).toThrow(/does not own this prepared session/)
+    expect(ctx.sessions.get(id)).toBeUndefined()
+  })
+
+  it('rejects when carrier construction attaches the same session to another store', async () => {
+    const firstCtx = new Context()
+    const secondCtx = new Context()
+    await firstCtx.plugin(SessionStore)
+    await secondCtx.plugin(SessionStore)
+    const session = new Session(SessionId('cross-store-carrier'))
+    let attempted = false
+    let detachSecond = (): void => {}
+    Object.defineProperty(session, Context.filter, {
+      configurable: true,
+      get() {
+        if (!attempted) {
+          attempted = true
+          detachSecond = secondCtx.sessions.enter(session)
+        }
+        return undefined
+      },
+    })
+
+    expect(() => firstCtx.sessions.enter(session)).toThrow(/already attached to a store/)
+    expect(firstCtx.sessions.get(session.id)).toBeUndefined()
+    expect(secondCtx.sessions.get(session.id)).toBe(session)
+    detachSecond()
+  })
+
   it('prepare() + enter() + announce() register a session and emit session/created', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -867,6 +940,49 @@ describe('SessionStore', () => {
     expect(() => { ctx.sessions.announce(session) }).toThrow(/already announced/)
     detach()
     expect({ created, disposed }).toEqual({ created: 1, disposed: 1 })
+  })
+
+  it('defers a reentrant detach until the creation dispatch unwinds', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const order: string[] = []
+    const session = ctx.sessions.prepare(SessionId('reentrant-detach'))
+    const detach = ctx.sessions.enter(session)
+
+    ctx.on('session/created', (created) => {
+      order.push('created:first')
+      detach()
+      expect(ctx.sessions.get(created.id)).toBe(created)
+    })
+    ctx.on('session/created', (created) => {
+      order.push('created:second')
+      expect(ctx.sessions.get(created.id)).toBe(created)
+    })
+    ctx.on('session/disposed', (disposed) => {
+      order.push('disposed')
+      expect(ctx.sessions.get(disposed.id)).toBeUndefined()
+    })
+
+    ctx.sessions.announce(session)
+
+    expect(order).toEqual(['created:first', 'created:second', 'disposed'])
+    expect(ctx.sessions.get(session.id)).toBeUndefined()
+    detach()
+  })
+
+  it('rolls back create when its owner unloads from session/created', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let ownerCtx!: Context
+    const owner = await ctx.plugin(Object.assign((inner: Context) => { ownerCtx = inner }, { inject: ['sessions'] }))
+    const id = SessionId('create-unload-race')
+    ctx.on('session/created', (session) => {
+      if (session.id === id) void owner.dispose()
+    })
+
+    ownerCtx.sessions.create(id)
+    await owner.dispose()
+    expect(ctx.sessions.get(id)).toBeUndefined()
   })
 
   it('synthesizes a minimal current-version header for a bare-created session', async () => {

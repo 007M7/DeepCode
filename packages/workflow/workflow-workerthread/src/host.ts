@@ -1,9 +1,10 @@
 /**
  * The host half of one worker-engine run: spawn the Worker, bridge its child
- * RPC onto `ctx.subagents`, fan its observer messages into the engine's
- * events, and own cancellation, the settle-within-grace guarantee, and child
- * cleanup. The worker's lifetime IS the run's lifetime: `dispose()` always
- * ends with `worker.terminate()`, so no thread outlives its run.
+ * RPC onto the holder-bound subagent service, fan its observer messages into
+ * the engine's events, and own cancellation, the settle-within-grace
+ * guarantee, and child cleanup. The worker's lifetime IS the run's lifetime:
+ * `dispose()` always ends with `worker.terminate()`, so no thread outlives its
+ * run.
  *
  * The run's `result` promise settles exactly once, from whichever of these
  * lands first: the worker's `result` message (a host-side cancellation in
@@ -47,6 +48,7 @@ import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import { renderThrown } from './realm.ts'
@@ -121,7 +123,9 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOpti
  * `start()` directly. Owns the Worker, the child registry, and the result
  * settlement; `result` never rejects. `meta` is this handle's OWN clone
  * (event payloads carry separate clones), so a consumer mutating it corrupts
- * nothing.
+ * nothing. The holder-bound SubagentService handle is captured before the
+ * engine returns this run, so unloading the engine removes only the ability to
+ * start another workflow; this run can still start and clean up its children.
  */
 export class WorkerRun implements WorkflowRun {
   /** Settles exactly once with the run's outcome; never rejects. */
@@ -151,6 +155,7 @@ export class WorkerRun implements WorkflowRun {
 
   constructor(
     private readonly ctx: Context,
+    private readonly subagents: SubagentService,
     readonly id: WorkflowRunId,
     readonly meta: WorkflowMeta,
     private readonly parent: Agent,
@@ -329,7 +334,7 @@ export class WorkerRun implements WorkflowRun {
     this.hostStarted += 1
     let run: SubagentRun
     try {
-      run = this.ctx.subagents.start(this.provider, {
+      run = this.subagents.start(this.provider, {
         prompt: [{ type: 'text', text: request.prompt }],
         parent: this.parent,
         signal: this.controller.signal,

@@ -291,7 +291,11 @@ declare module 'cordis' {
      * to inject or queue work during startup. A synchronous listener throw
      * vetoes publication and rollback emits the matching disposal edges;
      * returned-promise rejection is observed and logged but cannot
-     * retroactively veto this synchronous boundary.
+     * retroactively veto this synchronous boundary. A synchronous listener
+     * that requests the advanced registry detach does not remove the entry
+     * immediately: removal and the paired `agent/disposed` edge wait until the
+     * creation dispatch unwinds, so no later creation listener observes a
+     * disposal that preceded its own creation callback.
      * @param agent - the newly registered agent with its live session and completed setup.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a
@@ -302,11 +306,12 @@ declare module 'cordis' {
      */
     'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * An agent was removed from the registry after its driver and any in-flight
-     * turn reached quiescence. Ordered teardown may still be detaching the
-     * session and unwinding the agent's scoped registrations when this
-     * notification runs.
-     * @param agent - the deregistered agent; its driving handle is now inert.
+     * An agent was removed from the registry. The concrete AgentLoop lifecycle
+     * emits this only after its driver and any in-flight turn reach quiescence;
+     * a custom agent registered through the public registry owns its own driver
+     * contract, which the registry cannot infer. Ordered teardown may still be
+     * detaching the session and unwinding scoped registrations when this runs.
+     * @param agent - the exact agent removed from the registry.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
      * through `agent.ctx` fires only for that agent's dispatches; a listener on a
      * plain plugin context fires for every agent. The dispatch `this` is the
@@ -348,11 +353,12 @@ declare module 'cordis' {
     /**
      * The agent's session lifecycle began, fired once before its first turn.
      * `source` says why ({@link SessionStartSource}: fresh startup, a resumed
-     * persisted session, …). A pure NOTIFICATION (emit, not waterfall): it
-     * carries no veto — a session-start listener that wants to seed context does
-     * so via `agent.inject()` (a `context/message` the first request sees), not
-     * by returning a decision. Cannot block the session from starting; that gap
-     * is deliberate (a bridge logs/injects, it does not gate startup).
+     * persisted session, …). A pure NOTIFICATION (emit, not waterfall): a
+     * listener cannot veto by returning a decision or throwing. A listener that
+     * wants to seed context does so via `agent.inject()` (a `context/message` the
+     * first request sees). A lifecycle owner can still dispose its structural
+     * ownership edge during this notification; publication rechecks liveness and
+     * then aborts before the driver starts.
      * @param agent - the agent whose session lifecycle began.
      * @param source - why the session started (fresh startup, resume, …).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered

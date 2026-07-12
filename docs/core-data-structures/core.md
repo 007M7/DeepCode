@@ -346,6 +346,19 @@ interface Agent {
 
 `AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
+### `AgentRegistrationReservation` — unpublished identity ownership
+
+An agent factory reserves its public `AgentId` before awaiting setup, so setup code cannot publish either the intended agent or a replacement under that id ahead of the transaction. The opaque capability authorizes exactly the later `enter()` call. Its `release` function is the exact Cordis owner effect disposer, letting the lifecycle adopt it by identity and place release after scope quiescence while owner disposal remains the abandoned-transaction backstop. Ordinary plugins use `register()` and never hold this type.
+
+Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index.ts)
+
+```ts type-equiv
+interface AgentRegistrationReservation {
+  readonly id: AgentId
+  release(): void
+}
+```
+
 ## Interception decisions
 
 Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one envelope for model-facing context, `HookContext`, which is `inject()`ed as a `context/message` and so carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt).

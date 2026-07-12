@@ -228,6 +228,27 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.fiber.dispose()
   })
 
+  it('successful resume disposal retires both caller ownership sentinels', async () => {
+    const sessionId = SessionId('resume-retired-sentinels-s')
+    const agentId = AgentId('resume-retired-sentinels')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const handle = await ctx.agents.resume({
+      agentId,
+      resumeSessionId: sessionId,
+      agentOptions: { model: 'mock' },
+    })
+    const sentinelLabels = [
+      `agentLoop.resumeLoad(${agentId})`,
+      `agentLoop.ownerLifecycle(${agentId})`,
+    ]
+
+    expect(ctx.fiber.getEffects().map(effect => effect.label)).toEqual(expect.arrayContaining(sentinelLabels))
+    await handle.dispose()
+    expect(ctx.fiber.getEffects().filter(effect => sentinelLabels.includes(effect.label))).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
   it('resume setup rejection publishes nothing, unwinds, and releases both identities', async () => {
     const sessionId = SessionId('resume-setup-reject')
     const root = await persistSession(sessionId)
@@ -348,6 +369,93 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     expect(published).toEqual(['session/created', 'agent/created', 'agent/session-start'])
 
     await retry.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('AgentLoop unload aborts persistence load and awaits reservation release', async () => {
+    const sessionId = SessionId('resume-load-factory-unload')
+    const agentId = AgentId('resume-load-factory-race')
+    const root = await persistSession(sessionId)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('next')]))
+
+    const snapshot = await ctx.sessionPersistence.load(sessionId)
+    const lateLoad = Promise.withResolvers<typeof snapshot>()
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = (id) => {
+      expect(id).toBe(sessionId)
+      loadStarted.resolve(undefined)
+      return lateLoad.promise
+    }
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+
+    const resuming = ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } })
+    await loadStarted.promise
+    const rejection = expect(promptly(resuming)).rejects.toThrow(/owner disposed during persistence load/)
+    await promptly(loopFiber.dispose())
+    await rejection
+
+    expect(published).toEqual([])
+    expect(ctx.agents.get(agentId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    const agentReservation = ctx.agents.reserve(agentId)
+    const sessionReservation = ctx.sessions.reserve(sessionId)
+    sessionReservation.release()
+    agentReservation.release()
+
+    lateLoad.resolve(structuredClone(snapshot))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(published).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('option snapshot reentrancy cannot install a resume sentinel after factory unload begins', async () => {
+    const sessionId = SessionId('resume-snapshot-factory-unload')
+    const agentId = AgentId('resume-snapshot-factory-race')
+    const root = await persistSession(sessionId)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('next')]))
+
+    let loads = 0
+    const load = ctx.sessionPersistence.load.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.load = (id) => {
+      loads += 1
+      return load(id)
+    }
+    const options = {
+      agentId,
+      resumeSessionId: sessionId,
+      get agentOptions() {
+        void loopFiber.dispose()
+        return { model: 'mock' }
+      },
+    }
+
+    await expect(ctx.agents.resume(options)).rejects.toThrow('agent loop is not active')
+    await loopFiber.dispose()
+    expect(loads).toBe(0)
+    expect(ctx.fiber.getEffects().filter(effect => effect.label === `agentLoop.resumeLoad(${agentId})`)).toEqual([])
+    const agentReservation = ctx.agents.reserve(agentId)
+    const sessionReservation = ctx.sessions.reserve(sessionId)
+    sessionReservation.release()
+    agentReservation.release()
     await ctx.fiber.dispose()
   })
 

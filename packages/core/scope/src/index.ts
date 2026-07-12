@@ -25,6 +25,14 @@
 import type { Context, Fiber } from 'cordis'
 import { Context as CordisContext } from 'cordis'
 
+// Capture the invocation primordials once. A carrier holder can reach the
+// composed Context.filter function, so neither that function's mutable
+// property surface nor a base filter's own `.call` may choose how isolation
+// predicates are invoked.
+const reflectApply = Reflect.apply
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const functionCall = Function.prototype.call
+
 /**
  * The identity a scope is keyed by. Opaque and compared by object identity —
  * never inspected. The harness convention: a live `Agent` is the key of its
@@ -194,8 +202,11 @@ function isConstructable(value: (...args: unknown[]) => unknown): boolean {
  * - its tag IS `key` (a scoped listener seeing exactly its own subject),
  *
  * AND `base`'s own filter (a Cordis `Service`'s isolation check) also admits
- * it. Dispatching with `key === undefined` — a subject-less dispatch, e.g. a
- * tool call with no calling agent or a bare (agent-less) session's events —
+ * it. Both the captured base filter and the composed filter are invoked
+ * through captured JavaScript primordials, so mutating either function's
+ * public `.call` property cannot bypass either predicate. Dispatching with
+ * `key === undefined` — a subject-less dispatch, e.g. a tool call with no
+ * calling agent or a bare (agent-less) session's events —
  * admits only untagged listeners: a scoped listener never fires for someone
  * else's (or nobody's) subject. Listeners registered `{ global: true }`
  * bypass all filtering (Cordis semantics).
@@ -211,7 +222,11 @@ function isConstructable(value: (...args: unknown[]) => unknown): boolean {
  * subject always travels in the event's arguments. The returned carrier is
  * branded {@link Scoped} and runtime-marked ({@link isScopeCarrier} /
  * {@link carrierKeyOf}) so both the type system and the dev invariants can
- * tell a carrier from a bare subject.
+ * tell a carrier from a bare subject. Defining an ordinary property through
+ * the carrier is supported only when its descriptor explicitly says
+ * `configurable: true`; an omitted or false flag is rejected before touching
+ * `base`, because the extensible surrogate cannot truthfully report a new
+ * non-configurable base property.
  * @param base - the object the event is dispatched on behalf of (the owning
  *   service, or the subject agent itself); its own `Context.filter` is
  *   preserved and composed.
@@ -225,10 +240,19 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
     throw new TypeError('scope target Context.filter must be a function when present')
   }
   const filter = (ctx: Context): boolean => {
-    if (baseFilter && !baseFilter.call(base, ctx)) return false
+    if (baseFilter && !reflectApply(functionCall, baseFilter, [base, ctx])) return false
     const tag = scopeOf(ctx)
     return tag === undefined || tag === key
   }
+  // Cordis invokes a dispatch filter as `filter.call(thisArg, listenerCtx)`.
+  // Pin that property to the captured primordial, then freeze the callable so
+  // a carrier holder cannot replace it with an always-true scope bypass.
+  Object.defineProperty(filter, 'call', {
+    value: functionCall,
+    writable: false,
+    configurable: false,
+  })
+  Object.freeze(filter)
   const overlay: Record<string | symbol, unknown> = {
     [CordisContext.filter]: filter,
     [kCarrier]: Object.freeze({ key }),
@@ -317,7 +341,7 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
       return undefined
     },
     defineProperty(_target, prop, attributes) {
-      if (Object.hasOwn(overlay, prop)) return false
+      if (Object.hasOwn(overlay, prop) || attributes.configurable !== true) return false
       return Reflect.defineProperty(base, prop, attributes)
     },
     deleteProperty(_target, prop) {

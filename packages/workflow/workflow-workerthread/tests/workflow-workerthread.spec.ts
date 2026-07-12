@@ -148,8 +148,8 @@ async function setup(options?: SetupOptions) {
   // A fixed concurrency ceiling: the auto-resolved default is machine-derived
   // (cores - 2, floored at 1), so tests that expect N children in flight
   // would wedge on small CI runners.
-  await ctx.plugin(WorkerWorkflowEngine, { provider: 'stub', maxConcurrentAgents: 8, ...options?.config })
-  return { ctx, provider, parent: fakeParent() }
+  const engineFiber = await ctx.plugin(WorkerWorkflowEngine, { provider: 'stub', maxConcurrentAgents: 8, ...options?.config })
+  return { ctx, provider, parent: fakeParent(), engineFiber }
 }
 
 /** The standard test meta plus a body, spread into a start request. */
@@ -1233,6 +1233,34 @@ describe('dsh-workflow-workerthread', () => {
       expect(ctx.get('workflows')).toBeDefined()
       await fiber.dispose()
       expect(ctx.get('workflows')).toBeUndefined()
+    })
+
+    it('keeps a holder-owned run usable when the engine unloads before its child starts', async () => {
+      const { ctx, parent, provider, engineFiber } = await setup({ reply: () => text('survived reload') })
+      let handle!: ReturnType<typeof ctx.workflows.start>
+      const holder = await ctx.plugin(Object.assign((inner: Context) => {
+        handle = inner.workflows.start({ ...scripted("return await agent('after reload')"), parent })
+      }, { inject: ['workflows'] }))
+
+      try {
+        // A real worker cannot deliver child-start in the synchronous start()
+        // slice. Unload the provider before that message arrives: the returned
+        // run belongs to `holder`, not to the engine fiber being reloaded.
+        expect(provider.runs).toHaveLength(0)
+        await engineFiber.dispose()
+        expect(ctx.get('workflows')).toBeUndefined()
+
+        await expect(handle.result).resolves.toEqual({
+          value: 'survived reload',
+          stopReason: 'completed',
+          agentsStarted: 1,
+        })
+        expect(provider.runs).toHaveLength(1)
+      } finally {
+        await handle.dispose()
+        await holder.dispose()
+        await ctx.fiber.dispose()
+      }
     })
 
     it('has the class-plugin export shape (default = the engine service class)', () => {

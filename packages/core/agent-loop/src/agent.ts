@@ -25,18 +25,23 @@ const claimedDriverSessions = new WeakSet<Session>()
 /** Module-private driver entry: its symbol is absent from the package surface. */
 const startDriver = Symbol('dsh.agent-loop.start-driver')
 
+/** Module-private quiescent stop, valid both before and after driver start. */
+const stopDriver = Symbol('dsh.agent-loop.stop-driver')
+
 /** Factory-owned controls that can operate only on the agent created with them. */
 export interface PreparedReactLoopAgent {
   /** The unpublished concrete agent. */
   agent: ReactLoopAgent
   /** Open its driving verbs at the rollback-covered publication boundary. */
   enableDrive(): void
+  /** Stop the prepared instance even when publication has not started its loop. */
+  dispose(): Promise<void> | void
   /**
    * Start its driver after publication and session-start notification.
    * The returned disposer reaches quiescence for both the loop and every
    * fire-and-forget idle-injection flush the agent started.
    */
-  startDriver(): () => Promise<void>
+  startDriver(): () => Promise<void> | void
 }
 
 /**
@@ -56,12 +61,20 @@ export function prepareReactLoopAgent(
   if (claimedDriverSessions.has(session)) {
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
   }
-  claimedDriverSessions.add(session)
   const agent = new ReactLoopAgent(ctx, id, options, session)
+  // Construction snapshots caller options and can throw. Claim only the fully
+  // initialized driver so the same prepared session remains retryable after a
+  // rejected caller value.
+  claimedDriverSessions.add(session)
+  const dispose = () => agent[stopDriver]()
   return {
     agent,
     enableDrive: () => { driveEnabledAgents.add(agent) },
-    startDriver: () => agent[startDriver](),
+    dispose,
+    startDriver: () => {
+      agent[startDriver]()
+      return dispose
+    },
   }
 }
 
@@ -108,6 +121,8 @@ export class ReactLoopAgent implements Agent {
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
+  /** Whether runLoop has been installed into {@link done}. */
+  private driverStarted = false
   /**
    * Turn-scoped cancel marker, set by {@link cancel} and read/cleared by the
    * driver loop (via the LoopHandle) at every point a turn could start or
@@ -361,17 +376,13 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Start the driver loop. Returns a disposer: calling it sets status to
-   * `disposed`, emits `agent/status('disposed')`, resolves the disposed
-   * promise (unblocking the idle wait), releases any `whenIdle` waiters, and
-   * aborts the current request if any. Its returned promise resolves only after
-   * the loop exits and every idle-injection flush started by this agent settles.
-   * @returns the disposer — idempotent, synchronously marks the agent disposed,
-   *   and asynchronously reaches loop + flush quiescence without rejecting (it
-   *   runs inside the fiber's LIFO disposal chain, where a rejection would skip
-   *   later disposers).
+   * Start the driver loop. The prepared controller already owns its stable
+   * disposer, so teardown can mark the agent disposed even in the narrow
+   * publication window before this method runs.
    */
-  [startDriver](): () => Promise<void> {
+  [startDriver](): void {
+    if (this._status === 'disposed') return
+    this.driverStarted = true
     this.done = runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
@@ -389,35 +400,50 @@ export class ReactLoopAgent implements Agent {
       // that would resolve a freshly-queued prompt as cancelled.
       settleIdle: () => { this.settleIdleWaiters() },
     })
-    // The disposer must be infallible: it runs inside the fiber's LIFO
-    // disposal chain, where a throw would skip later disposers (e.g. the
-    // registry unregistration) and leave `done` pending forever.
-    return async () => {
-      if (this._status !== 'disposed') {
-        this._status = 'disposed'
-        this.resolveDisposed()
-        // Release whenIdle waiters BEFORE the (guarded) event emit — they are
-        // internal state that must settle even if a listener throws below. Each
-        // waiter chains `done`, so it resolves only once the loop actually exits.
-        this.settleIdleWaiters()
-        this.currentAbort?.abort('disposed')
-        // setStatus refuses transitions out of 'disposed', so emit directly —
-        // 'disposed' is part of the agent/status contract. Guarded: a throwing
-        // listener must not break the disposal chain.
+  }
+
+  /**
+   * Quiescent stop shared by pre-start rollback and live teardown. It marks the
+   * agent disposed synchronously, contains an unexpected loop rejection, and
+   * drains every idle-injection flush before resolving.
+   */
+  private [stopDriver](): Promise<void> | void {
+    if (this._status !== 'disposed') {
+      this._status = 'disposed'
+      this.resolveDisposed()
+      // Release whenIdle waiters BEFORE the (guarded) event emit — they are
+      // internal state that must settle even if a listener throws below. Each
+      // waiter chains `done`, so it resolves only once the loop actually exits.
+      this.settleIdleWaiters()
+      this.currentAbort?.abort('disposed')
+      // An unpublished rollback has no public status lifecycle to announce.
+      // Once driving is enabled, disposed is part of the agent/status contract.
+      if (driveEnabledAgents.has(this)) {
         agentEvents(this.loopCtx, this).emit('agent/status', 'disposed')
       }
-      // An unexpected driver rejection must not skip registry/session/scope
-      // cleanup. The normal loop contains turn failures itself; allSettled is the
-      // final lifecycle backstop for anything outside those boundaries.
-      await Promise.allSettled([this.done])
-      // No new inject() can start after the synchronous disposed transition.
-      // Loop because settled tasks retire themselves in promise reactions that
-      // may run beside this continuation; either the set is empty or this waits
-      // the exact remaining quiescence boundary. allSettled keeps a failure in
-      // error reporting from skipping the registry/session/scope disposers.
-      while (this.pendingIdleFlushes.size > 0) {
-        await Promise.allSettled([...this.pendingIdleFlushes])
-      }
+    }
+    // Before runLoop starts there is normally nothing asynchronous to drain;
+    // keep publication rollback synchronous so create() cannot throw while its
+    // session/agent entries are still briefly live. A session-start listener
+    // may have used the newly enabled inject() surface, however, so preserve
+    // its durability checkpoint as a real quiescence boundary.
+    if (!this.driverStarted && this.pendingIdleFlushes.size === 0) return
+    return this.drainDriver()
+  }
+
+  /** Await the loop (when started) and every outstanding idle flush. */
+  private async drainDriver(): Promise<void> {
+    // An unexpected driver rejection must not skip registry/session/scope
+    // cleanup. The normal loop contains turn failures itself; allSettled is the
+    // final lifecycle backstop for anything outside those boundaries.
+    await Promise.allSettled([this.done])
+    // No new inject() can start after the synchronous disposed transition.
+    // Loop because settled tasks retire themselves in promise reactions that
+    // may run beside this continuation; either the set is empty or this waits
+    // the exact remaining quiescence boundary. allSettled keeps a failure in
+    // error reporting from skipping registry/session/scope disposers.
+    while (this.pendingIdleFlushes.size > 0) {
+      await Promise.allSettled([...this.pendingIdleFlushes])
     }
   }
 }

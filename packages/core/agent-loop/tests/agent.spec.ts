@@ -296,6 +296,39 @@ describe('ReactLoopAgent', () => {
     expect(agent.status).toBe('disposed')
   })
 
+  it('a pre-start disposal makes a later driver-start attempt inert', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('pre-start-dispose'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('pre-start-dispose'), { model: 'mock' }, session)
+
+    await prepared.dispose()
+    expect(prepared.agent.status).toBe('disposed')
+    const dispose = prepared.startDriver()
+    await dispose()
+    await expect(prepared.agent.done).resolves.toBeUndefined()
+    expect(prepared.agent.session.events).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('does not claim a session when concrete-agent construction rejects options', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('constructor-retry'))
+    const badOptions = {
+      get model(): string {
+        throw new Error('bad model getter')
+      },
+    }
+
+    expect(() => prepareReactLoopAgent(ctx, AgentId('bad-constructor'), badOptions, session))
+      .toThrow('bad model getter')
+    const prepared = prepareReactLoopAgent(ctx, AgentId('constructor-retry'), { model: 'mock' }, session)
+    await prepared.dispose()
+    expect(prepared.agent.status).toBe('disposed')
+    await ctx.fiber.dispose()
+  })
+
   it('setting the same status does not emit agent/status again', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

@@ -189,10 +189,54 @@ describe('scopeTarget dispatch filtering', () => {
     ctx.emit(scopeTarget(vetoBase, keyA), 'scope-test/ping', 'vetoed')
     expect(heard).toEqual([])
 
-    // A base whose filter accepts delegates to the scope predicate.
-    const openBase = { [Context.filter]: () => true }
+    // A base whose filter accepts delegates to the scope predicate, with the
+    // real base preserved as its `this` receiver.
+    let baseReceiverWasOpen = false
+    const openBase = {
+      [Context.filter](this: object): boolean {
+        baseReceiverWasOpen = this === openBase
+        return true
+      },
+    }
     ctx.emit(scopeTarget(openBase, keyA), 'scope-test/ping', 'open')
     expect(heard).toEqual(['global:open', 'A:open'])
+    expect(baseReceiverWasOpen).toBe(true)
+
+    // A function's public `.call` property is not its invocation semantics.
+    // An always-true replacement must not override the base predicate's veto.
+    const tamperedVeto = (): boolean => false
+    Object.defineProperty(tamperedVeto, 'call', { value: () => true })
+    ctx.emit(scopeTarget({ [Context.filter]: tamperedVeto }, keyA), 'scope-test/ping', 'tampered-veto')
+    expect(heard).toEqual(['global:open', 'A:open'])
+  })
+
+  it('pins the exposed composed filter invocation so a carrier holder cannot bypass isolation', async () => {
+    const ctx = new Context()
+    const keyA = { name: 'A' }
+    const keyB = { name: 'B' }
+    const scopeA = await mintScope(ctx, keyA)
+    const scopeB = await mintScope(ctx, keyB)
+    const heard: string[] = []
+    ctx.on('scope-test/ping', value => void heard.push(`global:${value}`))
+    scopeA.ctx.on('scope-test/ping', value => void heard.push(`A:${value}`))
+    scopeB.ctx.on('scope-test/ping', value => void heard.push(`B:${value}`))
+
+    const carrier = scopeTarget(ctx, keyA)
+    const exposedFilter: unknown = Reflect.get(carrier, Context.filter)
+    expect(typeof exposedFilter).toBe('function')
+    const filter = exposedFilter as ((ctx: Context) => boolean) & { call: (...args: unknown[]) => unknown }
+    const primordialCall: unknown = Reflect.get(Function.prototype, 'call')
+    expect(Object.getOwnPropertyDescriptor(filter, 'call')).toMatchObject({
+      value: primordialCall,
+      writable: false,
+      configurable: false,
+    })
+    expect(Object.isFrozen(filter)).toBe(true)
+    expect(Reflect.set(filter, 'call', () => true)).toBe(false)
+    expect(Reflect.defineProperty(filter, 'call', { value: () => true })).toBe(false)
+
+    ctx.emit(carrier, 'scope-test/ping', 'still-A-only')
+    expect(heard).toEqual(['global:still-A-only', 'A:still-A-only'])
   })
 
   it('keeps listener `this` base-shaped through the carrier (waterfall)', async () => {
@@ -256,6 +300,14 @@ describe('scopeTarget dispatch filtering', () => {
     Object.defineProperty(carrier, 'extra', { value: 1, configurable: true })
     expect((base as typeof base & { extra?: number }).extra).toBe(1)
     expect(delete (carrier as typeof carrier & { extra?: number }).extra).toBe(true)
+
+    // A non-configurable property cannot be reflected truthfully through the
+    // extensible surrogate. Reject before mutating the delegated base; an
+    // omitted `configurable` has JavaScript's false default and is rejected too.
+    expect(Reflect.defineProperty(carrier, 'sealed', { value: 1, configurable: false })).toBe(false)
+    expect(Object.hasOwn(base, 'sealed')).toBe(false)
+    expect(Reflect.defineProperty(carrier, 'default-sealed', { value: 2 })).toBe(false)
+    expect(Object.hasOwn(base, 'default-sealed')).toBe(false)
     expect(Reflect.preventExtensions(carrier)).toBe(false)
     expect(Reflect.setPrototypeOf(carrier, null)).toBe(false)
   })

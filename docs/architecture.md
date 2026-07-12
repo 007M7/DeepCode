@@ -105,7 +105,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the API other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`.
+`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the API other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. The caller fiber and concrete factory provider structurally co-own programmatic lifecycles; a consumer handle is the only non-structural teardown capability, and every owner reaches the same awaited disposer.
 
 ### Agent Scope
 

@@ -168,8 +168,17 @@ export class WorkerWorkflowEngine extends WorkflowService {
       ...request.args !== undefined ? { args: request.args } : {},
       limits,
     }
+    // Capture the dependency while this service call is still traced through
+    // the start() holder. Cordis strips the engine-provider shadow when it
+    // returns the SubagentService handle, so an already-returned run can keep
+    // starting children after an engine HMR unload removes ctx.workflows.
+    // Re-resolving `this.ctx.subagents` later from WorkerRun would instead walk
+    // the now-inactive engine fiber and break the seam's holder-owned lifetime.
+    const runCtx = this.ctx
+    const subagents = runCtx.subagents
     const workerRun = new WorkerRun(
-      this.ctx,
+      runCtx,
+      subagents,
       id,
       structuredClone(meta),
       request.parent,

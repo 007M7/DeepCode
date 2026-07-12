@@ -1,12 +1,13 @@
 /**
- * Fused scope-carrier dispatch for agent-subject events, plus the assembly
- * context builder. The ONE sanctioned spelling for dispatching `agent/*`
- * events: `agentEvents(ctx, agent).waterfall('agent/request', …)` builds the
- * scope carrier ({@link scopeTarget} keyed by the agent) AND injects the
- * subject as the first event argument in one move, so the correct dispatch is
- * also the shortest — a dispatch site cannot pass a carrier keyed to one
- * agent while naming another as the subject, which is the invariant the
- * dev-mode scoped-dispatch check asserts at runtime.
+ * Fused scope-carrier dispatch for agent-subject operations, plus the assembly
+ * context builder. The sanctioned ordinary spelling is
+ * `agentEvents(ctx, agent).waterfall('agent/request', …)`: it builds the scope
+ * carrier ({@link scopeTarget} keyed by the agent) AND injects the subject as
+ * the first argument in one move, so a site cannot name a different subject.
+ * The registry lifecycle pair is the deliberate exception: `enter()` captures
+ * one stable carrier before commit and `announce()`/detach dispatch through it
+ * directly, preventing a mutable filter getter from changing or reentering the
+ * paired edges. The dev scoped-dispatch invariant checks both shapes.
  *
  * @module @deepseek-ai/dsh-agent/dispatch
  */
