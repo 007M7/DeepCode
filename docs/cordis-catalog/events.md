@@ -15,7 +15,7 @@ Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `n
 
 ### `agent/created` — emit
 
-An agent's fully composed scoped world was published in the AgentRegistry. Its session is already live in the session store, but concrete factories may keep driving verbs locked until the subsequent `agent/session-start` boundary; that event is the first supported place to inject or queue work during startup.
+An agent's fully composed scoped world was published in the AgentRegistry. Its session is already live in the session store. Setup is composition-only by contract; the subsequent `agent/session-start` boundary is the first supported place to inject or queue startup work. A synchronous listener throw vetoes publication and rollback emits the matching disposal edges; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary. A synchronous listener that requests the advanced registry detach does not remove the entry immediately: removal and the paired `agent/disposed` edge wait until the creation dispatch unwinds, so no later creation listener observes a disposal that preceded its own creation callback.
 
 ```ts cordis-catalog
 'agent/created'(this: Scoped<Agent>, agent: Agent): void
@@ -23,11 +23,11 @@ An agent's fully composed scoped world was published in the AgentRegistry. Its s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:300`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:316`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
-An agent was removed from the registry after its driver and any in-flight turn reached quiescence. Ordered teardown may still be detaching the session and unwinding the agent's scoped registrations when this notification runs.
+An agent was removed from the registry. The concrete AgentLoop lifecycle emits this only after its driver and any in-flight turn reach quiescence; a custom agent registered through the public registry owns its own driver contract, which the registry cannot infer. Ordered teardown may still be detaching the session and unwinding scoped registrations when this runs.
 
 ```ts cordis-catalog
 'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
@@ -35,7 +35,7 @@ An agent was removed from the registry after its driver and any in-flight turn r
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:314`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:331`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:587`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:606`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:419`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:438`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,11 +73,11 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:437`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:456`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
-A message entered the agent's inbox (queued or steering). `source` is the resolved source (defaults applied), not the caller's raw options.
+A message entered the agent's inbox (queued or steering). Content and the resolved source are the detached, deeply-frozen values retained by the inbox. `source` has defaults applied and is not the caller's raw options.
 
 ```ts cordis-catalog
 'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:342`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:466`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:485`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -113,19 +113,19 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:518`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:537`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
-The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): it carries no veto — a session-start listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees), not by returning a decision. Cannot block the session from starting; that gap is deliberate (a bridge logs/injects, it does not gate startup).
+The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): a listener cannot veto by returning a decision or throwing. A listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees). A lifecycle owner can still dispose its structural ownership edge during this notification; publication rechecks liveness and then aborts before the driver starts.
 
 ```ts cordis-catalog
 'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:362`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:381`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:328`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:533`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:552`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:551`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:570`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -173,13 +173,13 @@ Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` wat
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:570`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:589`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
 ### `approval/request` — waterfall
 
-Waterfall asking the composed answerers to decide one approval request. Dispatched only from ApprovalService.request — callers go through the service (which owns cancellation and the audit events), never through `ctx.waterfall` directly. A listener that can answer for this request's agent returns an outcome WITHOUT calling `next()` (the decision slot is single-occupancy, first listener to answer wins); a listener that does not recognize the agent MUST call `next()` so another answerer — or the fail-closed default `'unavailable'` — gets the question. Throwing is contained by the service and yields `'unavailable'`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a listener registered through `agent.ctx` receives only that agent's questions, while a plain-context listener receives every agent's. `req` is the service's shallow-frozen acceptance snapshot: later caller mutation cannot redirect the question, while the `agent` and `signal` identity capabilities remain exact.
+Waterfall asking the composed answerers to decide one approval request. Dispatched only from ApprovalService.request — callers go through the service (which owns cancellation and the audit events), never through `ctx.waterfall` directly. A listener that can answer for this request's agent returns an outcome WITHOUT calling `next()` (the decision slot is single-occupancy, first listener to answer wins); a listener that does not recognize the agent MUST call `next()` so another answerer — or the fail-closed default `'unavailable'` — gets the question. Throwing is contained by the service and yields `'unavailable'`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a listener registered through `agent.ctx` receives only that agent's questions, while a plain-context listener receives every agent's. `req` is a readonly same-process value borrowed from the caller.
 
 ```ts cordis-catalog
 'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
@@ -187,7 +187,7 @@ Waterfall asking the composed answerers to decide one approval request. Dispatch
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:72`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:70`](../../packages/ui/user-approval/src/index.ts)
 
 ## `fs/*`
 
@@ -245,17 +245,27 @@ Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts
 
 ### `session/created` — emit
 
-A session was created in the store. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
+A session was created in the store. A synchronous listener throw vetoes publication and rollback emits the matching `session/disposed` edge; returned-promise rejection is observed and logged but cannot retroactively veto this synchronous boundary. A synchronous listener that requests the advanced detach does not remove the entry immediately: removal and the paired `session/disposed` edge wait until the creation dispatch unwinds. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
 
 ```ts cordis-catalog
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:52`](../../packages/core/session/src/index.ts)
+
+### `session/disposed` — emit
+
+A previously announced session left the store. Emitted exactly once on normal detach or publication rollback, and never for a prepared/entered session whose `session/created` announcement did not begin. Listener failures (including returned-promise rejections) are logged and contained per listener so teardown always reaches quiescence. Scope-filtered dispatch uses the same owner carrier captured at entry; agent-scoped listeners hear only their own session's teardown.
+
+```ts cordis-catalog
+'session/disposed'(this: Scoped<Session>, session: Session): void
+```
+
+Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
-An event was appended to a session log (sync, fire-and-forget). This is the per-append feed a UI or invariant plugin tails. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
+An event was appended to a session log (sync, fire-and-forget). This is the per-append feed a UI or invariant plugin tails. The log push is the commit point; synchronous throws and returned-promise rejections from observers are logged and contained per listener, so they cannot make a committed append appear to fail or starve later listeners. The exact callback list and Cordis internal-dispatch checks resolve before the push; callbacks themselves run only after it. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
 
 ```ts cordis-catalog
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
@@ -263,7 +273,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:61`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -273,7 +283,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 
@@ -285,7 +295,7 @@ A skill provider became resolvable in the `ctx.skills` registry. Consumers can o
 'skill/provider-added'(provider: SkillProvider): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:130`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:131`](../../packages/skill/skill/src/index.ts)
 
 ### `skill/provider-removed` — emit
 
@@ -295,49 +305,49 @@ A skill provider left the registry because its plugin fiber was disposed.
 'skill/provider-removed'(name: string): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:136`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:137`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 
 ### `subagent/end` — emit
 
-A started subagent run settled — emitted when SubagentRun.result resolves (any stop reason) or rejects (reported as `error`). Paired with Events['subagent/start']; a run whose readiness rejected emits neither event. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
+A ready child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
 
 ```ts cordis-catalog
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:90`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
-A provider became resolvable in the SubagentService registry. Consumers that derive state from a named provider (e.g. the model-facing tool wording in `dsh-tool-subagent`) react HERE instead of assuming load order — the cordis Loader starts sibling plugins concurrently, so "listed earlier in cordis.yml" does not mean "registered earlier".
+A provider became resolvable in the registry.
 
 ```ts cordis-catalog
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:75`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:66`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
-A provider left the registry (its plugin's fiber was disposed — an unload or an HMR reload). Consumers holding provider-derived state drop it here; a reload re-fires `subagent/provider-added` with the fresh provider. Delivered with per-listener containment: a throwing subscriber is logged, never starves later subscribers, and never disrupts the provider's teardown.
+A provider left the registry. Accepted runs remain holder-owned.
 
 ```ts cordis-catalog
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
-A subagent run started — emitted only after SubagentRun.started fulfills, when the provider has established a live child. For an in-process provider, `ctx.agents.get(info.id)` is therefore guaranteed to resolve during this notification. A readiness rejection emits neither lifecycle event; every emitted start is paired with Events['subagent/end']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
+A provider established a ready child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
 
 ```ts cordis-catalog
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:101`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
@@ -353,7 +363,7 @@ Source: [`packages/core/system-prompt/src/index.ts:45`](../../packages/core/syst
 
 ### `system-prompt/change` — emit
 
-A section, tool provider, variable provider, or protection was registered or unregistered (the assembly inputs changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
+A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
 ```ts cordis-catalog
 'system-prompt/change'(): void
@@ -371,11 +381,11 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:176`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:173`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
-Around-dispatch waterfall wrapping the registry's core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam. A listener receives `(exec, next)`: call `next()` to delegate to dispatch (returning its ToolExecutionResult, optionally wrapped), or return a replacement result without calling `next()` to short-circuit dispatch. The base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or unknown tool) is already normalized to an `isError` result by the time a listener's `await next()` returns, so a wrapper never sees a raw throw from the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can set or replace the one mutable field, `exec.signal` (e.g. with a per-call deadline), BEFORE `next()`, restore/delete it afterward, and inspect the result AFTER. Call identity (`token`, `callId`, `name`, `arguments`, `agent`, and `parent`) is immutable throughout the pipeline so a wrapper cannot change which capability or scope was authorized. (Cordis `next()` ignores passed arguments and re-invokes downstream with the shared payload, so a wrapper changes `exec.signal` in place rather than passing a new object to `next()`.) Multiple listeners compose by registration order — an outer one wraps the inner ones plus dispatch. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by `exec.agent` — a listener registered through `agent.ctx` wraps only that agent's calls; a plain plugin listener wraps every call (including agent-less ones, which dispatch subject-less).
+Around-dispatch waterfall wrapping the registry's core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam. A listener receives `(exec, next)`: call `next()` to delegate to dispatch (returning its ToolExecutionResult, optionally wrapped), or return a replacement result without calling `next()` to short-circuit dispatch. The base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or unknown tool) is already normalized to an `isError` result by the time a listener's `await next()` returns, so a wrapper never sees a raw throw from the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can set or replace the one mutable field, `exec.signal` (e.g. with a per-call deadline), BEFORE `next()`, restore/delete it afterward, and inspect the result AFTER. Call identity (`token`, `callId`, `name`, `arguments`, `agent`, and `parent`) is immutable throughout the pipeline so a wrapper cannot change which tool and scope the pipeline accepted. (Cordis `next()` ignores passed arguments and re-invokes downstream with the shared payload, so a wrapper changes `exec.signal` in place rather than passing a new object to `next()`.) Multiple listeners compose by registration order — an outer one wraps the inner ones plus dispatch. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by `exec.agent` — a listener registered through `agent.ctx` wraps only that agent's calls; a plain plugin listener wraps every call (including agent-less ones, which dispatch subject-less).
 
 ```ts cordis-catalog
 'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
@@ -383,23 +393,23 @@ Around-dispatch waterfall wrapping the registry's core tool dispatch, between th
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:131`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:128`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
 Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. Core tool dispatch runs earlier as the base `next()` of the `tools/execute` waterfall, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result). Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by `exec.agent` — a listener registered through `agent.ctx` fires only for that agent's calls; a plain plugin listener fires for every call (including agent-less ones, which dispatch subject-less).
 
 ```ts cordis-catalog
-'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:151`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:148`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
-Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` is serviced by the `ctx.approval` seam when one is mounted, and degrades to deny otherwise. The returned union is validated as an exact runtime shape before approval or guards run; a malformed JavaScript/casted decision fails closed as an `isError` result and the tool body never runs. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a listener registered through `agent.ctx` fires only for that agent's calls, while a plain plugin listener fires for every call (including agent-less ones, which dispatch subject-less).
+Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` is serviced by the `ctx.approval` seam when one is mounted, and degrades to deny otherwise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a listener registered through `agent.ctx` fires only for that agent's calls, while a plain plugin listener fires for every call (including agent-less ones, which dispatch subject-less).
 
 ```ts cordis-catalog
 'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
@@ -407,7 +417,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:104`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:101`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — parallel
 
@@ -419,7 +429,7 @@ Awaited notification of the authoritative FINAL tool outcome, after the complete
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:166`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:163`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 
@@ -431,17 +441,17 @@ One `agent()` call settled (clean result, child failure, or run cancellation). P
 'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:98`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:96`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/agent-start` — emit
 
-One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never crosses the provider's publication/readiness boundary emits neither event in this pair.
+One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a ready run from the provider emits neither event in this pair.
 
 ```ts cordis-catalog
 'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:87`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:85`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/end` — emit
 
@@ -451,7 +461,7 @@ A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves
 'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:108`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:106`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/log` — emit
 
@@ -461,7 +471,7 @@ The script emitted a narration line (a `log(message)` call).
 'workflow/log'(info: WorkflowRunInfo, message: string): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:77`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:75`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/phase` — emit
 
@@ -471,7 +481,7 @@ The script entered a phase (a `phase(title)` call) — progress grouping for obs
 'workflow/phase'(info: WorkflowRunInfo, title: string): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:68`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/start` — emit
 
@@ -481,7 +491,7 @@ A workflow run started — the script's meta block validated, the body about to 
 'workflow/start'(info: WorkflowRunInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:62`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:60`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

@@ -1,16 +1,16 @@
 # @deepseek-ai/dsh-subagent-spawn
 
-The in-process **spawn** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a **fresh** child [`Agent`](../../core/agent) on the same cordis context (`ctx.agents`) — its own session, its own (or the parent's) model, zero inherited conversation. The cheapest transport, reusing the agent factory's quiescent [`AgentHandle`](../../core/agent) teardown.
+The spawn provider creates a fresh child `Agent` in the current process. The child has its own session, sees no parent conversation history, and reuses the host's agent factory and LLM/tool services.
 
-The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../subagent-inprocess/README.md) driver (`startInProcessRun`); this backend just passes **no seed** (a fresh child). The [fork](../subagent-fork/README.md) backend is an independent peer over the same driver — neither knows about the other.
+## Behavior
 
-## What it does
+`start(request)` delegates to [`startInProcessRun`](../subagent-inprocess/README.md) with no seed and awaits publication before returning. The child receives parent working-directory/session lineage and inherits the parent model unless overridden, but starts with an empty conversation.
 
-`start(request)` delegates to `startInProcessRun(ctx, request, {})` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. The driver creates one run-owner fiber under `parent.ctx`; parent teardown, this provider's teardown, and manual disposal all converge there before child publication. Its `run.started` boundary resolves only after the fresh child is published, so `subagent/start` observers see a live registry entry. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
+The shared driver owns depth checking, persona and tool-filter setup, structured output, required-signal cancellation, one-shot execution, result reading, and quiescent disposal. A startup rejection leaves no published child; provider unload after fulfillment does not revoke the holder-owned run.
 
 ## Capabilities
 
-`{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`. It constructs the child, so it enforces a recursion cap and composes the child's persona, global-tool restriction, and [structured runtime](../subagent-inprocess/README.md) inside the agent-creation setup window. At apply it registers this one named provider on `ctx.subagents`; per-run contributions belong to each child's scope.
+Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` because it controls the child's creation window and can enforce all four features.
 
 ## Config
 
@@ -20,5 +20,5 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## Known Limitations and Deferred Work
 
-- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
 - **Fresh means no parent transcript** — the child inherits cwd, lineage, model, and explicitly configured persona/tool restrictions, but none of the parent's conversation; use the fork provider when completed-turn context is required.

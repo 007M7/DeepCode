@@ -49,7 +49,7 @@ describe('dsh-workflow-workerthread over the real in-process stack', () => {
     ])
     const childIds: string[] = []
     ctx.on('workflow/agent-start', (_info, agent) => {
-      // The workflow bridge must honor SubagentRun.started: a start observer
+      // The workflow bridge must await asynchronous provider start: an observer
       // sees the real spawn child already published, never a reserved id.
       expect(ctx.agents.get(agent.childId)).toBeDefined()
       childIds.push(agent.childId)
