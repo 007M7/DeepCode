@@ -249,37 +249,6 @@ Two services split the public API from the implementation. `AgentRegistry`, reac
 | Publish and start | Session, agent, and lifecycle notifications appear in order | Liveness is checked between observable phases |
 | Dispose | Driver drains, registries detach, scope unwinds, IDs release | All owner paths join one completion promise |
 
-The implementation treats success, rollback, handle disposal, caller unload, and AgentLoop unload as entrances to one owned transaction rather than separate cleanup algorithms:
-
-```mermaid
-flowchart TB
-  caller["Caller context owner"] --> transaction["Owned create or resume transaction"]
-  factory["AgentLoop structural owner"] --> transaction
-
-  subgraph creation["Create or resume"]
-    transaction --> reserve["Reserve both IDs and install trackers"]
-    reserve --> prepare["Load persistence or prepare the session"]
-    prepare --> lifecycle["Install the complete caller-owned lifecycle"]
-    lifecycle --> setup["Await unpublished setup"]
-    setup --> enter["Enter session and agent registries"]
-    enter --> announce["Emit session/created, then agent/created"]
-    announce --> start["Enable driving, emit agent/session-start, start driver"]
-  end
-
-  transaction -.->|"reservation, load, or preparation failure before lifecycle handoff"| earlyRollback["Release acquired tracking and reservations"]
-  start --> live["Live handle"]
-  lifecycle -.->|"failure or owner loss before a handle escapes"| dispose["Join the lifecycle cleanup boundary"]
-  live -->|"dispose or either owner unloads"| dispose
-
-  subgraph teardown["Reverse-order teardown"]
-    dispose --> barrier["Wait for synchronous publication to unwind"]
-    barrier --> drain["Stop driver and complete final flushes"]
-    drain --> detach["Detach agent, then session"]
-    detach --> scope["Dispose agent scope to quiescence"]
-    scope --> release["Release session and agent IDs"]
-  end
-```
-
 The [public lifecycle contract](2026-07-08-agent-scope-contexts.md#creation-publishes-after-setup-disposal-revokes-after-work-stops) defines what callers observe. The following sections justify each ownership and ordering fact behind that contract.
 
 ### Reservations precede awaiting; lifecycle ownership precedes setup
