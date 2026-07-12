@@ -12,14 +12,14 @@
  * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
- * A separate, composable normalizer — {@link scrubRequestHeaders} — replaces
- * the bulky request-header CONTENT (the composed system prompt, the tool
- * schema list, and the session prefix) with
- * `{{system}}`/`{{tools}}`/`{{messagePrefix}}` tokens. It is deliberately NOT
- * folded into {@link normalizeSessionLog}: each suite's one header-pinning
- * scenario compares that content verbatim, every other scenario composes the
- * scrub in (the `pinsHeader` flag on the scenario table, consumed by the suite
- * factory in ./suite.ts; see the pinned-header RFC,
+ * Separate, composable normalizers keep bulky request-header content out of
+ * session fixtures. {@link scrubSystemPrompts} replaces the composed system
+ * prompt in EVERY fixture; {@link scrubRequestHeaders} additionally replaces
+ * tool schemas and the session prefix outside each suite's header-pinning
+ * scenario. They are deliberately NOT folded into
+ * {@link normalizeSessionLog}: the suite factory composes the right scrub for
+ * each scenario and snapshots the pin's actual prompt as Markdown (see the
+ * pinned-header RFC,
  * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
@@ -135,37 +135,37 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
 }
 
 /**
- * Replace request-header CONTENT in a session JSONL with stable tokens,
- * keeping its structure: a `request/header` event's `data.header.system` →
- * `{{system}}`, `data.header.tools` → `{{tools}}`, and
- * `data.header.messagePrefix` → one `{{messagePrefix}}` token per message
- * (the session prefix is model-visible bulk — an AGENTS digest, a skills
- * catalog — so its COUNT stays a structural fact while its text never lands
- * in a fixture); a
- * `request/header-delta` event keeps every structural fact — the system
- * delta's `keepStart`/`keepEnd` line positions and inserted-line COUNT (one
- * `{{system}}` token per inserted line), the tools delta's
- * added/removed/changed tool NAMES, the prefix replacement's message COUNT —
- * and tokenizes only the bulk (prompt
- * text; each added/changed schema's fields other than `name` → `{{tools}}`;
- * each replacement prefix message → `{{messagePrefix}}`),
- * so two different deltas still compare different.
- * Absent fields stay absent — WHETHER a header carried a system prompt,
- * tools, or a prefix is behavior and stays visible; `config` and `reason`
- * are small and
- * stable, so they stay verbatim (a model swap churns every fixture by design
- * — it invalidates the recorded responses; a prompt/schema edit churns none —
- * replay never reads this content, see dsh-llm-replay).
- *
- * Only lines with something to scrub are re-serialized; every other line
- * passes through byte-for-byte, so the transform is idempotent and applying
- * it to an already-scrubbed fixture is a no-op — the on-disk-fixtures guard
- * in ./suite.ts relies on exactly that.
+ * Replace system-prompt content in request headers and header deltas with
+ * `{{system}}` tokens while retaining field presence and delta structure.
+ * Other header content stays verbatim, so a header-pinning fixture can keep
+ * its complete tool schemas while every JSONL fixture omits the prompt text.
+ * Lines without a system payload pass through byte-for-byte; the transform is
+ * idempotent.
  *
  * @param rawLog The raw session `.jsonl` content.
- * @returns The JSONL with header content tokenized, other lines byte-identical.
+ * @returns The JSONL with system-prompt content tokenized.
+ */
+export function scrubSystemPrompts(rawLog: string): string {
+  return scrubHeaderContent(rawLog, false)
+}
+
+/**
+ * Replace all bulky request-header content in a session JSONL with stable
+ * tokens. This includes the system-prompt fields handled by
+ * {@link scrubSystemPrompts}, tool schemas, and session-prefix messages. It
+ * keeps system-delta line positions and arity, tool-delta names, prefix
+ * message counts, field presence, config, and reason. Lines without content
+ * to scrub pass through byte-for-byte, and the transform is idempotent.
+ *
+ * @param rawLog The raw session `.jsonl` content.
+ * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
  */
 export function scrubRequestHeaders(rawLog: string): string {
+  return scrubHeaderContent(rawLog, true)
+}
+
+/** Transform header content, optionally including tool schemas and the session prefix. */
+function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): string {
   const lines = rawLog.split('\n')
   const out = lines.map((line) => {
     if (line.trim().length === 0) return line
@@ -175,11 +175,14 @@ export function scrubRequestHeaders(rawLog: string): string {
     if (record.type === 'request/header') {
       const header = data.header as Record<string, unknown> | null | undefined
       if (header === null || typeof header !== 'object') return line
-      if (!('system' in header) && !('tools' in header) && !('messagePrefix' in header)) return line
-      if ('system' in header) header.system = SYSTEM
-      if ('tools' in header) header.tools = TOOLS
-      if (Array.isArray(header.messagePrefix)) header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
-      return JSON.stringify(record)
+      let touched = false
+      if ('system' in header) { header.system = SYSTEM; touched = true }
+      if (scrubToolsAndPrefix && 'tools' in header) { header.tools = TOOLS; touched = true }
+      if (scrubToolsAndPrefix && Array.isArray(header.messagePrefix)) {
+        header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
+        touched = true
+      }
+      return touched ? JSON.stringify(record) : line
     }
     if (record.type === 'request/header-delta') {
       let touched = false
@@ -189,11 +192,11 @@ export function scrubRequestHeaders(rawLog: string): string {
         touched = true
       }
       const tools = data.tools as Record<string, unknown> | null | undefined
-      if (tools !== null && typeof tools === 'object') {
+      if (scrubToolsAndPrefix && tools !== null && typeof tools === 'object') {
         if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
         if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
       }
-      if (Array.isArray(data.messagePrefix)) {
+      if (scrubToolsAndPrefix && Array.isArray(data.messagePrefix)) {
         data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
         touched = true
       }

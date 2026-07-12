@@ -1,11 +1,21 @@
-import { cpSync, mkdtempSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { defineAcpSnapshotSuite, type Scenario } from '../src/index.ts'
-import { childFixturePaths, fixtureContext, headerDeltaCount, normalizedHeaders } from '../src/suite.ts'
+import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
+import {
+  childFixturePaths,
+  fixtureContext,
+  formatSystemPromptSnapshot,
+  headerDeltaCount,
+  normalizedHeaders,
+  normalizedSystemPromptDeltas,
+  normalizedSystemPrompts,
+  refreshFixtureReplacements,
+  stabilizeRefreshLog,
+} from '../src/suite.ts'
 
 /**
  * Unit tests for the suite factory, by running it: two synthetic suites over
@@ -41,29 +51,57 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // is what this suite can exercise; the real overlay boot is the acp-agent
 // example's code-mode scenarios).
 const REPLAY_SCENARIOS: Scenario[] = [
-  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'main' },
+  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
+  // A pin-LESS class: protocol-only scenarios have no header content to
+  // anchor, so the factory demands no pin and the uniformity guard skips.
+  { name: 'no-model-unpinned', hasModelTurn: false, recorded: false, headerClass: 'unpinned' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
 ]
 
 const RECORD_SCENARIOS: Scenario[] = [
-  { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
+  { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true, childSessions: 1 },
   { name: 'rec-child', hasModelTurn: true, recorded: true, childSessions: 1 },
   // recorded:false in record mode → registered but skipped (never re-recorded).
   { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
 
-// Record mode mutates its snapshots dir, so run it on a throwaway copy —
-// except under the documented bootstrap knob, which regenerates the committed
-// fixtures/goldens in place.
+// Record/refresh modes mutate their snapshots dir, so run them on throwaway
+// copies — except record's documented bootstrap knob, which regenerates the
+// committed record fixtures/goldens in place.
 const BOOTSTRAP = process.env.ACP_SNAPSHOT_SPEC_BOOTSTRAP === '1'
 const recordDir = BOOTSTRAP ? RECORD_SRC : mkdtempSync(join(tmpdir(), 'acp-snap-record-suite-'))
 if (!BOOTSTRAP) cpSync(RECORD_SRC, recordDir, { recursive: true })
+const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
+cpSync(REPLAY_DIR, refreshDir, { recursive: true })
+staleRefreshFixtures(refreshDir)
 afterAll(async () => {
   if (!BOOTSTRAP) await rm(recordDir, { recursive: true, force: true })
+  await rm(refreshDir, { recursive: true, force: true })
 })
+
+function staleRefreshFixtures(dir: string): void {
+  writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
+  writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
+
+  const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
+  const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
+  plainBehavior.echoEnv = true
+  writeFileSync(plainBehaviorFile, `${JSON.stringify(plainBehavior, null, 2)}\n`)
+
+  writeFileSync(join(dir, 'blocked-log', 'session.jsonl'), [
+    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd"}',
+    '{"type":"hook/result","seq":1,"time":13,"data":{"decision":"stale","durationMs":99}}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(dir, 'authored-error', 'session.jsonl'), [
+    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd"}',
+    '{"type":"turn/end","seq":1,"time":9,"data":{"error":"stale"}}',
+    '',
+  ].join('\n'))
+}
 
 describe('defineAcpSnapshotSuite: replay mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: REPLAY_DIR, scenarios: REPLAY_SCENARIOS, mode: 'replay' })
@@ -73,6 +111,36 @@ describe('defineAcpSnapshotSuite: replay mode', () => {
 // pinned fixture FIRST, so rec-child's uniformity guard reads the fresh pin.
 describe('defineAcpSnapshotSuite: record mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: recordDir, scenarios: RECORD_SCENARIOS, mode: 'record' })
+})
+
+describe('defineAcpSnapshotSuite: refresh mode', () => {
+  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: refreshDir, scenarios: REPLAY_SCENARIOS, mode: 'refresh' })
+})
+
+describe('defineAcpSnapshotSuite: refresh write-back', () => {
+  it('rewrites stdout and comparable logs from a replay-mode child run', () => {
+    const stdout = readFileSync(join(refreshDir, 'plain-turn', 'stdout.golden.jsonl'), 'utf8')
+    expect(stdout).not.toContain('stale stdout')
+    expect(stdout).toContain('env:{\\"mode\\":\\"replay\\"')
+    expect(stdout).not.toContain('\\"mode\\":\\"refresh\\"')
+
+    const blocked = readFileSync(join(refreshDir, 'blocked-log', 'session.jsonl'), 'utf8')
+    expect(blocked).toContain('"decision":"block"')
+    expect(blocked).not.toContain('"decision":"stale"')
+
+    const authored = readFileSync(join(refreshDir, 'authored-error', 'session.jsonl'), 'utf8')
+    expect(authored).toContain('"error":"model exploded"')
+    expect(authored).not.toContain('"error":"stale"')
+
+    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe([
+      'SYS PROMPT',
+      '',
+      '<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->',
+      '',
+      'NEW PROMPT LINE',
+      '',
+    ].join('\n'))
+  })
 })
 
 describe('defineAcpSnapshotSuite: registration contract', () => {
@@ -167,11 +235,127 @@ describe('normalizedHeaders', () => {
   })
 })
 
+describe('normalizedSystemPrompts', () => {
+  it('extracts normalized string prompts and omits absent or non-string fields', () => {
+    const log = [
+      '{"type":"session","id":"a","createdAt":5,"cwd":"/w"}',
+      '{"type":"request/header","seq":0,"time":9,"data":{"header":{"system":"work in /w"}}}',
+      '{"type":"request/header","seq":1,"time":9,"data":{"header":{}}}',
+      '{"type":"request/header","seq":2,"time":9,"data":{"header":{"system":null}}}',
+      '{"type":"request/header","seq":3,"time":9,"data":{"header":null}}',
+      '{"type":"request/header","seq":4,"time":9,"data":{"header":"invalid"}}',
+      '',
+    ].join('\n')
+    expect(normalizedSystemPrompts(log, { sessionIds: [], cwd: '/w' })).toEqual(['work in {{cwd}}'])
+  })
+})
+
+describe('normalizedSystemPromptDeltas', () => {
+  it('extracts and normalizes well-formed system edits', () => {
+    const log = [
+      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":["work in /w"]}}}',
+      '{"type":"request/header-delta","data":{"tools":{"replace":[]}}}',
+      '{"type":"request/header-delta","data":{"system":{"keepStart":"1","keepEnd":0,"insert":[]}}}',
+      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":[null]}}}',
+      '',
+    ].join('\n')
+    expect(normalizedSystemPromptDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
+      { keepStart: 1, keepEnd: 0, insert: ['work in {{cwd}}'] },
+    ])
+  })
+})
+
+describe('formatSystemPromptSnapshot', () => {
+  it('renders further header snapshots as their own sections, before delta sections', () => {
+    // One further snapshot already newline-terminated, one not — both endings.
+    expect(formatSystemPromptSnapshot('base\n', [], ['already terminated\n']))
+      .toBe('base\n\n<!-- request/header 2 (snapshot) -->\n\nalready terminated\n')
+    const out = formatSystemPromptSnapshot('base prompt', [{ keepStart: 1, keepEnd: 0, insert: ['edited'] }], ['widened prompt'])
+    expect(out).toBe(
+      'base prompt\n'
+      + '\n<!-- request/header 2 (snapshot) -->\n\n'
+      + 'widened prompt\n'
+      + '\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\n'
+      + 'edited\n',
+    )
+  })
+
+  it('adds a missing terminal newline without changing an existing one', () => {
+    expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
+    expect(formatSystemPromptSnapshot('prompt\n')).toBe('prompt\n')
+  })
+
+  it('renders readable system-prompt delta sections', () => {
+    expect(formatSystemPromptSnapshot('prompt', [
+      { keepStart: 1, keepEnd: 0, insert: ['new', 'lines'] },
+    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\nnew\nlines\n')
+  })
+
+  it('does not double the newline of a delta insert with a trailing blank line', () => {
+    expect(formatSystemPromptSnapshot('prompt\n', [
+      { keepStart: 2, keepEnd: 1, insert: ['tail', ''] },
+    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=2, keepEnd=1 -->\n\ntail\n')
+  })
+})
+
 describe('headerDeltaCount', () => {
   it('counts request/header-delta events, ignoring blanks and other lines', () => {
     const delta = JSON.stringify({ type: 'request/header-delta', seq: 2, time: 9, data: {} })
     const other = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: {} })
     expect(headerDeltaCount(`${other}\n\n${delta}\n${delta}\n`)).toBe(2)
     expect(headerDeltaCount(`${other}\n`)).toBe(0)
+  })
+})
+
+describe('refreshFixtureReplacements', () => {
+  it('maps fresh ids and cwd values to the existing fixture values, skipping non-replacements', () => {
+    const log = (content: string): HarvestedLog => ({ id: 'diagnostic', createdAt: 1, content })
+    const logs = [
+      log('{"type":"session","id":"","cwd":"/same"}\n'),
+      log('{"type":"session","id":"new-parent","cwd":"/new"}\n'),
+      log('{"type":"session","id":"new-child","cwd":"/new"}\n'),
+    ]
+    const fixtures = [
+      '{"type":"session","id":"","cwd":"/same"}\n',
+      '{"type":"session","id":"old-parent","cwd":"/old"}\n',
+    ]
+    expect(refreshFixtureReplacements(logs, fixtures)).toEqual([
+      { from: 'new-parent', to: 'old-parent' },
+      { from: '/new', to: '/old' },
+    ])
+  })
+})
+
+describe('stabilizeRefreshLog', () => {
+  it('keeps volatile fixture fields while preserving fresh meaningful payloads', () => {
+    const fresh = [
+      '{"type":"session","id":"new-child","createdAt":200,"cwd":"/new","parentSession":"new-parent","seedLength":1}',
+      '{"type":"hook/result","seq":1,"time":22,"data":{"decision":"block","durationMs":37}}',
+      '{"type":"turn/end","seq":2,"time":33,"data":{"error":"fresh error"}}',
+      '{"type":"tool/result","seq":3,"time":44,"data":{"text":"new-parent in /new"}}',
+      '{"type":"hook/result","seq":4,"time":55,"data":{"decision":"allow","durationMs":5}}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"old-child","createdAt":100,"cwd":"/old","parentSession":"old-parent","seedLength":5}',
+      '{"type":"hook/result","seq":1,"time":11,"data":{"decision":"stale","durationMs":99}}',
+      '{"type":"turn/end","seq":2,"data":{"error":"stale"}}',
+      '{"type":"assistant/message","seq":3,"time":12,"data":{"text":"different type"}}',
+      '{"type":"hook/result","seq":4,"time":13,"data":{"decision":"stale"}}',
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [
+      { from: 'new-parent', to: 'old-parent' },
+      { from: 'new-child', to: 'old-child' },
+      { from: '/new', to: '/old' },
+    ])).toBe([
+      '{"type":"session","id":"old-child","createdAt":100,"cwd":"/old","parentSession":"old-parent","seedLength":1}',
+      '{"type":"hook/result","seq":1,"time":11,"data":{"decision":"block","durationMs":99}}',
+      '{"type":"turn/end","seq":2,"time":33,"data":{"error":"fresh error"}}',
+      '{"type":"tool/result","seq":3,"time":44,"data":{"text":"old-parent in /old"}}',
+      '{"type":"hook/result","seq":4,"time":13,"data":{"decision":"allow","durationMs":5}}',
+      '',
+    ].join('\n'))
   })
 })

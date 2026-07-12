@@ -32,11 +32,9 @@
     # else the local ./.sessions default.
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working
-      directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
-      Verify your work by running the code or tests. Keep answers brief and
-      factual.
+      Verify your work by running the code or tests. Keep answers brief and factual.
 
 # Session modes (ctx.modes — the shipped `plan` definition, no overrides): the
 # mode/set vocabulary, the assemble filter + mode section, the pre-execute

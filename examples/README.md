@@ -38,3 +38,9 @@ Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mo
 The ACP server with **session modes** composed ([`@deepseek-ai/dsh-mode`](../packages/mode/mode)) — the editor's mode picker switches the session into plan mode, the model works under the read-only allowlist, and it leaves through the user-reviewed `exit_plan_mode` tool (the review arrives as an elicitation form).
 
 Run with: `pnpm run demo:plan-acp` (needs `DEEPSEEK_API_KEY`). See [plan-acp-agent/README.md](plan-acp-agent/README.md).
+
+## sandbox-acp-agent
+
+The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
+
+Run with: `pnpm run demo:sandbox-acp` (needs `DEEPSEEK_API_KEY`; bwrap, a Landlock-enforcing kernel, or macOS for confined runs). See [sandbox-acp-agent/README.md](sandbox-acp-agent/README.md).

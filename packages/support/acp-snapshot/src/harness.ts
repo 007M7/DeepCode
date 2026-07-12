@@ -89,6 +89,8 @@ export type InputStep =
   | { op: 'cancel' }
   | { op: 'setMode'; modeId: string }
   | { op: 'setModeExpectError'; modeId: string }
+  | { op: 'setConfigOption'; configId: string; value: string }
+  | { op: 'setConfigOptionExpectError'; configId: string; value: string }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
@@ -234,6 +236,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
@@ -458,6 +462,24 @@ async function runStep(
       await client.setSessionMode({ sessionId, modeId: step.modeId }).then(
         () => { throw new Error('snapshot-harness: expected session/set_mode to be rejected but it succeeded') },
         () => { /* expected: the bridge rejected the mode id */ },
+      )
+      return
+    }
+    case 'setConfigOption': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOption before newSession')
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value })
+      return
+    }
+    case 'setConfigOptionExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOptionExpectError before newSession')
+      // The bridge rejects an unknown id / out-of-vocabulary value; the SDK
+      // surfaces that as a rejected RPC — swallow it so the run completes and
+      // the error frame is captured in the transcript.
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value }).then(
+        () => { throw new Error('snapshot-harness: expected set_config_option to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the id or value */ },
       )
       return
     }

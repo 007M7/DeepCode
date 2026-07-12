@@ -37,6 +37,15 @@
     },
     {
       "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../user-approval"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../bash/bash"
     }
   ]
 }

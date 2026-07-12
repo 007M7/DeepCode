@@ -11,7 +11,8 @@ flowchart TD
   toolCall["Session event: <code>tool/call</code><br/>logged before execution"]
   presentCall["UI pending card<br/>presentCall(args)"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
-  denied["deny or ask<br/>tool body skipped"]
+  denied["denied<br/>tool body skipped"]
+  approval["<code>ctx.approval</code> one-shot prompt<br/>absent or unanswerable: deny"]
   around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
@@ -25,7 +26,10 @@ flowchart TD
   toolCall --> pre
   pre -->|allow| around
   around --> toolBody
-  pre -->|deny or ask| denied
+  pre -->|deny| denied
+  pre -->|ask| approval
+  approval -->|allowed-once| around
+  approval -->|rejected, cancelled, unavailable| denied
   denied --> post
   toolBody --> fsGate
   fsGate --> toolBody
@@ -37,6 +41,6 @@ flowchart TD
   toolResult --> presentResult
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the same pipeline twice over: `run_code` is itself a registered tool body, and each tool call its program makes re-enters `ctx.tools.execute()` through BOTH waterfalls — serialized one at a time, logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call's `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and the approval seam's permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

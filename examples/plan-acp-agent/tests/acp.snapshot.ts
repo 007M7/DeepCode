@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineAcpSnapshotSuite, type Scenario } from '@deepseek-ai/dsh-acp-snapshot'
+import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * Snapshot suite for the plan-mode composition (`../cordis.yml`, swapped to
@@ -15,6 +15,22 @@ import { defineAcpSnapshotSuite, type Scenario } from '@deepseek-ai/dsh-acp-snap
  * (packages/mode/mode/tests) — the recorded model never calls a filtered
  * tool, which is the behavior the soft layer exists to produce.
  */
+
+function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
+  switch (value) {
+    case undefined:
+    case '':
+    case 'replay':
+      return 'replay'
+    case 'record':
+      return 'record'
+    case 'refresh':
+      return 'refresh'
+    default:
+      throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
+  }
+}
+
 const SCENARIOS: Scenario[] = [
   // Protocol-only (keyless, authored): the session-mode surface this
   // composition adds — availableModes/currentModeId advertised on
@@ -33,7 +49,7 @@ const SCENARIOS: Scenario[] = [
   // presents the plan via exit_plan_mode → the scripted elicitation approves
   // → the very next step already runs the widened toolset and writes for
   // real, mid-turn.
-  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan' },
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderSnapshots: 2 },
   // The keep-planning branch: one presentation, the scripted review answers
   // with free-text feedback (no approval), and the corrective isError carries
   // it back verbatim — the session stays in plan mode, so the log holds one
@@ -49,5 +65,5 @@ defineAcpSnapshotSuite({
   },
   snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
   scenarios: SCENARIOS,
-  mode: process.env.DSH_SNAPSHOT === 'record' ? 'record' : 'replay',
+  mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
 })

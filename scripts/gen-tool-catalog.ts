@@ -48,13 +48,18 @@ import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import SkillService from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
@@ -192,6 +197,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-skill',
+    dir: 'tool-skill',
+    source: 'packages/skill/tool-skill/src/index.ts',
+    requires: ['ctx.tools', 'ctx.skills'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SkillService)
+      await ctx.plugin(SkillLocal, {
+        dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
+        agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
+      })
+      await ctx.plugin(ToolSkill)
+    },
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
@@ -218,6 +238,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow',
+    dir: 'tool-workflow',
+    source: 'packages/workflow/tool-workflow/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workflows', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool injects `workflows`; boot the vm engine over a scripted
+      // subagent provider to satisfy it. The schema does not depend on which
+      // provider backs the engine.
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentMock, { name: 'mock' })
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolWorkflow)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',

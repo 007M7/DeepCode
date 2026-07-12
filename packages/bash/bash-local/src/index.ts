@@ -133,6 +133,10 @@ export class LocalBashExecutor extends BashExecutor {
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
+      // Carry a sandbox-mode override through verbatim: this executor never
+      // confines, so the field is inert here (the seam contract) — a
+      // sandboxing subclass overrides resolve() to stamp its default instead.
+      sandboxMode: request.sandboxMode,
     }
   }
 
@@ -210,6 +214,18 @@ export class LocalBashExecutor extends BashExecutor {
 
   get(id: BashTaskId): BashTask | undefined {
     return this.tasks.get(id)
+  }
+
+  /**
+   * Full collected stderr of a tracked task from stream start (bounded by the
+   * in-memory cap; bytes only in the spill file are not re-read). A protected
+   * seam for subclasses that classify a settled task's outcome — reading here
+   * does NOT advance the consumer's {@link readOutput} cursor. An unknown id
+   * (a task already dropped by disposal) reads as empty.
+   */
+  protected collectedStderr(id: BashTaskId): string {
+    const task = this.tasks.get(id)
+    return task === undefined ? '' : task.running.stderr.readFrom(0).text
   }
 
   ownerOf(id: BashTaskId): OwnerToken | undefined {

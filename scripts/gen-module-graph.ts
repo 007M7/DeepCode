@@ -42,6 +42,7 @@ const GROUP_ORDER = [
   'core',
   'bash',
   'fs',
+  'skill',
   'compact',
   'subagent',
   'web',

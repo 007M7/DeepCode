@@ -11,6 +11,40 @@ The on-disk envelope around every payload is `SessionEvent` — `type`, monotoni
 
 ## Events
 
+### `approval/*`
+
+#### `approval/asked` — log-only
+
+An approval question was put to the answerer chain — log-only audit (like `hook/*`; NOT a surface event, carries no `surfaceOp`). `id` pairs it with the `approval/decided` that always follows; `toolName` is the tool the question is about, `callId` the exact tool call when the asker had one, `reason` the asker's human-readable explanation (e.g. a hook's permission-decision reason).
+
+```ts persistence-catalog
+'approval/asked': { id: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
+```
+
+Types: [CallId](core-data-structures/core.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:78`](../packages/ui/user-approval/src/index.ts)
+
+#### `approval/decided` — log-only
+
+The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly one per ask, appended when the outcome is known: a decision, a cancellation, or the fail-closed `'unavailable'`.
+
+```ts persistence-catalog
+'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:89`](../packages/ui/user-approval/src/index.ts)
+
+#### `approval/policy` — log-only
+
+The session's approval policy was switched — log-only, durable, replayable, never in the model transcript (the model learns the policy from the prompt section and the narrator's notices). The LAST such event is the session's override (effectiveApprovalPolicy); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user).
+
+```ts persistence-catalog
+'approval/policy': { policy: ApprovalPolicy }
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:101`](../packages/ui/user-approval/src/index.ts)
+
 ### `assistant/*`
 
 #### `assistant/chunk` — log-only
@@ -36,6 +70,18 @@ Assembled assistant message for one step (derived history uses this). Carries th
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts)
+
+### `bash/*`
+
+#### `bash/sandbox-mode` — log-only
+
+The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
+
+```ts persistence-catalog
+'bash/sandbox-mode': { mode: SandboxMode }
+```
+
+Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 
