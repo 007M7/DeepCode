@@ -1,5 +1,21 @@
 /**
  * Typed tool-parameter schema DSL.
+ *
+ * Plugin authors write per-property specs with `required: true` as a boolean
+ * (the `SchemaSpec` type). A type-level helper (`InferArgs`) maps a SchemaSpec
+ * to the TS argument type. At runtime, `schemaSpecToJsonSchema()` converts a
+ * SchemaSpec to standard JSON Schema (`type: 'object'`, `properties`,
+ * `required` array) for the wire format sent to the model.
+ *
+ * # Why a custom DSL and not schemastery?
+ *
+ * Schemastery is a validation/transformation library (StandardSchema v1) used
+ * for plugin Config. Tool parameters need JSON Schema specifically (the LLM
+ * wire format), not validation. A lightweight DSL focused on JSON Schema
+ * generation, with type inference for the tool's `execute` args, gives plugin
+ * authors the best DX with the smallest surface area. Schemastery would add
+ * unnecessary indirection and wouldn't cleanly produce JSON Schema.
+ *
  * @module dsh-tools/schema
  */
 
@@ -247,10 +263,15 @@ function checkSpec(spec: SchemaSpec, value: unknown, path: string): string[] {
 }
 
 /**
- * Validate model-generated `args` against a {@link SchemaSpec}, returning a list of
- * human-readable violation messages (empty = valid). Total — never throws, regardless of how
- * malformed `args` is.
+ * Validate model-generated `args` against a {@link SchemaSpec}, returning a
+ * list of human-readable violation messages (empty = valid). Total — never
+ * throws, regardless of how malformed `args` is.
  *
+ * Semantics mirror {@link schemaSpecToJsonSchema} exactly: the top level must
+ * be a non-array object; required keys come only from `required: true`; extra
+ * keys are allowed (no `additionalProperties: false`); `default` is not
+ * applied; an `object`/`array` prop without `properties`/`items` only
+ * type-checks; `enum` is membership (strings only).
  * @param spec - the declared parameter schema to validate against.
  * @param args - the model-generated arguments, however malformed.
  * @returns the violation messages in declaration order; empty means valid.
@@ -266,21 +287,23 @@ export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
 /** Options for {@link defineTool}. */
 export interface DefineToolOptions<S extends SchemaSpec> {
   /** Tool name (must be unique). */
-  name: string
+  readonly name: string
   /** Human-readable description sent to the model. */
-  description: string
+  readonly description: string
   /**
    * Parameter schema using the per-property-required DSL. Converted to
    * standard JSON Schema at runtime.
    */
-  parameters: S
+  readonly parameters: S
   /**
    * Optional cooperative tool-call timeout budget in milliseconds. When given it
    * must be a positive finite number; it is attached to the produced
    * {@link ToolDefinition} for `@deepseek-ai/dsh-timeout-policy` to enforce and
    * is never sent to the model.
    */
-  timeoutMs?: number
+  readonly timeoutMs?: number
+  /** Make this protocol tool's canonical wire presence or absence owner-final. */
+  readonly ownerFinal?: boolean
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
@@ -309,6 +332,30 @@ export interface DefineToolOptions<S extends SchemaSpec> {
 /**
  * Define a tool with a typed parameter schema.
  *
+ * Use this instead of constructing a raw {@link ToolDefinition} for all
+ * first-party tools. The `parameters` use the boolean-required style
+ * (`required: true` as a per-property flag), and `execute` receives typed
+ * args derived from the schema.
+ *
+ * ```ts
+ * const tool = defineTool({
+ *   name: 'read_file',
+ *   description: 'Read a file from disk.',
+ *   parameters: {
+ *     path: { type: 'string', required: true, description: 'Absolute file path' },
+ *     offset: { type: 'number' },
+ *     limit: { type: 'number', description: 'Max lines to read' },
+ *   },
+ *   async execute(args) {
+ *     // args: { path: string; offset?: number; limit?: number }
+ *   },
+ * })
+ * ```
+ *
+ * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
+ * by `ToolRegistry.register()` directly — `defineTool` is sugar for
+ * first-party plugin authors.
+ *
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
@@ -333,8 +380,12 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.ownerFinal === true ? { ownerFinal: true } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
-      // Validate the model-generated args before the typed body runs.
+      // Validate the model-generated args before the typed body runs. On
+      // mismatch we throw ToolArgsError; the registry turns it into an
+      // isError result so the model can self-correct. After this guard, the
+      // cast to InferArgs<S> reflects the validated shape.
       const violations = validateArgs(options.parameters, args)
       if (violations.length > 0) throw new ToolArgsError(violations)
       return userExecute(args as InferArgs<S>, exec)

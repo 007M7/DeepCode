@@ -268,7 +268,7 @@ describe('agent loop', () => {
       expect(result.data.meta).toBeUndefined()
       expect(result.data.content).toEqual([{
         type: 'text',
-        text: 'Error: tools/execute must return a losslessly JSON-serializable ToolExecutionResult',
+        text: 'Error: tool result must be losslessly JSON-serializable',
       }])
     }
     // The normalized failure was durably logged and fed back to the model; the
@@ -798,10 +798,10 @@ describe('agent loop', () => {
     ])
   })
 
-  it('stops the turn when a step/end session-event listener failure has recorded an error', async () => {
+  it('contains a step/end observer failure without changing continuation', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),
-      textResponse('should not run'),
+      textResponse('continued after tool call'),
     ])
     const ctx = await harness(adapter)
     ctx.tools.register(defineTool({
@@ -814,9 +814,8 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
-    // A throwing step/end session-event listener is the surviving boundary-listener
-    // failure path (step boundaries have no agent/* mirror): closeStep contains it
-    // and surfaces it as a turn error rather than stranding the turn open.
+    // Post-commit session observers cannot control the loop. The tool call still
+    // drives the second model request, and the turn completes normally.
     ctx.on('session/event', (_session, event) => {
       if (event.type === 'step/end' && !threw) { threw = true; throw new Error('bad step/end listener') }
     })
@@ -824,9 +823,9 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed')
   })
 
   it('chains queued messages into consecutive turns', async () => {

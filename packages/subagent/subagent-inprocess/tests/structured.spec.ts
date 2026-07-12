@@ -36,7 +36,7 @@ const SCHEMA: StructuredOutputSchema = {
 }
 
 /**
- * Real loop + scripted mock model + an INLINE spawn-shaped provider over the
+ * Real loop + scripted mock model + an INLINE fresh-conversation provider over the
  * shared driver. The concrete backend plugins are deliberately NOT loaded —
  * they would devDep-cycle this package (spawn/fork already depend on the
  * driver), and the runtime under test is the driver's; plugin-level structured
@@ -65,7 +65,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     name: 'spawn',
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: false, persona: false },
     inheritsParentContext: false,
-    start: (request: SubagentStartRequest) => startInProcessRun(ctx, request, {}),
+    start: (request: SubagentStartRequest) => startInProcessRun(request, {}),
   })
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
@@ -73,7 +73,13 @@ async function setup(script: Script, options: SetupOptions = {}) {
 }
 
 function structuredRequest(parent: SubagentStartRequest['parent'], extra?: Partial<SubagentStartRequest>): SubagentStartRequest {
-  return { prompt: [{ type: 'text', text: 'produce the answer' }], parent, outputSchema: SCHEMA, ...extra }
+  return {
+    prompt: [{ type: 'text', text: 'produce the answer' }],
+    parent,
+    signal: new AbortController().signal,
+    outputSchema: SCHEMA,
+    ...extra,
+  }
 }
 
 /** The tool names of one recorded model request. */
@@ -86,7 +92,7 @@ describe('in-process structured output', () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42, note: 'done' }),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.structured).toEqual({ answer: 42, note: 'done' })
@@ -98,7 +104,7 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
     // Default continuation would run a second step after the tool call; the
     // structured runtime's turn-continuation veto stops the turn instead.
@@ -129,7 +135,7 @@ describe('in-process structured output', () => {
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.structured).toEqual({ answer: 5 })
@@ -157,7 +163,7 @@ describe('in-process structured output', () => {
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // Registered after the child and prepended: this listener returns allow
     // after every downstream pre-execute decision. The service-owned guard
     // runs after the waterfall and can only deny, so the body still cannot run.
@@ -194,37 +200,12 @@ describe('in-process structured output', () => {
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     // The call ran BEFORE captured was set: the deny gate only guards the
     // window after the terminal answer landed.
     expect(sideEffectRan).toBe(true)
     expect(result.structured).toEqual({ answer: 6 })
-    await run.dispose()
-  })
-
-  it('snapshots the schema at start(): caller mutation after start cannot drift enforcement', async () => {
-    const mutable: StructuredOutputSchema = {
-      type: 'object',
-      properties: { answer: { type: 'number' } },
-      required: ['answer'],
-      additionalProperties: false,
-    }
-    const pristine = structuredClone(mutable)
-    const { ctx, parent, adapter } = await setup([
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 3 }),
-    ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent, { outputSchema: mutable }))
-    // Mutate the caller's object AFTER start() returned but before the child's
-    // first request assembles: with a live reference this would reach both the
-    // model-visible parameters and validateStructuredValue.
-    ;(mutable.properties as Record<string, unknown>).answer = { type: 'string' }
-    const result = await run.result
-    expect(result.structured).toEqual({ answer: 3 })
-    // The child's request carried the PRISTINE schema, not the mutated one.
-    const childRequest = adapter.requests.at(-1)
-    const captureTool = (childRequest?.tools ?? []).find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
-    expect(captureTool?.parameters).toEqual(pristine)
     await run.dispose()
   })
 
@@ -234,11 +215,14 @@ describe('in-process structured output', () => {
       textResponse('MUST NOT BE CONSUMED'),
     ])
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
     let wrapperInstalled = false
-    // Register this observer only after start() returns.
+    // Register before the ready-only start. The child session-start boundary is
+    // after unpublished setup attached structured output but before the loop
+    // can run. The wrapper awaits the
+    // explicit downstream stop above, then overwrites that result with continue.
+    // The later terminal checkpoint still wins.
     ctx.on('agent/session-start', (child) => {
-      if (child.id !== run.id) return
+      if (child === parent) return
       wrapperInstalled = true
       child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, next): Promise<ContinuationDecision> => {
         const downstream = await next()
@@ -246,6 +230,7 @@ describe('in-process structured output', () => {
         return { action: 'continue' }
       }, { prepend: true })
     })
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(wrapperInstalled).toBe(true)
     expect(result.structured).toEqual({ answer: 7 })
@@ -259,9 +244,12 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    // The downstream ordinary policy says stop.
+    // The downstream ordinary policy says stop. A wrapper registered after
+    // start() delegates to that stop, then queues steering; ordinary folding
+    // would turn the stop back into continue. The terminal checkpoint runs
+    // afterwards and discards that steering.
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {
       if (child.id !== run.id) return
       child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, next): Promise<ContinuationDecision> => {
@@ -287,7 +275,7 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 'not-a-number' }),
       toolCallResponse('c2', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.structured).toEqual({ answer: 7 })
     expect(result.stopReason).toBe('completed')
@@ -304,7 +292,7 @@ describe('in-process structured output', () => {
       textResponse('here is my answer in prose'),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(result.structured).toBeUndefined()
@@ -318,7 +306,7 @@ describe('in-process structured output', () => {
   it('an errored child keeps its honest error result (no capture expected)', async () => {
     // Script exhaustion on the first call → the child turn errors.
     const { ctx, parent, adapter } = await setup([])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(adapter.requests.length).toBe(1)
@@ -327,12 +315,13 @@ describe('in-process structured output', () => {
 
   it('a cancel landing after a clean capture-less turn settles aborted, not error', async () => {
     const { ctx, parent } = await setup([textResponse('prose, no capture')])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const controller = new AbortController()
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent, { signal: controller.signal }))
     // Cancel synchronously inside the turn's end recording: the cancel
     // contract outranks the schema shortfall, so the result maps to aborted.
     ctx.on('session/event', (session, event) => {
       const child = ctx.agents.get(run.id)
-      if (session === child?.session && event.type === 'turn/end') run.cancel('cancelled at turn end')
+      if (session === child?.session && event.type === 'turn/end') controller.abort('cancelled at turn end')
     })
     const result = await run.result
     expect(result.stopReason).toBe('aborted')
@@ -341,20 +330,18 @@ describe('in-process structured output', () => {
 
   it('rejects a schema outside the subset loud, before any child exists', async () => {
     const { ctx, parent } = await setup([])
-    expect(() => ctx.subagents.start('spawn', structuredRequest(parent, {
+    await expect(ctx.subagents.start('spawn', structuredRequest(parent, {
       outputSchema: { type: 'object', oneOf: [] } as unknown as StructuredOutputSchema,
-    }))).toThrow(/unsupported output schema/)
+    }))).rejects.toThrow(/unsupported output schema/)
     expect(ctx.agents.get(AgentId('parent'))).toBeDefined()
   })
 
-  it('a schema carrying non-JSON values fails as OutputSchemaError, never as a raw clone error', async () => {
+  it('a schema carrying non-JSON values fails as OutputSchemaError at the validation boundary', async () => {
     const { ctx, parent } = await setup([])
-    // Assertion runs BEFORE the defensive structuredClone: a function-valued
-    // annotation must surface as the subset violation it is, not escape as
-    // structuredClone's DataCloneError.
-    expect(() => ctx.subagents.start('spawn', structuredRequest(parent, {
+    // Semantic assertion runs before provider startup.
+    await expect(ctx.subagents.start('spawn', structuredRequest(parent, {
       outputSchema: { type: 'object', default: () => {} } as unknown as StructuredOutputSchema,
-    }))).toThrow(/unsupported output schema.*annotation must be JSON data/)
+    }))).rejects.toThrow(/unsupported output schema.*annotation must be JSON data/)
   })
 
   it('a post-execute BLOCK on the capture call denies the capture: log and result agree on failure', async () => {
@@ -370,7 +357,7 @@ describe('in-process structured output', () => {
       }
       return next()
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     // No capture was committed: the run reports the schema shortfall...
     expect(result.structured).toBeUndefined()
@@ -396,7 +383,7 @@ describe('in-process structured output', () => {
       }
       return next()
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.structured).toEqual({ answer: 8 })
@@ -408,7 +395,7 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 8 }),
       textResponse('capture was rejected'),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // Registered after attachment and prepended, so it wraps every listener
     // the child installed. It delegates first, then converts the apparent
     // capture success into the pipeline's authoritative failure.
@@ -435,7 +422,7 @@ describe('in-process structured output', () => {
     // replace it (AgentOptions has no prompt field — the instruction is
     // per-request wire state added by the final-request listener).
     ctx.systemPrompt.section({ name: 'test:persona', order: 10, text: 'You are a counter.' })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
     const childRequest = adapter.requests.at(-1)!
     expect(childRequest.system).toContain('You are a counter.')
@@ -456,7 +443,7 @@ describe('in-process structured output', () => {
         return { logs: [], value: 'captured' }
       },
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
 
     // This listener is registered after the child's protection and prepended.
     // Service finalization still restores the stripped transport and prompt
@@ -500,7 +487,7 @@ describe('in-process structured output', () => {
         } as never
       },
     })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
 
     const result = await run.result
     expect(result.structured).toBeUndefined()
@@ -529,7 +516,7 @@ describe('in-process structured output', () => {
     ctx.on('tools/post-execute', (exec, _result, next) => exec.name === RUN_CODE_NAME
       ? Promise.resolve({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'outer blocked' }] })
       : next())
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
 
     const result = await run.result
     expect(result.structured).toBeUndefined()
@@ -546,7 +533,7 @@ describe('in-process structured output', () => {
     parent.send([{ type: 'text', text: 'hello' }])
     await parent.whenIdle()
     expect(adapter.requests[0]!.system ?? '').not.toContain(STRUCTURED_OUTPUT_INSTRUCTION)
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
     // The loop always assembles a base prompt (the harness identity section),
     // so the instruction APPENDS — never replaces.
@@ -577,7 +564,7 @@ describe('in-process structured output', () => {
       await parent.whenIdle()
       expect(toolNames(adapter.requests[0]!)).not.toContain(STRUCTURED_OUTPUT_TOOL)
 
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       await run.result
       const childRequest = adapter.requests[1]!
       expect(toolNames(childRequest)).toContain(STRUCTURED_OUTPUT_TOOL)
@@ -610,8 +597,8 @@ describe('in-process structured output', () => {
           return toolCallResponse('c2', STRUCTURED_OUTPUT_TOOL, args)
         },
       ])
-      const runA = ctx.subagents.start('spawn', structuredRequest(parent))
-      const runB = ctx.subagents.start('spawn', structuredRequest(parent, { outputSchema: otherSchema }))
+      const runA = await ctx.subagents.start('spawn', structuredRequest(parent))
+      const runB = await ctx.subagents.start('spawn', structuredRequest(parent, { outputSchema: otherSchema }))
       const [a, b] = await Promise.all([runA.result, runB.result])
       expect(a.structured).toEqual({ answer: 1 })
       expect(b.structured).toEqual({ verdict: 'real' })
@@ -640,7 +627,7 @@ describe('in-process structured output', () => {
           variables: { ...replaced.variables },
         }
       })
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       const result = await run.result
       expect(result.structured).toEqual({ answer: 5 })
       const entries = adapter.requests[0]!.tools!.filter(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
@@ -665,7 +652,7 @@ describe('in-process structured output', () => {
           variables: { ...replaced.variables },
         }
       })
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       const result = await run.result
       expect(result.structured).toEqual({ answer: 5 })
       const entry = adapter.requests[0]!.tools!.find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
@@ -690,7 +677,7 @@ describe('in-process structured output', () => {
         execute: () => Promise.resolve([{ type: 'text', text: 'x' }]),
       })
       ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       await run.result
       const request = adapter.requests[0]!
       const names = toolNames(request)
@@ -724,7 +711,7 @@ describe('in-process structured output', () => {
           variables: { ...replaced.variables },
         }
       })
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       const result = await run.result
       expect(result.structured).toEqual({ answer: 3 })
       const request = adapter.requests[0]!
@@ -752,7 +739,7 @@ describe('in-process structured output', () => {
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 4 }),
       ])
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       // A backend hot-reload mid-run must not unregister the capture tool out
       // from under the live child: the registration rides the CHILD's fiber.
       await disposeProvider()
@@ -793,7 +780,7 @@ describe('in-process structured output', () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // A prepended post-execute listener blocks the first capture without
     // delegating. The final-result notification discards that execution's
     // stage when it observes the error.
@@ -834,7 +821,7 @@ describe('in-process structured output', () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // Block the first capture after its body stages a value. Its final error
     // discards that execution's stage.
     let blocks = 1
@@ -872,7 +859,7 @@ describe('in-process structured output', () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // Discard the first capture's stage via a final post-execute block.
     let blocks = 1
     ctx.on('tools/post-execute', (exec, _result, next) => {

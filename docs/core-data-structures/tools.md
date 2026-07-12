@@ -20,6 +20,12 @@ interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
+   * Whether this tool name's canonical wire presence or absence survives the
+   * complete system-prompt assembly waterfall. Reserved for protocol tools
+   * whose owner must retain the final definition.
+   */
+  readonly ownerFinal?: boolean
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
@@ -81,16 +87,25 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 `defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
 
-Registration is a value boundary. `ToolRegistry.register()` validates `ToolDefinition.parameters` as lossless JSON before and after cloning, copies the scalar fields, binds the execute/presentation callbacks once to the original definition as their method receiver, and deep-freezes the stored record. Replacing a callback property on the caller-owned definition later does not change dispatch. `get()`/`visible()` expose only that frozen snapshot, while `schemas()` produces detached projections, so the model-visible and executable views cannot drift through a leaked mutable registry object.
+Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
+
+## `ToolRestriction` — one scope's live global filter
+
+`ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
+
+```ts type-equiv
+interface ToolRestriction {
+  readonly allow?: readonly string[]
+  readonly deny?: readonly string[]
+}
+```
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, snapshots it into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
-interface ToolExecutionToken {
-  readonly [toolExecutionTokenBrand]: true
-}
+type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 ```
 
 ```ts type-equiv
@@ -118,7 +133,7 @@ interface ToolExecution extends ToolExecutionInput {
 }
 ```
 
-`ToolExecutionToken` is a compile-time opaque type and a frozen, property-free object at runtime; identity comparison is its only operation. Before policy runs, `ctx.tools.execute()` requires the caller's `arguments` to be losslessly JSON-serializable, checks again after cloning to contain unstable accessors, assigns a fresh token, and deep-freezes the detached arguments. A cloneable mutable exotic such as `Map` is rejected and normalized to an error before policy. `token`, `callId`, `name`, `arguments`, `agent`, and the optional `parent` token are non-writable throughout all waterfalls, so a listener cannot change which capability or scope was authorized or reach a live enclosing execution; an around-dispatch wrapper may add, replace, or remove only optional `signal`. After the complete pipeline the registry freezes the execution and exposes its stable identity to `tools/result` observers, where the execution remains usable as a `WeakMap` key without mutation races.
+`ToolExecutionToken` is a compile-time opaque fresh `Symbol` at runtime; identity comparison is its only operation. Before policy runs, `ctx.tools.execute()` materializes `arguments` as detached lossless JSON, assigns the token, and deep-freezes the accepted arguments. A non-JSON value is normalized to an error before policy. `token`, `callId`, `name`, `arguments`, `agent`, and the optional `parent` token are readonly throughout the waterfalls, while an around-dispatch wrapper may add, replace, or remove only optional `signal`. After the complete pipeline the registry freezes the execution and exposes its stable identity to `tools/result` observers.
 
 A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
 
@@ -158,7 +173,7 @@ interface ToolExecutionResult {
 }
 ```
 
-The registry rebuilds and validates the complete authoritative result after post-policy. Its content, structured error, additional context, and presentation metadata must round-trip losslessly through JSON; a malformed or non-JSON value becomes a JSON-safe `isError` result before `tools/result` observers run, so the live outcome is always safe for the later durable `tool/result` append.
+The registry materializes and freezes the final accepted result immediately before `tools/result`. Its content, structured error, additional context, and presentation metadata must round-trip losslessly through JSON; an invalid outcome becomes a JSON-safe `isError` result, so the observed live outcome is safe for the later durable `tool/result` append.
 
 Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 

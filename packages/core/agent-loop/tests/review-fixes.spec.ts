@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -10,10 +10,7 @@ import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
-/**
- * Regression tests for the findings of the first architecture review
- * (Codex + sub-agent, post phase-1). Each describe block names the finding.
- */
+/** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -114,8 +111,10 @@ describe('HIGH: abort during tool execution ends the turn', () => {
       parameters: {},
       async execute() {
         executed.push('aborter')
-        // Fire the in-flight step's AbortController directly (the loop registers it on the
-        // agent).
+        // Fire the in-flight step's AbortController directly (the loop registers
+        // it on the agent). This is the bare step-abort path — distinct from
+        // cancel(), which would also clear the inbox; here the subject is the
+        // loop's response to its running step being aborted mid-tool.
         ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
         return [{ type: 'text', text: 'done' }]
       },
@@ -169,8 +168,21 @@ describe('HIGH: steering from late extension points is never stranded', () => {
   })
 
   it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
-    // The /goal pattern steers from a step boundary so the model addresses a standing goal
-    // before stopping.
+    // The /goal pattern steers from a step boundary so the model addresses a
+    // standing goal before stopping. Step boundaries have no agent/* mirror, so
+    // the surviving hook point is the durable step/end session event. With a
+    // no-tools first step the default continuation is stop; the steering queued
+    // here must force the `!shouldContinue && hasSteering` override so the SAME
+    // turn runs another step.
+    //
+    // The override is what this test guards, so it asserts the same-turn shape —
+    // NOT merely that the content reaches requests[1]. Without the override the
+    // turn would stop, and leftover steering is re-enqueued as a next-turn queued
+    // message, which ALSO lands in requests[1] (just one turn later). So a
+    // content-only assertion passes with the override disabled and guards
+    // nothing. The discriminator is the turn/step shape: override ⇒ ONE turn with
+    // TWO steps and the steering recorded as a `steering/message` BEFORE step 2;
+    // re-enqueue fallback ⇒ TWO turns.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
       textResponse('after goal reminder'),
@@ -237,9 +249,11 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     agent.steer([{ type: 'text', text: 'redirect' }])
-    // Abort only the in-flight step, via its AbortController directly — not cancel(), which
-    // clears the inbox and would drop the queued steering this test proves survives a step
-    // abort.
+    // Abort ONLY the in-flight step, via its AbortController directly — NOT
+    // cancel(), which clears the inbox and would drop the queued steering this
+    // test proves survives a step abort. There is no public step-only abort
+    // verb (cancel() is the only public stop primitive), so reach the private
+    // controller the loop registered.
     ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
     await waitForIdle(ctx, agent)
 
@@ -420,6 +434,94 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
     expect(steeringSources).toEqual([{ kind: 'plugin', plugin: 'goal' }])
   })
+
+  it('send() owns content and source before notification and delivery', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('owned-send'), { model: 'mock' })
+    const content = [{ type: 'text' as const, text: 'accepted-send' }]
+    const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
+    let notifiedContent: ContentBlock[] | undefined
+    let notifiedSource: MessageSource | undefined
+    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+      if (subject !== agent || info.steering) return
+      // Retain the exact notification references: cloning here would test the
+      // listener's copy rather than the event/inbox ownership boundary.
+      notifiedContent = acceptedContent
+      notifiedSource = info.source
+    })
+
+    agent.send(content, { source })
+    content[0]!.text = 'caller-mutated-send'
+    source.plugin = 'caller-mutated-source'
+    await waitForIdle(ctx, agent)
+
+    expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-send' }])
+    expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(Object.isFrozen(notifiedContent)).toBe(true)
+    expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
+    expect(Object.isFrozen(notifiedSource)).toBe(true)
+    const recorded = agent.session.events.flatMap(event => event.type === 'user/message' ? [event.data] : [])
+    expect(recorded).toContainEqual({
+      content: [{ type: 'text', text: 'accepted-send' }],
+      source: { kind: 'plugin', plugin: 'accepted-source' },
+    })
+    const request = JSON.stringify(adapter.requests[0]!.messages)
+    expect(request).toContain('accepted-send')
+    expect(request).not.toContain('caller-mutated-send')
+  })
+
+  it('running steer() owns content and source before notification and delivery', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'gate', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('owned-steer'), { model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.tools.register(defineTool({
+      name: 'gate',
+      description: '',
+      parameters: {},
+      async execute() {
+        entered.resolve(undefined)
+        await release.promise
+        return [{ type: 'text', text: 'tool done' }]
+      },
+    }))
+    let notifiedContent: ContentBlock[] | undefined
+    let notifiedSource: MessageSource | undefined
+    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+      if (subject !== agent || !info.steering) return
+      notifiedContent = acceptedContent
+      notifiedSource = info.source
+    })
+
+    agent.send([{ type: 'text', text: 'start' }])
+    await entered.promise
+    expect(agent.status).toBe('running')
+    const content = [{ type: 'text' as const, text: 'accepted-steer' }]
+    const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
+    agent.steer(content, { source })
+    content[0]!.text = 'caller-mutated-steer'
+    source.plugin = 'caller-mutated-source'
+    const idle = waitForIdle(ctx, agent)
+    release.resolve(undefined)
+    await idle
+
+    expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-steer' }])
+    expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(Object.isFrozen(notifiedContent)).toBe(true)
+    expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
+    expect(Object.isFrozen(notifiedSource)).toBe(true)
+    const recorded = agent.session.events.flatMap(event => event.type === 'steering/message' ? [event.data] : [])
+    expect(recorded).toContainEqual({
+      turn: 1,
+      content: [{ type: 'text', text: 'accepted-steer' }],
+      source: { kind: 'plugin', plugin: 'accepted-source' },
+    })
+    const request = JSON.stringify(adapter.requests[1]!.messages)
+    expect(request).toContain('accepted-steer')
+    expect(request).not.toContain('caller-mutated-steer')
+  })
 })
 
 describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () => {
@@ -444,7 +546,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     const seeded = ctx2.sessions.create(SessionId('forked'), { seed: [...agent.session.events] })
     const prepared = prepareReactLoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
     const forked = prepared.agent
-    prepared.enableDrive()
+    prepared.markPublished()
     ctx2.effect(() => prepared.startDriver())
 
     const turns: number[] = []
@@ -480,9 +582,10 @@ describe('LOW: discriminated SessionEvent narrows without casts', () => {
 
 describe('HIGH: a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
-    // The second sanctioned adapter error path (besides throwing): an adapter that cannot throw
-    // mid-stream ends the stream with a finish-error chunk (e.g. the pi-ai adapter mapping a
-    // provider 401).
+    // The second sanctioned adapter error path (besides throwing): an
+    // adapter that cannot throw mid-stream ends the stream with a
+    // finish-error chunk (e.g. the pi-ai adapter mapping a provider 401).
+    // The loop must NOT log a normal assistant/message + completed turn.
     const errorStream: StreamChunk[] = [
       { type: 'finish', reason: { kind: 'error', message: 'provider 401', code: 'AUTH' } },
     ]
@@ -543,14 +646,16 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
   })
 })
 
-describe('P1-6: a step/start session-event listener sees the event already in the log', () => {
+describe('step boundary publication order', () => {
   it('the step/start event is in session.events when its session/event listener fires', async () => {
     const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-step-order'), { model: 'mock' })
 
-    // Session.append pushes the event before notifying session/event listeners, so a step/start
-    // listener always finds the matching event already in the log.
+    // Session.append pushes the event BEFORE notifying session/event listeners,
+    // so a step/start listener always finds the matching event already in the
+    // log. (Step boundaries have no agent/* mirror — the session log is the live
+    // feed.)
     const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/start') return
@@ -572,8 +677,11 @@ describe('P1-6: a step/start session-event listener sees the event already in th
   })
 })
 
-describe('P1-5: a started turn (and any open step) is always closed on a boundary throw', () => {
-  // Invariants turn latent log imbalance into an immediate test failure.
+describe('turn and step boundary recovery', () => {
+  // Harness with the invariants plugin loaded as an oracle: it throws on
+  // append if the log goes unbalanced (turn/end while a step is open,
+  // turn/start while a turn is open, etc.), so a regression surfaces as an
+  // InvariantError on the NEXT turn's append rather than a silent imbalance.
   async function balancedHarness(adapter: MockAdapter) {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -582,7 +690,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
     return ctx
   }
@@ -600,13 +708,13 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     }
   }
 
-  it('a throwing step/start session-event listener closes the open step then the turn (step/end before turn/end)', async () => {
-    const adapter = new MockAdapter([textResponse('never reached')])
+  it('a throwing step/start observer cannot change a successful turn', async () => {
+    const adapter = new MockAdapter([textResponse('request completed')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-stepstart'), { model: 'mock' })
 
-    // Step boundaries have no agent/* mirror; a throwing step/start session-event listener is
-    // the surviving step-boundary-listener failure.
+    // Session owns post-commit containment. The loop sees a successful append,
+    // runs the request, and balances the ordinary step and turn boundaries.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (event.type === 'step/start' && !threw) { threw = true; throw new Error('boom step-start') }
@@ -619,14 +727,109 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
 
     const e = [...agent.session.events]
     const c = boundaryCounts(agent)
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
-    expect(errors.map(x => x.message)).toEqual(['boom step-start'])
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 0 })
+    expect(errors).toEqual([])
     // step/end precedes turn/end (the invariants oracle would reject
     // turn/end-while-step-open, but assert the order explicitly too).
     const stepEndIdx = e.findIndex(x => x.type === 'step/end')
     const turnEndIdx = e.findIndex(x => x.type === 'turn/end')
     expect(stepEndIdx).toBeGreaterThanOrEqual(0)
     expect(stepEndIdx).toBeLessThan(turnEndIdx)
+  })
+
+  it('a pre-commit step/start validation failure does not invent a step boundary', async () => {
+    const adapter = new MockAdapter([textResponse('never reached')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-stepstart-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/start' && !rejected) {
+        rejected = true
+        throw new Error('reject step-start before commit')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toEqual([])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 0,
+      stepEnd: 0,
+      errors: 1,
+    })
+    expect(errors.map(error => error.message)).toEqual(['reject step-start before commit'])
+  })
+
+  it('a one-shot turn/end validation failure preserves the earlier turn error on retry', async () => {
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider failed' } }]
+    const adapter = new MockAdapter([errorStream])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-turnend-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/end' && !rejected) {
+        rejected = true
+        throw new Error('reject first turn-end')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(errors.map(error => error.message)).toEqual(['provider failed'])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 1,
+      stepEnd: 1,
+      errors: 1,
+    })
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({
+      kind: 'error',
+      message: 'provider failed',
+    })
+  })
+
+  it('a one-shot step/end validation failure keeps the step open until retry succeeds', async () => {
+    const adapter = new MockAdapter([textResponse('completed before close validation')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-stepend-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/end' && !rejected) {
+        rejected = true
+        throw new Error('reject first step-end')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(errors.map(error => error.message)).toEqual(['reject first step-end'])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 1,
+      stepEnd: 1,
+      errors: 1,
+    })
   })
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
@@ -691,8 +894,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 
   it('preserves reason disposed when a pre-step listener disposes then throws (outer-catch disposed branch)', async () => {
-    // Reach the OUTER catch while disposed: an `agent/pre-step` listener requests disposal AND
-    // throws.
+    // A pre-step listener requests disposal and then throws before the ordinary
+    // post-listener disposal check. The outer catch sees disposal already won
+    // and must preserve reason=disposed rather than rewrite it as a plugin error.
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: ReactLoopAgent
@@ -728,10 +932,8 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(errorEmits).toHaveLength(0)
   })
 
-  it('a throwing session/event listener on the turn/start append still balances the turn', async () => {
-    // Session.append pushes the event before notifying session/event listeners, so a listener
-    // throwing on turn/start leaves turn/start IN THE LOG.
-    const adapter = new MockAdapter([textResponse('turn 2')])
+  it('a throwing turn/start observer cannot starve the loop or later turns', async () => {
+    const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-preturn'), { model: 'mock' })
 
@@ -745,10 +947,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The error was surfaced exactly once via agent/error.
-    expect(errors.map(e => e.message)).toEqual(['boom turn/start append'])
-    // The turn is BALANCED: turn/start is in the log (it was pushed before the listener threw),
-    // so a turn/end was owed and appended — no open turn.
+    expect(errors).toEqual([])
+    // Session contains the observer failure per listener, so the committed turn
+    // remains visible to later observers and executes normally.
     const types = [...agent.session.events].map(e => e.type)
     expect(types.filter(t => t === 'turn/start')).toHaveLength(1)
     expect(types.filter(t => t === 'turn/end')).toHaveLength(1)
@@ -759,12 +960,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // loop survives: a second turn runs normally.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
   })
 
-  it('a throwing step/end session-event listener during a successful step ends the turn as error, not completed', async () => {
-    // closeStep() must surface a throwing step/end listener via failTurn so the turn ends with
-    // reason error, not a silent "completed" with the throw swallowed.
+  it('a throwing step/end observer cannot rewrite the turn outcome', async () => {
     const adapter = new MockAdapter([textResponse('all good'), textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-stepend-throw'), { model: 'mock' })
@@ -780,11 +979,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await waitForIdle(ctx, agent)
 
     const c = boundaryCounts(agent)
-    // step opened and closed; exactly one error turn-end; turn balanced.
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
-    expect(errors.map(e => e.message)).toEqual(['boom step-end'])
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 0 })
+    expect(errors).toEqual([])
     expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason)
-      .toEqual({ kind: 'error', step: 1, message: 'boom step-end' })
+      .toEqual({ kind: 'completed' })
 
     // step/end precedes turn/end (ordering contract)
     const e = [...agent.session.events]
@@ -802,8 +1000,11 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c2.stepStart).toBe(c2.stepEnd)
   })
 
-  it('a throwing session/event listener on step/end during finalization still appends turn/end', async () => {
-    // A step/end listener failure must not prevent turn/end finalization.
+  it('a throwing step/end observer cannot interrupt error finalization', async () => {
+    // A finish-error stream opens a step then fails it, driving finalization
+    // through closeStep() with the step open. Session contains the observer
+    // failure after committing step/end, so closeTurn still records the model
+    // failure and balances the turn.
     const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
@@ -824,7 +1025,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(e.some(x => x.type === 'step/end')).toBe(true)
     expect(e.some(x => x.type === 'turn/end')).toBe(true)
     expect(e.at(-1)?.type).toBe('turn/end')
-    expect(errors.length).toBeGreaterThanOrEqual(1) // surfaced via agent/error
+    expect(errors.map(error => error.message)).toEqual(['provider 500'])
 
     // loop survives.
     send(agent, 'again')
@@ -833,10 +1034,8 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 
   it('a throwing session/event listener on turn/end is contained (turn still balanced, loop survives)', async () => {
-    // closeTurn appends turn/end; Session.append pushes it before notifying session/event
-    // listeners, so a throwing listener leaves turn/end in the log (the turn is balanced) but
-    // must not escape — from the normal-path closeTurn it would otherwise propagate; the append
-    // is contained so the loop continues.
+    // Session contains the observer failure after committing turn/end, so the
+    // boundary stays authoritative and the loop continues normally.
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-turnendappend'), { model: 'mock' })
@@ -862,7 +1061,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 })
 
-describe('P1-7: tool/result is logged under the originating call.id, not result.callId', () => {
+describe('tool result call identity', () => {
   it('the loop records tool/result under the model call.id even when a post-execute listener replaces content', async () => {
     // Model emits a tool-call with id "c1", then a final text turn.
     const adapter = new MockAdapter([
@@ -878,6 +1077,9 @@ describe('P1-7: tool/result is logged under the originating call.id, not result.
     }))
 
     // A post-execute listener transforms the result (accept-with-replacement).
+    // The loop must still record the tool/result under the model's authoritative
+    // call.id (the loop ignores result.callId — which the registry always sets to
+    // exec.callId anyway — and uses call.id, the model-transcript id).
     ctx.on('tools/post-execute', (exec, _result) => {
       expect(exec.callId).toBe(CallId('c1')) // the loop passed the real id in
       return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'ok' }] })
@@ -910,8 +1112,11 @@ describe('P1-7: tool/result is logged under the originating call.id, not result.
 
 describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
   it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // An empty stream yields zero assistant/chunk events (finish defaults to `stop`), so
-    // chunkSeqs is empty.
+    // An empty stream yields zero assistant/chunk events (finish defaults to
+    // `stop`), so chunkSeqs is empty. A step-result listener injects content, so
+    // the content-or-usage guard fires and an assistant/message is appended. Its
+    // sourceEventSeqs MUST be omitted (not `[]`) — the surface invariant rejects
+    // an empty sourceEventSeqs, and the dev invariants plugin would throw on it.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
     await ctx.plugin(Invariants)
@@ -936,9 +1141,14 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
 
 
 
-describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
+describe('disposal and cancellation during pre-step assembly', () => {
   it('disposal during system-prompt assembly drops the about-to-start step as disposed', { timeout: 30000 }, async () => {
-    // Block `system-prompt/assemble` on a promise.
+    // Block `system-prompt/assemble` on a promise. Start disposal (which
+    // calls stop() synchronously, setting status=disposed), then release the
+    // block. The loop must check isDisposed() after assembly and end the turn
+    // `disposed` — no LLM call. Don't await fiber.dispose() before releasing
+    // the blocker: the dispose chain awaits agent.done, which hangs until the
+    // loop unblocks.
     const adapter = new MockAdapter(['hang'])
     let releaseAssemble!: () => void
     const blocked = new Promise<void>(r => void (releaseAssemble = r))
@@ -950,7 +1160,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Blocking listener on the parent context (survives fiber disposal).
@@ -1007,7 +1217,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
@@ -1049,8 +1259,9 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
   })
 
   it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
-    // Block the `agent/pre-step` serial seam on a promise we control, then dispose the agent's
-    // fiber.
+    // Block the `agent/pre-step` serial seam on a promise we control, then
+    // dispose the agent's fiber. When the block releases, the loop must see
+    // isDisposed() at the post-seam check and end the turn disposed.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))
@@ -1062,7 +1273,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1114,7 +1325,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1163,7 +1374,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {

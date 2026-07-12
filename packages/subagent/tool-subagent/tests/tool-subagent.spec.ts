@@ -113,11 +113,9 @@ describe('dsh-tool-subagent', () => {
       name: 'weird',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: () => ({
+      start: async () => ({
         id: AgentId('weird-child'),
-        started: Promise.resolve(),
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
-        cancel() {},
         dispose: async () => {},
       }),
     })
@@ -140,13 +138,11 @@ describe('dsh-tool-subagent', () => {
       name: 'capture',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: (request) => {
+      start: async (request) => {
         seen = request
         return {
           id: AgentId('capture-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
           dispose: async () => {},
         }
       },
@@ -171,13 +167,11 @@ describe('dsh-tool-subagent', () => {
       name: 'bare',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: (request) => {
+      start: async (request) => {
         seen = request
         return {
           id: AgentId('bare-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
           dispose: async () => {},
         }
       },
@@ -220,7 +214,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    const backend = await ctx.plugin(mock, { name: 'mock' }) // spawn-shaped (inherits: false)
+    const backend = await ctx.plugin(mock, { name: 'mock' }) // fresh conversation (descriptor: false)
     await ctx.plugin(tool, { provider: 'mock' })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
 
@@ -228,7 +222,7 @@ describe('dsh-tool-subagent', () => {
     await backend.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
 
-    // Backend reloads with a DIFFERENT contract: the wording is re-derived
+    // Backend reloads with a DIFFERENT conversation-history descriptor: the wording is re-derived
     // from the fresh provider, not served stale from the first mount.
     await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
@@ -273,7 +267,7 @@ describe('dsh-tool-subagent', () => {
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
   })
 
-  it('derives spawn-shaped wording from a fresh-context provider (default mock)', async () => {
+  it('derives spawn-shaped wording from a fresh-conversation provider (default mock)', async () => {
     const ctx = await setup({ provider: 'mock' })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
     expect(schema.description).toContain('does not see this conversation')
@@ -281,7 +275,7 @@ describe('dsh-tool-subagent', () => {
     expect(props['prompt']!.description).toContain('include everything it needs')
   })
 
-  it('derives fork-shaped wording from an inheriting provider (the description stops lying)', async () => {
+  it('derives fork-shaped wording from a seeded-conversation provider (the description stops lying)', async () => {
     const ctx = await setup({ provider: 'mock', toolName: 'subagent' }, { inheritsParentContext: true })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
     expect(schema.description).toContain('INHERITS this conversation')
@@ -302,11 +296,9 @@ describe('dsh-tool-subagent', () => {
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: () => ({
+      start: async () => ({
         id: AgentId('spy-child'),
-        started: Promise.resolve(),
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-        cancel() {},
         dispose: async () => void disposed(),
       }),
     })
@@ -326,11 +318,9 @@ describe('dsh-tool-subagent', () => {
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: () => ({
+      start: async () => ({
         id: AgentId('spy-child'),
-        started: Promise.resolve(),
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
-        cancel() {},
         dispose: async () => void disposed(),
       }),
     })
@@ -341,7 +331,7 @@ describe('dsh-tool-subagent', () => {
     expect(disposed).toHaveBeenCalledTimes(1)
   })
 
-  it('bridges the tool abort signal to run.cancel()', async () => {
+  it('passes the tool abort signal as the provider cancellation channel', async () => {
     const cancelled = vi.fn()
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -351,17 +341,17 @@ describe('dsh-tool-subagent', () => {
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: () => {
+      start: async (request) => {
+        if (request.signal.aborted) throw new Error('start aborted')
         let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
         const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
+        request.signal.addEventListener('abort', () => {
+          cancelled()
+          resolveResult({ output: [], stopReason: 'aborted' })
+        }, { once: true })
         return {
           id: AgentId('spy-child'),
-          started: Promise.resolve(),
           result,
-          cancel: () => {
-            cancelled()
-            resolveResult({ output: [], stopReason: 'aborted' })
-          },
           dispose: async () => {},
         }
       },
@@ -370,9 +360,7 @@ describe('dsh-tool-subagent', () => {
 
     const controller = new AbortController()
     const pending = callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
-    // Abort after the tool body has had a chance to register its abort listener
-    // (ctx.tools.execute now awaits the tools/pre-execute waterfall before the body runs, so
-    // the listener is not registered synchronously).
+    // Let provider.start install its listener before aborting.
     await Promise.resolve()
     await Promise.resolve()
     controller.abort()
@@ -381,11 +369,8 @@ describe('dsh-tool-subagent', () => {
     expect(result.isError).toBe(true)
   })
 
-  it('cancels the run when the tool signal is ALREADY aborted before execute (no missed abort)', async () => {
-    // `addEventListener('abort')` does not fire for a signal already aborted before the
-    // listener is added, so a step cancelled before the tool ran would never reach the child
-    // unless the bridge re-checks `signal.aborted`.
-    const cancelled = vi.fn()
+  it('passes an already-aborted signal so provider startup rejects', async () => {
+    const sawAborted = vi.fn()
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -394,19 +379,9 @@ describe('dsh-tool-subagent', () => {
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: () => {
-        let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
-        const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
-        return {
-          id: AgentId('spy-child'),
-          started: Promise.resolve(),
-          result,
-          cancel: () => {
-            cancelled()
-            resolveResult({ output: [], stopReason: 'aborted' })
-          },
-          dispose: async () => {},
-        }
+      start: async (request) => {
+        if (request.signal.aborted) sawAborted()
+        throw new Error('start aborted')
       },
     })
     await ctx.plugin(tool, { provider: 'spy' })
@@ -414,7 +389,7 @@ describe('dsh-tool-subagent', () => {
     const controller = new AbortController()
     controller.abort() // already aborted BEFORE the tool runs
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
-    expect(cancelled).toHaveBeenCalledTimes(1)
+    expect(sawAborted).toHaveBeenCalledTimes(1)
     expect(result.isError).toBe(true)
   })
 
@@ -437,7 +412,10 @@ describe('dsh-tool-subagent', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/Config/apply', () => {
-    // Loader must retain this namespace's injection metadata.
+    // Postmortem 0001 guard: this plugin HAS `inject = ['tools','subagents']`, so
+    // a stray `export default apply` would collapse the module via
+    // `unwrapExports` (`exports.default ?? exports`), DROP `inject`, and crash at
+    // load with "cannot get property … without inject". Guard the shape directly.
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent')
     expect(tool.inject).toEqual(['tools', 'subagents'])
@@ -461,13 +439,11 @@ describe('dsh-tool-subagent', () => {
       name: 'capture2',
       capabilities: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
       inheritsParentContext: false,
-      start: (request) => {
+      start: async (request) => {
         seen = request
         return {
           id: AgentId('capture2-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
           dispose: async () => {},
         }
       },
@@ -485,8 +461,33 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.maxDepth).toBe(2)
   })
 
+  it.each([
+    { label: 'null', value: null as unknown as number },
+    { label: 'a string', value: '1' as unknown as number },
+    { label: 'NaN', value: Number.NaN },
+    { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
+    { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
+    { label: 'a negative integer', value: -1 },
+    { label: 'a fractional number', value: 1.5 },
+    { label: 'negative zero', value: -0 },
+    { label: 'an unsafe integer', value: Number.MAX_SAFE_INTEGER + 1 },
+  ])('rejects maxDepth=$label when the plugin loads', async ({ value }) => {
+    await expect(setup({ provider: 'mock', maxDepth: value }))
+      .rejects.toThrow()
+  })
+
+  it('validates maxDepth when apply() is invoked directly without Schemastery', () => {
+    const ctx = new Context()
+    expect(() => {
+      tool.apply(ctx, {
+        provider: 'unused',
+        maxDepth: Number.NaN,
+      })
+    }).toThrow('subagent maxDepth must be a non-negative safe integer')
+  })
+
   it('a partial toolFilter (deny only) does not materialize an empty allow-list (deny-all trap)', async () => {
-    let seen: { toolFilter?: { allow?: string[]; deny?: string[] } } | undefined
+    let seen: { toolFilter?: { readonly allow?: readonly string[]; readonly deny?: readonly string[] } } | undefined
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -495,13 +496,11 @@ describe('dsh-tool-subagent', () => {
       name: 'capture3',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: true, persona: false },
       inheritsParentContext: false,
-      start: (request) => {
+      start: async (request) => {
         seen = request
         return {
           id: AgentId('capture3-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
           dispose: async () => {},
         }
       },
@@ -526,13 +525,11 @@ describe('dsh-tool-subagent', () => {
       name: 'capture4',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
-      start: (request) => {
+      start: async (request) => {
         seen = request
         return {
           id: AgentId('capture4-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
           dispose: async () => {},
         }
       },

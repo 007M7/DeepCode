@@ -230,6 +230,22 @@ const SERVICE_ROLES: ServiceRole[] = [
 ]
 
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
+  // Creation notifications preserve synchronous veto/rollback but observe
+  // returned promises explicitly so async listener rejection is not unhandled.
+  { event: 'agent/created', pkg: 'agent', method: 'events.dispatch' },
+  // Registry disposal reuses the stable carrier captured before entry commit
+  // and contains each listener directly rather than rebuilding via agentEvents.
+  { event: 'agent/disposed', pkg: 'agent', method: 'events.dispatch' },
+  { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
+  // Session event callbacks are likewise resolved before the log push, then
+  // invoked individually after commit so observer failures are contained.
+  { event: 'session/event', pkg: 'session', method: 'events.dispatch' },
+  // Flush resolves the scoped callback set directly so internal instrumentation
+  // cannot substitute the accepted session before parallel invocation.
+  { event: 'session/flush', pkg: 'session', method: 'events.dispatch' },
+  // Session disposal uses direct callback resolution so teardown contains each
+  // synchronous throw and returned-promise rejection independently.
+  { event: 'session/disposed', pkg: 'session', method: 'events.dispatch' },
   // tools/result uses ctx.events.dispatch directly so the registry can await
   // every observer while containing each callback independently.
   { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },
@@ -250,6 +266,12 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
   { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
   { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
+]
+
+const DYNAMIC_EVENT_LISTENERS: Array<{ event: string; pkg: string }> = [
+  // The invariants oracle marks the session started from its global
+  // internal/dispatch listener before product session-start callbacks run.
+  { event: 'agent/session-start', pkg: 'invariants' },
 ]
 
 function generatedHeader(title: string): string[] {
@@ -550,12 +572,12 @@ function collectEventRelations(): Map<string, EventRelation> {
         if (method === 'on') {
           const event = eventArg(node.arguments, method)
           if (event) ensure(event).listeners.add(leaf)
-        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'strictSerial' || method === 'waterfall') {
+        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
           const event = eventArg(node.arguments, method)
           if (event) {
             const relation = ensure(event)
             const methods = relation.dispatchers.get(leaf) ?? new Set<string>()
-            methods.add(method === 'strictSerial' ? 'strictSerial (serial)' : method)
+            methods.add(method)
             relation.dispatchers.set(leaf, methods)
           }
         }
@@ -569,6 +591,9 @@ function collectEventRelations(): Map<string, EventRelation> {
     const methods = relation.dispatchers.get(entry.pkg) ?? new Set<string>()
     methods.add(entry.method)
     relation.dispatchers.set(entry.pkg, methods)
+  }
+  for (const entry of DYNAMIC_EVENT_LISTENERS) {
+    ensure(entry.event).listeners.add(entry.pkg)
   }
   return out
 }

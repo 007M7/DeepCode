@@ -69,7 +69,29 @@ async function promptly<T>(task: Promise<T>): Promise<T> {
   }
 }
 
+/** Throw an arbitrary callback value to exercise the public unknown-error boundary. */
+function throwUnknown(value: unknown): never {
+  throw value
+}
+
 describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
+  it('normalizes a non-Error resume publication failure for rollback and rethrows it', async () => {
+    const sessionId = SessionId('unknown-resume-failure-s')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const failure = { source: 'resume' }
+    ctx.on('session/created', () => throwUnknown(failure))
+
+    await expect(ctx.agents.resume({
+      agentId: AgentId('unknown-resume-failure'),
+      resumeSessionId: sessionId,
+    })).rejects.toBe(failure)
+
+    expect(ctx.agents.get(AgentId('unknown-resume-failure'))).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('createAgent uses the caller-supplied sessionId (not ${id}-session)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
@@ -168,7 +190,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
       order.push('session/created')
     })
     ctx.on('agent/created', (agent) => {
-      expect(() => { agent.cancel('too early') }).toThrow(/cannot cancel before creation setup completes/)
+      expect(agent.status).toBe('idle')
       order.push('agent/created')
     })
     ctx.on('agent/session-start', (agent) => {
@@ -209,6 +231,27 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
       'agent/session-start',
     ])
     await handle.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('successful resume disposal retires its caller-owned transaction effects', async () => {
+    const sessionId = SessionId('resume-retired-effects-s')
+    const agentId = AgentId('resume-retired-effects')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const handle = await ctx.agents.resume({
+      agentId,
+      resumeSessionId: sessionId,
+      agentOptions: { model: 'mock' },
+    })
+    const transactionLabels = [
+      `agentLoop.owner(${agentId})`,
+      `agentLoop.lifecycle(${agentId})`,
+    ]
+
+    expect(ctx.fiber.getEffects().map(effect => effect.label)).toEqual(expect.arrayContaining(transactionLabels))
+    await handle.dispose()
+    expect(ctx.fiber.getEffects().filter(effect => transactionLabels.includes(effect.label))).toEqual([])
     await ctx.fiber.dispose()
   })
 
@@ -309,14 +352,14 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     }, { inject: ['agents'] }))
     await loadStarted.promise
 
-    const rejection = expect(promptly(resuming)).rejects.toThrow(/owner disposed during persistence load/)
+    const rejection = expect(promptly(resuming)).rejects.toThrow(/owner disposed during setup/)
     await promptly(owner.dispose())
     expect(published).toEqual([])
     expect(ctx.agents.get(agentId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
 
-    // owner.dispose() itself awaited transaction settlement and reservation
-    // release: reuse the same identities BEFORE awaiting the resume rejection.
+    // owner.dispose() awaited transaction settlement, so the same identities
+    // can be reused before awaiting the public rejection.
     const retry = await promptly(ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } }))
     await rejection
     expect(loads).toBe(2)
@@ -335,40 +378,45 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.fiber.dispose()
   })
 
-  it('snapshots resume identities and agent options before persistence load', async () => {
-    const sessionId = SessionId('resume-snapshot-source')
+  it('AgentLoop unload aborts persistence load and awaits wrapper settlement', async () => {
+    const sessionId = SessionId('resume-load-factory-unload')
+    const agentId = AgentId('resume-load-factory-race')
     const root = await persistSession(sessionId)
-    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
-    const loaded = await ctx.sessionPersistence.load(sessionId)
-    const loadGate = Promise.withResolvers<typeof loaded>()
-    ctx.sessionPersistence.load = () => loadGate.promise
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('next')]))
 
-    const occupied = await ctx.agents.create({
-      agentId: AgentId('occupied-agent'),
-      sessionId: SessionId('occupied-session'),
-      agentOptions: { model: 'mock' },
-    })
-    const options = {
-      agentId: AgentId('accepted-agent'),
-      resumeSessionId: sessionId,
-      agentOptions: { model: 'mock' },
+    const snapshot = await ctx.sessionPersistence.load(sessionId)
+    const lateLoad = Promise.withResolvers<typeof snapshot>()
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = (id) => {
+      expect(id).toBe(sessionId)
+      loadStarted.resolve(undefined)
+      return lateLoad.promise
     }
-    const resuming = ctx.agents.resume(options)
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
 
-    options.agentId = AgentId('occupied-agent')
-    options.resumeSessionId = SessionId('occupied-session')
-    options.agentOptions.model = 'mutated-model'
-    loadGate.resolve(structuredClone(loaded))
+    const resuming = ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } })
+    await loadStarted.promise
+    const rejection = expect(promptly(resuming)).rejects.toThrow(/agent loop is not active/)
+    await promptly(loopFiber.dispose())
+    await rejection
 
-    const resumed = await resuming
-    expect(resumed.agent.id).toBe(AgentId('accepted-agent'))
-    expect(resumed.agent.session.id).toBe(sessionId)
-    expect(resumed.agent.options.model).toBe('mock')
-    expect(ctx.agents.get(AgentId('occupied-agent'))).toBe(occupied.agent)
-    expect(ctx.sessions.get(SessionId('occupied-session'))).toBe(occupied.agent.session)
-
-    await resumed.dispose()
-    await occupied.dispose()
+    expect(published).toEqual([])
+    expect(ctx.agents.get(agentId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    lateLoad.resolve(structuredClone(snapshot))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(published).toEqual([])
     await ctx.fiber.dispose()
   })
 

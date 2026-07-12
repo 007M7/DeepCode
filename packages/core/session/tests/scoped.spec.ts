@@ -60,6 +60,23 @@ describe('session dispatch carriers', () => {
     bare.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(heard).toEqual(['global:turn/start'])
   })
+
+  it('reuses the captured owner carrier for the paired disposal notification', async () => {
+    const ctx = await mount()
+    const owner = await mintScope(ctx, 'owner')
+    const other = await mintScope(ctx, 'other')
+    const heard: string[] = []
+    ctx.on('session/disposed', (session) => { heard.push(`global:${session.id}`) })
+    owner.ctx.on('session/disposed', (session) => { heard.push(`owner:${session.id}`) })
+    other.ctx.on('session/disposed', (session) => { heard.push(`other:${session.id}`) })
+
+    const session = owner.ctx.sessions.prepare()
+    const detach = owner.ctx.sessions.enter(session)
+    owner.ctx.sessions.announce(session)
+    detach()
+
+    expect(heard).toEqual([`global:${session.id}`, `owner:${session.id}`])
+  })
 })
 
 describe('sessions.flush()', () => {
@@ -89,6 +106,40 @@ describe('sessions.flush()', () => {
     ctx.on('session/flush', () => Promise.reject(new Error('disk full')))
     const session = ctx.sessions.create()
     await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
+  })
+
+  it('does not let a synchronous flush failure starve later listeners', async () => {
+    const ctx = await mount()
+    const flushed: Session[] = []
+    ctx.on('session/flush', () => { throw new Error('disk full') })
+    ctx.on('session/flush', (session) => { flushed.push(session) })
+    const session = ctx.sessions.create()
+
+    await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
+    expect(flushed).toEqual([session])
+  })
+
+  it('waits for slower flush listeners before reporting another listener failure', async () => {
+    const ctx = await mount()
+    const gate = Promise.withResolvers<undefined>()
+    let slowStarted = false
+    let settled = false
+    ctx.on('session/flush', () => Promise.reject(new Error('disk full')))
+    ctx.on('session/flush', () => {
+      slowStarted = true
+      return gate.promise
+    })
+    const session = ctx.sessions.create()
+
+    const flushing = ctx.sessions.flush(session)
+    void flushing.finally(() => { settled = true }).catch(() => undefined)
+    await Promise.resolve()
+    expect(slowStarted).toBe(true)
+    expect(settled).toBe(false)
+
+    gate.resolve(undefined)
+    await expect(flushing).rejects.toThrow('disk full')
+    expect(settled).toBe(true)
   })
 
   it('rejects a never-entered session instead of inventing a carrier', async () => {

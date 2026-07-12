@@ -38,16 +38,16 @@ class SpawnProvider implements SubagentProvider {
   // Context contract: a spawned child starts fresh — it never sees the parent conversation.
   readonly inheritsParentContext = false
 
-  constructor(readonly name: string, private readonly ctx: Context) {}
+  constructor(readonly name: string) {}
 
   start(request: SubagentStartRequest) {
     // Fresh child: no seed. The shared driver mints ids, stamps cwd/lineage/
     // depth, drives the one-shot (including the structured capture when the
     // request carries an outputSchema), and maps the result.
-    return startInProcessRun(this.ctx, request, {})
+    return startInProcessRun(request, {})
   }
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new SpawnProvider(config.providerName, ctx))
+  ctx.subagents.registerProvider(new SpawnProvider(config.providerName))
 }

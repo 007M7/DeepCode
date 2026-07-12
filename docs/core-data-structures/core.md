@@ -16,8 +16,10 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | Sub-page | Owns |
 |---|---|
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
+| [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
+| [system-prompt.md](system-prompt.md) | per-assembly context, tool-provider results, and canonical contribution protection |
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, and the guarded execution pipeline |
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [approval.md](approval.md) | the one-shot user-approval seam: `ApprovalRequest`, `ApprovalOutcome`, per-session policy, audit and answerer contracts |
@@ -265,12 +267,21 @@ interface Agent {
    */
   readonly ctx: Context
 
-  /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
+  /**
+   * Queue a user message. Starts a turn when idle; otherwise waits for the next
+   * turn. Content and the resolved source are accepted as one detached,
+   * deeply-frozen lossless-JSON record before notification or enqueue, so
+   * caller or `agent/queued` listener in-place mutation cannot change later
+   * log/model input. Throws synchronously when either value is not losslessly
+   * JSON-serializable; `agent/prompt-submit` may still return an explicit
+   * replacement.
+   */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
    * Steer a running turn: content is injected between steps of the current
-   * turn. When idle, behaves like {@link send}.
+   * turn. Uses the same owned-value and synchronous-validation boundary as
+   * {@link send}; when idle, behaves exactly like that method.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 

@@ -1,7 +1,21 @@
 /**
- * The workflow capability seam (`ctx.workflows`): an abstract service defining what a workflow
- * engine does — execute a model-written orchestration script that fans out subagents — without
- * saying how.
+ * The workflow capability seam (`ctx.workflows`): an abstract service defining
+ * WHAT a workflow engine does — execute a model-written orchestration script
+ * that fans out subagents — without saying HOW. Implementations subclass
+ * {@link WorkflowService} and register as the `workflows` service (one
+ * implementation per context, cordis' standard duplicate-service behavior);
+ * the implementation is `@deepseek-ai/dsh-workflow-workerthread`, which runs each
+ * script in its own worker thread. Hardened engines (an isolated-vm or
+ * separate-process sandbox) swap in without touching the model-facing tool
+ * that consumes them (`@deepseek-ai/dsh-tool-workflow`).
+ *
+ * The `workflow/*` lifecycle events are OBSERVE-ONLY data: they
+ * carry {@link WorkflowRunInfo} (id + meta), never the live {@link WorkflowRun}
+ * — a listener must not gain `cancel`/`dispose`; control stays with the
+ * `start()` caller holding the run. Same-process payloads are borrowed
+ * immutable values. Every listener is independently contained, so a throw or
+ * rejected promise can neither strand a run nor starve peers.
+ *
  * @module @deepseek-ai/dsh-workflow
  */
 
@@ -62,7 +76,7 @@ declare module 'cordis' {
     /**
      * One `agent()` call established a ready child run. Paired with
      * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
-     * crosses the provider's publication/readiness boundary emits neither
+     * receives a ready run from the provider emits neither
      * event in this pair.
      * @param info - the run's identity snapshot.
      * @param agent - the call's sequence number, label, phase, and child id.
@@ -103,9 +117,27 @@ export type WorkflowEventName =
   | 'workflow/end'
 
 /**
- * The workflow-seam error codes. Every one of these is FATAL when it reaches a script (see
- * {@link WorkflowError.fatal}): the combinators re-throw it instead of dissolving it into an
- * ordinary per-item `null`.
+ * The workflow-seam error codes. Every one of these is FATAL when it reaches
+ * a script (see {@link WorkflowError.fatal}): the combinators re-throw it
+ * instead of dissolving it into an ordinary per-item `null`.
+ *
+ * - `SCRIPT_PARSE` — the script (or its meta statement) does not parse.
+ * - `META_INVALID` — the meta block evaluated but fails the shape contract.
+ * - `INVALID_ARGUMENT` — a hook was called with malformed arguments.
+ * - `UNSUPPORTED_OPTION` — an `agent()` option this engine does not support
+ *   (deferred: `effort`/`isolation`/`agentType`) or does not know.
+ * - `UNSUPPORTED_SCHEMA` — an `agent()` schema outside the structured-output
+ *   subset (see dsh-tools).
+ * - `AGENT_CAP` / `ITEM_CAP` — the run/agent caps tripped.
+ * - `AGENT_START` — the provider's asynchronous start rejected before
+ *   cancellation took precedence.
+ * - `AGENT_RESULT` — a ready run had its `result` REJECT: an infrastructure
+ *   fault at the subagent seam. This is distinct from a child that failed and resolved
+ *   (which is the per-item `null`, never an error).
+ * - `RESULT_UNSERIALIZABLE` — a value crossing the script/host value boundary
+ *   is not plain JSON data.
+ * - `CANCELLED` — the run was cancelled; pending and future hooks reject
+ *   with this (the script-kill mechanism).
  */
 export type WorkflowErrorCode =
   | 'SCRIPT_PARSE'
@@ -150,9 +182,31 @@ export function isFatalWorkflowError(error: unknown): boolean {
 }
 
 /**
- * Abstract workflow execution service. Subclass, implement {@link start}, and load the
- * subclass as a plugin — it registers as `ctx.workflows` (one implementation per context;
- * loading a second throws, cordis' standard duplicate-service behavior).
+ * Abstract workflow execution service. Subclass, implement {@link start}, and
+ * load the subclass as a plugin — it registers as `ctx.workflows` (one
+ * implementation per context; loading a second throws, cordis' standard
+ * duplicate-service behavior).
+ *
+ * Semantics every implementation must honor:
+ * - {@link start} throws synchronously for a request that cannot begin (an
+ *   unparseable script, an invalid meta block). Once it returns a
+ *   {@link WorkflowRun}, `result` NEVER rejects — every failure resolves with
+ *   `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled,
+ *   `result` SETTLES within the implementation's bounded grace even if the
+ *   script itself never settles (a consumer awaiting `result` must never be
+ *   wedged past a cancellation).
+ * - The `workflow/*` events fire through {@link emitWorkflowEvent} (borrowed
+ *   immutable data, per-listener containment); `workflow/end` fires exactly once
+ *   per started run, after `result` is settled or as it settles.
+ * - `dispose()` reaches quiescence within a bounded grace: it cancels, waits
+ *   for the script to settle AND its started children to finish disposing,
+ *   and abandons whatever is left rather than hanging its caller (the engine
+ *   documents what abandonment leaves behind).
+ * - Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to
+ *   the `start()` caller and does not track its live runs — disposing the
+ *   engine's own fiber mid-run deliberately leaves those runs to their
+ *   holders' teardown, so an engine reload cannot yank a run out from under
+ *   the consumer awaiting it.
  */
 export abstract class WorkflowService extends Service {
   constructor(ctx: Context) {
@@ -168,14 +222,24 @@ export abstract class WorkflowService extends Service {
   abstract start(request: WorkflowStartRequest): WorkflowRun
 
   /**
-   * Emit isolated payload snapshots and contain each lifecycle listener independently.
+   * Emit one `workflow/*` lifecycle event with per-listener containment. Each
+   * subscriber receives the same borrowed immutable payload; a throw or
+   * asynchronously rejected listener is logged (never propagated — the logging
+   * itself is total, even for a thrown value whose own string coercion
+   * throws), so one bad subscriber can neither fail the engine mid-run,
+   * surface as an unhandled rejection on a detached settle hook, nor starve
+   * the listeners registered after it (cordis `emit` halts on the first throw
+   * — same guarantee as the subagent seam's lifecycle emits).
    * @param name - the `workflow/*` event to dispatch.
    * @param args - the event's payload, matching its declared signature.
    */
   protected emitWorkflowEvent(name: WorkflowEventName, ...args: unknown[]): void {
     for (const callback of this.ctx.events.dispatch('emit', [name, ...args])) {
       try {
-        ;(callback as (...payload: unknown[]) => void)(...structuredClone(args))
+        const returned: unknown = (callback as (...payload: unknown[]) => unknown)(...args)
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.ctx.logger.warn(`workflow: ${name} listener rejected: ${renderListenerError(error)}`)
+        })
       } catch (error: unknown) {
         this.ctx.logger.warn(`workflow: ${name} listener threw: ${renderListenerError(error)}`)
       }
@@ -184,15 +248,19 @@ export abstract class WorkflowService extends Service {
 }
 
 /**
- * Render a thrown value without weakening listener containment.
+ * Total renderer for a listener-thrown value: the containment catch must never
+ * itself throw, and `String(error)` does when the value's own `toString` /
+ * `Symbol.toPrimitive` throws. Local rather than an engine package's renderer
+ * — the seam sits below every engine and cannot import one.
  * @param error - any thrown value.
- * @returns string form or a fixed fallback when coercion throws.
+ * @returns `String(error)`, or a fixed label when even coercion throws.
  */
 function renderListenerError(error: unknown): string {
   try {
     return String(error)
   } catch {
-    // String coercion itself is untrusted.
+    // Only a throwing toString/Symbol.toPrimitive lands here; the fixed label
+    // keeps the containment guarantee total.
     return '[unrenderable thrown value]'
   }
 }

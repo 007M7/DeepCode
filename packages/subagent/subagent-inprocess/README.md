@@ -1,25 +1,41 @@
 # @deepseek-ai/dsh-subagent-inprocess
 
-Shared run driver for the in-process [spawn](../subagent-spawn/README.md) and [fork](../subagent-fork/README.md) providers. It creates a child agent on the same Cordis application; the providers differ only in the optional session seed.
+This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation, optional child customization, result reading, cancellation, and disposal—has one implementation here.
 
-## `startInProcessRun(ctx, request, options)`
+## Start contract
 
-The driver snapshots mutable request data, checks delegation depth, and creates one run-owner fiber under the parent. Parent teardown, provider teardown, manual disposal, and cancellation during creation converge on that owner.
+`startInProcessRun(request, options): Promise<SubagentRun>` fulfills only after the child is published in `ctx.agents`. A rejected start has already quiesced the agent factory's unpublished creation transaction, so the caller never receives a half-created handle.
 
-Child creation uses fresh IDs, lineage, an inherited or overridden model, and an unpublished setup callback for persona, tool restriction, and structured output. `run.started` resolves after the child is published. The result path sends one prompt, waits for idle, and derives output only from events after the seed boundary; a seeded parent answer cannot become the child's result.
+The driver follows this sequence:
 
-`dispose()` awaits creation or rollback and then the child handle's quiescent disposal. `cancel()` records pre-publication cancellation and applies it when the child exists. A cancelled attempt with no completed turn reports `aborted`.
+1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one.
+2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
+3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
+4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.send(prompt)` followed by `child.whenIdle()`.
+5. Read the child's own last assistant message and terminal turn reason, excluding any fork seed.
 
-`InProcessRunOptions` is `{ seed?: SessionEvent[] }`: absent for spawn and the completed-turn prefix for fork.
+The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
+
+## Cancellation and ownership
+
+The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the driver immediately checks the signal once more before installing a minimal live-run listener, closing the handoff race. After publication, abort cancels the child.
+
+After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
+
+## Spawn and fork inputs
+
+`InProcessRunOptions` is `{ seed?: SessionEvent[] }`. Spawn omits it. Fork supplies a balanced completed-turn prefix and records its length so the result reader never mistakes a seeded parent message for child output.
+
+`depthOf(agent)` reads `AgentOptions.subagentDepth`, treating absence as top-level depth zero and rejecting malformed stored values. `SubagentDepthError` reports an attempted child depth above `maxDepth`; an unrepresentable depth above the safe-integer domain is a `RangeError`.
 
 ## Structured output
 
-`attachStructuredRuntime(childCtx, schema)` installs a child-scoped capture tool, prompt instruction, protection, result observer, guard, and terminal turn policy. The actual schema is registered only for that child.
+`attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope:
 
-A validated value is staged by immutable execution identity and committed only after the authoritative `tools/result` succeeds. Code Mode also waits for the enclosing `run_code` result. Once pending or committed, later tool calls are denied; after commit, `agent/turn-stop` prevents another model step. A child that finishes without a committed value reports an error.
+- A `structured_output` tool registered with the requested schema validates and stages the model's value.
+- An order-190 system-prompt section tells the child that the tool call is the terminal answer.
+- Both contributions use `ownerFinal: true`, so their owners control their final presence after prompt/tool assembly while unrelated contributions remain extensible.
+- A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
+- A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
 
-## Depth
-
-`depthOf(agent)` reads merge-extensible `AgentOptions.subagentDepth` (default `0`). `startInProcessRun` throws `SubagentDepthError` when the next depth exceeds `maxDepth`.
-
-See [the agent-scope RFC](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) for ownership and final-policy rationale.
+A clean turn that never commits the required structured value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.

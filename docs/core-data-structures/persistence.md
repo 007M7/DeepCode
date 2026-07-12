@@ -25,15 +25,15 @@ interface SessionHeader {
    * session is created. A persistence backend rejects any other version on load
    * (no migration — see the constant).
    */
-  version: number
+  readonly version: number
   /** The session's id (mirrors the {@link Session}'s id). */
-  id: SessionId
+  readonly id: SessionId
   /** Unix epoch milliseconds when the session was created. */
-  createdAt: number
+  readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
-  cwd?: string
+  readonly cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
-  parentSession?: SessionId
+  readonly parentSession?: SessionId
   /**
    * How many leading events were INHERITED via a seed rather than produced by
    * this session — the seed boundary. Set when a fork seeds a child with a
@@ -43,7 +43,7 @@ interface SessionHeader {
    * harness can skip the inherited prefix when deriving the child's OWN script
    * (the seeded events are the parent's, not this child's model calls).
    */
-  seedLength?: number
+  readonly seedLength?: number
 }
 ```
 
@@ -54,7 +54,7 @@ Creating a `Session` through the store takes a `seed` (replay/fork an existing e
 ```ts type-equiv
 interface CreateSessionOptions {
   /** Events to seed the new session with (replay/fork). */
-  seed?: SessionEvent[]
+  readonly seed?: readonly SessionEvent[]
   /**
    * Creation metadata. The store fills in `version`/`id` and defaults
    * `createdAt` to now; the caller supplies the storage-level fields (validated
@@ -67,7 +67,12 @@ interface CreateSessionOptions {
    * length, not the original boundary — the caller must pass the persisted
    * boundary back. A fresh fork passes its actual seeded-prefix length.
    */
-  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number }
+  readonly meta?: {
+    readonly cwd?: string
+    readonly parentSession?: SessionId
+    readonly createdAt?: number
+    readonly seedLength?: number
+  }
 }
 ```
 

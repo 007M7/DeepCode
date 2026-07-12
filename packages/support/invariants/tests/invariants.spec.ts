@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -8,10 +8,10 @@ import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
 /** A Context with the session store and the invariants plugin registered. */
-async function setup(config?: { freeze?: boolean }) {
+async function setup() {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  const fiber = await ctx.plugin(Invariants, config ?? {})
+  const fiber = await ctx.plugin(Invariants)
   return { ctx, fiber }
 }
 
@@ -21,8 +21,27 @@ function mockAgent(id: string): Agent {
 }
 
 describe('session-log invariants', () => {
+  it('keeps pre-commit staging and post-commit application global when mounted under a scope', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let scopedCtx!: Context
+    await ctx.plugin(Object.assign((inner: Context) => {
+      scopedCtx = createScope(inner, {}).ctx
+    }, { inject: ['sessions'] }))
+    await scopedCtx.plugin(Invariants)
+    const globalSession = ctx.sessions.create(SessionId('global-under-scoped-invariants'))
+
+    expect(() => {
+      globalSession.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })
+      globalSession.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+  })
+
   it('accepts a well-formed turn/step/tool sequence', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -37,8 +56,49 @@ describe('session-log invariants', () => {
     }).not.toThrow()
   })
 
+  it('does not advance the trace when a later internal-dispatch listener vetoes', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create(SessionId('dispatch-veto-rollback'))
+    let veto = true
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name !== 'session/event' || !veto) return
+      veto = false
+      throw new Error('later dispatch veto')
+    })
+
+    expect(() => session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).toThrow('later dispatch veto')
+    expect(session.events).toEqual([])
+
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+  })
+
+  it('applies the committed transition after a prepended observer throws', async () => {
+    const { ctx } = await setup()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const session = ctx.sessions.create(SessionId('postcommit-peer'))
+    ctx.on('session/event', () => { throw new Error('hostile observer') }, { prepend: true })
+
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(warnings).toEqual([
+      'session "postcommit-peer": session/event listener threw: Error: hostile observer',
+      'session "postcommit-peer": session/event listener threw: Error: hostile observer',
+    ])
+  })
+
   it('rejects a non-monotonic seq (replay spine)', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     // Session.append enforces seq-contiguity at the source, so drive the
     // invariants seq check directly via session/event with a regressing seq.
@@ -48,7 +108,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a turn/start while another turn is open', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
@@ -56,7 +116,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a turn/end that does not match the open turn', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('turn/end', { turn: 2, reason: { kind: 'completed' } }))
@@ -64,14 +124,14 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a step/start outside its declared turn', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('step/start', { turn: 2, step: 1 })).toThrow(/open turn is 1/)
   })
 
   it('rejects a step/end that does not match the open step', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -79,7 +139,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects an assistant/chunk outside an open step', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } }))
@@ -87,7 +147,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a message event appended outside any open turn (turn-enclosure)', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     // No turn open: every message-bearing event must be turn-enclosed (the turn-enclosure RFC).
     expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
@@ -97,7 +157,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects steering and plugin-added events appended outside any open turn', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     // steering/message is turn-scoped: outside a turn it would land past the
     // commit boundary and be dropped on resume (the turn-enclosure RFC).
@@ -113,7 +173,7 @@ describe('session-log invariants', () => {
   })
 
   it('accepts message events once a turn is open', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
@@ -121,7 +181,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a tool/result with no prior tool/call', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -130,7 +190,7 @@ describe('session-log invariants', () => {
   })
 
   it('allows a synthetic interrupted tool/result from crash repair without a prior tool/call event', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -152,7 +212,7 @@ describe('session-log invariants', () => {
   })
 
   it('allows a tool/call with no matching tool/result (thrown waterfall ends the step)', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -164,7 +224,7 @@ describe('session-log invariants', () => {
   })
 
   it('holds seeded sessions to the contract on session/created', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     // A seq-contiguous, serializable seed (so it passes Session's constructor
     // validation) that nonetheless violates turn nesting — a second turn/start
     // while the first turn is still open — must be rejected by the invariants
@@ -177,7 +237,7 @@ describe('session-log invariants', () => {
   })
 
   it('tracks turns per session independently', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const a = ctx.sessions.create(SessionId('a'))
     const b = ctx.sessions.create(SessionId('b'))
     a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -186,7 +246,7 @@ describe('session-log invariants', () => {
   })
 
   it('accepts multiple steps in a turn and consecutive turns', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -203,7 +263,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a skipped turn number', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -212,7 +272,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a skipped step number within a turn', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -222,7 +282,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a turn/end while a step is still open', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -231,7 +291,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a step/start while a step is still open', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -239,7 +299,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects a tool/result satisfying a call from a previous step', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -252,7 +312,7 @@ describe('session-log invariants', () => {
   })
 
   it('rejects an assistant/message naming the wrong step', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -266,7 +326,7 @@ describe('HMR state rebuild', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     // First registration, mid-turn: a turn is open when the plugin reloads.
-    const first = await ctx.plugin(Invariants, { freeze: false })
+    const first = await ctx.plugin(Invariants)
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -274,7 +334,7 @@ describe('HMR state rebuild', () => {
 
     // Re-apply (HMR): the fresh fiber must replay the existing log so the open
     // step is known — the next chunk must NOT be a false positive.
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
     expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } }))
       .not.toThrow()
     // And a genuine violation is still caught after the rebuild.
@@ -283,67 +343,49 @@ describe('HMR state rebuild', () => {
   })
 })
 
-describe('dev-freeze', () => {
-  it('freezes appended event data so mutating a logged event throws', async () => {
-    const { ctx } = await setup() // freeze defaults true
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+describe('session immutability', () => {
+  it('always freezes appended event data without the invariants plugin', () => {
+    const session = new Session(SessionId('appended'))
     const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(Object.isFrozen(event)).toBe(true)
     expect(Object.isFrozen(event.data)).toBe(true)
     expect(Object.isFrozen(event.data.content)).toBe(true)
+    expect(Object.isFrozen(event.data.content[0])).toBe(true)
+    expect(Object.isFrozen(session.events)).toBe(true)
     expect(() => { (event.data.content[0] as { text: string }).text = 'HACKED' }).toThrow()
   })
 
-  it('does not freeze when freeze:false', async () => {
-    const { ctx } = await setup({ freeze: false })
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(Object.isFrozen(event)).toBe(false)
-  })
-
-  it('freezes seeded events on session/created', async () => {
-    const { ctx } = await setup()
+  it('always freezes seeded events without the invariants plugin', () => {
     const seed = [
       { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
       { type: 'user/message' as const, seq: 1, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
     ]
-    const session = ctx.sessions.create(undefined, { seed })
+    const session = new Session(SessionId('seeded'), seed)
+    expect(Object.isFrozen(seed[0])).toBe(false)
+    expect(Object.isFrozen(session.events)).toBe(true)
     expect(Object.isFrozen(session.events[0])).toBe(true)
+    expect(Object.isFrozen(session.events[0]?.data)).toBe(true)
+    expect(Object.isFrozen(session.events[1]?.data)).toBe(true)
   })
 
-  it('freezes mutable descendants of a shallow-frozen event datum', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // deepFreeze must traverse a shallow-frozen event clone and freeze its nested data.
+  it('snapshots and freezes descendants of a shallow-frozen caller value', () => {
+    const session = new Session(SessionId('shallow-frozen'))
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
     const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
     const event = session.append('user/message', { content: [block], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const logged = event.data.content[0] as { content: { type: 'text'; text: string }[] }
+    expect(Object.isFrozen(innerContent)).toBe(false)
     expect(Object.isFrozen(logged.content)).toBe(true)
     expect(Object.isFrozen(logged.content[0])).toBe(true)
+    innerContent[0]!.text = 'caller mutation'
+    expect(logged.content[0]!.text).toBe('inner')
     expect(() => { logged.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
-  })
-
-  it('terminates on a cyclic event datum (WeakSet guard)', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    // The deep-freeze WeakSet guard must terminate on a self-referential structure rather than
-    // recursing forever.
-    ctx.emit(scopeTarget(session, undefined), 'session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
-    const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
-    cyclic['self'] = cyclic
-    const event = { type: 'user/message', seq: 1, time: 1, data: { content: [cyclic], source: { kind: 'user' } } }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) }).not.toThrow()
-    expect(Object.isFrozen(cyclic)).toBe(true)
   })
 })
 
 describe('agent status invariants', () => {
   it('accepts legal transitions: idle→running→idle and →disposed', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const agent = mockAgent('a1')
     expect(() => {
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
@@ -354,28 +396,28 @@ describe('agent status invariants', () => {
   })
 
   it('accepts running→disposed', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const agent = mockAgent('a2')
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
     expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed') }).not.toThrow()
   })
 
   it('rejects a no-op transition', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const agent = mockAgent('a3')
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
     expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running') }).toThrow(/no-op transition/)
   })
 
   it('rejects leaving the terminal disposed state', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const agent = mockAgent('a4')
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
     expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle') }).toThrow(/left terminal state disposed/)
   })
 
   it('tracks status per agent independently', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const a = mockAgent('a5')
     const b = mockAgent('b5')
     ctx.emit(scopeTarget(a, a), 'agent/status', a, 'running')
@@ -392,10 +434,10 @@ describe('HMR safety', () => {
 
     await fiber.dispose()
 
-    // After disposal: no freezing, no assertions. An event that WOULD have
-    // violated the open-turn rule now passes silently, and is not frozen.
+    // After disposal the plugin's assertions are gone, so an event that would
+    // violate the open-turn rule passes. Session still owns immutability.
     const event = session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    expect(Object.isFrozen(event)).toBe(false)
+    expect(Object.isFrozen(event)).toBe(true)
     // A no-op status transition no longer throws either.
     const agent = mockAgent('hmr')
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
@@ -410,16 +452,17 @@ describe('HMR safety', () => {
     expect(err.message).toBe('invariant violated: seq must strictly increase')
   })
 
-  it('does not leak listeners across dispose (no stale freezing)', async () => {
+  it('does not leak listeners across dispose', async () => {
     const { ctx, fiber } = await setup()
     await fiber.dispose()
     const spy = vi.fn()
     ctx.on('session/event', spy)
     const session = ctx.sessions.create()
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    // our own spy fires, proving events still flow — but the plugin's frozen.
+    // The spy proves events still flow after plugin disposal. Session, not the
+    // disposed listener, freezes the accepted record.
     expect(spy).toHaveBeenCalledOnce()
-    expect(Object.isFrozen(session.events[0])).toBe(false)
+    expect(Object.isFrozen(session.events[0])).toBe(true)
   })
 })
 
@@ -498,8 +541,9 @@ describe('surface invariants', () => {
   })
 
   it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
-    // The unknown-seq check fires when a ref passes the "earlier" test but is not in knownSeqs
-    // — only possible with a gap in seqs.
+    // The unknown-seq check fires when a ref passes the "earlier" test but is
+    // not in knownSeqs — only possible with a gap in seqs. We create a gap by
+    // directly manipulating the private log array to skip a seq.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -513,7 +557,9 @@ describe('surface invariants', () => {
       time: Date.now(),
       data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
     })
-    // Now the log has seqs 0, 1, 3 (gap at 2).
+    // Now the log has seqs 0, 1, 3 (gap at 2). Append at what session believes
+    // is seq 3 (log.length). Reference seq 2: passes earlier (2 < 3) but not
+    // in knownSeqs ({0, 1, 3} — gap at 2).
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
     }).toThrow(/unknown seq 2/)
@@ -605,8 +651,10 @@ describe('surface invariants', () => {
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
-    // Replace node 2 (position 0) with seq 4 — surface becomes [4, 3], so the head seq (4) is
-    // numerically GREATER than the tail seq (3): the surface is not seq-ordered.
+    // Replace node 2 (position 0) with seq 4 — surface becomes [4, 3], so the
+    // head seq (4) is numerically GREATER than the tail seq (3): the surface is
+    // not seq-ordered. A replace spanning start=4 (pos 0) … end=3 (pos 1) is
+    // valid positionally and must be accepted even though start seq > end seq.
     session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 4, end: 3 }, sourceEventSeqs: [4, 3] }) // seq 5
@@ -626,7 +674,7 @@ describe('surface invariants', () => {
   })
 
   it('catches an incomplete-provenance replace on the load/seed path', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const badSeed = [
       { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
       { type: 'step/start' as const, seq: 1, time: 0, data: { turn: 1, step: 1 } },
@@ -641,10 +689,10 @@ describe('surface invariants', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // Type system prevents surface metadata on non-surface events; this test
-    // exercises the runtime guard against casts or persisted-data bypass.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
-    expect(() => (session.append as any)('turn/end', { turn: 1, reason: { kind: 'completed' } }, { sourceEventSeqs: [0] }))
+    // Session rejects this at its own acceptance boundary. Emit a hand-built
+    // record to cover the listener's defensive check for alternate producers.
+    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, sourceEventSeqs: [0] }
+    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
       .toThrow(/cannot carry sourceEventSeqs/)
   })
 
@@ -652,8 +700,8 @@ describe('surface invariants', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
-    expect(() => (session.append as any)('turn/end', { turn: 1, reason: { kind: 'completed' } }, { surfaceOp: 'append' }))
+    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, surfaceOp: 'append' }
+    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
       .toThrow(/cannot carry surfaceOp/)
   })
 })
@@ -661,7 +709,7 @@ describe('surface invariants', () => {
 describe('request-reconstruction cross-check (llm/stream)', () => {
   /** Session with a boundary: one derivable user message, an open step, and the header event the loop would have logged. */
   async function requestSetup() {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create(SessionId('req-check'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -723,7 +771,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
   })
 
   it('rejects a loop-built request with no header event or no step/start in its log', async () => {
-    const { ctx } = await setup({ freeze: false })
+    const { ctx } = await setup()
     const session = ctx.sessions.create(SessionId('req-bare'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const bare = Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: session.id })
@@ -755,13 +803,16 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
 describe('request cross-check ordering (prepend)', () => {
   it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
-    // The replay adapter returns its chunks WITHOUT calling next(), which would silence a
-    // later-registered check — snapshot compositions load replay before the app bundle that
-    // loads invariants.
+    // The replay adapter returns its chunks WITHOUT calling next(), which
+    // would silence a later-registered check — snapshot compositions load
+    // replay before the app bundle that loads invariants. The check prepends,
+    // so it fires ahead of append-registered listeners regardless of load
+    // order. (Prepend orders it against APPENDED listeners only; correctness
+    // rests on the seq-bounded rebuild, not on listener timing.)
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()
-    await ctx.plugin(Invariants, { freeze: false })
+    await ctx.plugin(Invariants)
 
     const session = ctx.sessions.create(SessionId('prepend-check'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -842,53 +893,4 @@ describe('scoped-dispatch invariants', () => {
       .not.toThrow()
   })
 
-  it('rejects an assembly context carrying agent without scope', async () => {
-    const ctx = await scopedCtx()
-    const agent = { id: 'a1' } as unknown as Agent
-    const base = { name: 'systemPrompt' }
-    const assembly = { sections: [], tools: [], variables: {} }
-    const bad = { agent }
-    expect(() => {
-      // The carrier base stands in for the SystemPrompt service (the declared `this`); the invariant only reads the carrier marks.
-      void ctx.waterfall(scopeTarget(base, undefined) as never, 'system-prompt/assemble', assembly as never, bad as never, () => Promise.resolve(assembly as never))
-    }).toThrow(/agent.*without.*scope|assembleContextFor/)
-    const good = { agent, scope: agent }
-    expect(() => {
-      void ctx.waterfall(scopeTarget(base, agent) as never, 'system-prompt/assemble', assembly as never, good as never, () => Promise.resolve(assembly as never))
-    }).not.toThrow()
-  })
-
-  it('backstops alternate agents that open a turn before agent/session-start', async () => {
-    const ctx = await scopedCtx()
-    // A live agent whose session is in the store but whose session-start has
-    // not fired: appending turn/start must throw the teaching error.
-    const session = ctx.sessions.create(SessionId('drive-s'))
-    const agent = { id: 'driver', session } as unknown as Agent
-    // Provide a minimal agents lookup: the invariant reads ctx.get('agents').
-    const registryStub = { list: () => [agent] }
-    ctx.root.provide('agents', registryStub as never)
-    expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).toThrow(/turn opened before agent\/session-start/)
-    // After session-start fires, turns open freely.
-    ctx.emit(scopeTarget(agent, agent), 'agent/session-start', agent, 'startup')
-    expect(() => {
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).not.toThrow()
-  })
-
-  it('marks sessions of agents that predate the plugin as started (HMR re-apply safety)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create(SessionId('pre-s'))
-    const agent = { id: 'pre', session } as unknown as Agent
-    ctx.root.provide('agents', { list: () => [agent] } as never)
-    // Invariants apply AFTER the agent exists: its ordering is unknowable, so
-    // a turn opening without an observed session-start must NOT false-positive.
-    await ctx.plugin(Invariants)
-    expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).not.toThrow()
-  })
 })

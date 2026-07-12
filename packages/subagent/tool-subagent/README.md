@@ -1,22 +1,28 @@
 # @deepseek-ai/dsh-tool-subagent
 
-Model-facing delegation tool over the [`ctx.subagents`](../subagent/README.md) provider registry. The selected provider may be in-process or out-of-process without changing the model's `{ description, prompt }` request shape.
+The `subagent` tool lets the model delegate one self-contained task and collect the child's final output. It is a thin consumer of `ctx.subagents`; changing the configured provider changes the transport without changing the model-facing execution contract.
 
-## Provider binding
+## Provider selection
 
-Each plugin load binds one `Config.provider`. To expose multiple providers, load the plugin under distinct `toolName` values. The tool description is derived from `provider.inheritsParentContext`, telling the model whether the child already sees completed parent turns.
+Each plugin instance binds to exactly one provider. The model sees `{ description, prompt }`, not a provider selector. To expose multiple transports, load the plugin multiple times with distinct `toolName` values.
 
-The tool follows provider availability through `subagent/provider-added` and `subagent/provider-removed`; it has no Loader-order dependency and disappears while its provider is absent.
+The description is derived from `provider.inheritsParentContext`: spawn and ACP tell the model to provide a standalone prompt, while fork says the child already sees completed conversation turns. The plugin follows `subagent/provider-added` and `subagent/provider-removed`, so concurrent Cordis plugin loading does not create a registration-order dependency.
 
-| Config key | Meaning |
+## Lifecycle
+
+`execute` passes the tool execution's abort signal directly as the required `SubagentStartRequest.signal`, awaits `ctx.subagents.start(...)`, then awaits `run.result` inside a `try/finally` that always calls `run.dispose()`. The same signal therefore covers startup and live execution, while disposal guarantees quiescence on success, failure, and abort.
+
+A non-`completed` stop reason becomes an `isError` tool result; partial child output is never reported as success. The current tool blocks the parent turn until collection finishes; background and polling modes are deferred.
+
+## Config
+
+| Key | Meaning |
 |---|---|
-| `provider` (required) | Provider name on `ctx.subagents`. |
-| `toolName` | Model-facing name (default `subagent`). |
-| `agentOptions` | Default child options (`model?`). |
-| `persona` | Child persona; requires provider support. |
-| `toolFilter` | Child global-tool restriction; requires provider support. |
-| `maxDepth` | Delegation-depth cap; requires provider support. |
+| `provider` | Required `ctx.subagents` provider name. |
+| `toolName` | Model-facing tool name (default `subagent`). Must be unique per plugin instance. |
+| `agentOptions` | Default child agent options, currently including `model`. |
+| `persona` | Per-child persona; requires provider `persona` capability. |
+| `toolFilter` | Per-child global-tool restriction; requires provider `toolFilter` capability. |
+| `maxDepth` | Absolute delegation-depth cap; requires provider `depthLimit` capability. |
 
-## Execution
-
-`execute` starts a run, bridges the tool abort signal to `run.cancel()`, awaits `run.result`, and always disposes the run. Non-completed stop reasons return error tool results rather than successful partial output. Collection is synchronous; background polling remains deferred in the [subagent seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
+`toolFilter` changes the child's visible global tool layer; it is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-explicit-non-goals).

@@ -1,5 +1,14 @@
 /**
- * Fused scope-carrier dispatch for agent-subject events, plus the assembly context builder.
+ * Fused scope-carrier dispatch for agent-subject operations, plus the assembly
+ * context builder. The sanctioned ordinary spelling is
+ * `agentEvents(ctx, agent).waterfall('agent/request', …)`: it builds the scope
+ * carrier ({@link scopeTarget} keyed by the agent) AND injects the subject as
+ * the first argument in one move, so a site cannot name a different subject.
+ * The registry lifecycle pair is the deliberate exception: `enter()` captures
+ * one stable carrier before commit and `announce()`/detach dispatch through it
+ * directly, so both lifecycle edges use the same routing identity. The dev
+ * scoped-dispatch invariant checks both shapes.
+ *
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
@@ -37,7 +46,10 @@ type Tail<K extends AgentSubjectEvent> = Params<Events[K]> extends [Agent, ...in
  */
 export interface AgentEventDispatch {
   /**
-   * Fire-and-forget notification (Cordis `emit`) in the agent's scope.
+   * Fire-and-forget notification in the agent's scope. Every listener is
+   * invoked; synchronous throws and returned-promise rejections are logged and
+   * contained per listener, so a notification cannot veto lifecycle progress
+   * or starve a later observer.
    * @param name - the agent-subject event to emit.
    * @param rest - the event's arguments after the injected agent.
    */
@@ -49,16 +61,6 @@ export interface AgentEventDispatch {
    * @returns the serial chain's result (the first bail value, if any).
    */
   serial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
-  /**
-   * Await listeners in order and return the first value other than `undefined`.
-   * Unlike Cordis `serial`, this does not silently treat `null` or `false` as
-   * abstentions. Use it for a runtime-validated public boundary whose declared
-   * abstention is exactly `undefined` (currently `agent/turn-stop`).
-   * @param name - the agent-subject event to dispatch.
-   * @param rest - the event's arguments after the injected agent.
-   * @returns the first non-undefined listener result, or undefined.
-   */
-  strictSerial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
   /**
    * Around-middleware dispatch (Cordis `waterfall`) in the agent's scope. The
    * declared event parameters already end with the `next` callback, so `rest`
@@ -81,31 +83,34 @@ export interface AgentEventDispatch {
  */
 export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   const carrier: Scoped<Agent> = scopeTarget(agent, agent)
-  // The ordinary dispatch methods forward through Cordis' variadic mixins.
+  // The ordinary dispatch methods forward through Cordis' variadic mixins. The
+  // fused (carrier, name, agent, ...rest) tuple is provably a valid argument
+  // list for the matching thisArg overload, but TypeScript cannot relate the
+  // generic Tail<K> spread back to that overload's conditional parameter
+  // tuple — hence one contained, shape-preserving cast per method.
   return {
     emit(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
-      const emit = ctx.emit as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => void
-      emit(carrier, name, agent, ...rest)
+      // Cordis emit invokes callbacks through Array.map: one synchronous throw
+      // starves later listeners, and returned promises are discarded. Agent
+      // notifications are non-vetoing, so resolve the same filtered callback
+      // set ourselves and contain both failure modes independently.
+      const args: unknown[] = [carrier, name, agent, ...rest]
+      const callbacks = ctx.events.dispatch('emit', args)
+      for (const callback of callbacks) {
+        try {
+          const returned: unknown = callback(...args)
+          void Promise.resolve(returned).catch((error: unknown) => {
+            ctx.logger.warn(`agent event "${name}" listener rejected: ${String(error)}`)
+          })
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent event "${name}" listener threw: ${String(error)}`)
+        }
+      }
     },
     async serial(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
       const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
       return await serial(carrier, name, agent, ...rest)
-    },
-    strictSerial(name, ...rest) {
-      return (async (): Promise<unknown> => {
-        // EventsService.dispatch applies the carrier filter and emits the same
-        // internal/dispatch instrumentation as ctx.serial, then mutates `args` down to the
-        // actual listener parameters.
-        const args: unknown[] = [carrier, name, agent, ...rest]
-        const callbacks = ctx.events.dispatch('serial', args)
-        for (const callback of callbacks) {
-          const result: unknown = await callback(...args)
-          if (result !== undefined) return result
-        }
-        return undefined
-      })() as Promise<Awaited<Return<Events[typeof name]>>>
     },
     waterfall(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function

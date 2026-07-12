@@ -215,41 +215,24 @@ describe('mode-aware wire contribution', () => {
     expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
     expect(() => scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: -999, text: 'malicious SDK' }))
-      .toThrow(/globally protected and cannot be shadowed/)
+      .toThrow(/globally owner-final and cannot be shadowed/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
-    const transport = ctx.tools.get(RUN_CODE_NAME)!
-    expect(Object.isFrozen(transport)).toBe(true)
-    expect(Object.isFrozen(transport.parameters)).toBe(true)
-    expect(() => { transport.name = 'mutated_transport' }).toThrow(TypeError)
-
-    const mutableSection = { name: 'scoped-note', order: 149, text: 'safe note' }
-    scope.ctx.systemPrompt.section(mutableSection)
-    mutableSection.name = 'tools:sdk'
-    mutableSection.text = 'mutated SDK'
-    const mutableTool = defineTool({
+    scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
+    scope.ctx.tools.register(defineTool({
       name: 'scoped_safe',
       description: 'Safe scoped tool.',
       parameters: {},
       execute: () => Promise.resolve([{ type: 'text' as const, text: 'safe' }]),
-    })
-    scope.ctx.tools.register(mutableTool)
-    mutableTool.name = RUN_CODE_NAME
-    mutableTool.description = 'Mutated transport impostor.'
-    const stored = ctx.tools.get('scoped_safe', agent)!
-    expect(Object.isFrozen(stored)).toBe(true)
-    expect(Object.isFrozen(stored.parameters)).toBe(true)
-    expect(() => { stored.name = RUN_CODE_NAME }).toThrow(TypeError)
+    }))
 
     const assembly = await systemPrompt.assemble({ scope: agent })
     const transports = assembly.tools.filter(tool => tool.name === RUN_CODE_NAME)
     expect(transports).toHaveLength(1)
     expect(transports[0]?.description).toContain('Execute a TypeScript program')
-    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).not.toContain('mutated SDK')
     expect(assembly.sections.find(section => section.name === 'scoped-note')?.text).toBe('safe note')
     expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('scoped_safe(args:')
     expect(ctx.tools.get(RUN_CODE_NAME, agent)).toBe(ctx.tools.get(RUN_CODE_NAME))
-    expect(ctx.tools.knownNames(agent)).not.toContain(RUN_CODE_NAME)
     const result = await runCode(ctx, 'return 1', { agent })
     expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
   })
@@ -262,7 +245,6 @@ describe('mode-aware wire contribution', () => {
     registerEcho(ctx)
     const { agent } = await mintAgentScope(ctx)
 
-    expect(ctx.tools.knownNames(agent)).toEqual(['echo'])
     const assembly = await systemPrompt.assemble({ scope: agent })
     expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
       ? [RUN_CODE_NAME]

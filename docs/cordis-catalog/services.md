@@ -11,17 +11,15 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## `ctx.agentLoop` — `AgentLoop`
 
-The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`. Also implements the AgentFactory seam, so plugins create/resume agents through `ctx.agents` (the interface) without depending on this concrete package.
-
-The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
+Concrete ReactLoopAgent factory and driver service.
 
 ```ts cordis-catalog
 create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
-async createAgent(options: CreateAgentOptions): Promise<AgentHandle>
-async resume(options: ResumeAgentOptions): Promise<AgentHandle>
+async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
+async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:62`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:338`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -40,11 +38,13 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:141`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:203`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
 The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
+
+Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'` before dispatching any interactive answerer, a per-agent prompt section states a `'never'` policy (and only that one in prose — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
 
 ```ts cordis-catalog
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
@@ -52,7 +52,7 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:244`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:294`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -147,6 +147,13 @@ Source: [`packages/sandbox/sandbox/src/index.ts:109`](../../packages/sandbox/san
 
 Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
+Contracts every implementation MUST honor (a DB backend asserts them inside a transaction; a file backend appends at EOF):
+
+- **Append-only; a crashed turn is closed, not truncated.** Committed events — those at or below a flushed `turn/end` — are never rewritten. A crash can leave an unclosed final turn whose events are real (and possibly large); load preserves them and closes the orphaned turn with synthetic boundary events (see load). Only a never-fully-written torn tail fragment is discarded.
+- **Contiguous seq.** A persisted log is contiguous: `events[i].seq === i`. load rejects a parse error or a `seq` gap in the COMMITTED region (unloadable); append's first event `seq` MUST equal the backend's stored next-seq (after `load` has balanced any interrupted turn).
+- **JSON-serializable events.** `SessionEventMap` is merge-extensible, so append materializes each complete batch through the shared lossless-JSON boundary before buffering it. The public `session.events` view is immutable, but persistence still snapshots direct/replay callers at this independent trust boundary.
+- **Durability.** append returns only once the batch is durable (the file backend fsyncs; a DB commits). create MAY defer the physical write until the first append (lazy materialization).
+
 ```ts cordis-catalog
 abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
@@ -156,7 +163,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:61`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -175,7 +182,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:333`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:591`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -188,53 +195,52 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:158`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
-The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
+Named provider registry and capability-checked start surface.
 
 ```ts cordis-catalog
 registerProvider(provider: SubagentProvider): () => Promise<void> | void
 getProvider(name: string): SubagentProvider | undefined
 list(): string[]
-start(name: string, request: SubagentStartRequest): SubagentRun
+async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:126`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and authoritative contribution protections; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contributions; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => Promise<void> | void
 tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void
-protect(protection: PromptProtection): () => Promise<void> | void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:372`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also owns the reserved `run_code` presentation transport and the `tools:sdk` prompt section.
+
+Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One private visibility resolver feeds prompt assembly, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so what the model is shown, what a presenter renders, what a program can call, and what dispatches can never disagree.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => Promise<void> | void
 restrict(filter: ToolRestriction): () => Promise<void> | void
 guard(guard: ToolGuard): () => Promise<void> | void
-visible(scope?: ScopeKey): ToolDefinition[]
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 schemas(scope?: ScopeKey): ToolSchema[]
-knownNames(scope?: ScopeKey): string[]
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:374`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:500`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -273,11 +279,18 @@ Source: [`packages/web/web/src/index.ts:79`](../../packages/web/web/src/index.ts
 
 Abstract workflow execution service. Subclass, implement start, and load the subclass as a plugin — it registers as `ctx.workflows` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
+Semantics every implementation must honor:
+
+- start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` SETTLES within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation).
+- The `workflow/*` events fire through emitWorkflowEvent (borrowed immutable data, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
+- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
+- Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to the `start()` caller and does not track its live runs — disposing the engine's own fiber mid-run deliberately leaves those runs to their holders' teardown, so an engine reload cannot yank a run out from under the consumer awaiting it.
+
 ```ts cordis-catalog
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:157`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:211`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

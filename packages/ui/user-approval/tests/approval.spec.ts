@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { carrierKeyOf, scopeHost } from '@deepseek-ai/dsh-scope'
+import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -78,77 +79,38 @@ describe('ApprovalService.request', () => {
     expect(Object.keys(appended[0]?.data ?? {}).sort()).toEqual(['id', 'toolName'])
   })
 
-  it('snapshots request identity, scope, payload, and audit before deferred dispatch', async () => {
+  it('borrows the exact readonly request for scoped dispatch and audit', async () => {
     const ctx = await mounted()
-    const { agent: acceptedAgent, appended: acceptedAudit } = fakeAgent()
-    const { agent: replacementAgent, appended: replacementAudit } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const acceptedScope = host.mint(acceptedAgent)
-    const replacementScope = host.mint(replacementAgent)
-    const dispatchStarted = Promise.withResolvers<'started'>()
-    const answer = Promise.withResolvers<ApprovalOutcome>()
-    const originalSignal = new AbortController().signal
-    const replacementSignal = new AbortController().signal
-    let heardBy: 'accepted' | 'replacement' | undefined
+    const { agent, appended } = fakeAgent()
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
     let received: ApprovalRequest | undefined
     let carrier: unknown
-    acceptedScope.ctx.on('approval/request', function (req) {
-      heardBy = 'accepted'
+    scope.ctx.on('approval/request', function (req) {
       received = req
       carrier = carrierKeyOf(this)
-      dispatchStarted.resolve('started')
-      return answer.promise
+      return Promise.resolve<ApprovalOutcome>('allowed-once')
     })
-    replacementScope.ctx.on('approval/request', function (req) {
-      heardBy = 'replacement'
-      received = req
-      carrier = carrierKeyOf(this)
-      dispatchStarted.resolve('started')
-      return answer.promise
-    })
-    const request = requestOf(acceptedAgent, {
-      toolName: 'original-tool',
-      callId: CallId('original-call'),
-      reason: 'original reason',
-      signal: originalSignal,
+    const request = requestOf(agent, {
+      toolName: 'scoped-tool',
+      callId: CallId('scoped-call'),
+      reason: 'scoped reason',
     })
 
-    const pending = ctx.approval.request(request)
-    // request() has returned, but the answerer dispatch is deliberately queued
-    // in a microtask. Mutating the caller-owned record must not redirect it.
-    request.agent = replacementAgent
-    request.toolName = 'mutated-before-dispatch'
-    request.callId = CallId('mutated-call')
-    request.reason = 'mutated reason'
-    request.signal = replacementSignal
-    await dispatchStarted.promise
-    // Mutation while the answer is pending must not redirect the final audit.
-    request.toolName = 'mutated-after-dispatch'
-    request.reason = 'mutated again'
-    answer.resolve('allowed-once')
-
-    await expect(pending).resolves.toBe('allowed-once')
-    expect(heardBy).toBe('accepted')
-    expect(carrier).toBe(acceptedAgent)
-    expect(received).not.toBe(request)
-    expect(Object.isFrozen(received)).toBe(true)
-    expect(received).toMatchObject({
-      agent: acceptedAgent,
-      toolName: 'original-tool',
-      callId: 'original-call',
-      reason: 'original reason',
-      signal: originalSignal,
+    await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
+    expect(carrier).toBe(agent)
+    expect(received).toBe(request)
+    expect(appended).toHaveLength(2)
+    expect(appended[0]?.data).toMatchObject({
+      toolName: 'scoped-tool',
+      callId: 'scoped-call',
+      reason: 'scoped reason',
     })
-    expect(acceptedAudit).toHaveLength(2)
-    expect(acceptedAudit[0]?.data).toMatchObject({
-      toolName: 'original-tool',
-      callId: 'original-call',
-      reason: 'original reason',
-    })
-    expect(acceptedAudit[1]?.data).toMatchObject({ outcome: 'allowed-once' })
-    expect(acceptedAudit[1]?.data['id']).toBe(acceptedAudit[0]?.data['id'])
-    expect(replacementAudit).toEqual([])
-    await host.dispose()
+    expect(appended[1]?.data).toMatchObject({ outcome: 'allowed-once' })
+    expect(appended[1]?.data['id']).toBe(appended[0]?.data['id'])
+    await scopeFiber.dispose()
   })
 
   it('contains an approval/asked observer throw after append and still completes the pair', async () => {
@@ -171,7 +133,7 @@ describe('ApprovalService.request', () => {
     const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
     expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
     expect(decided?.data.id).toBe(asked?.data.id)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/asked observer threw'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after asked append'))
   })
 
   it('contains an approval/decided observer throw after append and still resolves', async () => {
@@ -194,10 +156,10 @@ describe('ApprovalService.request', () => {
     const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
     expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
     expect(decided?.data).toMatchObject({ id: asked?.data.id, outcome: 'rejected' })
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/decided observer threw'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after decided append'))
   })
 
-  it('does not misclassify a pre-append failure as an observer failure', async () => {
+  it('propagates an append failure that prevented audit log growth', async () => {
     const ctx = await mounted()
     const failure = new Error('append failed before log growth')
     const agent = {
@@ -236,9 +198,12 @@ describe('ApprovalService.request', () => {
     const ctx = await mounted()
     const { agent: agentA } = fakeAgent()
     const { agent: agentB } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const scopeA = host.mint(agentA)
-    const scopeB = host.mint(agentB)
+    let scopeA!: Scope
+    let scopeB!: Scope
+    const scopesFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scopeA = createScope(inner, agentA)
+      scopeB = createScope(inner, agentB)
+    }, { inject: ['approval'] }))
     const heard: string[] = []
     ctx.on('approval/request', (req, next) => {
       heard.push(req.agent === agentA ? 'global:A' : 'global:B')
@@ -257,14 +222,16 @@ describe('ApprovalService.request', () => {
     await expect(ctx.approval.request(requestOf(agentB))).resolves.toBe('unavailable')
 
     expect(heard).toEqual(['global:A', 'scoped:A', 'global:B', 'scoped:B'])
-    await host.dispose()
+    await scopesFiber.dispose()
   })
 
   it('keys the scoped dispatch carrier to the exact request agent', async () => {
     const ctx = await mounted()
     const { agent } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const scope = host.mint(agent)
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
     let seenKey: object | undefined
     scope.ctx.on('approval/request', function (req, next) {
       seenKey = carrierKeyOf(this)
@@ -275,7 +242,7 @@ describe('ApprovalService.request', () => {
     await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('unavailable')
 
     expect(seenKey).toBe(agent)
-    await host.dispose()
+    await scopeFiber.dispose()
   })
 
   it('contains a throwing answerer as unavailable', async () => {
@@ -418,6 +385,15 @@ describe('approval policy (the approval/policy fold)', () => {
     setApprovalPolicy(session, 'ask')
     expect(effectiveApprovalPolicy(session.events)).toBe('ask')
     expect(session.events.at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
+  })
+
+  it('rejects a policy outside the closed vocabulary before appending', () => {
+    const append = vi.fn()
+    const session = { append } as unknown as Session
+
+    expect(() => { setApprovalPolicy(session, 'sometimes' as Parameters<typeof setApprovalPolicy>[1]) })
+      .toThrow('approval policy must be one of "ask" or "never"')
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('defaults a schema-less construction to ask (the ?? narrows the optional TYPE)', async () => {

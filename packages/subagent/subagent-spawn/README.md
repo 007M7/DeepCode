@@ -1,12 +1,16 @@
 # @deepseek-ai/dsh-subagent-spawn
 
-In-process provider that runs each request as a fresh child [`Agent`](../../core/agent) on the same Cordis application. The child has a new session and no inherited conversation; it uses the parent model unless overridden.
+The spawn provider creates a fresh child `Agent` in the current process. The child has its own session, sees no parent conversation history, and reuses the host's agent factory and LLM/tool services.
 
-The package delegates lifecycle work to [`startInProcessRun`](../subagent-inprocess/README.md) with no seed. Child creation, persona, tool filtering, structured output, cancellation, and quiescent disposal are owned by the shared driver. `run.started` resolves only after publication, so `subagent/start` observers can resolve the child from `ctx.agents`.
+## Behavior
+
+`start(request)` delegates to [`startInProcessRun`](../subagent-inprocess/README.md) with no seed and awaits publication before returning. The child receives parent working-directory/session lineage and inherits the parent model unless overridden, but starts with an empty conversation.
+
+The shared driver owns depth checking, persona and tool-filter setup, structured output, required-signal cancellation, one-shot execution, result reading, and quiescent disposal. A startup rejection leaves no published child; provider unload after fulfillment does not revoke the holder-owned run.
 
 ## Capabilities
 
-`{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`
+Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` because it controls the child's creation window and can enforce all four features.
 
 ## Config
 
