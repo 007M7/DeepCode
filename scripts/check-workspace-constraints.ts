@@ -105,12 +105,6 @@ const dshBinPackageFiles = [
   'src',
 ] as const
 
-// Packages that ship a worker-thread entry as a sibling runtime bundle
-// (lib/worker.js, its own tsdown entry): the bootstrap is loaded via
-// `new Worker(new URL('./worker.js', import.meta.url))`, so it cannot live
-// inside the index bundle and must be published alongside it.
-const workerEntryPackages = new Set(['@deepseek-ai/dsh-code-runtime-worker'])
-
 const dshWorkerPackageFiles = [
   'lib/index.js',
   'lib/worker.js',
@@ -124,8 +118,12 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
 }
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
-  if (manifest.name && workerEntryPackages.has(manifest.name)) return dshWorkerPackageFiles
-  return manifest.bin ? dshBinPackageFiles : dshPackageFiles
+  if (manifest.bin) return dshBinPackageFiles
+  // A declared "./worker" subpath export sanctions the one extra runtime
+  // bundle a worker-thread entry needs (and NodeNext/publint then validate
+  // that subpath's targets like any other export).
+  if (manifest.exports?.['./worker']) return dshWorkerPackageFiles
+  return dshPackageFiles
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {

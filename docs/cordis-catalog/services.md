@@ -16,12 +16,12 @@ The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loo
 The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
 
 ```ts cordis-catalog
-create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
+create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
 createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:68`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -39,6 +39,20 @@ list(): Agent[]
 Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
+
+## `ctx.approval` — `ApprovalService`
+
+The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
+
+Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'` before dispatching any interactive answerer, a per-agent prompt section states a `'never'` policy (and only that one in prose — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
+
+```ts cordis-catalog
+async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+```
+
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:282`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -65,7 +79,7 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -147,6 +161,24 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
+## `ctx.sandbox` — `SandboxProvider` (abstract seam)
+
+Abstract process-sandbox service. Subclass, implement confine, and load the subclass as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- confine either returns an argv whose runner ENFORCES the policy or fails closed — at `confine` time with SandboxUnavailableError (no backend for this host), or at EXECUTION time by the runner itself refusing to run the command (exiting without exec'ing it, identified by ConfinedArgv.runnerFailureSignatures). A silent unconfined passthrough is never a legal outcome on either path.
+- Probing exists to ARBITRATE between multiple candidate backends and may be skipped when a platform has exactly one: the sole candidate is selected directly and the runner's exec-time fail-closed refusal carries the safety property. When probing does run, it is functional (actually enforcing a profile, not a version check), at most once per provider lifetime; `confine` itself spawns nothing beyond that one-time probing.
+- The returned ConfinedArgv.enforcement states the backend's actual completeness for THIS host; `partial` is reported, never silently upgraded to `full`.
+
+```ts cordis-catalog
+abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
+```
+
+Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
+
+Source: [`packages/sandbox/sandbox/src/index.ts:180`](../../packages/sandbox/sandbox/src/index.ts)
+
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
 Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
@@ -187,6 +219,19 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
 
+## `ctx.skills` — `SkillService`
+
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
+
+```ts cordis-catalog
+registerProvider(provider: SkillProvider): () => void
+register(skill: SkillRegistration): () => void
+async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+```
+
+Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
+
 ## `ctx.subagents` — `SubagentService`
 
 The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
@@ -226,7 +271,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:345`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:349`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -260,6 +305,23 @@ async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchRe
 ```
 
 Source: [`packages/web/web/src/index.ts:87`](../../packages/web/web/src/index.ts)
+
+## `ctx.workflows` — `WorkflowService` (abstract seam)
+
+Abstract workflow execution service. Subclass, implement start, and load the subclass as a plugin — it registers as `ctx.workflows` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` SETTLES within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation).
+- The `workflow/*` events fire through emitWorkflowEvent (data snapshots, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
+- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
+- Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to the `start()` caller and does not track its live runs — disposing the engine's own fiber mid-run deliberately leaves those runs to their holders' teardown, so an engine reload cannot yank a run out from under the consumer awaiting it.
+
+```ts cordis-catalog
+abstract start(request: WorkflowStartRequest): WorkflowRun
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:210`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

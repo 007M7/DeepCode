@@ -163,6 +163,20 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:464`](../../packages/core/agent/src/types.ts)
 
+## `approval/*`
+
+### `approval/request` — waterfall
+
+Waterfall asking the composed answerers to decide one approval request. Dispatched only from ApprovalService.request — callers go through the service (which owns cancellation and the audit events), never through `ctx.waterfall` directly. A listener that can answer for this request's agent returns an outcome WITHOUT calling `next()` (the decision slot is single-occupancy, first listener to answer wins); a listener that does not recognize the agent MUST call `next()` so another answerer — or the fail-closed default `'unavailable'` — gets the question. Throwing is contained by the service and yields `'unavailable'`.
+
+```ts cordis-catalog
+'approval/request'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
+```
+
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:64`](../../packages/ui/user-approval/src/index.ts)
+
 ## `fs/*`
 
 ### `fs/edit-intent` — waterfall
@@ -249,6 +263,28 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 
 Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
+## `skill/*`
+
+### `skill/provider-added` — emit
+
+A skill provider became resolvable in the `ctx.skills` registry. Consumers can observe this instead of depending on Cordis plugin load order, which is concurrent for sibling plugins.
+
+```ts cordis-catalog
+'skill/provider-added'(provider: SkillProvider): void
+```
+
+Source: [`packages/skill/skill/src/index.ts:130`](../../packages/skill/skill/src/index.ts)
+
+### `skill/provider-removed` — emit
+
+A skill provider left the registry because its plugin fiber was disposed.
+
+```ts cordis-catalog
+'skill/provider-removed'(name: string): void
+```
+
+Source: [`packages/skill/skill/src/index.ts:136`](../../packages/skill/skill/src/index.ts)
+
 ## `subagent/*`
 
 ### `subagent/end` — emit
@@ -323,7 +359,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:132`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:135`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -335,7 +371,7 @@ Around-dispatch waterfall wrapping the registry's core tool dispatch, between th
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:111`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:114`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -347,11 +383,11 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:127`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:130`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
-Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` degrades to deny until the permission system lands (`FIXME(permissions)`).
+Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` is serviced by the `ctx.approval` seam when one is mounted, and degrades to deny otherwise.
 
 ```ts cordis-catalog
 'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
@@ -359,7 +395,69 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:91`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:94`](../../packages/core/tools/src/index.ts)
+
+## `workflow/*`
+
+### `workflow/agent-end` — emit
+
+One `agent()` call settled (clean result, child failure, or run cancellation). Paired with Events['workflow/agent-start'] by `agent.seq`, exactly once per started call on every stop path — on an engine termination path (a worker killed past its grace) the end is engine-synthesized with outcome `'cancelled'`.
+
+```ts cordis-catalog
+'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:96`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/agent-start` — emit
+
+One `agent()` call started a child run. Paired with Events['workflow/agent-end'] by `agent.seq`.
+
+```ts cordis-catalog
+'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:85`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/end` — emit
+
+A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves. Paired with Events['workflow/start'].
+
+```ts cordis-catalog
+'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:106`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/log` — emit
+
+The script emitted a narration line (a `log(message)` call).
+
+```ts cordis-catalog
+'workflow/log'(info: WorkflowRunInfo, message: string): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:77`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/phase` — emit
+
+The script entered a phase (a `phase(title)` call) — progress grouping for observers; no execution semantics.
+
+```ts cordis-catalog
+'workflow/phase'(info: WorkflowRunInfo, title: string): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
+
+### `workflow/start` — emit
+
+A workflow run started — the script's meta block validated, the body about to execute. Paired with Events['workflow/end'].
+
+```ts cordis-catalog
+'workflow/start'(info: WorkflowRunInfo): void
+```
+
+Source: [`packages/workflow/workflow/src/index.ts:62`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

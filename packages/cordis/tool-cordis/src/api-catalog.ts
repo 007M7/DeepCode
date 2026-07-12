@@ -56,7 +56,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'agentLoop',
     summary: 'The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`.',
     methods: [
-      'create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent',
+      'create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
       'createAgent(options: CreateAgentOptions): AgentHandle',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
@@ -71,6 +71,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'register(agent: Agent): () => void',
       'get(id: AgentId): Agent | undefined',
       'list(): Agent[]',
+    ],
+  },
+  {
+    key: 'approval',
+    summary: 'The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent\'s session log.',
+    methods: [
+      'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
     ],
   },
   {
@@ -126,6 +133,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sandbox',
+    summary: 'Abstract process-sandbox service.',
+    methods: [
+      'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
+    ],
+  },
+  {
     key: 'sessionPersistence',
     summary: 'Abstract durable session-persistence service.',
     methods: [
@@ -146,6 +160,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'get(id: SessionId): Session | undefined',
       'list(): Session[]',
       'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
+    ],
+  },
+  {
+    key: 'skills',
+    summary: 'Registry of skill providers.',
+    methods: [
+      'registerProvider(provider: SkillProvider): () => void',
+      'register(skill: SkillRegistration): () => void',
+      'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
+      'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
     ],
   },
   {
@@ -194,6 +218,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'registerFetchProvider(provider: WebFetchProvider): () => void',
       'async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>',
       'async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>',
+    ],
+  },
+  {
+    key: 'workflows',
+    summary: 'Abstract workflow execution service.',
+    methods: [
+      'abstract start(request: WorkflowStartRequest): WorkflowRun',
     ],
   },
 ]
@@ -273,6 +304,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Waterfall: override the turn-continuation decision via a typed ContinuationDecision.',
   },
   {
+    name: 'approval/request',
+    mode: 'waterfall',
+    signature: '\'approval/request\'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
+    summary: 'Waterfall asking the composed answerers to decide one approval request.',
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -313,6 +350,18 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'parallel',
     signature: '\'session/flush\'(session: Session): Promise<void> | void',
     summary: 'Awaited durability checkpoint.',
+  },
+  {
+    name: 'skill/provider-added',
+    mode: 'emit',
+    signature: '\'skill/provider-added\'(provider: SkillProvider): void',
+    summary: 'A skill provider became resolvable in the `ctx.skills` registry.',
+  },
+  {
+    name: 'skill/provider-removed',
+    mode: 'emit',
+    signature: '\'skill/provider-removed\'(name: string): void',
+    summary: 'A skill provider left the registry because its plugin fiber was disposed.',
   },
   {
     name: 'subagent/end',
@@ -374,6 +423,42 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'tools/pre-execute\'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
     summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
   },
+  {
+    name: 'workflow/agent-end',
+    mode: 'emit',
+    signature: '\'workflow/agent-end\'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void',
+    summary: 'One `agent()` call settled (clean result, child failure, or run cancellation).',
+  },
+  {
+    name: 'workflow/agent-start',
+    mode: 'emit',
+    signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
+    summary: 'One `agent()` call started a child run.',
+  },
+  {
+    name: 'workflow/end',
+    mode: 'emit',
+    signature: '\'workflow/end\'(info: WorkflowRunInfo, result: WorkflowResultInfo): void',
+    summary: 'A workflow run settled (any stop reason).',
+  },
+  {
+    name: 'workflow/log',
+    mode: 'emit',
+    signature: '\'workflow/log\'(info: WorkflowRunInfo, message: string): void',
+    summary: 'The script emitted a narration line (a `log(message)` call).',
+  },
+  {
+    name: 'workflow/phase',
+    mode: 'emit',
+    signature: '\'workflow/phase\'(info: WorkflowRunInfo, title: string): void',
+    summary: 'The script entered a phase (a `phase(title)` call) — progress grouping for observers; no execution semantics.',
+  },
+  {
+    name: 'workflow/start',
+    mode: 'emit',
+    signature: '\'workflow/start\'(info: WorkflowRunInfo): void',
+    summary: 'A workflow run started — the script\'s meta block validated, the body about to execute.',
+  },
 ]
 
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
@@ -401,6 +486,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\' | \'disposed\';',
+  },
+  {
+    name: 'ApprovalOutcome',
+    declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
+  },
+  {
+    name: 'ApprovalRequest',
+    declaration: 'export interface ApprovalRequest {\n    agent: Agent;\n    toolName: string;\n    callId?: CallId;\n    reason?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -432,19 +525,23 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashRunResult',
-    declaration: 'export interface BashRunResult {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    timedOut: boolean;\n    aborted: boolean;\n    timeoutMs: number;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n}',
+    declaration: 'export interface BashRunResult {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    timedOut: boolean;\n    aborted: boolean;\n    timeoutMs: number;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n    sandbox?: BashSandboxInfo;\n}',
+  },
+  {
+    name: 'BashSandboxInfo',
+    declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
     name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n}',
+    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
   },
   {
     name: 'BashTaskId',
@@ -505,6 +602,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionResult',
     declaration: 'export interface CompactionResult {\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
+  },
+  {
+    name: 'ConfinedArgv',
+    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureSignatures: readonly string[];\n}',
+  },
+  {
+    name: 'ConfinedSandboxMode',
+    declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
     name: 'ContentBlockMap',
@@ -631,6 +736,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResumeAgentOptions {\n    agentId: AgentId;\n    resumeSessionId: SessionId;\n    agentOptions?: AgentOptions;\n}',
   },
   {
+    name: 'SandboxEnforcement',
+    declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
+  },
+  {
+    name: 'SandboxMode',
+    declaration: 'export type SandboxMode = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
+  },
+  {
+    name: 'SandboxPolicy',
+    declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
+  },
+  {
     name: 'SendOptions',
     declaration: 'export interface SendOptions {\n    source?: MessageSource;\n}',
   },
@@ -657,6 +774,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SkillCandidate',
+    declaration: 'export interface SkillCandidate extends SkillSummary {\n    rank: number;\n    locator: unknown;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'SkillDefinition',
+    declaration: 'export interface SkillDefinition extends SkillSummary {\n    content: string;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'SkillLookupOptions',
+    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n    signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'SkillProvider',
+    declaration: 'export interface SkillProvider {\n    name: string;\n    list(options: SkillLookupOptions): Promise<SkillCandidate[]>;\n    get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>;\n}',
+  },
+  {
+    name: 'SkillRegistration',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    provider?: string;\n};',
+  },
+  {
+    name: 'SkillResourceBase',
+    declaration: 'export type SkillResourceBase = {\n    kind: \'directory\';\n    path: string;\n} | {\n    kind: \'url\';\n    url: string;\n} | {\n    kind: \'opaque\';\n    description: string;\n};',
+  },
+  {
+    name: 'SkillSource',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | (string & {});',
+  },
+  {
+    name: 'SkillSummary',
+    declaration: 'export interface SkillSummary {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    disableModelInvocation?: boolean;\n    source: SkillSource;\n    provider: string;\n    resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'StreamChunk',
@@ -837,6 +986,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSearchSource',
     declaration: 'export interface WebSearchSource {\n    readonly url: string;\n    readonly title?: string;\n    readonly snippet?: string;\n    readonly publishedAt?: string;\n}',
+  },
+  {
+    name: 'WorkflowMeta',
+    declaration: 'export interface WorkflowMeta {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    phases?: WorkflowPhase[];\n}',
+  },
+  {
+    name: 'WorkflowPhase',
+    declaration: 'export interface WorkflowPhase {\n    title: string;\n    detail?: string;\n    model?: string;\n}',
+  },
+  {
+    name: 'WorkflowResult',
+    declaration: 'export interface WorkflowResult {\n    value: unknown;\n    stopReason: WorkflowStopReason;\n    error?: string;\n    agentsStarted: number;\n}',
+  },
+  {
+    name: 'WorkflowRun',
+    declaration: 'export interface WorkflowRun {\n    readonly id: WorkflowRunId;\n    readonly meta: WorkflowMeta;\n    readonly result: Promise<WorkflowResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'WorkflowRunId',
+    declaration: 'export type WorkflowRunId = Branded<\'WorkflowRunId\'>;',
+  },
+  {
+    name: 'WorkflowStartRequest',
+    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'WorkflowStopReason',
+    declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
   },
 ]
 

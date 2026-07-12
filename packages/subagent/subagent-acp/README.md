@@ -57,7 +57,7 @@ A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was req
 
 ## Environment scrub
 
-Credential-shaped ambient vars (`/KEY|SECRET|TOKEN/i`) are NOT forwarded to the child by default — the parent harness's own secrets must not leak into a spawned process implicitly. The child's OWN credentials are supplied explicitly via `config.env`, layered AFTER the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental `AWS_SECRET_ACCESS_KEY` does not.
+The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-subprocess`](../subagent-subprocess/README.md) — the ambient env minus credential-shaped vars, with `config.env` layered on top after the scrub; the pattern and full semantics live there. For this backend that means the parent harness's own secrets never leak into the spawned agent implicitly, while the child's OWN `DEEPSEEK_API_KEY` is supplied deliberately via `config.env` and survives.
 
 ## Testing
 
