@@ -21,7 +21,7 @@ import type { Context } from 'cordis'
 import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
@@ -70,6 +70,23 @@ interface SessionTrace {
   surface: number[]
 }
 
+/** One accepted event's deferred mutation of a live session trace. */
+interface SessionTraceTransition {
+  /** Scalar state after the event commits. */
+  scalars: Pick<SessionTrace, 'lastSeq' | 'openTurn' | 'openStep' | 'nextTurn' | 'nextStep'>
+  /** The event's mutation of the open step's pending call set. */
+  pendingCalls:
+    | { kind: 'none' }
+    | { kind: 'add' | 'delete'; callId: CallId }
+    | { kind: 'clear' }
+  /** The event's mutation of the derived surface order. */
+  surface:
+    | { kind: 'none' | 'append' }
+    | { kind: 'replace'; start: number; count: number }
+  /** The committed event sequence to add to the known-sequence set. */
+  seq: number
+}
+
 /** Event payload prefix for scoped seams whose first argument names its agent. */
 interface AgentSubject {
   agent: Agent
@@ -84,14 +101,19 @@ function requireOpenStep(trace: SessionTrace, kind: string, turn: number, step: 
   }
 }
 
-/** Assert one appended event against the per-session invariants. */
-function checkEvent(trace: SessionTrace, event: SessionEvent): void {
+/** Validate one candidate event without mutating the committed session trace. */
+function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTransition {
   // seq is strictly monotonic — the spine of replay equivalence. lastSeq
   // starts at -1, so the first event (seq 0) passes.
   if (event.seq <= trace.lastSeq) {
     throw new InvariantError(`seq must strictly increase: saw ${event.seq} after ${trace.lastSeq}`)
   }
-  trace.lastSeq = event.seq
+  let openTurn = trace.openTurn
+  let openStep = trace.openStep
+  let nextTurn = trace.nextTurn
+  let nextStep = trace.nextStep
+  let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
+  let surface: SessionTraceTransition['surface'] = { kind: 'none' }
 
   // --- Surface invariants ---
   // Surface metadata (sourceEventSeqs, surfaceOp) is only valid on
@@ -133,7 +155,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
   // positional range — every shadowed node must appear in sourceEventSeqs.
   if (se.surfaceOp !== undefined) {
     if (se.surfaceOp === 'append') {
-      trace.surface.push(event.seq)
+      surface = { kind: 'append' }
     } else {
       const { start, end } = se.surfaceOp
       const startIdx = trace.surface.indexOf(start)
@@ -155,9 +177,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (missing.length > 0) {
         throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
       }
-      // Apply the replace to the tracked surface: the new node takes the
-      // range's position so order stays in sync for later replaces.
-      trace.surface.splice(startIdx, shadowed.length, event.seq)
+      surface = { kind: 'replace', start: startIdx, count: shadowed.length }
     }
   }
 
@@ -176,8 +196,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (event.data.turn !== trace.nextTurn) {
         throw new InvariantError(`turn/start expected turn ${trace.nextTurn}, got ${event.data.turn}`)
       }
-      trace.openTurn = event.data.turn
-      trace.nextStep = 1
+      openTurn = event.data.turn
+      nextStep = 1
       break
     }
     case 'turn/end': {
@@ -187,8 +207,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openStep !== null) {
         throw new InvariantError(`turn/end ${event.data.turn} while step ${trace.openStep} is still open`)
       }
-      trace.openTurn = null
-      trace.nextTurn += 1
+      openTurn = null
+      nextTurn += 1
       break
     }
     case 'step/start': {
@@ -202,16 +222,16 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (event.data.step !== trace.nextStep) {
         throw new InvariantError(`step/start expected step ${trace.nextStep} in turn ${event.data.turn}, got ${event.data.step}`)
       }
-      trace.openStep = event.data.step
+      openStep = event.data.step
       break
     }
     case 'step/end': {
       requireOpenStep(trace, 'step/end', event.data.turn, event.data.step)
       // A result must arrive in the step that issued the call; orphan calls
       // (a step that errored before its result) do not carry to the next step.
-      trace.pendingCalls.clear()
-      trace.openStep = null
-      trace.nextStep += 1
+      pendingCalls = { kind: 'clear' }
+      openStep = null
+      nextStep += 1
       break
     }
     case 'assistant/chunk': {
@@ -224,7 +244,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     }
     case 'tool/call': {
       requireOpenStep(trace, 'tool/call', event.data.turn, event.data.step)
-      trace.pendingCalls.add(event.data.callId)
+      pendingCalls = { kind: 'add', callId: event.data.callId }
       break
     }
     case 'tool/result': {
@@ -233,9 +253,10 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       // does NOT hold: a call may have no result — a throwing tool-execution
       // pipeline step ends the turn with no tool/result, which is legal.)
       const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
-      if (!trace.pendingCalls.delete(event.data.callId) && !syntheticInterrupted) {
+      if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
+      pendingCalls = { kind: 'delete', callId: event.data.callId }
       break
     }
     // Turn-enclosure (the turn-enclosure RFC): EVERY session event not handled by a boundary
@@ -255,8 +276,52 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       break
     }
   }
-  // Track every seq seen — used above to validate sourceEventSeqs references.
-  trace.knownSeqs.add(event.seq)
+  return {
+    scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },
+    pendingCalls,
+    surface,
+    seq: event.seq,
+  }
+}
+
+/** Apply one already-validated transition after its event commits. */
+function applyTransition(trace: SessionTrace, transition: SessionTraceTransition): void {
+  Object.assign(trace, transition.scalars)
+  switch (transition.pendingCalls.kind) {
+    case 'none':
+      break
+    case 'add':
+      trace.pendingCalls.add(transition.pendingCalls.callId)
+      break
+    case 'delete':
+      trace.pendingCalls.delete(transition.pendingCalls.callId)
+      break
+    case 'clear':
+      trace.pendingCalls.clear()
+      break
+    /* v8 ignore next -- validateEvent produces this closed transition union */
+    default:
+      assertNever(transition.pendingCalls, 'session trace pending-call transition')
+  }
+  switch (transition.surface.kind) {
+    case 'none':
+      break
+    case 'append':
+      trace.surface.push(transition.seq)
+      break
+    case 'replace':
+      trace.surface.splice(transition.surface.start, transition.surface.count, transition.seq)
+      break
+    /* v8 ignore next -- validateEvent produces this closed transition union */
+    default:
+      assertNever(transition.surface, 'session trace surface transition')
+  }
+  trace.knownSeqs.add(transition.seq)
+}
+
+/** Validate and apply one event while rebuilding an already-committed log. */
+function replayEvent(trace: SessionTrace, event: SessionEvent): void {
+  applyTransition(trace, validateEvent(trace, event))
 }
 
 /** Legal agent status transitions (the only state machine the loop guarantees). */
@@ -284,6 +349,11 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
  */
 export function apply(ctx: Context): void {
   const traces = new WeakMap<Session, SessionTrace>()
+  const stagedTransitions = new WeakMap<SessionEvent, {
+    session: Session
+    trace: SessionTrace
+    transition: SessionTraceTransition
+  }>()
   // Agent status has no stored history to replay; the first observation after
   // (re-)apply seeds the baseline, so a reload never produces a false positive.
   const lastStatus = new WeakMap<Agent, AgentStatus>()
@@ -304,14 +374,14 @@ export function apply(ctx: Context): void {
     const trace = freshTrace()
     traces.set(session, trace)
     for (const event of session.events) {
-      checkEvent(trace, event)
+      replayEvent(trace, event)
     }
     return trace
   }
 
   // Every store-created session (the only kind that emits session/event) is
-  // seeded first — via ctx.sessions.list() at apply or session/created — so
-  // the fallback is a defensive guard, never hit in practice.
+  // seeded first — via ctx.sessions.list() at apply or session/created — so the
+  // fallback is a defensive guard, never hit in practice.
   /* v8 ignore next -- traceFor's fallback: session/event always follows a seed */
   const traceFor = (session: Session): SessionTrace => traces.get(session) ?? seedSession(session)
 
@@ -322,16 +392,51 @@ export function apply(ctx: Context): void {
 
   // A newly created session may arrive seeded/forked (the constructor copies
   // the seed WITHOUT emitting session/event), so replay its log here too.
-  ctx.on('session/created', (session) => { seedSession(session) })
+  ctx.on('session/created', (session) => { seedSession(session) }, { global: true })
 
   ctx.on('session/event', (session, event) => {
-    checkEvent(traceFor(session), event)
-  })
+    // Session resolves dispatch before committing, so internal/dispatch has
+    // already staged this exact event. A later dispatch veto skips every
+    // session/event callback and therefore leaves the live trace unchanged.
+    const staged = stagedTransitions.get(event)
+    /* v8 ignore next 2 -- internal/dispatch stages the exact callback arguments */
+    if (staged === undefined || staged.session !== session) {
+      throw new InvariantError('session/event reached publication without matching pre-commit validation')
+    }
+    stagedTransitions.delete(event)
+    applyTransition(staged.trace, staged.transition)
+  }, { global: true })
 
   ctx.on('agent/status', (agent, status) => {
     checkTransition(lastStatus.get(agent), status)
     lastStatus.set(agent, status)
-  })
+  }, { global: true })
+
+  // --- Setup-drives invariant ---------------------------------------------
+  //
+  // CreateAgentOptions.setup COMPOSES the agent's scoped world; it must not
+  // DRIVE the agent. ReactLoopAgent rejects every driving verb structurally
+  // until rollback-covered publication reaches the session-start boundary;
+  // this event-level invariant remains the cross-implementation backstop for
+  // alternate Agent implementations and raw session writes. A turn/start
+  // candidate before agent/session-start is rejected by internal/dispatch,
+  // before Session commits it. Sessions of agents that exist BEFORE this
+  // plugin applies are marked started (their ordering is unknowable after the
+  // fact — never a false positive on HMR). `agents` is read via ctx.get (a
+  // strict, optional store lookup) rather than injected: the invariants plugin
+  // must load in harnesses that carry no agent registry at all (bare session
+  // tests), where this check simply never trips.
+  const sessionStarted = new WeakSet<Session>()
+  for (const agent of ctx.get('agents')?.list() ?? []) sessionStarted.add(agent.session)
+  const assertSessionStartedBeforeTurn = (session: Session, event: SessionEvent): void => {
+    if (event.type !== 'turn/start' || sessionStarted.has(session)) return
+    const owner = ctx.get('agents')?.list().find(agent => agent.session === session)
+    if (owner === undefined) return
+    throw new InvariantError(
+      `agent "${owner.id}": a turn opened before agent/session-start fired — `
+      + 'CreateAgentOptions.setup composes the scoped world, it must not drive the agent '
+      + '(send/steer/inject belong after creation returns)')
+  }
 
   // --- Scoped-dispatch invariants (the agent-scoping seam) ---------------
   //
@@ -386,6 +491,22 @@ export function apply(ctx: Context): void {
         `"${name}" was dispatched with a scope carrier keyed to a DIFFERENT subject than its arguments name — `
         + 'the carrier key and the event\'s subject must be the same object (use agentEvents(ctx, agent))')
     }
+    if (name === 'agent/session-start') {
+      // Mark before product listeners run: a prepended session-start listener is
+      // explicitly allowed to inject the first turn's context synchronously.
+      sessionStarted.add((args[0] as Agent).session)
+    }
+    if (name === 'session/event') {
+      const [session, event] = args as [Session, SessionEvent]
+      const trace = traceFor(session)
+      const transition = validateEvent(trace, event)
+      assertSessionStartedBeforeTurn(session, event)
+      // The exact event identity reaches the contained post-commit listener.
+      // A later internal/dispatch listener may still veto; because validation
+      // is pure, abandoning this weakly keyed transition does not advance the
+      // committed trace or retain the session.
+      stagedTransitions.set(event, { session, trace, transition })
+    }
     // The assembly context must never carry the agent DX field without the
     // scope layer selector: the assembly would silently miss the agent's
     // scoped sections/tools (use assembleContextFor(agent)).
@@ -398,33 +519,6 @@ export function apply(ctx: Context): void {
       }
     }
   }, { global: true })
-
-  // --- Setup-drives invariant ---------------------------------------------
-  //
-  // CreateAgentOptions.setup COMPOSES the agent's scoped world; it must not
-  // DRIVE the agent. ReactLoopAgent rejects every driving verb structurally
-  // until rollback-covered publication reaches the session-start boundary; this event-level invariant remains the
-  // cross-implementation backstop for alternate Agent implementations and raw
-  // session writes. A turn/start appended before agent/session-start is a
-  // creation-time misuse, reported at the appending call site. Sessions of
-  // agents that exist BEFORE this plugin applies are marked started (their
-  // ordering is unknowable after the fact — never a false positive on HMR).
-  // `agents` is read via ctx.get (a strict, optional store lookup) rather
-  // than injected: the invariants plugin must load in harnesses that carry
-  // no agent registry at all (bare session tests), where this check simply
-  // never trips.
-  const sessionStarted = new WeakSet<Session>()
-  for (const agent of ctx.get('agents')?.list() ?? []) sessionStarted.add(agent.session)
-  ctx.on('agent/session-start', (agent) => { sessionStarted.add(agent.session) })
-  ctx.on('session/event', (session, event) => {
-    if (event.type !== 'turn/start' || sessionStarted.has(session)) return
-    const owner = ctx.get('agents')?.list().find(agent => agent.session === session)
-    if (owner === undefined) return
-    throw new InvariantError(
-      `agent "${owner.id}": a turn opened before agent/session-start fired — `
-      + 'CreateAgentOptions.setup composes the scoped world, it must not drive the agent '
-      + '(send/steer/inject belong after creation returns)')
-  })
 
   // Request-reconstruction cross-check (the reconstructability RFC): a
   // loop-built request — frozen envelope + live sessionId is the marker; a
@@ -501,5 +595,5 @@ export function apply(ctx: Context): void {
       throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the folded request header`)
     }
     return next()
-  }, { prepend: true })
+  }, { global: true, prepend: true })
 }

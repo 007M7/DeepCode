@@ -383,20 +383,23 @@ export class ApprovalService extends Service {
    * contract (the turn is the log's commit/replay boundary; an idle append
    * would be dropped as crash tail on reload) — and likewise throws before
    * appending anything when called idle; asking outside a turn is a deferred
-   * design. Once accepted it always resolves to an outcome, never rejects: an
-   * aborted signal yields `'cancelled'`, a missing or throwing answerer yields
-   * `'unavailable'` (fail closed), and a rogue non-vocabulary return value is
-   * normalized to `'unavailable'`. The caller-owned request is synchronously
+   * design. The answerer phase always produces an outcome: an aborted signal
+   * yields `'cancelled'`, a missing or throwing answerer yields `'unavailable'`
+   * (fail closed), and a rogue non-vocabulary return value is normalized to
+   * `'unavailable'`. A failure that prevents either audit append from committing
+   * still rejects; returning an unlogged decision would violate the audit pair.
+   * The caller-owned request is synchronously
    * snapshotted, so later mutation cannot split routing, dispatch payload,
    * cancellation, policy lookup, or the audit pair across agents/sessions.
    * Appends the
    * `approval/asked`/`approval/decided` audit pair (log-only) around the
-   * decision regardless of outcome. A synchronous session observer failure
-   * after an audit event entered the append-only log is contained; the event
-   * is already authoritative, so the pair still completes and the request
-   * still resolves.
+   * decision regardless of outcome. Session contains each post-commit observer
+   * failure, so an already authoritative audit event cannot make this request
+   * reject or suppress its matching event.
    * @param req - the pending decision (agent, tool identity, reason, signal).
    * @returns the closed outcome; `'allowed-once'` is the only grant.
+   * @throws when request acceptance fails, no turn is open, or either audit
+   *   event fails before the session append commit point.
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
     // Accept one immutable request shape before the first async boundary. The
@@ -476,45 +479,15 @@ export class ApprovalService extends Service {
       )
     }
     const id = ApprovalRequestId(randomUUID())
-    this.appendAudit(session, 'approval/asked', id, () => {
-      Reflect.apply(append, session, ['approval/asked', {
-        id,
-        toolName: accepted.toolName,
-        ...accepted.callId !== undefined ? { callId: accepted.callId } : {},
-        ...accepted.reason !== undefined ? { reason: accepted.reason } : {},
-      }])
-    })
+    Reflect.apply(append, session, ['approval/asked', {
+      id,
+      toolName: accepted.toolName,
+      ...accepted.callId !== undefined ? { callId: accepted.callId } : {},
+      ...accepted.reason !== undefined ? { reason: accepted.reason } : {},
+    }])
     const outcome = await this.decide(accepted, session, acceptedSignal)
-    this.appendAudit(session, 'approval/decided', id, () => {
-      Reflect.apply(append, session, ['approval/decided', { id, outcome }])
-    })
+    Reflect.apply(append, session, ['approval/decided', { id, outcome }])
     return outcome
-  }
-
-  /**
-   * Append one audit event while distinguishing a post-append observer throw
-   * from a failure that prevented the event entering the log. `Session.append`
-   * pushes first and then notifies synchronously, so log growth proves the
-   * event is already authoritative; that observer failure is reported and
-   * contained so it cannot reject the approval or suppress its matching event.
-   * @param session - the captured session receiving both audit events.
-   * @param type - the audit event currently being appended.
-   * @param id - the request id, used to identify the contained failure.
-   * @param append - the single concrete `Session.append` call.
-   */
-  private appendAudit(
-    session: Session,
-    type: 'approval/asked' | 'approval/decided',
-    id: ApprovalRequestId,
-    append: () => void,
-  ): void {
-    const length = session.events.length
-    try {
-      append()
-    } catch (error) {
-      if (session.events.length === length) throw error
-      this.ctx.logger.warn(`approval request "${id}": ${type} observer threw after the event was appended`)
-    }
   }
 
   /**

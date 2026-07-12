@@ -265,7 +265,7 @@ Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/sr
 
 ### `session/event` — emit
 
-An event was appended to a session log (sync, fire-and-forget). This is the per-append feed a UI or invariant plugin tails. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
+An event was appended to a session log (sync, fire-and-forget). This is the per-append feed a UI or invariant plugin tails. The log push is the commit point; synchronous throws and returned-promise rejections from observers are logged and contained per listener, so they cannot make a committed append appear to fail or starve later listeners. The exact callback list and Cordis internal-dispatch checks resolve before the push; callbacks themselves run only after it. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the session's owner scope, captured when the session was ENTERED (an agent's session is entered through `agent.ctx`, so its events dispatch in that agent's scope; a bare `sessions.create()` from a plain plugin dispatches subject-less). A listener registered through `agent.ctx` hears only that agent's sessions; a plain plugin listener hears every session.
 
 ```ts cordis-catalog
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
@@ -273,7 +273,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -283,7 +283,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -21,6 +21,25 @@ function mockAgent(id: string): Agent {
 }
 
 describe('session-log invariants', () => {
+  it('keeps pre-commit staging and post-commit application global when mounted under a scope', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let scopedCtx!: Context
+    await ctx.plugin(Object.assign((inner: Context) => {
+      scopedCtx = createScope(inner, {}).ctx
+    }, { inject: ['sessions'] }))
+    await scopedCtx.plugin(Invariants)
+    const globalSession = ctx.sessions.create(SessionId('global-under-scoped-invariants'))
+
+    expect(() => {
+      globalSession.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })
+      globalSession.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+  })
+
   it('accepts a well-formed turn/step/tool sequence', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -35,6 +54,75 @@ describe('session-log invariants', () => {
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
+  })
+
+  it('does not advance the trace when a later internal-dispatch listener vetoes', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create(SessionId('dispatch-veto-rollback'))
+    let veto = true
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name !== 'session/event' || !veto) return
+      veto = false
+      throw new Error('later dispatch veto')
+    })
+
+    expect(() => session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).toThrow('later dispatch veto')
+    expect(session.events).toEqual([])
+
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+  })
+
+  it('does not stage a substituted candidate from prepended internal instrumentation', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create(SessionId('dispatch-substitution-rollback'))
+    let substitute = true
+    const replacement = {
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    } as const
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event' || !substitute) return
+      substitute = false
+      args[1] = replacement
+    }, { prepend: true })
+
+    expect(() => session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).toThrow('session/event internal dispatch replaced the accepted callback tuple')
+    expect(session.events).toEqual([])
+
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+  })
+
+  it('applies the committed transition after a prepended observer throws', async () => {
+    const { ctx } = await setup()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const session = ctx.sessions.create(SessionId('postcommit-peer'))
+    ctx.on('session/event', () => { throw new Error('hostile observer') }, { prepend: true })
+
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(warnings).toEqual([
+      'session "postcommit-peer": session/event listener threw: Error: hostile observer',
+      'session "postcommit-peer": session/event listener threw: Error: hostile observer',
+    ])
   })
 
   it('rejects a non-monotonic seq (replay spine)', async () => {
@@ -861,10 +949,19 @@ describe('scoped-dispatch invariants', () => {
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     }).toThrow(/turn opened before agent\/session-start/)
-    // After session-start fires, turns open freely.
-    ctx.emit(scopeTarget(agent, agent), 'agent/session-start', agent, 'startup')
-    expect(() => {
+    expect(session.events).toEqual([])
+    // The internal boundary marks the session before even a prepended product
+    // listener runs, so the supported session-start injection pattern can open
+    // and close its one-shot context turn synchronously.
+    ctx.on('agent/session-start', () => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }, { prepend: true })
+    expect(() => {
+      ctx.emit(scopeTarget(agent, agent), 'agent/session-start', agent, 'startup')
+    }).not.toThrow()
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(() => {
       session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     }).not.toThrow()
   })

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -122,13 +123,15 @@ describe('tool JSON parse', () => {
 })
 
 describe('toError normalization', () => {
-  it('normalizes non-Error throws from a turn/start session-event listener via toError', async () => {
+  it('normalizes non-Error throws from pre-commit dispatch validation via the runLoop backstop', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let threwOnce = false
-    ctx.on('session/event', (_session, event) => {
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
       if (event.type === 'turn/start' && !threwOnce) {
         threwOnce = true
         throw 'naked string error' // non-Error throw, normalized via toError
@@ -141,11 +144,9 @@ describe('toError normalization', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toBe('naked string error')
-    // A non-Error throw is wrapped in a HarnessError with code UNKNOWN, so the
-    // turn-end error reason carries a routable code instead of degrading.
-    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
+    expect(errors[0]).toMatchObject({ message: 'naked string error', code: 'UNKNOWN' })
+    expect(adapter.requests).toEqual([])
+    expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'turn/end')).toBe(false)
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {

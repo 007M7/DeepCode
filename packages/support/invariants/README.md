@@ -6,6 +6,8 @@ Dev-mode event-contract assertions. This pure-listener plugin checks relationshi
 
 Session itself owns immutable log storage in every composition: it takes one lossless JSON snapshot of each accepted event, deep-freezes that record, and exposes the log through immutable array snapshots. The invariants plugin checks the cross-record and cross-seam rules that storage immutability cannot express.
 
+Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
+
 ## Plugin
 
 A functional plugin — register the module namespace (this is what loading by name in `cordis.yml` does):
@@ -19,7 +21,7 @@ declare const ctx: Context
 await ctx.plugin(Invariants)
 ```
 
-`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist, so a hot reload mid-turn does not falsely reject the next event. It registers only listeners and has no configuration.
+`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist, so a hot reload mid-turn does not falsely reject the next event. The oracle listeners are explicitly global so pre-commit staging and post-commit application keep the same audience even if the plugin is mounted under a scoped context; their cleanup still belongs to that mounting fiber. The plugin has no configuration.
 
 ## Invariants asserted
 

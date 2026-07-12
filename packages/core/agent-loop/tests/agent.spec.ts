@@ -187,10 +187,8 @@ describe('ReactLoopAgent', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    // A session/event listener that throws on the synthetic turn/end. Append
-    // pushes before notifying, so turn/end is in the log (turn balanced) but the
-    // throw must NOT skip the durability checkpoint — the flush decision is made
-    // from the log, not a flag set after the (throwing) append.
+    // Session contains a throwing post-commit turn/end observer. The accepted
+    // boundary still triggers the idle injection's durability checkpoint.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }

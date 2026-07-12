@@ -499,7 +499,19 @@ Factory and backend registration use different reentrancy orderings around the s
 
 ### Durable session ownership carries the scope key
 
-The [session-immutability RFC](2026-06-11-dev-invariants-over-deep-readonly.md#session-owns-immutable-history) owns header, event, and snapshot semantics. Agent-scope correctness adds one requirement: the store keeps append observers, accepted registry IDs, and captured scope carriers in private owner state rather than caller-writable fields. Outside JavaScript therefore cannot rename a stored session or redirect later `session/event` delivery by mutating visible state.
+The [session-immutability RFC](2026-06-11-dev-invariants-over-deep-readonly.md#session-owns-immutable-history) owns header, event, and snapshot semantics. Agent-scope correctness adds one requirement: the store keeps append publication, accepted registry IDs, and captured scope carriers in private owner state rather than caller-writable fields. Outside JavaScript therefore cannot rename a stored session or redirect later `session/event` delivery by mutating visible state.
+
+An entered session treats append as one synchronous acceptance-and-publication boundary:
+
+1. Capture the current store attachment and its private attachment epoch, keep the attachment live, then materialize and deep-freeze the caller's event data.
+2. Reject if caller getters changed either value; the epoch catches even a transient attach-then-detach that restores the original hook lookup. The event must not become live without the store hooks that accepted it.
+3. Resolve the exact scoped `session/event` callback list before commit. Cordis runs `internal/dispatch` during this step, so development invariants can still reject a bad candidate while the log is unchanged. Resolution uses a throwaway mutable argument array; replacing its accepted session or event rejects before commit, and product callbacks later receive a fresh fixed tuple.
+4. Push the event into the log. This is the commit point.
+5. Invoke the captured callbacks with per-listener containment and best-effort non-throwing failure reporting, then release the attachment barrier and honor any detach requested during acceptance or publication.
+
+The boundary rejects a reentrant `append()` until the outer callback list drains. Without that guard, an early observer could append event N+1 before a later persistence observer had received event N, reversing delivery relative to the log. Detach is deferred for the same interval, so no event can commit after `session/disposed` or lose its publication hooks. Once the push occurs, synchronous observer throws and returned-promise rejections are logged and contained rather than escaping as a false append failure or starving later observers.
+
+`SessionStore.flush()` uses the same pre-dispatch fixed-tuple check but remains an awaited durability barrier rather than an observe-only publication. It starts every captured listener synchronously, converts a synchronous throw into that listener's rejected result so later listeners still start, waits for every result to settle, and only then rejects with the first failed listener in registration order. One broken backend therefore cannot make the caller return while another backend is still flushing.
 
 Approval requests follow the same async boundary at smaller scale: one capture preserves exact agent/signal identities, copies scalar fields, captures the session once, and drives `approval/asked`, scoped policy, cancellation, and `approval/decided` from that record.
 
@@ -915,7 +927,7 @@ The marker is compile-time only; JavaScript, casts, and direct Cordis dispatch c
 
 ### Development invariants inspect actual dispatch
 
-The invariants plugin observes Cordis's internal dispatch before listener delivery. Every scoped event requires a marked carrier, and events whose arguments expose the subject require the carrier key to be the same object.
+The invariants plugin uses Cordis's internal dispatch as the pre-delivery enforcement point. Every scoped event requires a marked carrier, and events whose arguments expose the subject require the carrier key to be the same object. For `session/event`, callback resolution also precedes the log push: the plugin validates and stages the exact candidate there, then advances its live trace only when the same committed event reaches its contained post-commit listener. A later internal check can therefore veto without advancing either log or trace. Both halves of this oracle are explicitly global, so mounting the plugin under a scoped context cannot stage a foreign event without also applying its committed transition.
 
 Session and subagent payloads do not expose their owner key directly, so their service centralizes key selection and the invariant proves carrier presence. Additional invariants reject an assembly whose `agent` and `scope` disagree and a turn opened before `agent/session-start`.
 

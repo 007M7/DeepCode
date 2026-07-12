@@ -108,6 +108,40 @@ describe('sessions.flush()', () => {
     await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
   })
 
+  it('does not let a synchronous flush failure starve later listeners', async () => {
+    const ctx = await mount()
+    const flushed: Session[] = []
+    ctx.on('session/flush', () => { throw new Error('disk full') })
+    ctx.on('session/flush', (session) => { flushed.push(session) })
+    const session = ctx.sessions.create()
+
+    await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
+    expect(flushed).toEqual([session])
+  })
+
+  it('waits for slower flush listeners before reporting another listener failure', async () => {
+    const ctx = await mount()
+    const gate = Promise.withResolvers<undefined>()
+    let slowStarted = false
+    let settled = false
+    ctx.on('session/flush', () => Promise.reject(new Error('disk full')))
+    ctx.on('session/flush', () => {
+      slowStarted = true
+      return gate.promise
+    })
+    const session = ctx.sessions.create()
+
+    const flushing = ctx.sessions.flush(session)
+    void flushing.finally(() => { settled = true }).catch(() => undefined)
+    await Promise.resolve()
+    expect(slowStarted).toBe(true)
+    expect(settled).toBe(false)
+
+    gate.resolve(undefined)
+    await expect(flushing).rejects.toThrow('disk full')
+    expect(settled).toBe(true)
+  })
+
   it('rejects a never-entered session instead of inventing a carrier', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'owner')
@@ -117,6 +151,21 @@ describe('sessions.flush()', () => {
 
     const prepared = ctx.sessions.prepare()
     await expect(ctx.sessions.flush(prepared)).rejects.toThrow(/not live/)
+    expect(flushed).toEqual([])
+  })
+
+  it('rejects internal dispatch substitution before flush callbacks run', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+    const replacement = ctx.sessions.create()
+    const flushed: Session[] = []
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name === 'session/flush') args[0] = replacement
+    })
+    ctx.on('session/flush', (candidate) => { flushed.push(candidate) })
+
+    await expect(ctx.sessions.flush(session))
+      .rejects.toThrow('session/flush internal dispatch replaced the accepted callback tuple')
     expect(flushed).toEqual([])
   })
 

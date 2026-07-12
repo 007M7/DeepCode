@@ -323,7 +323,7 @@ describe('ApprovalService.request', () => {
     const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
     expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
     expect(decided?.data.id).toBe(asked?.data.id)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/asked observer threw'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after asked append'))
   })
 
   it('contains an approval/decided observer throw after append and still resolves', async () => {
@@ -346,10 +346,10 @@ describe('ApprovalService.request', () => {
     const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
     expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
     expect(decided?.data).toMatchObject({ id: asked?.data.id, outcome: 'rejected' })
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('approval/decided observer threw'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after decided append'))
   })
 
-  it('does not misclassify a pre-append failure as an observer failure', async () => {
+  it('propagates an append failure that prevented audit log growth', async () => {
     const ctx = await mounted()
     const failure = new Error('append failed before log growth')
     const agent = {

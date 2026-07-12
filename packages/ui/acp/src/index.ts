@@ -308,11 +308,10 @@ interface SessionRecord {
    * so a later stale `turn/end` finds no pending prompt.
    *
    * `logWatermark` is the session log length at the moment the prompt was
-   * installed (before `send()`). The settle-from-log fallback uses it to infer
-   * the owning `turn/start` from the canonical log even when the live
-   * `session/event` capture was starved (a peer listener that throws on
-   * `turn/start` — see `settleFromLog`): the prompt owns the FIRST `turn/start`
-   * appended at or after this watermark.
+   * installed (before `send()`). Defensive settle-from-log reconciliation uses
+   * it to infer the owning `turn/start` if status reaches idle/disposed before
+   * live correlation settled the prompt: the prompt owns the FIRST message
+   * `turn/start` appended at or after this watermark.
    */
   inflight: {
     resolve: (reason: StopReason) => void
@@ -338,12 +337,11 @@ interface SessionRecord {
 /**
  * Drive the in-flight prompt's settle from the harness event stream. The bridge
  * settles off the durable log: the `turn/end` session event on the
- * `session/event` feed for the prompt's own turn, with the agent
- * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
- * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
- * starved the bridge's listener before it saw the boundary. The first of these
- * to fire settles the prompt; `settle` is then cleared so the others are no-ops
- * (settle-exactly-once).
+ * `session/event` feed for the prompt's own turn, with idle/disposed status as
+ * defensive log reconciliation (docs/defensive-patterns.md "honor cross-seam
+ * contracts on BOTH sides"). Session contains post-commit observer failures,
+ * so peers cannot starve this feed. The first settlement path clears the slot,
+ * making every later signal a no-op.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
   // Capture the injected services NOW, during apply(), while we are inside this
@@ -527,23 +525,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
     settleFromTurnEnd(inflight, event.data.reason)
   })
 
-  // Settle fallback: a `session/event` listener registered BEFORE ACP that
-  // throws (on `turn/start` OR `turn/end`) would, via cordis `emit`'s
-  // stop-on-throw, starve ACP's listener above — the prompt would hang or, if
-  // only the turn number was missed, settle as the wrong outcome. So when the
-  // agent settles to `idle` (or is disposed), reconcile against the canonical
-  // log: determine the prompt's owning turn (the captured `turn`, or — if the
-  // live capture was starved — the FIRST `turn/start` appended at/after the
-  // install-time `logWatermark`), then settle from that turn's `turn/end`
-  // (reject on error, resolve via codec), or `cancelled` if no owning turn ever
-  // started. Never double-settles — clears `inflight` first.
+  // Defensive settle fallback: when the agent reaches idle/disposed while a
+  // prompt is still pending, reconcile against the canonical log. Determine
+  // the owning turn from live capture or the first message turn after the
+  // install-time watermark, then settle from its turn/end; if no clean owning
+  // turn exists, settle cancelled. The slot is cleared first, so this cannot
+  // double-settle against the live session/event path.
   const settleFromLog = (rec: SessionRecord): void => {
     const inflight = rec.inflight
     if (inflight === undefined) return
     const events = rec.agent.session.events
-    // The owning turn number: the captured one, or — if the live capture was
-    // starved — inferred from the log as the first MESSAGE-triggered turn opened
-    // at/after the watermark. The message-trigger filter matches the live
+    // The owning turn number: the captured one, or inferred from the log as the
+    // first MESSAGE-triggered turn opened at/after the watermark. The filter matches the live
     // capture: a one-shot `injection` turn a plugin may open between
     // prompt-install and the prompt's turn is NOT the prompt's turn. Undefined
     // only if no message turn ever started for this prompt.
@@ -568,9 +561,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
     settleFromTurnEnd(inflight, end.data.reason)
   }
 
-  // On a settle to idle/disposed, reconcile any still-pending prompt from the
-  // log (covers a starved `session/event` listener — see settleFromLog). A mid-
-  // step disposal that never appended a clean turn/end resolves `cancelled`.
+  // On idle/disposed, reconcile any still-pending prompt from the log. A
+  // mid-step disposal that never appended a clean turn/end resolves `cancelled`.
   // Demux via the agent→sessionId reverse map.
   ctx.on('agent/status', (agent, status: AgentStatus) => {
     const sessionId = bySession.get(agent)
@@ -902,9 +894,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
-        // watermark: the settle-from-log fallback infers the owning turn/start
-        // as the first one appended at/after it, surviving a starved live
-        // capture. A turn that ends in error rejects this promise (the codec
+        // watermark: defensive status reconciliation can infer the owning
+        // turn/start if status arrives reentrantly after commit but before this
+        // bridge's live callback. A turn that ends in error rejects this promise (the codec
         // never produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined, logWatermark: rec.agent.session.events.length }
@@ -1010,15 +1002,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
-   * final `turn/end` + `session/flush` are captured while the store-owned append observer is still
+   * final `turn/end` + `session/flush` are captured while the store-owned publication hooks are still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
    * map first and memoizes, so a second call (close racing dispose) is a no-op.
    * Shared by Cordis disposal AND client disconnect (`conn.closed`).
    *
-   * Per-agent disposal closes the former pre-step best-effort window — but via
-   * the DISPOSED path, not `cancel()`: the start-disposer resolves `handle.disposed`,
-   * which wakes the parked loop, and `isDisposed()` breaks the loop before a
+   * Per-agent disposal closes the queued-before-run window through the DISPOSED
+   * path, not `cancel()`: the start-disposer resolves `handle.disposed`, which
+   * wakes the parked loop, and `isDisposed()` breaks the loop before a
    * queued-but-not-yet-running turn can start (a turn cut off mid-flight ends
    * with reason `disposed`, not `aborted`). A bare client disconnect (resolves
    * `conn.closed` WITHOUT disposing the fiber) thus leaves NO registered agent

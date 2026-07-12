@@ -10,10 +10,7 @@ import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
-/**
- * Regression tests for the findings of the first architecture review
- * (Codex + sub-agent, post phase-1). Each describe block names the finding.
- */
+/** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -682,7 +679,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
   })
 })
 
-describe('P1-6: a step/start session-event listener sees the event already in the log', () => {
+describe('step boundary publication order', () => {
   it('the step/start event is in session.events when its session/event listener fires', async () => {
     const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
@@ -713,7 +710,7 @@ describe('P1-6: a step/start session-event listener sees the event already in th
   })
 })
 
-describe('P1-5: a started turn (and any open step) is always closed on a boundary throw', () => {
+describe('turn and step boundary recovery', () => {
   // Harness with the invariants plugin loaded as an oracle: it throws on
   // append if the log goes unbalanced (turn/end while a step is open,
   // turn/start while a turn is open, etc.), so a regression surfaces as an
@@ -744,19 +741,13 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     }
   }
 
-  it('a throwing step/start session-event listener closes the open step then the turn (step/end before turn/end)', async () => {
-    const adapter = new MockAdapter([textResponse('never reached')])
+  it('a throwing step/start observer cannot change a successful turn', async () => {
+    const adapter = new MockAdapter([textResponse('request completed')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-stepstart'), { model: 'mock' })
 
-    // Step boundaries have no agent/* mirror; a throwing step/start session-event
-    // listener is the surviving step-boundary-listener failure. The loop marks
-    // the step open BEFORE appending step/start (Session.append pushes before
-    // notifying, so a post-push listener throw still leaves stepOpen=true), so
-    // the outer catch's closeStep() appends the balancing step/end — the turn
-    // stays enclosed. The invariants oracle (balancedHarness) rejects any
-    // imbalance, so a green run proves turn/start → step/start → step/end →
-    // turn/end nesting holds.
+    // Session owns post-commit containment. The loop sees a successful append,
+    // runs the request, and balances the ordinary step and turn boundaries.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (event.type === 'step/start' && !threw) { threw = true; throw new Error('boom step-start') }
@@ -769,14 +760,109 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
 
     const e = [...agent.session.events]
     const c = boundaryCounts(agent)
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
-    expect(errors.map(x => x.message)).toEqual(['boom step-start'])
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 0 })
+    expect(errors).toEqual([])
     // step/end precedes turn/end (the invariants oracle would reject
     // turn/end-while-step-open, but assert the order explicitly too).
     const stepEndIdx = e.findIndex(x => x.type === 'step/end')
     const turnEndIdx = e.findIndex(x => x.type === 'turn/end')
     expect(stepEndIdx).toBeGreaterThanOrEqual(0)
     expect(stepEndIdx).toBeLessThan(turnEndIdx)
+  })
+
+  it('a pre-commit step/start validation failure does not invent a step boundary', async () => {
+    const adapter = new MockAdapter([textResponse('never reached')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-stepstart-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/start' && !rejected) {
+        rejected = true
+        throw new Error('reject step-start before commit')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toEqual([])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 0,
+      stepEnd: 0,
+      errors: 1,
+    })
+    expect(errors.map(error => error.message)).toEqual(['reject step-start before commit'])
+  })
+
+  it('a one-shot turn/end validation failure preserves the earlier turn error on retry', async () => {
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider failed' } }]
+    const adapter = new MockAdapter([errorStream])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-turnend-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/end' && !rejected) {
+        rejected = true
+        throw new Error('reject first turn-end')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(errors.map(error => error.message)).toEqual(['provider failed'])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 1,
+      stepEnd: 1,
+      errors: 1,
+    })
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({
+      kind: 'error',
+      message: 'provider failed',
+    })
+  })
+
+  it('a one-shot step/end validation failure keeps the step open until retry succeeds', async () => {
+    const adapter = new MockAdapter([textResponse('completed before close validation')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-stepend-veto'), { model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/end' && !rejected) {
+        rejected = true
+        throw new Error('reject first step-end')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(errors.map(error => error.message)).toEqual(['reject first step-end'])
+    expect(boundaryCounts(agent)).toMatchObject({
+      turnStart: 1,
+      turnEnd: 1,
+      stepStart: 1,
+      stepEnd: 1,
+      errors: 1,
+    })
   })
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
@@ -841,13 +927,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 
   it('preserves reason disposed when a pre-step listener disposes then throws (outer-catch disposed branch)', async () => {
-    // Reach the OUTER catch while disposed: an `agent/pre-step` listener requests
-    // disposal AND throws. The throw escapes the pre-step `await` (line ~419) to
-    // the loop's outer catch — BEFORE the post-pre-step disposal check at ~422
-    // gets to run — so the catch sees `isDisposed() && !errorReported` and must
-    // PRESERVE reason=disposed rather than overwrite it with the listener's throw
-    // (disposal is not a failure). This is the surviving path to that sub-branch
-    // now that there is no turn-boundary emit to throw from.
+    // A pre-step listener requests disposal and then throws before the ordinary
+    // post-listener disposal check. The outer catch sees disposal already won
+    // and must preserve reason=disposed rather than rewrite it as a plugin error.
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: ReactLoopAgent
@@ -883,16 +965,8 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(errorEmits).toHaveLength(0)
   })
 
-  it('a throwing session/event listener on the turn/start append still balances the turn', async () => {
-    // Session.append pushes the event BEFORE notifying session/event listeners,
-    // so a listener throwing on turn/start leaves turn/start IN THE LOG. The
-    // loop must therefore still owe (and append) a turn/end — deciding "owed"
-    // from the log via isTurnOpen, not a "turn started" flag that the throw
-    // skipped. Otherwise the turn stays permanently open and poisons the next
-    // turn/replay (the turn-enclosure RFC). (Uses the plain harness — NOT the invariants
-    // oracle — because the throwing listener is itself a session/event
-    // subscriber.)
-    const adapter = new MockAdapter([textResponse('turn 2')])
+  it('a throwing turn/start observer cannot starve the loop or later turns', async () => {
+    const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-preturn'), { model: 'mock' })
 
@@ -906,12 +980,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The error was surfaced exactly once via agent/error.
-    expect(errors.map(e => e.message)).toEqual(['boom turn/start append'])
-    // The turn is BALANCED: turn/start is in the log (it was pushed before the
-    // listener threw), so a turn/end was owed and appended — no open turn. The
-    // last turn-boundary event being turn/end is exactly the loop's isTurnOpen
-    // check (no open turn remains).
+    expect(errors).toEqual([])
+    // Session contains the observer failure per listener, so the committed turn
+    // remains visible to later observers and executes normally.
     const types = [...agent.session.events].map(e => e.type)
     expect(types.filter(t => t === 'turn/start')).toHaveLength(1)
     expect(types.filter(t => t === 'turn/end')).toHaveLength(1)
@@ -922,15 +993,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // loop survives: a second turn runs normally.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
   })
 
-  it('a throwing step/end session-event listener during a successful step ends the turn as error, not completed', async () => {
-    // closeStep() must surface a throwing step/end listener via failTurn so the
-    // turn ends with reason error, not a silent "completed" with the throw
-    // swallowed. Regression test for the closeStep() catch that previously
-    // swallowed the throw in the normal (no-tool, no-steering) path. (Step
-    // boundaries have no agent/* mirror; the session-event listener is the path.)
+  it('a throwing step/end observer cannot rewrite the turn outcome', async () => {
     const adapter = new MockAdapter([textResponse('all good'), textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-stepend-throw'), { model: 'mock' })
@@ -946,11 +1012,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await waitForIdle(ctx, agent)
 
     const c = boundaryCounts(agent)
-    // step opened and closed; exactly one error turn-end; turn balanced.
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
-    expect(errors.map(e => e.message)).toEqual(['boom step-end'])
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 0 })
+    expect(errors).toEqual([])
     expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason)
-      .toEqual({ kind: 'error', step: 1, message: 'boom step-end' })
+      .toEqual({ kind: 'completed' })
 
     // step/end precedes turn/end (ordering contract)
     const e = [...agent.session.events]
@@ -968,14 +1033,11 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c2.stepStart).toBe(c2.stepEnd)
   })
 
-  it('a throwing session/event listener on step/end during finalization still appends turn/end', async () => {
+  it('a throwing step/end observer cannot interrupt error finalization', async () => {
     // A finish-error stream opens a step then fails it, driving finalization
-    // through closeStep() with the step open. closeStep appends step/end; a
-    // session/event listener throwing on THAT must not abort the catch before
-    // closeTurn — step/end is already logged (balance holds) and the throw is
-    // contained + surfaced via failTurn, so turn/end is still appended. (The
-    // failed step itself also routes through failTurn; the step/end-listener
-    // throw is the second, contained, failure.)
+    // through closeStep() with the step open. Session contains the observer
+    // failure after committing step/end, so closeTurn still records the model
+    // failure and balances the turn.
     const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
@@ -996,7 +1058,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(e.some(x => x.type === 'step/end')).toBe(true)
     expect(e.some(x => x.type === 'turn/end')).toBe(true)
     expect(e.at(-1)?.type).toBe('turn/end')
-    expect(errors.length).toBeGreaterThanOrEqual(1) // surfaced via agent/error
+    expect(errors.map(error => error.message)).toEqual(['provider 500'])
 
     // loop survives.
     send(agent, 'again')
@@ -1005,12 +1067,8 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 
   it('a throwing session/event listener on turn/end is contained (turn still balanced, loop survives)', async () => {
-    // closeTurn appends turn/end; Session.append pushes it BEFORE notifying
-    // session/event listeners, so a throwing listener leaves turn/end in the log
-    // (the turn is balanced) but must not escape — from the normal-path closeTurn
-    // it would otherwise propagate; the append is contained so the loop continues.
-    // Turn boundaries are durable session events only (no agent/* mirror), so this
-    // session/event append-notify throw is the sole turn-end-listener failure path.
+    // Session contains the observer failure after committing turn/end, so the
+    // boundary stays authoritative and the loop continues normally.
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-turnendappend'), { model: 'mock' })
@@ -1036,7 +1094,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   })
 })
 
-describe('P1-7: tool/result is logged under the originating call.id, not result.callId', () => {
+describe('tool result call identity', () => {
   it('the loop records tool/result under the model call.id even when a post-execute listener replaces content', async () => {
     // Model emits a tool-call with id "c1", then a final text turn.
     const adapter = new MockAdapter([
@@ -1116,7 +1174,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
 
 
 
-describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
+describe('disposal and cancellation during pre-step assembly', () => {
   it('disposal during system-prompt assembly drops the about-to-start step as disposed', { timeout: 30000 }, async () => {
     // Block `system-prompt/assemble` on a promise. Start disposal (which
     // calls stop() synchronously, setting status=disposed), then release the

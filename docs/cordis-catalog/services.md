@@ -224,7 +224,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [SessionRegistrationReservation](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:667`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:761`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

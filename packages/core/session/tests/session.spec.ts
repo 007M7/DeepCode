@@ -702,7 +702,7 @@ describe('SessionStore', () => {
     const session = ctx.sessions.create()
     expect(created).toEqual([session])
 
-    // The store-owned append observer is module-private. A JavaScript caller
+    // The store-owned append publication hooks are module-private. A JavaScript caller
     // may create an unrelated property with the old implementation's name,
     // but cannot suppress the durable event feed.
     expect(Reflect.set(session, 'onAppend', undefined)).toBe(true)
@@ -1120,13 +1120,284 @@ describe('SessionStore', () => {
     expect(disposed.map(session => session.id)).toEqual(['fixed'])
 
     // A subsequent create of the SAME id succeeds (the already-exists check is
-    // not wedged) and its store-owned observer is correctly wired (events observable).
+    // not wedged) and its store-owned publication hooks are correctly wired.
     const events: SessionEvent[] = []
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
+  })
+
+  it('contains session/event observer failures after the append commit point', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const session = ctx.sessions.create(SessionId('contained-event'))
+    const heard: SessionEvent[] = []
+    let committedBeforeNotify = false
+    ctx.on('session/event', (observedSession, event) => {
+      committedBeforeNotify = observedSession.events.at(-1) === event
+      throw new Error('sync event observer')
+    })
+    ctx.on('session/event', () => Promise.reject(new Error('async event observer')) as never)
+    ctx.on('session/event', (_observedSession, event) => { heard.push(event) })
+
+    let appended!: SessionEvent
+    expect(() => {
+      appended = session.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })
+    }).not.toThrow()
+    expect(committedBeforeNotify).toBe(true)
+    expect(session.events).toEqual([appended])
+    expect(heard).toEqual([appended])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(warnings).toEqual([
+      'session "contained-event": session/event listener threw: Error: sync event observer',
+      'session "contained-event": session/event listener rejected: Error: async event observer',
+    ])
+  })
+
+  it('runs internal dispatch validation on one frozen candidate before commit and resets after a veto', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('dispatch-veto'))
+    const validations: Array<{ event: SessionEvent; logLength: number; frozen: boolean }> = []
+    const observed: SessionEvent[] = []
+    let reject = true
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const [observedSession, event] = args as [Session, SessionEvent]
+      validations.push({
+        event,
+        logLength: observedSession.events.length,
+        frozen: Object.isFrozen(event) && Object.isFrozen(event.data),
+      })
+      if (reject) {
+        reject = false
+        throw new Error('reject first candidate')
+      }
+    })
+    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
+
+    expect(() => session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).toThrow('reject first candidate')
+    expect(session.events).toEqual([])
+    expect(observed).toEqual([])
+
+    const appended = session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    expect(validations.map(({ logLength, frozen }) => ({ logLength, frozen }))).toEqual([
+      { logLength: 0, frozen: true },
+      { logLength: 0, frozen: true },
+    ])
+    expect(validations.map(({ event }) => event.seq)).toEqual([0, 0])
+    expect(validations[1]!.event).toBe(appended)
+    expect(session.events).toEqual([appended])
+    expect(observed).toEqual([appended])
+  })
+
+  it('resolves session/event dispatch before commit so instrumentation failure cannot hide a logged event', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('dispatch-check'))
+    const observed: SessionEvent[] = []
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/event') throw new Error('dispatch instrumentation rejected the carrier')
+    })
+    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
+
+    expect(() => session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).toThrow('dispatch instrumentation rejected the carrier')
+    expect(session.events).toEqual([])
+    expect(observed).toEqual([])
+  })
+
+  it('rejects prepend or append instrumentation that replaces the accepted observer tuple', async () => {
+    for (const prepend of [true, false]) {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      const session = ctx.sessions.create(SessionId(`dispatch-tuple-${prepend}`))
+      const replacementSession = new Session(SessionId('replacement'))
+      const replacementEvent = {
+        type: 'turn/end',
+        seq: 99,
+        time: 1,
+        data: { turn: 99, reason: { kind: 'completed' } },
+      } as SessionEvent
+      const observed: Array<{ session: Session; event: SessionEvent }> = []
+      let replace = true
+      ctx.on('internal/dispatch', (_mode, name, args) => {
+        if (name !== 'session/event' || !replace) return
+        args[0] = replacementSession
+        args[1] = replacementEvent
+      }, { prepend })
+      ctx.on('session/event', (observedSession, event) => {
+        observed.push({ session: observedSession, event })
+      })
+
+      expect(() => session.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })).toThrow('session/event internal dispatch replaced the accepted callback tuple')
+      expect(session.events).toEqual([])
+      expect(observed).toEqual([])
+
+      replace = false
+      const appended = session.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })
+      expect(session.events).toEqual([appended])
+      expect(observed).toEqual([{ session, event: appended }])
+    }
+  })
+
+  it('rejects if a bare session becomes attached while caller data is materialized', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = new Session(SessionId('attach-during-append'))
+    const observed: SessionEvent[] = []
+    let sessionEventDispatches = 0
+    let detach!: () => void
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/event') sessionEventDispatches += 1
+    })
+    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
+    const data = {
+      get todos(): TodoItem[] {
+        detach = ctx.sessions.enter(session)
+        ctx.sessions.announce(session)
+        return []
+      },
+    }
+
+    expect(() => session.append('todo/write', data))
+      .toThrow('session attachment changed while append input was being accepted')
+    expect(ctx.sessions.get(session.id)).toBe(session)
+    expect(session.events).toEqual([])
+    expect(sessionEventDispatches).toBe(0)
+    expect(observed).toEqual([])
+
+    const appended = session.append('todo/write', { todos: [] })
+    expect(session.events).toEqual([appended])
+    expect(sessionEventDispatches).toBe(1)
+    expect(observed).toEqual([appended])
+    detach()
+  })
+
+  it('rejects a transient attach and detach while caller data is materialized', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = new Session(SessionId('attach-detach-during-append'))
+    const lifecycle: string[] = []
+    const observed: SessionEvent[] = []
+    ctx.on('session/created', () => { lifecycle.push('created') })
+    ctx.on('session/disposed', () => { lifecycle.push('disposed') })
+    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
+    const data = {
+      get todos(): TodoItem[] {
+        const detach = ctx.sessions.enter(session)
+        ctx.sessions.announce(session)
+        detach()
+        return []
+      },
+    }
+
+    expect(() => session.append('todo/write', data))
+      .toThrow('session attachment changed while append input was being accepted')
+    expect(ctx.sessions.get(session.id)).toBeUndefined()
+    expect(session.events).toEqual([])
+    expect(lifecycle).toEqual(['created', 'disposed'])
+    expect(observed).toEqual([])
+  })
+
+  it('contains a reentrant observer append without reordering later observers', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const session = ctx.sessions.create(SessionId('reentrant-observer'))
+    const heard: SessionEvent[] = []
+    ctx.on('session/event', (observedSession) => {
+      observedSession.append('todo/write', { todos: [] })
+    })
+    ctx.on('session/event', (_observedSession, event) => { heard.push(event) })
+
+    const appended = session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    expect(session.events).toEqual([appended])
+    expect(heard).toEqual([appended])
+    expect(warnings).toEqual([
+      'session "reentrant-observer": session/event listener threw: Error: session append cannot reenter while another append is being accepted or published',
+    ])
+  })
+
+  it('keeps observer failures contained when warning output itself throws', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.logger.warn = (() => { throw new Error('logger unavailable') }) as typeof ctx.logger.warn
+    const session = ctx.sessions.create(SessionId('throwing-logger'))
+    const heard: SessionEvent[] = []
+    ctx.on('session/event', () => { throw new Error('sync observer') })
+    ctx.on('session/event', () => Promise.reject(new Error('async observer')) as never)
+    ctx.on('session/event', (_observedSession, event) => { heard.push(event) })
+
+    let appended!: SessionEvent
+    expect(() => {
+      appended = session.append('turn/start', {
+        turn: 1,
+        trigger: { kind: 'message', source: { kind: 'user' } },
+      })
+    }).not.toThrow()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(session.events).toEqual([appended])
+    expect(heard).toEqual([appended])
+  })
+
+  it('defers detach through dispatch resolution, commit, and observer publication', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const order: string[] = []
+    const session = ctx.sessions.prepare(SessionId('detach-during-append'))
+    const detach = ctx.sessions.enter(session)
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const session = args[0] as Session
+      order.push(`resolve:${ctx.sessions.get(session.id) === session ? 'live' : 'detached'}`)
+      detach()
+    })
+    ctx.on('session/event', (session) => {
+      order.push(`observe:${ctx.sessions.get(session.id) === session ? 'live' : 'detached'}`)
+    })
+    ctx.on('session/disposed', (session) => {
+      order.push(`dispose:${ctx.sessions.get(session.id) === session ? 'live' : 'detached'}`)
+    })
+    ctx.sessions.announce(session)
+
+    const appended = session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+
+    expect(session.events).toEqual([appended])
+    expect(order).toEqual(['resolve:live', 'observe:live', 'dispose:detached'])
+    expect(ctx.sessions.get(session.id)).toBeUndefined()
   })
 
   it('observes async session/created rejection without rolling back or starving peers', async () => {
@@ -1180,6 +1451,46 @@ describe('SessionStore', () => {
       'session "contained-disposal": session/disposed listener threw: printable failure',
       'session "contained-disposal": session/disposed listener rejected: Error: async disposed',
     ])
+  })
+
+  it('contains internal dispatch failure after session detachment', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const heard: Session[] = []
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/disposed') throw new Error('disposed dispatch instrumentation')
+    })
+    ctx.on('session/disposed', (session) => { heard.push(session) })
+    const session = ctx.sessions.prepare(SessionId('disposed-dispatch'))
+    const detach = ctx.sessions.enter(session)
+    ctx.sessions.announce(session)
+
+    expect(() => { detach() }).not.toThrow()
+    expect(ctx.sessions.get(session.id)).toBeUndefined()
+    expect(heard).toEqual([])
+    expect(warnings).toEqual([
+      'session "disposed-dispatch": session/disposed dispatch threw: Error: disposed dispatch instrumentation',
+    ])
+  })
+
+  it('does not let internal dispatch replace the disposed callback tuple', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const replacement = new Session(SessionId('replacement-disposed'))
+    const heard: Session[] = []
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name === 'session/disposed') args[0] = replacement
+    })
+    ctx.on('session/disposed', (session) => { heard.push(session) })
+    const session = ctx.sessions.prepare(SessionId('fixed-disposed-tuple'))
+    const detach = ctx.sessions.enter(session)
+    ctx.sessions.announce(session)
+
+    detach()
+
+    expect(heard).toEqual([session])
   })
 })
 
