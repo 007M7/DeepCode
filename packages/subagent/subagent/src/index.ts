@@ -73,14 +73,17 @@ declare module 'cordis' {
     /**
      * A provider established a ready child. For in-process providers,
      * `ctx.agents.get(info.id)` resolves during this notification.
-     * Scope-filtered by the delegating parent and paired with `subagent/end`.
+     * Scope-filtered dispatch keys the carrier by the delegating parent, so a
+     * parent-scoped listener observes only its own delegations. Paired with
+     * `subagent/end`.
      * @param info - the provider and ready child identity.
      * @mode emit
      */
     'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
     /**
-     * A ready child settled. Scope-filtered by the delegating parent and
-     * paired with `subagent/start`.
+     * A ready child settled. Scope-filtered dispatch uses the same delegating
+     * parent carrier as `subagent/start`, so the lifecycle pair reaches the
+     * same scoped audience.
      * @param info - the run identity and terminal outcome.
      * @mode emit
      */

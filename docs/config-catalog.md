@@ -113,30 +113,15 @@ Source: [`packages/core/agent-core/src/index.ts:87`](../packages/core/agent-core
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
-/**
- * Plugin config: the agents to create — or resume, via `resumeSessionId` —
- * declaratively at startup, so a cordis.yml deployment needs no code.
- */
+/** Plugin configuration for declarative startup agents. */
 export interface Config {
-  /** Agents created from configuration at startup. */
+  /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Agent id to register under; also seeds the fresh per-run session id (`${id}-session-<uuid>`). */
+    /** Registry identity for the live agent. */
     id: AgentId
-    /** Optional workspace cwd for the config-created fresh session. */
+    /** Optional workspace for a fresh session. */
     cwd?: string
-    /**
-     * If set, the config agent RESUMES this persisted session id instead of
-     * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
-     * cordis.yml (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`), so a
-     * demo can continue a prior conversation without code changes. Requires a
-     * `dsh-session-persistence` backend; the resume is deferred until that
-     * service is available (via `ctx.inject`) and the loaded session's events
-     * seed the live session so history continues.
-     *
-     * The schema accepts a plain string at runtime (cordis.yml values are
-     * untyped); the brand is compile-time only — the config format is the
-     * boundary where an id enters, so the TYPE declares the brand here.
-     */
+    /** Persisted session to resume instead of creating a fresh session. */
     resumeSessionId?: SessionId
   })[]
 }
@@ -144,7 +129,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:119`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:335`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -560,12 +545,12 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
 ```ts config-catalog
 /** Skill registry configuration. */
 export interface Config {
-  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
-  collectCacheMaxEntries?: number
+  /** Maximum number of completed cwd/provider catalogs kept in memory. */
+  readonly collectCacheMaxEntries?: number
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:114`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:113`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -729,7 +714,7 @@ export interface Config {
 
 Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
 
-Source: [`packages/support/subagent-mock/src/index.ts:87`](../packages/support/subagent-mock/src/index.ts)
+Source: [`packages/support/subagent-mock/src/index.ts:97`](../packages/support/subagent-mock/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -792,7 +777,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:315`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:257`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -973,7 +958,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:409`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:407`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -986,7 +971,7 @@ export interface Config {
    * (fail-closed with none); `'never'` auto-rejects every ask without
    * prompting (the deterministic CI/unattended stance).
    */
-  policy?: ApprovalPolicy
+  readonly policy?: ApprovalPolicy
 }
 
 /**
@@ -1004,7 +989,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:281`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:270`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 

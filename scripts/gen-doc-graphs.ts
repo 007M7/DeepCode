@@ -588,12 +588,12 @@ function collectEventRelations(): Map<string, EventRelation> {
         if (method === 'on') {
           const event = eventArg(node.arguments, method)
           if (event) ensure(event).listeners.add(leaf)
-        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'strictSerial' || method === 'waterfall') {
+        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
           const event = eventArg(node.arguments, method)
           if (event) {
             const relation = ensure(event)
             const methods = relation.dispatchers.get(leaf) ?? new Set<string>()
-            methods.add(method === 'strictSerial' ? 'strictSerial (serial)' : method)
+            methods.add(method)
             relation.dispatchers.set(leaf, methods)
           }
         }

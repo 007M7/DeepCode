@@ -93,7 +93,7 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, its `persona` config, shared context-wide) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+Prompt assembly is single-path: the loop sends `renderPrompt(await assemble(assembleContextFor(agent)))`; the helper couples the explicit agent and scope. Plugins contribute ordered sections, tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, its `persona` config, shared context-wide) — while the loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
 
@@ -109,7 +109,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Scope
 
-Every live agent owns a scope context, `agent.ctx` ([`dsh-scope`](../packages/core/scope/README.md), key = the agent). Registrations through it — tools, prompt sections/variables, listeners, `tools.restrict()` masks — are visible to that agent alone, SHADOW same-named global contributions for it (per-agent personas and tool variants), and unwind with the agent; an `agent.ctx` listener hears only that agent's dispatches, while events about one agent dispatch with its scope carrier. `CreateAgentOptions.setup(agentCtx)` composes a child's scoped world at creation (the subagent seam's `persona`/`toolFilter`) — setup registers, never drives. Dev invariants enforce carrier/subject identity; `verify-scoped-dispatch` pins enforced ⇔ documented. Rationale: [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md).
+Every live agent owns `agent.ctx` ([`dsh-scope`](../packages/core/scope/README.md), keyed by the agent). Its registrations are visible only to that agent, shadow same-named globals, and unwind with it. Its listeners hear only that agent's dispatches; an opaque carrier routes while the real subject stays explicit. `CreateAgentOptions.setup(agentCtx)` composes this world before publication and does not drive. Dev invariants and `verify-scoped-dispatch` keep carrier/subject identity aligned with event declarations. Rationale: [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent `persona`, `toolFilter`, and `maxDepth` are the separate [composition-controls feature](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
 ## State
 
@@ -160,6 +160,7 @@ New behavior should attach to a documented extension point; changing the shipped
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
 
 ## Quick Reference
+- Domain terms in the [glossary](glossary.md)
 - Type definitions in [core-data-structures/](core-data-structures/core.md)
 - Exact event and service signatures in [events](cordis-catalog/events.md)
 - [services](cordis-catalog/services.md) catalogs

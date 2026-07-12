@@ -16,22 +16,25 @@ interface AssembleContext {
 
 ## Tool-provider result
 
-`ToolProviderResult.schemas` is the model-visible set for the current assembly. `knownNames` is the provider's pre-restriction name universe used to distinguish a configured-name typo from a known tool that is deliberately hidden in this scope.
+`ToolProviderResult.schemas` is the model-visible set for the current assembly. `knownNames` is the provider's pre-restriction name universe used to distinguish a configured-name typo from a known tool that is deliberately hidden in this scope. `ownerFinalNames` identifies tool contributions whose canonical presence or absence survives the assembly waterfall.
 
 ```ts type-equiv
 interface ToolProviderResult {
-  schemas: ToolSchema[]
-  knownNames?: readonly string[]
+  readonly schemas: readonly ToolSchema[]
+  readonly knownNames?: readonly string[]
+  readonly ownerFinalNames?: readonly string[]
 }
 ```
 
-## Canonical contribution protection
+## Prompt sections and owner finality
 
-`PromptProtection` names section and tool contributions whose canonical registry output remains authoritative after the assembly waterfall. Either field may be omitted, but a registration with no names is rejected.
+`PromptSection` is a readonly same-process registration contract. `ownerFinal` is reserved for protocol-owned instructions whose canonical presence and definition must survive the complete assembly waterfall; ordinary sections remain transformable. Tool definitions declare the equivalent fact on their own contribution, and the tool provider reports the resolved names through `ownerFinalNames` above.
 
 ```ts type-equiv
-interface PromptProtection {
-  sections?: readonly string[]
-  tools?: readonly string[]
+interface PromptSection {
+  readonly name: string
+  readonly order: number
+  readonly text: string | ((context: AssembleContext) => string)
+  readonly ownerFinal?: boolean
 }
 ```

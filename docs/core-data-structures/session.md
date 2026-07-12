@@ -196,20 +196,6 @@ export interface SurfaceNode {
 }
 ```
 
-## `SessionRegistrationReservation` — unpublished identity and construction ownership
-
-A session factory reserves its public `SessionId` before awaiting persistence load or scoped setup, so concurrent code cannot create, prepare, or enter a session under that id ahead of the transaction. The opaque capability may construct exactly one unpublished `Session` and authorizes exactly that object at `enter()`. Its `release` function is the exact Cordis owner effect disposer, letting the lifecycle adopt it by identity and place release after scope quiescence while owner disposal remains the abandoned-transaction backstop. Ordinary session consumers use `create()` and never hold this type.
-
-Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/index.ts)
-
-```ts type-equiv
-interface SessionRegistrationReservation {
-  readonly id: SessionId
-  prepare(options?: CreateSessionOptions): Session
-  release(): void
-}
-```
-
 ## Derived history: `deriveMessages()` and `deriveEventMessage()`
 
 `Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:

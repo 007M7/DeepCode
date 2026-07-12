@@ -41,7 +41,7 @@ Resolution follows these rules:
 3. Child-scoped tools are added after global filtering and may shadow an admitted global tool.
 4. Reserved `run_code` presentation and other scope-local protocol contributions are outside the global filter.
 
-Configuration fails loudly when a filter is empty or names a tool that is unknown, scope-local, or reserved at setup time. This catches misspellings and prevents configuration from appearing effective when it cannot affect the named entry.
+Configuration fails loudly when a filter supplies neither `allow` nor `deny`, or names something outside the current global restrictable set, including a scope-local-only or reserved name. `allow: []` is valid and deliberately hides every global tool. These checks catch misspellings and prevent configuration from appearing effective when it cannot affect the named entry.
 
 The global registry remains live. A deny-only filter admits a later global name unless it explicitly denies that name; an allow-list excludes a later global name unless it explicitly allows that name. Removing a global tool removes it from every resolved view. These semantics preserve hot registration while making the difference between allow and deny explicit.
 

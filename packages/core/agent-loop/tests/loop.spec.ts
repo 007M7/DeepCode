@@ -272,7 +272,7 @@ describe('agent loop', () => {
       expect(result.data.meta).toBeUndefined()
       expect(result.data.content).toEqual([{
         type: 'text',
-        text: 'Error: tools/execute must return a losslessly JSON-serializable ToolExecutionResult',
+        text: 'Error: tool result must be losslessly JSON-serializable',
       }])
     }
     // The normalized failure was durably logged and fed back to the model; the
