@@ -19,11 +19,9 @@
           tools:
             mode: both
           persona: |
-            You are a coding assistant powered by the {{model}} model. Your working
-            directory is {{cwd}}.
+            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
-            Verify your work by running the code or tests. Keep answers brief and
-            factual.
+            Verify your work by running the code or tests. Keep answers brief and factual.
       - insert:
           - id: code-runtime
             name: '@deepseek-ai/dsh-code-runtime-worker'

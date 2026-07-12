@@ -10,15 +10,14 @@
  * (recorded scenarios) and the expected produced log (both sides normalized
  * before comparing).
  *
- * Request-header content (the composed system prompt + tool schemas riding on
- * `request/header` events) is pinned by exactly ONE scenario per HEADER CLASS
- * — scenarios that boot the same config compose the same header; each class's
- * `pinsHeader` scenario commits it verbatim — and scrubbed to
- * `{{system}}`/`{{tools}}` tokens in every other fixture and compare, so a
- * prompt or tool-schema edit churns one committed line per class instead of
- * every fixture. A per-run uniformity guard keeps each pin sound: every live
- * header must equal its class's pinned one, and no header-delta may appear
- * outside a pinning scenario (see the pinned-header RFC,
+ * Request-header content is pinned by exactly ONE scenario per HEADER CLASS —
+ * scenarios that boot the same config compose the same header. Every JSONL
+ * fixture scrubs the system prompt to `{{system}}`; each class's pinning
+ * scenario stores the readable prompt in `system-prompt.golden.md` and keeps its full
+ * tool schemas in `session.jsonl`, while every other fixture also scrubs tools
+ * to `{{tools}}`. A per-run uniformity guard compares both artifacts against
+ * every live header and forbids unrepresented header deltas (see the
+ * pinned-header RFC,
  * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
  * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
@@ -37,7 +36,16 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario } from './harness.ts'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from './normalize.ts'
+import {
+  type NormalizeContext,
+  normalizeSessionLog,
+  normalizeStdout,
+  scrubRequestHeaders,
+  scrubSystemPrompts,
+} from './normalize.ts'
+
+/** The readable system-prompt snapshot beside each header-pinning fixture. */
+const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.golden.md'
 
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
@@ -81,14 +89,13 @@ export interface Scenario {
    */
   childSessions?: number
   /**
-   * Whether THIS scenario's fixtures keep the full request-header content (the
-   * composed system prompt and tool schema list on `request/header` /
-   * `request/header-delta` events) and compare it verbatim. Exactly one
-   * scenario per HEADER CLASS ({@link headerClass}) pins it; every other
-   * scenario of that class stores and compares that content as
-   * `{{system}}`/`{{tools}}` tokens ({@link scrubRequestHeaders}),
-   * so a system prompt or tool-schema change shows up as ONE committed-fixture
-   * diff per class, not one per scenario. One pin per class suffices because
+   * Whether THIS scenario pins its header class's model-facing request-header
+   * content. Its actual composed prompt is maintained as a readable
+   * `system-prompt.golden.md`; its JSONL keeps full tool schemas but stores the prompt
+   * as `{{system}}`. Every other scenario of the class stores tools as
+   * `{{tools}}` too ({@link scrubRequestHeaders}). A prompt or tool-schema
+   * change therefore shows up in one focused artifact per class, not every
+   * session fixture. One pin per class suffices because
    * header composition is class-uniform (parent, spawn child, and fork child
    * all compose the same prompt-modulo-cwd and the same tools) — and that
    * premise is ASSERTED, not assumed: every non-pinning run's live headers
@@ -102,7 +109,7 @@ export interface Scenario {
    * How many `request/header-delta` events this PINNING scenario's fixture
    * legitimately carries (default 0). A recorded mid-run header change — a
    * config-option switch rewriting a prompt section — is part of the pinned
-   * surface, committed verbatim like the header itself; any OTHER count
+   * surface, with readable prompt text in Markdown; any OTHER count
    * still fails, so fixture rot stays caught. Meaningless off the pin (the
    * live uniformity guard keeps non-pinning scenarios delta-free).
    */
@@ -133,7 +140,7 @@ export interface SnapshotSuiteOptions {
   agent: AgentUnderTest
   /** Absolute path of the suite's `snapshots/` directory (one subdir per scenario). */
   snapshotsDir: string
-  /** The scenario table; exactly one entry must set `pinsHeader`. */
+  /** The scenario table; exactly one entry per header class must set `pinsHeader`. */
   scenarios: Scenario[]
   /**
    * `replay` (keyless, the default tier), `record` (live API; re-records the
@@ -199,6 +206,86 @@ export function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknow
     .map(line => JSON.parse(line) as { type?: unknown; data?: { header?: unknown } })
     .filter(record => record.type === 'request/header')
     .map(record => record.data?.header)
+}
+
+/**
+ * The normalized string-valued system prompts carried by request headers in a
+ * session JSONL, in log order. Headers without a string prompt are omitted so
+ * callers can assert one prompt per header explicitly.
+ *
+ * @param rawLog The session `.jsonl` content to inspect.
+ * @param ctx The volatile values of the run that produced it.
+ * @returns The normalized system prompts, in header order.
+ */
+export function normalizedSystemPrompts(rawLog: string, ctx: NormalizeContext): string[] {
+  return normalizedHeaders(rawLog, ctx).flatMap((header) => {
+    if (header === null || typeof header !== 'object') return []
+    const system = (header as { system?: unknown }).system
+    return typeof system === 'string' ? [system] : []
+  })
+}
+
+/** One normalized system-prompt edit carried by a `request/header-delta`. */
+export interface SystemPromptDeltaSnapshot {
+  /** How many leading lines remain from the prior prompt. */
+  keepStart: number
+  /** How many trailing lines remain from the prior prompt. */
+  keepEnd: number
+  /** The normalized replacement lines inserted between the retained ranges. */
+  insert: string[]
+}
+
+/**
+ * Extract normalized system-prompt edits from request-header deltas in log
+ * order. Deltas without a well-formed system edit are omitted; their non-prompt
+ * structure remains pinned in JSONL.
+ *
+ * @param rawLog The session `.jsonl` content to inspect.
+ * @param ctx The volatile values of the run that produced it.
+ * @returns The normalized system-prompt edits, in event order.
+ */
+export function normalizedSystemPromptDeltas(rawLog: string, ctx: NormalizeContext): SystemPromptDeltaSnapshot[] {
+  return normalizeSessionLog(rawLog, ctx)
+    .split('\n')
+    .filter(line => line.trim().length > 0)
+    .map(line => JSON.parse(line) as { type?: unknown; data?: { system?: unknown } })
+    .filter(record => record.type === 'request/header-delta')
+    .flatMap((record) => {
+      const system = record.data?.system
+      if (system === null || typeof system !== 'object') return []
+      const { keepStart, keepEnd, insert } = system as { keepStart?: unknown; keepEnd?: unknown; insert?: unknown }
+      if (typeof keepStart !== 'number' || typeof keepEnd !== 'number' || !Array.isArray(insert)) return []
+      if (!insert.every(line => typeof line === 'string')) return []
+      return [{ keepStart, keepEnd, insert: insert }]
+    })
+}
+
+/**
+ * Render a normalized prompt as a repository-friendly Markdown snapshot.
+ * Prompt text is unchanged except that a missing terminal newline is added so
+ * the committed file follows the repository newline contract.
+ *
+ * @param prompt The normalized system prompt.
+ * @param deltas Normalized prompt edits to append as readable sections.
+ * @returns Markdown snapshot text ending in a newline.
+ */
+export function formatSystemPromptSnapshot(
+  prompt: string,
+  deltas: readonly SystemPromptDeltaSnapshot[] = [],
+): string {
+  let snapshot = prompt.endsWith('\n') ? prompt : `${prompt}\n`
+  for (const [index, delta] of deltas.entries()) {
+    snapshot += `\n<!-- request/header-delta ${index + 1}: keepStart=${delta.keepStart}, keepEnd=${delta.keepEnd} -->\n\n`
+    const insert = delta.insert.join('\n')
+    snapshot += insert.endsWith('\n') ? insert : `${insert}\n`
+  }
+  return snapshot
+}
+
+/** Return the initial-prompt portion of a possibly delta-bearing snapshot. */
+function initialSystemPromptSnapshot(snapshot: string): string {
+  const marker = snapshot.indexOf('\n<!-- request/header-delta ')
+  return marker < 0 ? snapshot : snapshot.slice(0, marker)
 }
 
 /**
@@ -298,7 +385,8 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
  * Register the suite: one `describe` per scenario (the golden/log compares and
  * the header-uniformity guard) plus the fixture guard block (no orphan
  * scenario dirs, required files present, exactly one pin per header class,
- * pinning fixtures well-formed, non-pinning fixtures header-scrubbed). Must
+ * pinning fixtures well-formed, every JSONL prompt-scrubbed, non-pinning
+ * fixtures fully header-scrubbed). Must
  * run at vitest collection time — it calls `describe`/`it`. Throws
  * immediately if any header class lacks a pinning scenario or carries two
  * (the uniformity guard needs exactly one comparison anchor per class).
@@ -373,11 +461,12 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         // keyless replay run for every comparable log, including authored
         // scenarios that live record deliberately skips. The primary goes to
         // session.jsonl, each child to session.<n>.jsonl in harvest order. A
-        // non-pinning scenario's fixtures are written header-scrubbed, so a
-        // re-record/refresh can never smuggle the full prompt/schema content
-        // back into every fixture.
+        // Every fixture is written with its system prompt scrubbed. A pinning
+        // scenario keeps the remaining header content (notably tool schemas);
+        // every other scenario scrubs that bulk too. Record/refresh therefore
+        // cannot smuggle prompt text back into JSONL or duplicate schemas.
         const scrub = scenario.pinsHeader === true
-          ? (log: string): string => log
+          ? scrubSystemPrompts
           : scrubRequestHeaders
         const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
         const existingFixtures = REFRESHING
@@ -400,6 +489,21 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements) : child,
             ))
           }
+          if (scenario.pinsHeader === true) {
+            const prompts = result.sessionLogs.flatMap(log => normalizedSystemPrompts(log.content, ctx))
+            expect(prompts.length, `${mode} produced no system prompt to snapshot`).toBeGreaterThan(0)
+            const initialSnapshot = formatSystemPromptSnapshot(prompts[0] as string)
+            for (const prompt of prompts) {
+              expect(formatSystemPromptSnapshot(prompt), 'the pinning run produced divergent system prompts')
+                .toEqual(initialSnapshot)
+            }
+            const primary = result.sessionLogs[0] as HarvestedLog
+            const snapshot = formatSystemPromptSnapshot(
+              prompts[0] as string,
+              normalizedSystemPromptDeltas(primary.content, ctx),
+            )
+            await writeFile(join(dir, SYSTEM_PROMPT_SNAPSHOT), snapshot)
+          }
         }
 
         const stdout = normalizeStdout(result.rawStdout, ctx)
@@ -415,12 +519,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
           // OWN volatile values — the live run's via `ctx`, the committed fixture's
           // via its own header (a committed file cannot share the live run's ids).
-          // Unless this scenario pins the header, both sides ALSO pass through
-          // scrubRequestHeaders: the live log carries the real prompt/schemas, the
-          // fixture carries the `{{system}}`/`{{tools}}` tokens, and the scrub is
-          // idempotent — so the compare checks the header's presence, position,
-          // reason, and config, but not its bulk content (pinned once, in the
-          // `pinsHeader` scenario).
+          // Both sides pass through the scenario's idempotent scrub: every live
+          // prompt becomes the fixture's `{{system}}`; non-pinning scenarios
+          // additionally tokenize tools/prefix. The dedicated header guard below
+          // compares those omitted values against their class's pin artifacts.
           expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
           for (let i = 0; i < fixtureFiles.length; i++) {
             const harvested = scrub((result.sessionLogs[i] as HarvestedLog).content)
@@ -430,34 +532,42 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        // Header-uniformity guard: a class's single pin is sound only while
-        // every session in that class composes the SAME header and keeps it
-        // for the whole run. Assert both halves live. (1) Every
-        // request/header the run produced (parent, spawn child, fork child,
-        // initial or resume) must equal the CLASS's pinned fixture's header
-        // after each side is normalized against its own volatile values.
-        // (2) No request/header-delta may appear at all — a mid-run header
-        // change diverges from the pin by construction, and its content
-        // would be invisible under the scrub. If either fails, either the
-        // header changed (update the pin: re-record or hand-edit the pinning
-        // scenario's fixture) or composition became session-dependent by
-        // design (give the divergent shape its own pinning scenario and
-        // class).
-        if (scenario.pinsHeader !== true) {
-          /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
-          const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
-          const pinnedFixture = await readFile(join(snapshotsDir, pinningScenario.name, 'session.jsonl'), 'utf8')
-          const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
-          expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
-            .toBe(1)
-          for (const log of result.sessionLogs) {
-            expect(headerDeltaCount(log.content), `session ${log.id}: a request/header-delta in a non-pinning scenario`)
-              .toBe(0)
-            const headers = normalizedHeaders(log.content, ctx)
-            for (const [k, header] of headers.entries()) {
-              expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
-                .toEqual(pinned[0])
-            }
+        // Header-uniformity guard: every live header in a class must equal the
+        // class pin split across its JSONL header (system token + real tools)
+        // and readable Markdown prompt. A pinning scenario may carry its
+        // declared header deltas; their prompt edits live in the Markdown
+        // golden while JSONL retains the tokenized edit structure.
+        /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
+        const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
+        const pinningDir = join(snapshotsDir, pinningScenario.name)
+        const pinnedFixture = await readFile(join(pinningDir, 'session.jsonl'), 'utf8')
+        const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
+        const promptSnapshot = await readFile(join(pinningDir, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
+        const initialPromptSnapshot = initialSystemPromptSnapshot(promptSnapshot)
+        expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
+          .toBe(1)
+        for (const [logIndex, log] of result.sessionLogs.entries()) {
+          const expectedDeltas = scenario.pinsHeader === true && logIndex === 0
+            ? scenario.expectedHeaderDeltas ?? 0
+            : 0
+          expect(headerDeltaCount(log.content), `session ${log.id}: request/header-delta count`)
+            .toBe(expectedDeltas)
+          const headers = normalizedHeaders(scrubSystemPrompts(log.content), ctx)
+          const prompts = normalizedSystemPrompts(log.content, ctx)
+          expect(prompts.length, `session ${log.id}: every request/header must carry a string system prompt`)
+            .toBe(headers.length)
+          for (const [k, header] of headers.entries()) {
+            expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
+              .toEqual(pinned[0])
+            expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
+              .toEqual(initialPromptSnapshot)
+          }
+          if (scenario.pinsHeader === true && logIndex === 0) {
+            expect(formatSystemPromptSnapshot(
+              prompts[0] as string,
+              normalizedSystemPromptDeltas(log.content, ctx),
+            ), `session ${log.id}: system-prompt deltas diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
+              .toEqual(promptSnapshot)
           }
         }
       })
@@ -488,13 +598,15 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       // `overridden` flag: required when set, forbidden when not — the harness
       // forwards the file purely on existence, so an unregistered stray sidecar
       // would silently replace the derived script.
-      for (const { name, overridden, childSessions } of scenarios) {
+      for (const { name, overridden, childSessions, pinsHeader } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json presence must match \`overridden\``)
           .toBe(overridden === true)
+        expect(existsSync(join(dir, SYSTEM_PROMPT_SNAPSHOT)), `${name}/${SYSTEM_PROMPT_SNAPSHOT} presence must match \`pinsHeader\``)
+          .toBe(pinsHeader === true)
         // A nested-agent scenario ships one child fixture per recorded subagent
         // session (`session.1.jsonl` …), the replay source for that child session.
         for (const childFixture of childFixturePaths(dir, childSessions ?? 0)) {
@@ -520,7 +632,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every pinning fixture carries exactly one request/header and its declared deltas', async () => {
+    it('every pinning fixture carries one request/header, one readable prompt, and its declared deltas', async () => {
       // The live uniformity guard runs only in NON-pinning scenarios, so a
       // class made of just its pinning scenario would otherwise accept a
       // re-recorded pin with several headers or an undeclared mid-run
@@ -530,20 +642,19 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))
+        const promptSnapshot = await readFile(join(snapshotsDir, scenario.name, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
         expect(headers.length, `${scenario.name}: a pinning fixture must carry exactly one request/header`).toBe(1)
+        expect(promptSnapshot.length, `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must not be empty`).toBeGreaterThan(0)
+        expect(promptSnapshot.endsWith('\n'), `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must end in a newline`).toBe(true)
         expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry exactly its declared request/header-deltas`)
           .toBe(scenario.expectedHeaderDeltas ?? 0)
       }
     })
 
-    it('committed fixtures carry request-header content ONLY in the pinning scenario', async () => {
-      // The whole point of the pin: a system-prompt or tool-schema change must
-      // churn exactly one committed line. A non-pinning fixture that carries the
-      // full header (a hand-recorded file, or a header line hand-edited out of
-      // its canonical JSON form) silently reopens the suite-wide churn, so fail
-      // loud here: every non-pinning session*.jsonl must be a fixed point of
-      // scrubRequestHeaders (apply the scrub to fix a violation), and the
-      // pinning scenario's fixtures must NOT be (their content IS the pin).
+    it('every committed JSONL omits system prompts and only pinning fixtures keep other header bulk', async () => {
+      // System prompts always live in the readable Markdown artifact. Header
+      // pins keep tool schemas/prefixes in JSONL; every other fixture tokenizes
+      // all header bulk. Fixed-point checks make both storage rules fail loud.
       for (const scenario of scenarios) {
         const dir = join(snapshotsDir, scenario.name)
         const files = [
@@ -552,8 +663,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         ]
         for (const file of files) {
           const fixture = await readFile(join(dir, file), 'utf8')
+          expect(scrubSystemPrompts(fixture), `${scenario.name}/${file} carries an unscrubbed system prompt`)
+            .toEqual(fixture)
           if (scenario.pinsHeader === true) {
-            expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} must PIN the full header content`)
+            expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} must pin the non-system header content`)
               .not.toEqual(fixture)
           } else {
             expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} carries unscrubbed header content`)
