@@ -81,7 +81,7 @@ The session's sandbox mode was switched — log-only (like `approval/*`; NOT a s
 'bash/sandbox-mode': { mode: SandboxMode }
 ```
 
-Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
+Source: [`packages/bash/bash/src/session-mode.ts:34`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 
@@ -163,7 +163,7 @@ The session mode in force from this point on: log-only, non-surface, whole-value
 'mode/set': { mode: string }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:41`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:49`](../packages/mode/mode/src/index.ts)
 
 ### `prompt/*`
 

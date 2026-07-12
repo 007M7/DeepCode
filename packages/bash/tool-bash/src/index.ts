@@ -46,7 +46,10 @@
  * Per-session mode switching (the sandbox RFC § Per-session mode switching): a session may carry a
  * standing sandbox-mode override — the `bash/sandbox-mode` event fold from
  * `@deepseek-ai/dsh-bash` — which this plugin makes real at EXECUTION: each
- * call is stamped `escalation grant > session override > executor default`.
+ * call is stamped `escalation grant > ctx.bash.resolveMode()` (the seam's
+ * resolution: session override ?? executor default, run through the
+ * `bash/resolve-mode` waterfall so policy plugins — e.g. a session mode's
+ * `access` cap — narrow it per call).
  * The prompt deliberately does NOT state the mode and no switch is narrated:
  * the model learns the boundary from the denial marker (which names the mode
  * it ran under) exactly when it matters, instead of preemptively refusing
@@ -67,7 +70,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 // stays optional at runtime, same pattern as dsh-tools' ask routing).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { BashTaskId, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
@@ -481,19 +484,6 @@ export function apply(ctx: Context): void {
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
   /**
-   * The session's standing mode override for an ordinary (non-escalating)
-   * call: the `bash/sandbox-mode` fold of the calling agent's log, stamped
-   * onto the request so EXECUTION follows the same effective mode the prompt
-   * section states. Weakest precedence — an escalation grant (freshly
-   * approved for exactly this call) outranks it, and without either the
-   * executor's `resolve()` applies its configured default. Undefined for a
-   * non-sandboxing executor (nothing honors it) and for agent-less callers
-   * (no session to fold).
-   */
-  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
-    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
-
-  /**
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
    * anything executes. Returns the granted mode to stamp onto the bash
    * request; throws the distinct fail-closed text for every other path (no
@@ -513,12 +503,14 @@ export function apply(ctx: Context): void {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
     // Strict widening is an EXECUTION check against the call's effective
-    // mode — session override ?? executor default, the same fold ordinary
+    // mode — the seam's resolveMode (session override ?? executor default,
+    // through the bash/resolve-mode waterfall), the same resolution ordinary
     // calls are stamped with — deliberately not a schema constraint (the
     // enum is the closed target vocabulary; the effective mode is per-call
     // truth). A non-widening request fails closed here and never prompts a
-    // human.
-    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
+    // human. The cast is exact: escalationModes non-empty proved the executor
+    // confines, which is resolveMode's only undefined path.
+    const effectiveMode = (await ctx.bash.resolveMode(exec.agent?.session)) as SandboxMode
     if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
       throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
     }
@@ -586,11 +578,13 @@ export function apply(ctx: Context): void {
       // An escalating call resolves approval BEFORE anything executes; every
       // non-grant outcome throws its distinct error text and runs nothing.
       // (validateBashArgs pinned the pairing, so the double narrow is exact.)
-      // An ordinary call carries the session's standing override instead —
-      // grant > session override > executor default (see sessionOverride).
+      // An ordinary call carries the seam's resolution instead — grant >
+      // ctx.bash.resolveMode() (session override ?? executor default, run
+      // through the bash/resolve-mode waterfall); undefined — stamp nothing —
+      // for a never-confining executor.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
-        : sessionOverride(exec)
+        : await ctx.bash.resolveMode(exec.agent?.session)
       // Default the workdir to the calling agent's session cwd so each ACP
       // session runs in its own workspace (see resolveWorkdir); an explicit
       // model workdir still wins.

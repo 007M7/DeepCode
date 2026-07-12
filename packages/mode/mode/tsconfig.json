@@ -27,6 +27,9 @@
       "path": "../../core/system-prompt"
     },
     {
+      "path": "../../bash/bash"
+    },
+    {
       "path": "../../ui/user-interaction"
     }
   ]

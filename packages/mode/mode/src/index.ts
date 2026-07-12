@@ -3,8 +3,11 @@
  * the first shipped definition. A mode names which tools stay visible (the
  * soft layer, a `system-prompt/assemble` filter plus a guidance section) and
  * which may run (the hard layer, a deny-by-default `tools/pre-execute` gate);
- * the mode IN FORCE for an agent is session state, folded from its log
- * (`mode/set`, last one wins), so resume and fork restore it for free.
+ * a mode may also declare `access` — a cap the bash seam's per-call sandbox
+ * resolution is clamped to while the mode is in force (a `bash/resolve-mode`
+ * listener), composing with the session's own sandbox knob without ever
+ * writing it. The mode IN FORCE for an agent is session state, folded from
+ * its log (`mode/set`, last one wins), so resume and fork restore it for free.
  *
  * The default mode is the absence of policy: no section, no filtering, no
  * gate. An agent that never sees a `mode/set` behaves byte-identically to a
@@ -28,6 +31,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool, renderToolsSdk, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
+// Value import (not type-only): the access-cap vocabulary IS the bash seam's
+// sandbox-mode ladder, and the import also merges the `bash/resolve-mode`
+// event and `ctx.bash` declarations the clamp listener and the bash-family
+// gating read. The seam itself stays optional at runtime (`ctx.get('bash')`).
+import { SANDBOX_MODES } from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
 
@@ -78,14 +86,25 @@ export const PLAN_MODE = 'plan'
 export const EXIT_PLAN_MODE = 'exit_plan_mode'
 
 /**
- * One mode's deployment-configured policy: the guidance section the model sees
- * and the allowlist of tool names that stay visible and executable.
+ * One mode's deployment-configured policy: the guidance section the model sees,
+ * the allowlist of tool names that stay visible and executable, and an
+ * optional cap on the sandbox access shell commands run under.
  */
 export interface ModeDefinition {
   /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
   section: string
   /** Allowlist of tool NAMES; names may reference not-yet-registered tools (registration is dynamic). */
   tools: string[]
+  /**
+   * The widest sandbox access shell commands may run under while this mode is
+   * in force — a per-call CAP on the bash seam's resolved mode (a
+   * `bash/resolve-mode` clamp), not a switch: the session's own sandbox knob
+   * keeps its setting and re-emerges intact when the mode ends. Omitted, the
+   * mode leaves the resolution alone. A mode with `access` set exposes the
+   * bash tools only while a confining executor is mounted (an unconfinable
+   * shell cannot honor the cap) and denies sandbox escalation outright.
+   */
+  access?: (typeof SANDBOX_MODES)[number]
 }
 
 /**
@@ -107,7 +126,11 @@ export interface ResolvedModes {
 const PLAN_SECTION
   = 'You are in plan mode: a read-only planning state. Explore, analyze, and design; '
   + 'do not attempt to modify anything — mutating tools are not available and calls '
-  + 'to them are denied. When a decision or a missing detail blocks the plan, ask the '
+  + 'to them are denied. Where a bash tool is present it runs under a read-only '
+  + 'sandbox: commands that only read work normally, while a command that writes is '
+  + 'denied by the sandbox — that denial marks the edge of plan mode rather than a '
+  + 'bug, and sandbox escalation is not offered here; put the step in the plan for '
+  + 'after approval instead. When a decision or a missing detail blocks the plan, ask the '
   + 'user through the ask_user_question tool where it is available. A finished plan '
   + 'is delivered by calling exit_plan_mode — that call is what puts it in front of '
   + 'the user for review, so prefer it over pasting the plan as a plain reply or '
@@ -115,12 +138,22 @@ const PLAN_SECTION
   + 'its review fails, ask the user to switch the session out of plan mode instead '
   + 'of retrying denied tools.'
 
+/**
+ * The three bash tools an `access` cap conditions on a confining executor:
+ * `bash` runs commands under the capped sandbox; `bash_output`/`bash_kill`
+ * only observe and stop tasks that ran under it.
+ */
+const BASH_FAMILY = ['bash', 'bash_output', 'bash_kill']
+
 // 'structured_output' is a structured subagent child's result channel (pure
 // reporting, the ask/exit class of read-only-safe): its runtime re-injects the
 // schema into the FINAL assembly from an outermost per-spawn listener, so
 // allowlisting is what keeps the soft filter, that re-injection, and the hard
 // gate telling one consistent story when such a child runs in plan mode.
-const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', 'structured_output', EXIT_PLAN_MODE]
+// The bash trio is allowlisted CONDITIONALLY: plan's read-only `access` cap
+// can only be honored by a confining executor, so both policy layers admit
+// these three only while `ctx.bash.sandboxMode` proves one is mounted.
+const PLAN_TOOLS = ['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', 'structured_output', ...BASH_FAMILY, EXIT_PLAN_MODE]
 
 /** The review question's approve option label — the answer item is matched by it. */
 const APPROVE_LABEL = 'Approve'
@@ -143,6 +176,11 @@ function firstHeading(plan: string): string | undefined {
   return undefined
 }
 
+/** Whether a bash call's parsed arguments carry the escalation field (`sandbox_permissions`). */
+function hasEscalationArgs(args: unknown): boolean {
+  return typeof args === 'object' && args !== null && (args as { sandbox_permissions?: unknown }).sandbox_permissions !== undefined
+}
+
 /**
  * Validate the config and merge the built-in `plan` definition (explicit
  * resolve step — the `dsh-bash` request/spec template). Fail-loud: a
@@ -153,7 +191,7 @@ function firstHeading(plan: string): string | undefined {
  */
 export function resolveConfig(config: ModeConfig): ResolvedModes {
   const definitions = new Map<string, ModeDefinition>()
-  definitions.set(PLAN_MODE, { section: PLAN_SECTION, tools: [...PLAN_TOOLS] })
+  definitions.set(PLAN_MODE, { section: PLAN_SECTION, tools: [...PLAN_TOOLS], access: 'read-only' })
   for (const [name, definition] of Object.entries(config.modes ?? {})) {
     if (name === DEFAULT_MODE) {
       throw new Error(`ModeConfig: "${DEFAULT_MODE}" is reserved (the absence of policy) and cannot be defined`)
@@ -164,7 +202,14 @@ export function resolveConfig(config: ModeConfig): ResolvedModes {
     if (!Array.isArray(definition.tools) || definition.tools.some(tool => typeof tool !== 'string')) {
       throw new Error(`ModeConfig: mode "${name}" needs a \`tools\` array of tool names`)
     }
-    definitions.set(name, { section: definition.section, tools: [...definition.tools] })
+    if (definition.access !== undefined && !SANDBOX_MODES.includes(definition.access)) {
+      throw new Error(`ModeConfig: mode "${name}" has unknown access ${JSON.stringify(definition.access)} — one of: ${SANDBOX_MODES.join(', ')}`)
+    }
+    definitions.set(name, {
+      section: definition.section,
+      tools: [...definition.tools],
+      ...definition.access !== undefined ? { access: definition.access } : {},
+    })
   }
   return { definitions }
 }
@@ -274,8 +319,15 @@ export class ModesService extends Service {
         return result
       }
       const allowed = new Set(active.definition.tools)
+      // An access-capped mode exposes the bash trio only while a confining
+      // executor is mounted — advertised tools stay honest about the cap.
+      // Read per assembly via ctx.get (never static inject): the executor is
+      // optional to this plugin and may swap at runtime.
+      const bashUsable = active.definition.access === undefined || ctx.get('bash')?.sandboxMode !== undefined
       const visible = (name: string): boolean =>
-        allowed.has(name) && (name !== EXIT_PLAN_MODE || active.name === PLAN_MODE)
+        allowed.has(name)
+        && (name !== EXIT_PLAN_MODE || active.name === PLAN_MODE)
+        && (bashUsable || !BASH_FAMILY.includes(name))
       // run_code is a TRANSPORT, not a capability: under the registry's Code
       // Mode it is the only wire tool (filtering it would leave the model
       // with nothing, not even the exit), and every bridged sub-call
@@ -314,11 +366,42 @@ export class ModesService extends Service {
       // so each sub-call is judged here individually — gating the wrapper
       // would only remove the vehicle, not widen or narrow any capability.
       if (exec.name === RUN_CODE_NAME) return next()
-      if (active.definition.tools.includes(exec.name)) return next()
+      // The bash trio is conditional under an access cap: without a confining
+      // executor the cap cannot be honored, so the trio reads as not
+      // allowlisted — the same absence the assemble filter's hiding implies.
+      const capped = active.definition.access !== undefined && BASH_FAMILY.includes(exec.name)
+      const bashUsable = !capped || ctx.get('bash')?.sandboxMode !== undefined
+      if (active.definition.tools.includes(exec.name) && bashUsable) {
+        // A capped mode admits `bash` but no widening: escalation would pierce
+        // the cap mid-mode. Denied HERE, before tool-bash's escalation path
+        // would treat the clamped resolution as a legitimate baseline and
+        // raise the approval prompt.
+        if (capped && exec.name === 'bash' && hasEscalationArgs(exec.arguments)) {
+          return Promise.resolve({
+            kind: 'deny',
+            reason: `sandbox escalation is not available in ${active.name} mode — the sandbox stays ${active.definition.access} while it is in force; put the wider-access step in the plan for after approval`,
+          })
+        }
+        return next()
+      }
       const reason = active.name === PLAN_MODE
         ? `tool "${exec.name}" is not available in plan mode; continue planning and present your plan with ${EXIT_PLAN_MODE} when ready`
         : `tool "${exec.name}" is not available in "${active.name}" mode`
       return Promise.resolve({ kind: 'deny', reason })
+    })
+
+    // The access cap made real: clamp the bash seam's per-call resolution to
+    // the active mode's declared access. Read-time composition of two
+    // independent folds — the sandbox knob's and the mode's — neither writes
+    // the other, so the knob re-emerges intact when the mode ends and a crash
+    // between them can strand nothing. SANDBOX_MODES is the narrowest-first
+    // ladder; the clamp is an index min.
+    ctx.on('bash/resolve-mode', async (session, next) => {
+      const base = await next()
+      if (session === undefined) return base
+      const access = this.activeDefinition(session)?.definition.access
+      if (access === undefined) return base
+      return SANDBOX_MODES.indexOf(base) <= SANDBOX_MODES.indexOf(access) ? base : access
     })
 
     ctx.tools.register(defineTool({

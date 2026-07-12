@@ -2,8 +2,9 @@
 # Client Protocol WITH session modes composed — the plan-mode RFC's live
 # composition. The editor's mode picker (session/set_mode) switches the
 # session between `default` and `plan`; in plan mode the model works under the
-# read-only allowlist and leaves through the user-reviewed exit_plan_mode tool
-# (the review rides the same elicitation flow as ask_user_question).
+# read-only allowlist — bash INCLUDED, clamped to a read-only sandbox by plan
+# mode's `access` cap — and leaves through the user-reviewed exit_plan_mode
+# tool (the review rides the same elicitation flow as ask_user_question).
 #
 # CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved
 # for the ACP JSON-RPC protocol (a property of @deepseek-ai/dsh-acp-agent,
@@ -32,27 +33,47 @@
     # else the local ./.sessions default.
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
 # Session modes (ctx.modes — the shipped `plan` definition, no overrides): the
 # mode/set vocabulary, the assemble filter + mode section, the pre-execute
-# gate, and the exit_plan_mode tool. The ACP bridge above reads it
-# opportunistically and advertises the picker.
+# gate, the exit_plan_mode tool, and plan's read-only `access` cap on the
+# sandbox stack below. The ACP bridge above reads it opportunistically and
+# advertises the picker.
 - id: mode
   name: '@deepseek-ai/dsh-mode'
 
-# Local bash executor + the model-facing bash tools: available in the default
-# mode, EXCLUDED by plan mode's allowlist — running the two modes against the
-# same task shows the difference (`rm`/`git` work only after the exit review).
+# The sandbox stack: the platform-runner provider (bwrap → per-platform
+# Landlock launcher → Seatbelt, functionally probed), then the confined bash
+# executor. workspace-write is the day-to-day default; plan mode's `access`
+# cap clamps every call to read-only while it is in force — which is exactly
+# what keeps the bash tools AVAILABLE in plan mode: exploration commands run,
+# a write is denied by the sandbox. The cap and the session's own
+# sandbox-mode knob compose at read time (neither writes the other), so a
+# knob switched during plan re-emerges intact on exit. NOTE: the workspace
+# root is CONFIG-FIXED for the executor's lifetime (the launch dir here),
+# while each ACP session has its own cwd — a per-session root is config-phase
+# future work in the sandbox RFC.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
 - id: bash
-  name: '@deepseek-ai/dsh-bash-local'
+  name: '@deepseek-ai/dsh-bash-sandbox'
   config:
-    timeoutMs: 60000
+    mode: workspace-write
+    workspaceRoot: !!js process.cwd()
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
+
+# The approval seam (ctx.approval — mechanism only, no config): the confined
+# executor makes tool-bash advertise the escalation fields, and this seam is
+# what lets an escalating retry actually reach the editor as a
+# session/request_permission prompt. In plan mode the `access` cap denies
+# escalation outright — the widened step belongs in the plan.
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
 
 # The model-facing ask_user_question tool: ON plan mode's allowlist, so the
 # model can raise a blocking decision to the user while planning; the review

@@ -219,6 +219,7 @@ flowchart TD
   pkg_tool_todo --> pkg_session
   pkg_tool_todo --> pkg_tools
   pkg_mode --> pkg_agent
+  pkg_mode --> pkg_bash
   pkg_mode --> pkg_session
   pkg_mode --> pkg_system_prompt
   pkg_mode --> pkg_tools
@@ -363,7 +364,7 @@ flowchart TD
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`timeout-policy`](../packages/timeout/timeout-policy) | `timeout` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
-| [`mode`](../packages/mode/mode) | `mode` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
+| [`mode`](../packages/mode/mode) | `mode` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-cordis`](../packages/cordis/tool-cordis) | `cordis` | [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |

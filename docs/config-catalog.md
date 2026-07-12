@@ -457,18 +457,29 @@ export interface ModeConfig {
 }
 
 /**
- * One mode's deployment-configured policy: the guidance section the model sees
- * and the allowlist of tool names that stay visible and executable.
+ * One mode's deployment-configured policy: the guidance section the model sees,
+ * the allowlist of tool names that stay visible and executable, and an
+ * optional cap on the sandbox access shell commands run under.
  */
 export interface ModeDefinition {
   /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
   section: string
   /** Allowlist of tool NAMES; names may reference not-yet-registered tools (registration is dynamic). */
   tools: string[]
+  /**
+   * The widest sandbox access shell commands may run under while this mode is
+   * in force — a per-call CAP on the bash seam's resolved mode (a
+   * `bash/resolve-mode` clamp), not a switch: the session's own sandbox knob
+   * keeps its setting and re-emerges intact when the mode ends. Omitted, the
+   * mode leaves the resolution alone. A mode with `access` set exposes the
+   * bash tools only while a confining executor is mounted (an unconfinable
+   * shell cannot honor the cap) and denies sandbox escalation outright.
+   */
+  access?: (typeof SANDBOX_MODES)[number]
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:96`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:115`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

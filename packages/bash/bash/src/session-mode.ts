@@ -7,10 +7,13 @@
  * other's state, and there is no external config store. The event is
  * log-only (the `approval/*` precedent): the model learns the mode from the
  * prompt section and the boundary notices in `@deepseek-ai/dsh-tool-bash`,
- * never from the event itself. EXECUTION honors the fold in the tool layer —
- * it stamps the effective mode onto each call's `BashExecRequest.sandboxMode`
- * (weakest-precedence: an escalation grant for the call outranks it) — the
- * executor itself stays a config-fixed default plus per-call overrides.
+ * never from the event itself. EXECUTION honors the fold through the seam's
+ * own resolution — `BashExecutor.resolveMode` computes `override ?? default`
+ * and dispatches it through the `bash/resolve-mode` waterfall so policy
+ * plugins can narrow it per call — and the tool layer stamps the resolved
+ * mode onto each call's `BashExecRequest.sandboxMode` (weakest-precedence: an
+ * escalation grant for the call outranks it); the executor itself stays a
+ * config-fixed default plus per-call overrides.
  *
  * @module dsh-bash/session-mode
  */
@@ -32,7 +35,12 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-/** Every {@link SandboxMode}, for option advertisement and runtime validation of untrusted mode strings. */
+/**
+ * Every {@link SandboxMode}, for option advertisement and runtime validation
+ * of untrusted mode strings. Ordered narrowest → widest — the ladder is part
+ * of the contract; consumers (the escalation widening check, a mode's access
+ * clamp) compare by index.
+ */
 export const SANDBOX_MODES: readonly SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access']
 
 /**

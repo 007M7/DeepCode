@@ -84,6 +84,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'bash',
     summary: 'Abstract bash execution service.',
     methods: [
+      'async resolveMode(session: Session | undefined): Promise<SandboxMode | undefined>',
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
       'abstract start(spec: BashExecSpec): BashTask',
@@ -317,6 +318,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'approval/request\'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
     summary: 'Waterfall asking the composed answerers to decide one approval request.',
+  },
+  {
+    name: 'bash/resolve-mode',
+    mode: 'waterfall',
+    signature: '\'bash/resolve-mode\'(this: BashExecutor, session: Session | undefined, next: () => Promise<SandboxMode>): Promise<SandboxMode>',
+    summary: 'Waterfall around BashExecutor.resolveMode\'s base — the session\'s standing override falling back to the executor\'s configured default.',
   },
   {
     name: 'fs/edit-intent',

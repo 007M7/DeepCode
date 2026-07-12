@@ -66,6 +66,7 @@ Semantics every implementation must honor:
 - Disposal kills every running task and awaits their exit (no orphan processes survive `fiber.dispose()`).
 
 ```ts cordis-catalog
+async resolveMode(session: Session | undefined): Promise<SandboxMode | undefined>
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashTask
@@ -77,9 +78,9 @@ abstract kill(id: BashTaskId): boolean
 onTaskDone(listener: BashTaskListener): () => void
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md) · [SandboxMode](../core-data-structures/sandbox.md)
 
-Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:82`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -173,7 +174,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:210`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:255`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 

@@ -1419,7 +1419,7 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
     ctx.tools.execute({ callId: CallId(`call-mode-${++modeCall}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
 
 
-  it('stamps calls with grant > session override > nothing (executor default)', async () => {
+  it('stamps calls with grant > the seam resolution (override ?? executor default)', async () => {
     const ctx = await setupModal('read-only', { approval: true })
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     const seen: (string | undefined)[] = []
@@ -1430,12 +1430,39 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
     })
     const { agent, session } = sessionAgent('sess-stamp-1')
     const run = { command: 'true', description: 'stamp probe' }
-    await callAs(ctx, agent, run)                       // no override yet
+    await callAs(ctx, agent, run)                       // no override yet: the resolved default is stamped explicitly
     setSandboxMode(session, 'workspace-write')
     await callAs(ctx, agent, run)                       // standing override
-    await callAs(ctx, undefined, run)                   // agent-less caller: no session to fold
+    await callAs(ctx, undefined, run)                   // agent-less caller: no session to fold — still the resolved default
     await callAs(ctx, agent, { ...run, sandbox_permissions: 'danger-full-access', justification: 'grant outranks override' })
-    expect(seen).toEqual([undefined, 'workspace-write', undefined, 'danger-full-access'])
+    expect(seen).toEqual(['read-only', 'workspace-write', 'read-only', 'danger-full-access'])
+  })
+
+  it('stamps the bash/resolve-mode waterfall result — a listener narrows both ordinary calls and the escalation baseline', async () => {
+    // A policy listener (dsh-mode's access cap is the shipped one) clamps the
+    // resolution to read-only. An ordinary call is stamped with the clamp, and
+    // the escalation strict-widening check runs against the CLAMPED baseline:
+    // under a workspace-write override, escalating TO workspace-write would be
+    // a non-widening no-op without the clamp — with it, the target is strictly
+    // wider than the call's effective read-only and the grant lands.
+    const ctx = await setupModal('workspace-write', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    ctx.on('bash/resolve-mode', async (_session, next) => {
+      await next()
+      return 'read-only'
+    })
+    const seen: (string | undefined)[] = []
+    const original = ctx.bash.resolve.bind(ctx.bash)
+    vi.spyOn(ctx.bash, 'resolve').mockImplementation((req) => {
+      seen.push(req.sandboxMode)
+      return original(req)
+    })
+    const { agent, session } = sessionAgent('sess-waterfall')
+    setSandboxMode(session, 'workspace-write')
+    await callAs(ctx, agent, { command: 'true', description: 'clamped probe' })
+    const escalated = await callAs(ctx, agent, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'wider than the clamped baseline' })
+    expect(escalated.isError).toBe(false)
+    expect(seen).toEqual(['read-only', 'workspace-write'])
   })
 
   it('escalates relative to the session effective mode, not the executor default (narrower override)', async () => {

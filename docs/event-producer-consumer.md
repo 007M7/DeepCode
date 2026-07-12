@@ -20,6 +20,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:451`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
 | `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:464`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `approval/request` | `waterfall` | [`packages/ui/user-approval/src/index.ts:64`](../packages/ui/user-approval/src/index.ts) | [`user-approval`](../packages/ui/user-approval) (`waterfall`) | [`acp`](../packages/ui/acp) |
+| `bash/resolve-mode` | `waterfall` | [`packages/bash/bash/src/index.ts:57`](../packages/bash/bash/src/index.ts) | [`bash`](../packages/bash/bash) (`waterfall`) | [`mode`](../packages/mode/mode) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:123`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/observed` | `emit` | [`packages/fs/fs/src/index.ts:138`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`emit`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/write-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:109`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |

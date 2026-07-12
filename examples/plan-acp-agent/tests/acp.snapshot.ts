@@ -7,13 +7,18 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
  * the sibling `cordis.snapshot.yml` replay overlay by the bin under
  * `DSH_SNAPSHOT=replay`).
  *
- * The recorded scenarios re-execute the fs tools for real on replay (the
- * replay overlay swaps only the model); their prompts pin the model to
+ * The recorded scenarios re-execute the fs tools AND the sandboxed bash
+ * executor for real on replay (the replay overlay swaps only the model), so
+ * the plan-mode arc doubles as a live check of plan's read-only `access`
+ * cap: the recorded `cat` runs under the host's actual runner (Seatbelt on
+ * macOS, bwrap on Linux CI). The recorded commands stay `cat`-shaped —
+ * byte-identical across those backends and across GNU/BSD userlands — and
+ * the transcripts carry NO sandbox denial (a denied command's stderr is the
+ * backend's dialect; the denial→marker path is pinned at dsh-tool-bash's
+ * unit tier, and the cap's clamp at dsh-mode's). Prompts pin the model to
  * RELATIVE paths, because a recorded absolute temp path would neither replay
  * on another host nor normalize (the normalizers scrub the RUN's own cwd,
- * not the recording's). The gate's deny path is pinned at the unit tier
- * (packages/mode/mode/tests) — the recorded model never calls a filtered
- * tool, which is the behavior the soft layer exists to produce.
+ * not the recording's).
  */
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
