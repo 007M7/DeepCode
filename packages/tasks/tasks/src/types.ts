@@ -105,7 +105,9 @@ export interface TaskHooks {
    * released the task's resources (process exited, child agent disposed) —
    * not merely when the work finished. Must never reject; a rejection is
    * contained as a `failed` outcome and logged as a producer contract
-   * violation.
+   * violation. If `cancel` throws during teardown, the runtime may force-fail
+   * only its registry record to avoid deadlock because this promise may never
+   * settle; that fallback explicitly does not claim work quiescence.
    */
   done: Promise<TaskOutcome>
   /**

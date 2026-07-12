@@ -58,6 +58,10 @@ export interface Config {
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 ```
 
@@ -73,7 +77,10 @@ Source: [`packages/ui/acp-agent/src/index.ts:52`](../packages/ui/acp-agent/src/i
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order), the `tools` object to the tool registry (its presentation `mode`).
+ * order), the `tools` object to the tool registry (its presentation `mode`),
+ * and `toolBash`/`toolTasks` to the two model-facing tool plugins this bundle
+ * owns. Producer opt-in stays producer-local: `toolBash` configures bash only;
+ * future background-capable tools remain independently composed plugins.
  * Every field is optional INPUT here because each owner's schema
  * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
  * schema is the INTERSECTION of the owners' own schemas (the registry's
@@ -91,6 +98,10 @@ export interface Config {
   tools?: ToolsConfig
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
+  /** Model-facing bash tool config, including this producer's background opt-in. */
+  toolBash?: toolBash.Config
+  /** Generic background-task control-tool wait bounds. */
+  toolTasks?: toolTasks.Config
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -104,9 +115,9 @@ export interface SkillConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:87`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:90`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -631,6 +642,10 @@ export interface Config {
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`

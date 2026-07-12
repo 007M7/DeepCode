@@ -9,7 +9,7 @@ The background task registry (`ctx.tasks`): a runtime-global, CONCRETE service (
 - `read(id, caller?): TaskRead` — stream kinds consume the per-task cursor (v1's single intended reader is the owning model — a non-consuming multi-reader surface would be a cursor/snapshot API extension, not a `read` change); final kinds read the terminal output idempotently.
 - `kill(id, caller?, reason?)` — `'requested'` (live task: producer `cancel` runs first — a throw fails the kill loud and leaves the task untouched — then `stopping`) or `'already-terminal'`. Every successful kill marks the task `reported` (the killer saw the end → completion notice suppressed).
 - `wait(id, timeoutMs, caller?, signal?)` — resolves with the terminal snapshot (marked `reported`), or the live snapshot at timeout; an aborted signal rejects the WAIT only — unless the task already settled, in which case the wait still resolves and delivers the terminal snapshot (settlement suppressed the completion notice on this waiter's behalf, so rejecting would leave the finish both unreported and un-noticed). Timing is a [`dsh-timeout`](../../util/timeout/README.md) `deadline()` scoped to the `TASK_WAIT_TIMEOUT` code, so a nested foreign deadline never misreads as a wait timeout.
-- `onTaskDone(listener)` — exactly once per task with the terminal snapshot; effect-scoped, per-listener containment, silent after service disposal.
+- `onTaskDone(listener)` — exactly once per terminal task record; effect-scoped, per-listener containment, silent after service disposal.
 - `attachSurface(name)` — declares a control surface exists (the model tools, or a deployment's custom surface); effect-scoped.
 
 Every read/kill/wait/get compares the task's owner session (`owner.session.header.id`) with the caller's and rejects a foreign one — ids are predictable (`bash-1`), so the fence, not id secrecy, is the isolation boundary.
@@ -17,8 +17,9 @@ Every read/kill/wait/get compares the task's owner session (`owner.session.heade
 ## Lifecycle
 
 - Registrations are NOT effect-scoped to the registering fiber: tasks belong to their owning agent + producing backend, so producer/surface HMR reloads never touch them.
-- An owned task attaches (once per owner) an awaited cleanup via `ctx.agents.onCleanup`: on the owner's disposal the registry cancels its live tasks, awaits each `done`, and drops the snapshots — `AgentHandle.dispose()` resolves only after quiescence.
-- Service disposal closes the listener registry first (late teardown kills stay silent), cancels every live task with containment, and awaits settlement.
+- An owned task attaches (once per owner) an awaited cleanup via `ctx.agents.onCleanup`: on owner disposal the registry cancels live tasks, awaits contract-compliant producers to quiescence, and drops their snapshots. If a teardown cancel throws, it force-fails the record and logs that the underlying work may be orphaned rather than deadlocking `AgentHandle.dispose()`.
+- Service disposal closes the listener registry first (late teardown settlements stay silent), then applies the same cancellation rule to every live task and awaits terminal records.
+- A producer whose `cancel` returns but never causes `done` to settle remains indistinguishable from a slow stop and can stall teardown; solving that residual requires an explicit bounded-lifetime or forced-disposal design.
 
 ## Non-goals (v1)
 

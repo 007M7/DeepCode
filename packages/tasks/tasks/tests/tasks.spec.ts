@@ -444,11 +444,46 @@ describe('TaskService owner cleanup', () => {
     expect(ctx.tasks.list(owner)).toEqual([])
   })
 
-  it('contains a throwing producer cancel on the cleanup path', async () => {
+  it('releases the owner-cleanup effect from the tasks fiber after its drain', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const tasksFiber = await ctx.plugin(TaskService)
+    ctx.tasks.attachSurface('test-surface')
+    const owner = stubAgent('owner')
+    ctx.agents.register(owner)
+    const ownerCleanupEffects = () => tasksFiber.getEffects()
+      .filter(effect => effect.label === 'agents.onCleanup()')
+
+    const first = producer({ owner })
+    ctx.tasks.start(first.spec)
+    expect(ownerCleanupEffects()).toHaveLength(1)
+    first.settle({ status: 'completed' })
+    await tick()
+    await ctx.agents.drainCleanups(owner.id)
+
+    // Only the owner registration is released; the long-lived tasks service
+    // and its own teardown effect remain active.
+    expect(ownerCleanupEffects()).toHaveLength(0)
+    expect(ctx.get('tasks')).toBeDefined()
+    expect(tasksFiber.getEffects().some(effect => effect.label === 'tasks teardown')).toBe(true)
+
+    // The same still-live owner can attach and release a fresh registration.
+    const second = producer({ owner })
+    ctx.tasks.start(second.spec)
+    expect(ownerCleanupEffects()).toHaveLength(1)
+    second.settle({ status: 'completed' })
+    await tick()
+    await ctx.agents.drainCleanups(owner.id)
+    expect(ownerCleanupEffects()).toHaveLength(0)
+  })
+
+  it('force-fails a throwing teardown cancel without awaiting producer done, first outcome wins', async () => {
     const ctx = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const owner = stubAgent('owner')
     ctx.agents.register(owner)
+    const seen: TaskSnapshot[] = []
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
 
     let settle!: (outcome: TaskOutcome) => void
     ctx.tasks.start({
@@ -462,9 +497,27 @@ describe('TaskService owner cleanup', () => {
     })
 
     const drain = ctx.agents.drainCleanups(owner.id)
-    settle({ status: 'failed', detail: 'gave up' })
-    await drain
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cancel boom'))
+    let drained = false
+    void drain.then(() => { drained = true })
+    await tick()
+    const drainedWithoutProducerDone = drained
+    if (!drainedWithoutProducerDone) {
+      // Failure-path cleanup for the pre-fix implementation: let its pending
+      // drain finish without weakening the assertion captured above.
+      settle({ status: 'completed' })
+      await drain
+    } else {
+      // A late producer completion must not replace the forced failed record or
+      // notify listeners a second time.
+      settle({ status: 'completed' })
+      await tick()
+    }
+
+    expect(drainedWithoutProducerDone).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('work may be orphaned'))
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.status).toBe('failed')
+    expect(seen[0]?.detail).toContain('cancel threw during teardown')
     expect(ctx.tasks.list(owner)).toEqual([])
   })
 })
@@ -495,6 +548,44 @@ describe('TaskService disposal', () => {
     await fiber.dispose()
     expect(cancels).toEqual(['tasks service disposed'])
     // The teardown kill settles AFTER the listener registry closed: silent.
+    expect(seen).toEqual([])
+  })
+
+  it('force-fails a throwing cancel so service disposal does not await producer done', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const fiber = await ctx.plugin(TaskService)
+    ctx.tasks.attachSurface('test-surface')
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const seen: TaskSnapshot[] = []
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
+
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'broken service task',
+      run: () => ({
+        cancel() { throw new Error('service cancel boom') },
+        done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+      }),
+    })
+
+    const disposal = fiber.dispose()
+    let disposed = false
+    void disposal.then(() => { disposed = true })
+    await tick()
+    const disposedWithoutProducerDone = disposed
+    if (!disposedWithoutProducerDone) {
+      // Failure-path cleanup for the pre-fix implementation.
+      settle({ status: 'completed' })
+      await disposal
+    } else {
+      settle({ status: 'completed' })
+      await tick()
+    }
+
+    expect(disposedWithoutProducerDone).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('work may be orphaned'))
     expect(seen).toEqual([])
   })
 

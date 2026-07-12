@@ -77,7 +77,10 @@ export interface SkillConfig {
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order), the `tools` object to the tool registry (its presentation `mode`).
+ * order), the `tools` object to the tool registry (its presentation `mode`),
+ * and `toolBash`/`toolTasks` to the two model-facing tool plugins this bundle
+ * owns. Producer opt-in stays producer-local: `toolBash` configures bash only;
+ * future background-capable tools remain independently composed plugins.
  * Every field is optional INPUT here because each owner's schema
  * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
  * schema is the INTERSECTION of the owners' own schemas (the registry's
@@ -95,6 +98,10 @@ export interface Config {
   tools?: ToolsConfig
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
+  /** Model-facing bash tool config, including this producer's background opt-in. */
+  toolBash?: toolBash.Config
+  /** Generic background-task control-tool wait bounds. */
+  toolTasks?: toolTasks.Config
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -104,11 +111,22 @@ export const SkillConfigSchema: z<SkillConfig> = z.object({
   tool: toolSkill.Config,
 })
 
+/** The bash-tool config schema exported for app packages that forward `toolBash`. */
+export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
+
+/** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
+export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
+
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
   SystemPrompt.Config,
-  z.object({ tools: ToolRegistry.Config, skills: SkillConfigSchema }),
+  z.object({
+    tools: ToolRegistry.Config,
+    skills: SkillConfigSchema,
+    toolBash: ToolBashConfigSchema,
+    toolTasks: ToolTasksConfigSchema,
+  }),
 ]) as unknown as z<Config>
 
 /**
@@ -140,8 +158,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(AgentRegistry)
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
-  ctx.plugin(toolBash)
+  ctx.plugin(toolBash, config.toolBash ?? {})
   ctx.plugin(toolSkill, config.skills?.tool ?? {})
-  ctx.plugin(toolTasks)
+  ctx.plugin(toolTasks, config.toolTasks ?? {})
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

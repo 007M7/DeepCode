@@ -52,7 +52,9 @@ interface TaskHooks {
    * released the task's resources (process exited, child agent disposed) —
    * not merely when the work finished. Must never reject; a rejection is
    * contained as a `failed` outcome and logged as a producer contract
-   * violation.
+   * violation. If `cancel` throws during teardown, the runtime may force-fail
+   * only its registry record to avoid deadlock because this promise may never
+   * settle; that fallback explicitly does not claim work quiescence.
    */
   done: Promise<TaskOutcome>
   /**
@@ -135,4 +137,4 @@ interface TaskRead {
 
 ## The service
 
-`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per settlement, effect-scoped, contained). Every read/kill/wait/get compares the task's owner session with the caller's and rejects a foreign one. Owned tasks are cancelled and awaited when their owning agent disposes (the `ctx.agents.onCleanup` seam); the model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).
+`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per terminal record, effect-scoped, contained). Every read/kill/wait/get compares the task's owner session with the caller's and rejects a foreign one. Owned tasks are cancelled and normally awaited to producer quiescence when their owning agent disposes (the `ctx.agents.onCleanup` seam); a teardown cancel that throws force-fails only the registry record and reports that the underlying work may be orphaned, preventing disposal deadlock without claiming quiescence. The model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).

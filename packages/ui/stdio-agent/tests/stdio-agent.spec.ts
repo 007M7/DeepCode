@@ -25,8 +25,9 @@ import * as stdioAgent from '../src/index.ts'
  * stray default rather than crash). Here we assert the composition + config
  * forwarding the unit tier can reach.
  */
-async function mount(config: stdioAgent.Config): Promise<Context> {
+async function mount(config: stdioAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
+  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
   await ctx.plugin(stdioAgent, config)
   // The app mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services + the pre-created agent are ready.
@@ -132,6 +133,19 @@ describe('dsh-stdio-agent app', () => {
     const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards bundled tool config into agent-core', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      skills: await isolatedSkillsConfig(),
+    }, true)
+    const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
+    expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
+      .not.toContain('run_in_background')
     await ctx.fiber.dispose()
   })
 

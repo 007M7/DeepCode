@@ -23,8 +23,9 @@
  * belongs to its owning agent and producing backend, not to the tool plugin
  * whose call started it, so an HMR reload of a producer or of the control
  * surface never orphans or kills a running task. The registry's own disposal
- * cancels every live task and awaits settlement — no orphans survive
- * `fiber.dispose()`.
+ * cancels every live task and awaits contract-compliant producers to
+ * quiescence. If a teardown cancel throws, the registry force-fails its record
+ * to avoid deadlock and logs that the underlying work may be orphaned.
  *
  * @module @deepseek-ai/dsh-tasks
  */
@@ -77,7 +78,7 @@ interface TrackedTask {
   reported: boolean
   /** Resolves once the terminal snapshot is recorded and listeners notified. */
   settled: Promise<void>
-  /** Resolver for {@link settled} (called exactly once, by {@link TaskService.settle}). */
+  /** Resolver for {@link settled} (called by the first effective {@link TaskService.settle}). */
   markSettled: () => void
   /** Live {@link TaskService.wait} calls — a settlement with waiters marks the task reported. */
   waiters: number
@@ -98,8 +99,8 @@ export class TaskService extends Service {
   private surfaces = new Set<symbol>()
   private listeners = new Set<TaskDoneListener>()
   private listenersClosed = false
-  /** Owner agents that already have this registry's cleanup attached. */
-  private ownerCleanups = new Set<AgentId>()
+  /** Owner agents whose cleanup effect is attached, mapped to its self-detacher. */
+  private ownerCleanups = new Map<AgentId, () => void>()
   /**
    * The service's OWN construction-time context, for work that outlives the
    * calling fiber: detached settlement continuations (logging), and the
@@ -338,8 +339,8 @@ export class TaskService extends Service {
   }
 
   /**
-   * Register a completion listener, called exactly once per task with the
-   * terminal snapshot. Effect-scoped (disposed with the calling fiber);
+   * Register a completion listener, called exactly once per terminal task
+   * record with its snapshot. Effect-scoped (disposed with the calling fiber);
    * per-listener containment (one throwing listener is logged, never starves
    * the rest); never fires after this service is disposed.
    * @param listener - called with each settling task's terminal snapshot.
@@ -409,13 +410,17 @@ export class TaskService extends Service {
   }
 
   /**
-   * Record a task's terminal outcome (called exactly once — the single `done`
-   * continuation is the only caller), notify listeners with containment, then
-   * release waiters. A settlement observed by a pending {@link wait} marks
-   * the task reported BEFORE listeners run, so the notice surface can
+   * Record the first terminal outcome, notify listeners with containment, then
+   * release waiters. Normally the producer's single `done` continuation calls
+   * this; teardown also force-fails the record when `cancel` throws and `done`
+   * may never settle. First-wins makes a producer outcome arriving after that
+   * fallback a no-op, so listeners fire once and the diagnosed terminal state
+   * is never overwritten. A settlement observed by a pending {@link wait}
+   * marks the task reported BEFORE listeners run, so the notice surface can
    * suppress its redundant "finished".
    */
   private settle(task: TrackedTask, outcome: TaskOutcome): void {
+    if (isTerminal(task.status)) return
     task.status = outcome.status
     task.detail = outcome.detail
     task.output = outcome.output
@@ -439,27 +444,38 @@ export class TaskService extends Service {
    * the agent's disposal chain drains (`ctx.agents.drainCleanups`), the
    * owner's still-live tasks are cancelled, awaited to settlement, and their
    * snapshots dropped. Registered through {@link selfCtx} so the cleanup
-   * survives producer-plugin reloads. Fails loud when no agent registry is
-   * mounted — an owned background task without the cleanup seam would outlive
-   * its owner silently.
+   * survives producer-plugin reloads. When the cleanup starts, it detaches its
+   * own effect before awaiting task settlement, so completed owners do not
+   * accumulate effect wrappers (and captured sessions) on the long-lived tasks
+   * fiber. A narrow race remains if new work starts on an agent already being
+   * drained: before this callback clears the owner entry, that start can reuse
+   * the in-flight cleanup after its task snapshot was taken.
+   * Fails loud when no agent registry is mounted — an owned background task
+   * without the cleanup seam would outlive its owner silently.
    */
   private ensureOwnerCleanup(owner: Agent): void {
-    if (this.ownerCleanups.has(owner.id)) return
+    const ownerId = owner.id
+    if (this.ownerCleanups.has(ownerId)) return
     const agents = this.selfCtx.get('agents')
     if (agents === undefined) {
       throw new Error('background task ownership requires the agent registry (load @deepseek-ai/dsh-agent)')
     }
+    const ownerSession = owner.session.header.id
     // Attach FIRST, record after: onCleanup throws for an unregistered agent,
     // and marking the owner as covered before that would make every later
     // registration for the same owner silently skip the cleanup.
-    agents.onCleanup(owner.id, async () => {
-      this.ownerCleanups.delete(owner.id)
-      await this.disposeOwned(owner.session.header.id)
+    const detach = agents.onCleanup(ownerId, async () => {
+      const disposeEffect = this.ownerCleanups.get(ownerId)
+      this.ownerCleanups.delete(ownerId)
+      // A drain racing lifecycle teardown may find that the effect was already
+      // detached; otherwise this removes its wrapper from the tasks fiber now.
+      disposeEffect?.()
+      await this.disposeOwned(ownerSession)
     })
-    this.ownerCleanups.add(owner.id)
+    this.ownerCleanups.set(ownerId, detach)
   }
 
-  /** Cancel (contained), await, and drop every task owned by one session. */
+  /** Cancel, await terminal records, and drop every task owned by one session. */
   private async disposeOwned(ownerSession: string): Promise<void> {
     const owned = [...this.store.values()].filter(task => task.ownerSession === ownerSession)
     this.cancelForTeardown(owned, 'owner disposed')
@@ -469,8 +485,10 @@ export class TaskService extends Service {
 
   /**
    * Service teardown: close the listener registry FIRST (late completions
-   * from teardown kills stay silent), cancel every live task, and await
-   * quiescence. No orphan child work survives the tasks fiber.
+   * from teardown kills stay silent), cancel every live task, and await each
+   * terminal record. Contract-compliant producers settle at quiescence; a
+   * producer whose cancel throws is force-failed so disposal cannot deadlock,
+   * with the possible underlying orphan logged explicitly.
    */
   private async disposeAll(): Promise<void> {
     this.listenersClosed = true
@@ -483,18 +501,25 @@ export class TaskService extends Service {
 
   /**
    * Teardown-path cancellation with per-task containment: unlike the
-   * model-facing {@link kill} (where a throwing producer `cancel` should fail
-   * the tool call loudly), a teardown must reach quiescence past a broken
-   * producer, so a throw is logged and the sweep continues.
+   * model-facing {@link kill} (where a throwing producer `cancel` fails the tool
+   * call and leaves the record live), teardown force-fails a record whose cancel
+   * throws because its `done` may depend on a request that never arrived. This
+   * prevents disposal deadlock but cannot prove the underlying work stopped, so
+   * the potential orphan is carried in the detail and warning. A cancel that
+   * returns but never leads to `done` remains indistinguishable from a slow stop
+   * and can still stall teardown; fixing that requires a separate bounded-lifetime
+   * or forced-disposal design.
    */
   private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
     for (const task of tasks) {
       if (isTerminal(task.status)) continue
-      task.status = 'stopping'
       try {
         task.cancel(reason)
+        task.status = 'stopping'
       } catch (error: unknown) {
-        this.selfCtx.logger.warn(`tasks: cancel of ${task.id} threw during teardown: ${String(error)}`)
+        const detail = `cancel threw during teardown; work may be orphaned: ${String(error)}`
+        this.selfCtx.logger.warn(`tasks: cancel of ${task.id} threw during teardown; task record forced failed and work may be orphaned: ${String(error)}`)
+        this.settle(task, { status: 'failed', detail })
       }
     }
   }

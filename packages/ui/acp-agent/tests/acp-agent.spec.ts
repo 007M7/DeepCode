@@ -18,8 +18,9 @@ import * as acpAgent from '../src/index.ts'
  * ACP operations end-to-end) is the keyless bin smoke in `load-path.e2e.ts`;
  * this spec asserts the composition and the persistenceRoot default branch.
  */
-async function mount(config: acpAgent.Config): Promise<Context> {
+async function mount(config: acpAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
+  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
   await ctx.plugin(acpAgent, config)
   // The bundle mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services are ready.
@@ -107,6 +108,19 @@ describe('dsh-acp-agent composition', () => {
     const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards bundled tool config into agent-core', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      skills: await isolatedSkillsConfig(),
+    }, true)
+    const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
+    expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
+      .not.toContain('run_in_background')
     await ctx.fiber.dispose()
   })
 
