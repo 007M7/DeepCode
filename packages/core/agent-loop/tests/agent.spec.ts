@@ -49,30 +49,15 @@ function send(agent: ReactLoopAgent, text: string) {
 }
 
 describe('ReactLoopAgent', () => {
-  it('owns immutable runtime bindings for id, options, session, and scoped context', async () => {
+  it('borrows caller options and binds its scoped context exactly once', async () => {
     const ctx = await harness(new MockAdapter([textResponse('unused')]))
     const options = { model: 'mock' }
     const agent = ctx.agentLoop.create(AgentId('owned-bindings'), options)
-    const acceptedSession = agent.session
-    const acceptedContext = agent.ctx
 
-    options.model = 'caller-mutated'
-    expect(agent.options).toEqual({ model: 'mock' })
-    expect(Object.isFrozen(agent.options)).toBe(true)
-    expect(Reflect.set(agent, 'id', AgentId('redirected'))).toBe(false)
-    expect(Reflect.set(agent, 'options', { model: 'other' })).toBe(false)
-    expect(Reflect.set(agent, 'session', ctx.sessions.create(SessionId('other')))).toBe(false)
-    expect(Reflect.set(agent, 'ctx', new Context())).toBe(false)
+    expect(agent.options).toBe(options)
     expect(agent.id).toBe('owned-bindings')
-    expect(agent.session).toBe(acceptedSession)
-    expect(agent.ctx).toBe(acceptedContext)
+    expect(agent.session.id).toMatch(/^owned-bindings-session-/)
     expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
-    for (const name of ['id', 'options', 'session', 'ctx']) {
-      expect(Object.getOwnPropertyDescriptor(agent, name)).toMatchObject({
-        configurable: false,
-        writable: false,
-      })
-    }
 
     await ctx.fiber.dispose()
   })
@@ -223,23 +208,6 @@ describe('ReactLoopAgent', () => {
     warn.mockRestore()
   })
 
-  it('idle inject() safely renders a hostile non-Error flush failure', async () => {
-    const ctx = await harness(new MockAdapter([textResponse('ok')]))
-    const hostile = { [Symbol.toPrimitive]() { throw new Error('no coercion') } }
-    ctx.on('session/flush', () => { throw hostile })
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(AgentId('hostile-flush'), { model: 'mock' })
-    const errors: string[] = []
-    ctx.on('agent/error', (_a, _turn, _step, error) => void errors.push(error.message))
-
-    agent.inject([{ type: 'text', text: 'notice' }])
-    await new Promise(r => setTimeout(r, 20))
-
-    expect(errors).toEqual(['<unrenderable thrown value>'])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('<unrenderable thrown value>'))
-    warn.mockRestore()
-  })
-
   it('idle inject() with a non-serializable source opens no turn (nothing to close)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
@@ -281,7 +249,7 @@ describe('ReactLoopAgent', () => {
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
-    prepared.enableDrive()
+    prepared.markPublished()
     const dispose = prepared.startDriver()
 
     // First dispose
@@ -306,24 +274,6 @@ describe('ReactLoopAgent', () => {
     await dispose()
     await expect(prepared.agent.done).resolves.toBeUndefined()
     expect(prepared.agent.session.events).toEqual([])
-    await ctx.fiber.dispose()
-  })
-
-  it('does not claim a session when concrete-agent construction rejects options', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create(SessionId('constructor-retry'))
-    const badOptions = {
-      get model(): string {
-        throw new Error('bad model getter')
-      },
-    }
-
-    expect(() => prepareReactLoopAgent(ctx, AgentId('bad-constructor'), badOptions, session))
-      .toThrow('bad model getter')
-    const prepared = prepareReactLoopAgent(ctx, AgentId('constructor-retry'), { model: 'mock' }, session)
-    await prepared.dispose()
-    expect(prepared.agent.status).toBe('disposed')
     await ctx.fiber.dispose()
   })
 
@@ -417,7 +367,7 @@ describe('ReactLoopAgent', () => {
     const session = ctx.sessions.create(SessionId('bare'))
     const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
     const { agent } = prepared
-    prepared.enableDrive()
+    prepared.markPublished()
     const dispose = prepared.startDriver()
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))

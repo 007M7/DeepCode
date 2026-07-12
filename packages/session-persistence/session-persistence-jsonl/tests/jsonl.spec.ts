@@ -4,7 +4,7 @@ import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
@@ -12,6 +12,13 @@ import { runCoordinatorContract, type CoordinatorFixture } from '../../session-p
 
 let root: string
 const dirs: string[] = []
+
+type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeader[K] }
+
+/** Test-only mutable view used to verify that backends detach returned/caller metadata. */
+function mutableHeader(header: SessionHeader): MutableSessionHeader {
+  return header
+}
 
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
@@ -255,7 +262,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     const loaded = await ctx.sessionPersistence.load(m.id)
     // A consumer mutates the returned meta's cwd. The backend's stored pathing
     // metadata must be unaffected, so a later append still finds the right log.
-    loaded.meta.cwd = '/evil'
+    mutableHeader(loaded.meta).cwd = '/evil'
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
@@ -421,7 +428,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const m = meta('create-snap', '/orig')
     const p = ctx.sessionPersistence.create(m)
     // Mutate the caller's meta object immediately after calling create.
-    m.cwd = '/mutated'
+    mutableHeader(m).cwd = '/mutated'
     await p
     await ctx.sessionPersistence.append(SessionId('create-snap'), oneTurnLog())
     // The log materialized under the ORIGINAL cwd, not the mutated one.

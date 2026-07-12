@@ -6,8 +6,8 @@
  * the first argument in one move, so a site cannot name a different subject.
  * The registry lifecycle pair is the deliberate exception: `enter()` captures
  * one stable carrier before commit and `announce()`/detach dispatch through it
- * directly, preventing a mutable filter getter from changing or reentering the
- * paired edges. The dev scoped-dispatch invariant checks both shapes.
+ * directly, so both lifecycle edges use the same routing identity. The dev
+ * scoped-dispatch invariant checks both shapes.
  *
  * @module @deepseek-ai/dsh-agent/dispatch
  */
@@ -62,16 +62,6 @@ export interface AgentEventDispatch {
    */
   serial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
   /**
-   * Await listeners in order and return the first value other than `undefined`.
-   * Unlike Cordis `serial`, this does not silently treat `null` or `false` as
-   * abstentions. Use it for a runtime-validated public boundary whose declared
-   * abstention is exactly `undefined` (currently `agent/turn-stop`).
-   * @param name - the agent-subject event to dispatch.
-   * @param rest - the event's arguments after the injected agent.
-   * @returns the first non-undefined listener result, or undefined.
-   */
-  strictSerial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
-  /**
    * Around-middleware dispatch (Cordis `waterfall`) in the agent's scope. The
    * declared event parameters already end with the `next` callback, so `rest`
    * is exactly the event's arguments after the injected agent — the final
@@ -110,10 +100,10 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
         try {
           const returned: unknown = callback(...args)
           void Promise.resolve(returned).catch((error: unknown) => {
-            ctx.logger.warn(`agent event "${name}" listener rejected: ${renderThrown(error)}`)
+            ctx.logger.warn(`agent event "${name}" listener rejected: ${String(error)}`)
           })
         } catch (error: unknown) {
-          ctx.logger.warn(`agent event "${name}" listener threw: ${renderThrown(error)}`)
+          ctx.logger.warn(`agent event "${name}" listener threw: ${String(error)}`)
         }
       }
     },
@@ -122,36 +112,11 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
       const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
       return await serial(carrier, name, agent, ...rest)
     },
-    strictSerial(name, ...rest) {
-      return (async (): Promise<unknown> => {
-        // EventsService.dispatch applies the carrier filter and emits the same
-        // internal/dispatch instrumentation as ctx.serial, then mutates `args`
-        // down to the actual listener parameters. Invoke those callbacks in order
-        // ourselves so every non-undefined value reaches the caller's validator;
-        // Cordis serial would discard null/false before validation could see them.
-        const args: unknown[] = [carrier, name, agent, ...rest]
-        const callbacks = ctx.events.dispatch('serial', args)
-        for (const callback of callbacks) {
-          const result: unknown = await callback(...args)
-          if (result !== undefined) return result
-        }
-        return undefined
-      })() as Promise<Awaited<Return<Events[typeof name]>>>
-    },
     waterfall(name, ...rest) {
       // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
       const waterfall = ctx.waterfall as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => never
       return waterfall(carrier, name, agent, ...rest)
     },
-  }
-}
-
-/** Render an arbitrary thrown value without allowing coercion to throw again. */
-function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
   }
 }
 

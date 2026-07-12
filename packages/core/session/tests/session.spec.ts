@@ -129,16 +129,6 @@ describe('Session', () => {
     expect(session.events).toHaveLength(0)
   })
 
-  it('rejects a non-string event type without retaining or freezing caller data', () => {
-    const session = new Session(SessionId('invalid-event-type'))
-    const type = { tag: 'caller-owned' }
-    const appendRaw = session.append.bind(session) as unknown as (type: unknown, data: unknown) => SessionEvent
-
-    expect(() => appendRaw(type, {})).toThrow(/event type must be a string/)
-    expect(Object.isFrozen(type)).toBe(false)
-    expect(session.events).toEqual([])
-  })
-
   it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
     const session = new Session(SessionId('s5b'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -282,7 +272,7 @@ describe('Session', () => {
     const seed: SessionEvent[] = [new SeedEvent()]
 
     expect(() => new Session(SessionId('seed-exotic-shell'), seed))
-      .toThrow(/not a plain JSON record/)
+      .toThrow(/not losslessly JSON-serializable/)
   })
 
   it('accepts a null-prototype seed event shell as a plain JSON record', () => {
@@ -394,26 +384,6 @@ describe('Session', () => {
     expect(reads).toBe(1)
     expect(event.data).toEqual({ value: 'accepted' })
     expect(session.events).toEqual([event])
-  })
-
-  it('reads surface metadata accessors once so a validated marker is logged', () => {
-    const session = new Session(SessionId('surface-intent-snapshot'))
-    let reads = 0
-    const intent = {
-      get surfaceOp(): 'append' | undefined {
-        reads += 1
-        return reads === 1 ? 'append' : undefined
-      },
-    }
-
-    const event = session.append(
-      'user/message',
-      { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
-      intent as { surfaceOp: 'append' },
-    )
-
-    expect(reads).toBe(1)
-    expect(event.surfaceOp).toBe('append')
   })
 
   it('rejects non-JSON surface metadata before appending the event', () => {
@@ -578,42 +548,8 @@ describe('Session', () => {
     expect(session.header).not.toBe(input)
     expect(Object.isFrozen(session.header)).toBe(true)
     expect(Reflect.set(session.header, 'cwd', '/published-mutated')).toBe(false)
-    expect(Reflect.set(session, 'id', SessionId('redirected'))).toBe(false)
-    expect(Reflect.set(session, 'header', input)).toBe(false)
-    expect(Object.getOwnPropertyDescriptor(session, 'id')).toMatchObject({
-      configurable: false,
-      writable: false,
-    })
-    expect(Object.getOwnPropertyDescriptor(session, 'header')).toMatchObject({
-      configurable: false,
-      writable: false,
-    })
     expect(session.id).toBe('header-owned')
     expect(session.header.cwd).toBe('/accepted')
-  })
-
-  it('reads each supplied header field once before validation and publication', () => {
-    const reads = { version: 0, id: 0, createdAt: 0, cwd: 0, parentSession: 0, seedLength: 0 }
-    const header = {
-      get version() { reads.version += 1; return reads.version === 1 ? SESSION_FORMAT_VERSION : 99 },
-      get id() { reads.id += 1; return reads.id === 1 ? SessionId('header-once') : SessionId('drifted') },
-      get createdAt() { reads.createdAt += 1; return reads.createdAt === 1 ? 123 : Number.NaN },
-      get cwd() { reads.cwd += 1; return reads.cwd === 1 ? '/accepted' : 'relative' },
-      get parentSession() { reads.parentSession += 1; return reads.parentSession === 1 ? SessionId('parent') : 1n },
-      get seedLength() { reads.seedLength += 1; return reads.seedLength === 1 ? 0 : 1n },
-    } as unknown as SessionHeader
-
-    const session = new Session(SessionId('header-once'), undefined, header)
-
-    expect(reads).toEqual({ version: 1, id: 1, createdAt: 1, cwd: 1, parentSession: 1, seedLength: 1 })
-    expect(session.header).toEqual({
-      version: SESSION_FORMAT_VERSION,
-      id: 'header-once',
-      createdAt: 123,
-      cwd: '/accepted',
-      parentSession: 'parent',
-      seedLength: 0,
-    })
   })
 
   it('rejects an exotic, non-JSON, or mismatched supplied header', () => {
@@ -624,7 +560,7 @@ describe('Session', () => {
     }
 
     expect(() => new Session(SessionId('header-invalid'), undefined, new ExoticHeader()))
-      .toThrow(/not a plain JSON record/)
+      .toThrow(/not losslessly JSON-serializable/)
     expect(() => new Session(SessionId('header-invalid'), undefined, {
       version: SESSION_FORMAT_VERSION,
       id: SessionId('header-invalid'),
@@ -740,79 +676,6 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('racy'))).toBe(live)
   })
 
-  it('claims an id across Context.filter evaluation before committing the exact session', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const id = SessionId('reentrant-enter')
-    const nested = new Session(id)
-    const outer = new Session(id)
-    let nestedError = ''
-    let attempted = false
-    Object.defineProperty(outer, Context.filter, {
-      configurable: true,
-      get() {
-        if (!attempted) {
-          attempted = true
-          try {
-            ctx.sessions.enter(nested)
-          } catch (error: unknown) {
-            nestedError = String(error)
-          }
-        }
-        return undefined
-      },
-    })
-
-    const detach = ctx.sessions.enter(outer)
-    expect(nestedError).toMatch(/already exists/)
-    expect(ctx.sessions.get(id)).toBe(outer)
-    detach()
-    expect(ctx.sessions.get(id)).toBeUndefined()
-  })
-
-  it('revalidates reservation ownership after carrier construction runs caller code', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const id = SessionId('released-during-enter')
-    const reservation = ctx.sessions.reserve(id)
-    const session = reservation.prepare()
-    Object.defineProperty(session, Context.filter, {
-      configurable: true,
-      get() {
-        reservation.release()
-        return undefined
-      },
-    })
-
-    expect(() => ctx.sessions.enter(session, reservation)).toThrow(/does not own this prepared session/)
-    expect(ctx.sessions.get(id)).toBeUndefined()
-  })
-
-  it('rejects when carrier construction attaches the same session to another store', async () => {
-    const firstCtx = new Context()
-    const secondCtx = new Context()
-    await firstCtx.plugin(SessionStore)
-    await secondCtx.plugin(SessionStore)
-    const session = new Session(SessionId('cross-store-carrier'))
-    let attempted = false
-    let detachSecond = (): void => {}
-    Object.defineProperty(session, Context.filter, {
-      configurable: true,
-      get() {
-        if (!attempted) {
-          attempted = true
-          detachSecond = secondCtx.sessions.enter(session)
-        }
-        return undefined
-      },
-    })
-
-    expect(() => firstCtx.sessions.enter(session)).toThrow(/already attached to a store/)
-    expect(firstCtx.sessions.get(session.id)).toBeUndefined()
-    expect(secondCtx.sessions.get(session.id)).toBe(session)
-    detachSecond()
-  })
-
   it('prepare() + enter() + announce() register a session and emit session/created', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -834,7 +697,7 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
   })
 
-  it('captures the accepted id once and prevents simultaneous attachment to two stores', async () => {
+  it('prevents simultaneous attachment of one session object to two stores', async () => {
     const firstCtx = new Context()
     const secondCtx = new Context()
     await firstCtx.plugin(SessionStore)
@@ -842,7 +705,6 @@ describe('SessionStore', () => {
     const session = new Session(SessionId('owned-key'))
     const detachFirst = firstCtx.sessions.enter(session)
 
-    expect(Reflect.set(session, 'id', SessionId('redirected'))).toBe(false)
     expect(() => secondCtx.sessions.enter(session)).toThrow(/already attached to a store/)
     expect(firstCtx.sessions.get(SessionId('owned-key'))).toBe(session)
 
@@ -852,69 +714,6 @@ describe('SessionStore', () => {
     expect(secondCtx.sessions.get(SessionId('owned-key'))).toBe(session)
     detachSecond()
 
-    expect(() => firstCtx.sessions.enter({ id: 42 } as unknown as Session)).toThrow(/id must be a string/)
-  })
-
-  it('uses an opaque one-session reservation to gate unpublished factory insertion', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const held = ctx.sessions.reserve(SessionId('held-session'))
-
-    expect(() => ctx.sessions.reserve(SessionId('held-session'))).toThrow(/already exists or is reserved/)
-    expect(() => ctx.sessions.prepare(SessionId('held-session'))).toThrow(/reserved for unpublished creation/)
-    expect(() => ctx.sessions.create(SessionId('held-session'))).toThrow(/reserved for unpublished creation/)
-    const session = held.prepare({ meta: { cwd: '/held' } })
-    expect(() => held.prepare()).toThrow(/already prepared/)
-    expect(() => ctx.sessions.enter(session)).toThrow(/reserved for unpublished creation/)
-
-    const other = ctx.sessions.reserve(SessionId('other-session'))
-    expect(() => ctx.sessions.enter(session, other)).toThrow(/does not own this prepared session/)
-    expect(() => ctx.sessions.enter(new Session(SessionId('held-session')), held))
-      .toThrow(/does not own this prepared session/)
-
-    const detach = ctx.sessions.enter(session, held)
-    ctx.sessions.announce(session)
-    held.release()
-    held.release()
-    expect(ctx.sessions.get(SessionId('held-session'))).toBe(session)
-    expect(() => ctx.sessions.reserve(SessionId('held-session'))).toThrow(/already exists or is reserved/)
-    detach()
-    other.release()
-
-    const expired = ctx.sessions.reserve(SessionId('expired-session'))
-    expired.release()
-    expect(() => expired.prepare()).toThrow(/no longer active/)
-    expect(() => ctx.sessions.enter(new Session(SessionId('expired-session')), expired))
-      .toThrow(/does not own this prepared session/)
-    expect(() => ctx.sessions.reserve(42 as unknown as SessionId)).toThrow(/id must be a string/)
-    expect(() => ctx.sessions.prepare(42 as unknown as SessionId)).toThrow(/id must be a string/)
-
-    // Auto-generated ids skip unpublished reservations just as they skip live
-    // store entries; no hidden collision can be published later.
-    const firstAuto = ctx.sessions.reserve(SessionId('session-1'))
-    expect(ctx.sessions.prepare().id).toBe('session-2')
-    firstAuto.release()
-  })
-
-  it('owns reservations by the calling fiber and rolls back failed ownership registration', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    let held!: import('@deepseek-ai/dsh-session').SessionRegistrationReservation
-    let scopedSessions!: SessionStore
-    const owner = await ctx.plugin(Object.assign((inner: Context) => {
-      scopedSessions = inner.sessions
-      held = inner.sessions.reserve(SessionId('fiber-held'))
-    }, { inject: ['sessions'] }))
-
-    expect(() => ctx.sessions.reserve(SessionId('fiber-held'))).toThrow(/already exists or is reserved/)
-    await owner.dispose()
-    const reused = ctx.sessions.reserve(SessionId('fiber-held'))
-    reused.release()
-    held.release() // idempotent after the automatic owner-disposal release
-
-    expect(() => scopedSessions.reserve(SessionId('inactive-owner'))).toThrow(/inactive context/)
-    const recovered = ctx.sessions.reserve(SessionId('inactive-owner'))
-    recovered.release()
   })
 
   it('rejects direct and reentrant repeat announcements to preserve one lifecycle pair', async () => {
@@ -1009,54 +808,14 @@ describe('SessionStore', () => {
     })
   })
 
-  it('reads session options and each metadata field once in prepare()', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const reads = { seed: 0, meta: 0, cwd: 0, parentSession: 0, createdAt: 0, seedLength: 0 }
-    const meta = {
-      get cwd() { reads.cwd += 1; return reads.cwd === 1 ? '/accepted' : 'relative' },
-      get parentSession() { reads.parentSession += 1; return reads.parentSession === 1 ? SessionId('parent') : 1n },
-      get createdAt() { reads.createdAt += 1; return reads.createdAt === 1 ? 123 : Number.NaN },
-      get seedLength() { reads.seedLength += 1; return reads.seedLength === 1 ? 0 : 1n },
-    }
-    const options = {
-      get seed() { reads.seed += 1; return reads.seed === 1 ? undefined : [] },
-      get meta() { reads.meta += 1; return reads.meta === 1 ? meta : undefined },
-    } as unknown as CreateSessionOptions
-
-    const session = ctx.sessions.prepare(SessionId('metadata-once'), options)
-
-    expect(reads).toEqual({ seed: 1, meta: 1, cwd: 1, parentSession: 1, createdAt: 1, seedLength: 1 })
-    expect(session.header).toEqual({
-      version: SESSION_FORMAT_VERSION,
-      id: 'metadata-once',
-      createdAt: 123,
-      cwd: '/accepted',
-      parentSession: 'parent',
-      seedLength: 0,
-    })
-  })
-
-  it('rejects exotic metadata before cloning can erase its prototype', async () => {
-    class ExoticMeta {
-      readonly cwd = '/accepted'
-    }
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-
-    expect(() => ctx.sessions.prepare(SessionId('exotic-meta'), { meta: new ExoticMeta() }))
-      .toThrow(/session metadata is not a plain JSON record/)
-  })
-
   it('rejects non-JSON and invalid scalar session metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const cases: Array<{ meta: unknown; error: RegExp }> = [
-      { meta: 1, error: /metadata is not a plain JSON record/ },
-      { meta: { parentSession: 1n }, error: /metadata is not losslessly JSON-serializable/ },
-      { meta: { cwd: 1 }, error: /session cwd must be a string/ },
-      { meta: { parentSession: 1 }, error: /parentSession must be a string/ },
-      { meta: { createdAt: '123' }, error: /createdAt must be a finite number/ },
+      { meta: { parentSession: 1n }, error: /header is not losslessly JSON-serializable/ },
+      { meta: { cwd: 1 }, error: /header cwd must be a string/ },
+      { meta: { parentSession: 1 }, error: /header parentSession must be a string/ },
+      { meta: { createdAt: '123' }, error: /header createdAt must be a finite number/ },
       { meta: { seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },
@@ -1224,105 +983,6 @@ describe('SessionStore', () => {
     expect(observed).toEqual([])
   })
 
-  it('rejects prepend or append instrumentation that replaces the accepted observer tuple', async () => {
-    for (const prepend of [true, false]) {
-      const ctx = new Context()
-      await ctx.plugin(SessionStore)
-      const session = ctx.sessions.create(SessionId(`dispatch-tuple-${prepend}`))
-      const replacementSession = new Session(SessionId('replacement'))
-      const replacementEvent = {
-        type: 'turn/end',
-        seq: 99,
-        time: 1,
-        data: { turn: 99, reason: { kind: 'completed' } },
-      } as SessionEvent
-      const observed: Array<{ session: Session; event: SessionEvent }> = []
-      let replace = true
-      ctx.on('internal/dispatch', (_mode, name, args) => {
-        if (name !== 'session/event' || !replace) return
-        args[0] = replacementSession
-        args[1] = replacementEvent
-      }, { prepend })
-      ctx.on('session/event', (observedSession, event) => {
-        observed.push({ session: observedSession, event })
-      })
-
-      expect(() => session.append('turn/start', {
-        turn: 1,
-        trigger: { kind: 'message', source: { kind: 'user' } },
-      })).toThrow('session/event internal dispatch replaced the accepted callback tuple')
-      expect(session.events).toEqual([])
-      expect(observed).toEqual([])
-
-      replace = false
-      const appended = session.append('turn/start', {
-        turn: 1,
-        trigger: { kind: 'message', source: { kind: 'user' } },
-      })
-      expect(session.events).toEqual([appended])
-      expect(observed).toEqual([{ session, event: appended }])
-    }
-  })
-
-  it('rejects if a bare session becomes attached while caller data is materialized', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const session = new Session(SessionId('attach-during-append'))
-    const observed: SessionEvent[] = []
-    let sessionEventDispatches = 0
-    let detach!: () => void
-    ctx.on('internal/dispatch', (_mode, name) => {
-      if (name === 'session/event') sessionEventDispatches += 1
-    })
-    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
-    const data = {
-      get todos(): TodoItem[] {
-        detach = ctx.sessions.enter(session)
-        ctx.sessions.announce(session)
-        return []
-      },
-    }
-
-    expect(() => session.append('todo/write', data))
-      .toThrow('session attachment changed while append input was being accepted')
-    expect(ctx.sessions.get(session.id)).toBe(session)
-    expect(session.events).toEqual([])
-    expect(sessionEventDispatches).toBe(0)
-    expect(observed).toEqual([])
-
-    const appended = session.append('todo/write', { todos: [] })
-    expect(session.events).toEqual([appended])
-    expect(sessionEventDispatches).toBe(1)
-    expect(observed).toEqual([appended])
-    detach()
-  })
-
-  it('rejects a transient attach and detach while caller data is materialized', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const session = new Session(SessionId('attach-detach-during-append'))
-    const lifecycle: string[] = []
-    const observed: SessionEvent[] = []
-    ctx.on('session/created', () => { lifecycle.push('created') })
-    ctx.on('session/disposed', () => { lifecycle.push('disposed') })
-    ctx.on('session/event', (_observedSession, event) => { observed.push(event) })
-    const data = {
-      get todos(): TodoItem[] {
-        const detach = ctx.sessions.enter(session)
-        ctx.sessions.announce(session)
-        detach()
-        return []
-      },
-    }
-
-    expect(() => session.append('todo/write', data))
-      .toThrow('session attachment changed while append input was being accepted')
-    expect(ctx.sessions.get(session.id)).toBeUndefined()
-    expect(session.events).toEqual([])
-    expect(lifecycle).toEqual(['created', 'disposed'])
-    expect(observed).toEqual([])
-  })
-
   it('contains a reentrant observer append without reordering later observers', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -1342,32 +1002,8 @@ describe('SessionStore', () => {
     expect(session.events).toEqual([appended])
     expect(heard).toEqual([appended])
     expect(warnings).toEqual([
-      'session "reentrant-observer": session/event listener threw: Error: session append cannot reenter while another append is being accepted or published',
+      'session "reentrant-observer": session/event listener threw: Error: session append cannot reenter while another append is being published',
     ])
-  })
-
-  it('keeps observer failures contained when warning output itself throws', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    ctx.logger.warn = (() => { throw new Error('logger unavailable') }) as typeof ctx.logger.warn
-    const session = ctx.sessions.create(SessionId('throwing-logger'))
-    const heard: SessionEvent[] = []
-    ctx.on('session/event', () => { throw new Error('sync observer') })
-    ctx.on('session/event', () => Promise.reject(new Error('async observer')) as never)
-    ctx.on('session/event', (_observedSession, event) => { heard.push(event) })
-
-    let appended!: SessionEvent
-    expect(() => {
-      appended = session.append('turn/start', {
-        turn: 1,
-        trigger: { kind: 'message', source: { kind: 'user' } },
-      })
-    }).not.toThrow()
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(session.events).toEqual([appended])
-    expect(heard).toEqual([appended])
   })
 
   it('defers detach through dispatch resolution, commit, and observer publication', async () => {
@@ -1425,12 +1061,9 @@ describe('SessionStore', () => {
     await ctx.plugin(SessionStore)
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
-    const hostile = { [Symbol.toPrimitive]() { throw new Error('cannot stringify') } }
-    const printable = { toString: () => 'printable failure' }
     const heard: string[] = []
-    ctx.on('session/disposed', () => { throw hostile })
+    ctx.on('session/disposed', () => { throw new Error('sync disposed') })
     ctx.on('session/disposed', () => Promise.reject(new Error('async disposed')) as never)
-    ctx.on('session/disposed', () => { throw printable })
     ctx.on('session/disposed', (session) => { heard.push(session.id) })
 
     const unannounced = ctx.sessions.prepare(SessionId('never-announced'))
@@ -1447,8 +1080,7 @@ describe('SessionStore', () => {
 
     expect(heard).toEqual(['contained-disposal'])
     expect(warnings).toEqual([
-      'session "contained-disposal": session/disposed listener threw: <unrenderable thrown value>',
-      'session "contained-disposal": session/disposed listener threw: printable failure',
+      'session "contained-disposal": session/disposed listener threw: Error: sync disposed',
       'session "contained-disposal": session/disposed listener rejected: Error: async disposed',
     ])
   })
