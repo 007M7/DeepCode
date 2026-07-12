@@ -58,7 +58,7 @@ A **session** is one agent's append-only event log. A **turn** drains one queued
 ### Turn Flow
 
 ```text
-reserve ids -> mint agent.ctx -> await unpublished setup
+prepare private session + agent.ctx -> await unpublished setup
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:

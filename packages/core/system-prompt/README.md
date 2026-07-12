@@ -1,6 +1,6 @@
 # dsh-system-prompt
 
-System prompt assembly registry. Plugins contribute ordered text sections, tool-schema providers, and named prompt variables; contributions that implement required protocol may declare themselves owner-final. The agent loop calls `assemble(context)` once per step, and `renderPrompt(assembly)` is the full system prompt the model sees. The plugin registers the harness-owned openers itself — the static `harness:identity` section and the deployment's `deployment:persona` section — so they exist for every agent regardless of which loop plugin drives it.
+System prompt assembly registry. Plugins contribute ordered text sections, tool-schema providers, and named prompt variables; contributions that implement required protocol may declare themselves owner-final. The agent loop calls `assemble(context)` once per step, and `renderPrompt(assembly)` is the full system prompt the model sees. The plugin registers the harness-owned openers itself — the static `harness:identity` section and the global default `deployment:persona` section — so they remain available regardless of which loop plugin drives an agent. An agent-scoped contribution with the same persona name shadows that default for its agent.
 
 ## Config
 
