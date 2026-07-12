@@ -55,6 +55,18 @@ describe('SurfaceManager', () => {
     expect(() => s.surface.nodes).toThrow(/start seq 42 not found/)
   })
 
+  it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {
+    const malformed: SessionEvent = {
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' } },
+    }
+
+    expect(() => foldSurface([malformed]))
+      .toThrow(/surface event "user\/message" \(seq 0\) carries no surfaceOp marker/)
+  })
+
   it('rebuilds a linked list from surfaceOp: append markers', () => {
     const s = surfaceSession()
     const nodes = s.surface.nodes

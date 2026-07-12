@@ -102,7 +102,10 @@ function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
 ): SurfaceFoldReplacement | undefined {
-  if (!isSurfaceEvent(event)) return
+  if (!isSurfaceEligibleType(event.type)) return
+  if (!isSurfaceEvent(event)) {
+    throw new Error(`surface event "${event.type}" (seq ${event.seq}) carries no surfaceOp marker`)
+  }
 
   if (event.surfaceOp === 'append') {
     const tail = state.nodes.length > 0 ? state.nodes[state.nodes.length - 1] : undefined
@@ -167,6 +170,8 @@ function replaceSurface(
  * models cannot disagree with `deriveMessages()` about replacement ranges.
  * @param events - session events in contiguous seq order.
  * @returns the current surface and every positional replacement.
+ * @throws when a surface-eligible event lacks its mandatory `surfaceOp`, or a
+ * replacement names nodes that are absent or reversed on the current surface.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()

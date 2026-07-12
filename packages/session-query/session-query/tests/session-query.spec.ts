@@ -232,6 +232,21 @@ describe('session-query exact reads', () => {
     await expect(ctx.sessionQuery.listEvents(session.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
 
+    const persisted = header('bad-persisted-surface')
+    TestPersistence.reset([{
+      meta: persisted,
+      events: [{
+        type: 'user/message',
+        seq: 0,
+        time: 1,
+        data: { content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' } },
+      }],
+    }])
+    const persistence = await ctx.plugin(TestPersistence)
+    await expect(ctx.sessionQuery.listEvents(persisted.id))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
+    await persistence.dispose()
+
     const direct = new Context()
     await direct.plugin(SessionStore)
     expect(new SessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
