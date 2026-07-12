@@ -93,6 +93,7 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     '  config:',
     '    model: mock-echo',
     '    persona: \'demo\'',
+    '    workspaceContext: false',
     `    welcome: '${welcome}'`,
     ...disabledBrokenEntry
       ? ['- id: off', '  name: \'./src/does-not-exist.ts\'', '  disabled: true']

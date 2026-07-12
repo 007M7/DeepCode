@@ -100,6 +100,7 @@ async function makeConsumer(): Promise<string> {
     '  config:',
     '    model: deepseek-v4-flash',
     '    persona: \'test agent\'',
+    '    workspaceContext: false',
     '',
   ].join('\n'))
   return dir
