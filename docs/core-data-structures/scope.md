@@ -1,6 +1,6 @@
 # Scoped Registration
 
-The [scope package](../../packages/core/scope) supplies the identity and carrier vocabulary that makes one registration context mean both per-agent visibility and shared lifetime ownership. It is a library primitive rather than a Cordis service; the [agent-scope RFC](../rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) owns the design rationale, while the package [README](../../packages/core/scope/README.md) owns the callable API and filtering semantics.
+The [scope package](../../packages/core/scope) supplies the identity and carrier vocabulary that makes one registration context mean both per-agent visibility and shared lifetime ownership. It is a library primitive rather than a Cordis service; the [agent-scope runtime-design RFC](../rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#scope-mechanism-context-key-and-lifetime) owns the implementation rationale, while the package [README](../../packages/core/scope/README.md) owns the callable API and filtering semantics.
 
 Source: [`packages/core/scope/src/index.ts`](../../packages/core/scope/src/index.ts).
 
