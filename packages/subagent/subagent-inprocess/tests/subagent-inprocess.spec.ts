@@ -46,9 +46,41 @@ describe('depthOf', () => {
     const withDepth = { options: { subagentDepth: 3 } } as unknown as Agent
     expect(depthOf(withDepth)).toBe(3)
   })
+
+  it.each([
+    { label: 'a string', value: '1' as unknown as number },
+    { label: 'NaN', value: Number.NaN },
+    { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
+    { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
+    { label: 'a fraction', value: 1.5 },
+    { label: 'a negative integer', value: -1 },
+    { label: 'negative zero', value: -0 },
+    { label: 'an unsafe integer', value: Number.MAX_SAFE_INTEGER + 1 },
+  ])('rejects subagentDepth=$label', ({ value }) => {
+    const agent = { options: { subagentDepth: value } } as unknown as Agent
+    expect(() => depthOf(agent)).toThrow('agent subagentDepth must be a non-negative safe integer')
+  })
 })
 
 describe('startInProcessRun', () => {
+  it.each([
+    { label: 'a string', value: '1' as unknown as number },
+    { label: 'NaN', value: Number.NaN },
+    { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
+    { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
+    { label: 'a fraction', value: 1.5 },
+    { label: 'a negative integer', value: -1 },
+    { label: 'negative zero', value: -0 },
+    { label: 'an unsafe integer', value: Number.MAX_SAFE_INTEGER + 1 },
+  ])('rejects maxDepth=$label before acquiring run ownership', async ({ value }) => {
+    const { ctx, parent } = await setup([])
+    expect(() => startInProcessRun(ctx, {
+      prompt: [{ type: 'text', text: 'must never start' }],
+      parent,
+      maxDepth: value,
+    }, {})).toThrow('subagent maxDepth must be a non-negative safe integer')
+  })
+
   it('rejects a non-JSON prompt before acquiring any run ownership', async () => {
     const { ctx, parent } = await setup([])
     expect(() => startInProcessRun(ctx, {

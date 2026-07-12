@@ -431,10 +431,14 @@ describe('SubagentService', () => {
     })
 
     it.each([
+      { label: 'a string', value: '1' as unknown as number },
       { label: 'NaN', value: Number.NaN },
+      { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
+      { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
       { label: 'a fraction', value: 1.5 },
       { label: 'a negative integer', value: -1 },
       { label: 'negative zero', value: -0 },
+      { label: 'an unsafe integer', value: Number.MAX_SAFE_INTEGER + 1 },
     ])('rejects maxDepth=$label before the provider starts', async ({ value }) => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)

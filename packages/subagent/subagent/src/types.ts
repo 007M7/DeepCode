@@ -69,8 +69,9 @@ export interface SubagentStartRequest {
    */
   outputSchema?: StructuredOutputSchema
   /**
-   * Optional recursion cap (max delegation depth below this child). Requires
-   * {@link SubagentCapabilities.depthLimit}; rejected at start otherwise.
+   * Optional recursion cap (max delegation depth below this child). Must be a
+   * non-negative safe integer. Requires {@link SubagentCapabilities.depthLimit};
+   * rejected at start otherwise.
    */
   maxDepth?: number
   /**

@@ -494,6 +494,9 @@ describe('dsh-tool-subagent', () => {
   })
 
   it.each([
+    { label: 'NaN', value: Number.NaN },
+    { label: 'positive infinity', value: Number.POSITIVE_INFINITY },
+    { label: 'negative infinity', value: Number.NEGATIVE_INFINITY },
     { label: 'a negative integer', value: -1 },
     { label: 'a fractional number', value: 1.5 },
     { label: 'negative zero', value: -0 },

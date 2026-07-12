@@ -21,6 +21,7 @@ import { AgentId, type Agent, type AgentHandle, type AgentOptions } from '@deeps
 import { SessionId, snapshotJsonValue, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
+import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
   attachStructuredRuntime,
@@ -42,20 +43,26 @@ declare module '@deepseek-ai/dsh-agent' {
      * (config/ACP-created) agent, parent depth + 1 for a subagent. Set by the
      * in-process backends on every child they create so a nested spawn reads its
      * parent's depth from `parent.options.subagentDepth` and the `depthLimit`
-     * capability can cap the tree. Merge-extensible field (the seam owns it; the
-     * loop neither sets nor reads it).
+     * capability can cap the tree. When present it is a non-negative safe
+     * integer. Merge-extensible field (the seam owns it; the loop neither sets
+     * nor reads it).
      */
     subagentDepth?: number
   }
 }
 
 /**
- * Read an agent's delegation depth (absent ⇒ a top-level agent, depth 0).
+ * Read an agent's delegation depth (absent ⇒ a top-level agent, depth 0),
+ * rejecting a malformed stored value instead of letting it disable comparison.
  * @param agent - the agent whose options may carry `subagentDepth`.
  * @returns 0 for a top-level agent, its parent's depth + 1 for a subagent.
  */
 export function depthOf(agent: Agent): number {
-  return agent.options.subagentDepth ?? 0
+  const depth = agent.options.subagentDepth ?? 0
+  if (!Number.isSafeInteger(depth) || depth < 0 || Object.is(depth, -0)) {
+    throw new TypeError('agent subagentDepth must be a non-negative safe integer')
+  }
+  return depth
 }
 
 /** Thrown when a spawn would exceed the request's `maxDepth` cap. */
@@ -139,6 +146,7 @@ export function startInProcessRun(
   const inputPrompt = request.prompt
   const inputAgentOptions = request.agentOptions
   const inputSeed = options.seed
+  assertSubagentMaxDepth(inputMaxDepth)
   const toolFilter = inputToolFilter === undefined ? undefined : snapshotJsonValue(inputToolFilter)
   if (inputToolFilter !== undefined && toolFilter === undefined) {
     throw new TypeError('subagent tool filter must be losslessly JSON-serializable')

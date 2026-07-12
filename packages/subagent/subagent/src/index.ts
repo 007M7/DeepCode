@@ -58,6 +58,25 @@ export type {
   SubagentStopReasonMap,
 } from './types.ts'
 
+/**
+ * Reject a recursion cap that cannot represent an exact delegation depth.
+ * Undefined means the caller did not request a cap and is accepted. The
+ * service, direct in-process driver, and model-facing config adapter share this
+ * boundary so no entry path can turn a fractional or non-finite value into an
+ * ineffective limit.
+ * @param maxDepth - the optional runtime value to validate.
+ */
+export function assertSubagentMaxDepth(maxDepth: unknown): void {
+  if (maxDepth !== undefined && (
+    typeof maxDepth !== 'number'
+    || !Number.isSafeInteger(maxDepth)
+    || maxDepth < 0
+    || Object.is(maxDepth, -0)
+  )) {
+    throw new TypeError('subagent maxDepth must be a non-negative safe integer')
+  }
+}
+
 declare module 'cordis' {
   interface Context {
     subagents: SubagentService
@@ -309,13 +328,7 @@ export class SubagentService extends Service {
     const input = this.snapshotStartRequest(request)
     const parent = input.parent
     this.assertCapabilities(provider, input)
-    if (input.maxDepth !== undefined && (
-      !Number.isSafeInteger(input.maxDepth)
-      || input.maxDepth < 0
-      || Object.is(input.maxDepth, -0)
-    )) {
-      throw new TypeError('subagent maxDepth must be a non-negative safe integer')
-    }
+    assertSubagentMaxDepth(input.maxDepth)
     if (input.persona !== undefined && typeof input.persona !== 'string') {
       throw new TypeError('subagent persona must be a string')
     }

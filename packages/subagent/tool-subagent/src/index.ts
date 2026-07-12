@@ -35,6 +35,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent'
@@ -119,17 +120,6 @@ export const Config: z<Config> = z.object({
   maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
 })
 
-/** Reject a recursion cap that cannot represent an exact delegation depth. */
-function assertMaxDepth(maxDepth: number | undefined): void {
-  if (maxDepth !== undefined && (
-    !Number.isSafeInteger(maxDepth)
-    || maxDepth < 0
-    || Object.is(maxDepth, -0)
-  )) {
-    throw new Error('tool-subagent: `maxDepth` must be a non-negative safe integer')
-  }
-}
-
 /**
  * Flatten a child's final output blocks to text for the tool result. The child
  * may return non-text blocks; this cut surfaces the text content (the common
@@ -202,7 +192,7 @@ export function providerWording(inherits: boolean): { description: string; promp
 export function apply(ctx: Context, config: Config): void {
   // Keep misconfiguration at plugin load even when a caller invokes apply()
   // directly and bypasses Schemastery's natural/max metadata.
-  assertMaxDepth(config.maxDepth)
+  assertSubagentMaxDepth(config.maxDepth)
   // Misconfiguration fails loud AT LOAD (the check is self-contained): an
   // explicit `toolFilter: {}` would otherwise pass the capability gate and
   // kill every delegation later, in the child-setup `restrict({})` throw.
