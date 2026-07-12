@@ -150,6 +150,57 @@ describe('SubagentService', () => {
     }
   })
 
+  it('claims wrapper disposal before a raw provider disposer can reenter it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const observed: { reentrant?: Promise<void> } = {}
+    const providerDispose = vi.fn(() => {
+      observed.reentrant = run.dispose()
+      return Promise.resolve()
+    })
+    ctx.subagents.registerProvider({
+      name: 'dispose-reentry',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('dispose-reentry-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        cancel() {},
+        dispose: providerDispose,
+      }),
+    })
+    const run = ctx.subagents.start('dispose-reentry', baseRequest())
+
+    const disposal = run.dispose()
+
+    expect(observed.reentrant).toBe(disposal)
+    await disposal
+    expect(providerDispose).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a raw disposer that directly returns its reentrant wrapper promise instead of hanging', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const providerDispose = vi.fn(() => run.dispose())
+    ctx.subagents.registerProvider({
+      name: 'dispose-self-cycle',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('dispose-self-cycle-child'),
+        started: Promise.resolve(),
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        cancel() {},
+        dispose: providerDispose,
+      }),
+    })
+    const run = ctx.subagents.start('dispose-self-cycle', baseRequest())
+
+    await expect(run.dispose()).rejects.toThrow('run dispose returned its own wrapper disposal promise')
+    expect(providerDispose).toHaveBeenCalledOnce()
+  })
+
   it.each([
     { label: 'a non-string name', patch: { name: 42 }, message: 'name must be a string' },
     { label: 'null capabilities', patch: { capabilities: null }, message: 'capabilities must be an object' },

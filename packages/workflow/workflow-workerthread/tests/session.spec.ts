@@ -281,6 +281,36 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     }
   })
 
+  it('queues Result before settlement-only cancellation of a ready stray', async () => {
+    const host = fakeHost({ manual: true })
+    const session = runWorkerSession(host.port, init(`
+      agent('ready stray')
+      return await agent('gate')
+    `))
+    await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart)).toHaveLength(2) })
+    const starts = host.ofType(WorkerToHostType.ChildStart)
+    const stray = starts.find(message => message.request.prompt === 'ready stray')!
+    const gate = starts.find(message => message.request.prompt === 'gate')!
+    host.send({ type: HostToWorkerType.ChildStarted, callId: stray.callId, childId: 'stray-child' })
+    host.send({ type: HostToWorkerType.ChildStarted, callId: gate.callId, childId: 'gate-child' })
+    host.send({ type: HostToWorkerType.ChildSettled, callId: gate.callId, result: text('gate completed') })
+
+    const result = await host.result()
+    await session
+    await vi.waitFor(() => {
+      expect(host.ofType(WorkerToHostType.ChildCancel).map(message => message.callId)).toContain(stray.callId)
+    })
+
+    expect(result).toMatchObject({ value: 'gate completed', stopReason: 'completed', agentsStarted: 2 })
+    const resultIndex = host.messages.findIndex(message => message.type === WorkerToHostType.Result)
+    const strayCancelIndex = host.messages.findIndex(message =>
+      message.type === WorkerToHostType.ChildCancel && message.callId === stray.callId)
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(strayCancelIndex).toBeGreaterThan(resultIndex)
+    host.send({ type: HostToWorkerType.ChildSettled, callId: stray.callId, result: { output: [], stopReason: 'aborted' } })
+    host.close()
+  })
+
   it('an unparseable body settles an error result instead of dying without one (host pre-parse skew guard)', async () => {
     const host = fakeHost()
     await runWorkerSession(host.port, init('return ((('))

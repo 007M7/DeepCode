@@ -379,14 +379,30 @@ export class SubagentService extends Service {
     let disposal: Promise<void> | undefined
     const dispose = (): Promise<void> => {
       if (disposal === undefined) {
+        // Claim the shared transaction before invoking provider code: a raw
+        // disposer can synchronously reenter this wrapper through a reference
+        // retained by its caller, and both calls must join one provider call.
+        const claimed = Promise.withResolvers<undefined>()
+        disposal = claimed.promise
         try {
           // Invoke through the captured callable without reading its public
           // `bind`/`length`/`name` properties. Disposal is the recovery
           // capability itself; hostile function metadata must not prevent the
           // seam from exercising it when a later handle field is malformed.
-          disposal = Promise.resolve(Reflect.apply(inputDispose, acceptedRun, []))
+          const returned: unknown = Reflect.apply(inputDispose, acceptedRun, [])
+          // A raw disposer can reenter the service wrapper and directly return
+          // that same shared promise. Awaiting it here would make the promise
+          // depend on itself forever; reject the cyclic provider contract loud.
+          if (returned === claimed.promise) {
+            claimed.reject(new TypeError(`subagent provider "${name}" run dispose returned its own wrapper disposal promise`))
+            return disposal
+          }
+          void Promise.resolve(returned).then(
+            () => { claimed.resolve(undefined) },
+            (error: unknown) => { claimed.reject(error) },
+          )
         } catch (error: unknown) {
-          disposal = Promise.reject(error instanceof Error
+          claimed.reject(error instanceof Error
             ? error
             : new Error('subagent provider run dispose threw a non-Error value', { cause: error }))
         }

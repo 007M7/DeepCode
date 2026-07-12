@@ -83,7 +83,9 @@ function defaultLabel(prompt: string): string {
 /**
  * One live script execution inside the worker. Constructed per run by the
  * session; `drive()` is called exactly once and NEVER rejects — every failure
- * becomes a {@link WorkflowResult} with a non-`completed` stop reason.
+ * becomes a {@link WorkflowResult} with a non-`completed` stop reason. After
+ * the session publishes that result it calls {@link reapAfterResult} exactly
+ * once to cancel any dropped child work without racing terminal publication.
  */
 export class WorkflowExecution {
   /** 1-based count of `agent()` calls started (the `agentsStarted` result field). */
@@ -171,7 +173,8 @@ export class WorkflowExecution {
    * worker. Idempotent; the first reason wins.
    * @param reason - human-readable cause, carried on the CANCELLED error and
    * into child cancel RPCs. Required: every caller (the session's cancel
-   * message, drive()'s settle-reap) has a concrete reason.
+   * message and its post-result {@link reapAfterResult} call) has a concrete
+   * reason.
    */
   cancel(reason: string): void {
     if (this.cancelReason !== undefined) return
@@ -185,8 +188,9 @@ export class WorkflowExecution {
    * Run the script to settlement. Resolves — never rejects — with the run's
    * {@link WorkflowResult}: the materialized return value on `completed`, the
    * failure message on `error`, and `cancelled` when the script died of
-   * cancellation. After settlement, any stray children a script fired without
-   * awaiting are cancelled (their `agent()` wrappers dispose them via RPC).
+   * cancellation. This method only chooses the result; the session must publish
+   * it and then call {@link reapAfterResult}, so the terminal message precedes
+   * settlement-only child cancellation on the worker-to-host FIFO channel.
    * @returns the settled outcome — this promise NEVER rejects (the seam's
    * `result`-never-rejects contract); every failure maps to a variant.
    */
@@ -214,13 +218,17 @@ export class WorkflowExecution {
       // cannot throw — drive() resolving is the `result` never-rejects seam
       // contract.
       return { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
-    } finally {
-      // Reap strays: a script that fired agent() calls without awaiting them
-      // leaves live children behind after settlement — cancel them all. (The
-      // per-call wrappers dispose each child; the contain() consumer keeps
-      // their rejections from going unhandled.)
-      if (this.cancelReason === undefined) this.cancel('workflow settled')
     }
+  }
+
+  /**
+   * Reap strays only after the caller publishes the chosen terminal result.
+   * Aborting the controller synchronously sends child-cancel RPCs, so calling
+   * this before publication would let a provider callback reenter host
+   * cancellation and misclassify a result the script had already chosen.
+   */
+  reapAfterResult(): void {
+    if (this.cancelReason === undefined) this.cancel('workflow settled')
   }
 
   /**

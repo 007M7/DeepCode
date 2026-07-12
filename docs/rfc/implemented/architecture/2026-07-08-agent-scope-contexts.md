@@ -613,7 +613,7 @@ Starting a run reads every top-level request field once before capability valida
 
 The driver first installs provider ownership. Only after that succeeds does it attach the request's abort listener and create one run-owner Cordis fiber under `parent.ctx`; an already-unloading provider therefore leaves neither a child nor an orphaned listener. Calling `runOwner.ctx.agents.create()` gives the child factory an explicit `ownerCtx` carrying the run-owner fiber and scope, while the registry's traced factory receiver preserves AgentLoop's injected dependency origin. Parent teardown, provider teardown, and manual run disposal all dispose this same run-owner node; moving it out of the active state synchronously prevents an unpublished setup from publishing afterward, while all three paths follow one quiescence promise. This structured ownership does not change the child's flat capability view.
 
-The provider's run separates acceptance from publication with `started: Promise<void>`, but the service does not expose that caller-owned handle directly. It captures `id`, `started`, `result`, and each method once, binds methods to the provider-owned run handle, and returns a frozen service-owned wrapper. Capturing `dispose` first also preserves a rollback capability if a later accessor or method check reveals a malformed handle.
+The provider's run separates acceptance from publication with `started: Promise<void>`, but the service does not expose that caller-owned handle directly. It captures `id`, `started`, `result`, and each method once, binds methods to the provider-owned run handle, and returns a frozen service-owned wrapper. Capturing `dispose` first also preserves a rollback capability if a later accessor or method check reveals a malformed handle. The wrapper installs its shared disposal promise before invoking the raw provider callback, so synchronous reentry through the returned wrapper and ordinary repeat calls join one provider disposal rather than slipping through a not-yet-assigned memo. If the raw disposer directly returns that same reentrant wrapper promise, the service rejects the cyclic provider contract instead of awaiting a promise that depends on itself forever.
 
 The wrapper's `result` promise captures `output`, optional `structured`, and `stopReason` once and resolves to one detached, deeply frozen lossless-JSON value shared by the caller and lifecycle telemetry. Malformed terminal data is an infrastructure fault; it rejects only after the service has started rollback of the provider attempt. The service observes the normalized result immediately, before waiting for readiness, so an early rejection is never temporarily unhandled.
 
@@ -658,24 +658,57 @@ SubagentService.start(...):
 Workflow worker bridge after receiving returnedRun:
   register the run so cancellation can reach pre-publication work
   attach result settlement handlers immediately and snapshot the outcome
-  if returnedRun.started fulfills:
-    send ChildStarted; then send the buffered or eventual outcome
-  else:
-    send ChildStartError and dispose the attempt
+  re-check terminal admission after provider start returns
+  if admission closed:
+    if the exact run remains registered: cancel once and dispose it
+    if worker-message admission remains open: send ChildStartError
+  else wait for returnedRun.started:
+    on fulfillment:
+      re-check terminal admission
+      if closed: apply the same identity-guarded refusal
+      else: send ChildStarted; then send the buffered or eventual outcome
+    on rejection:
+      if worker-message admission remains open: send ChildStartError
+      if the exact run remains registered: dispose it
 
-Before publishing the workflow's own result:
-  abort the shared child-request signal
-  call cancel("workflow settled") on every host-registered run
-  only then settle the workflow result
+Worker after choosing its result:
+  queue Result on the worker-to-host port
+  only then reap stray child handles
+
+Host at workflow Result receipt:
+  cancellationWasRequested = external cancellation is already in flight
+  atomically claim chosen =
+    if cancellationWasRequested and result is not cancelled:
+      cancelledResult
+    else:
+      result
+
+  if not cancellationWasRequested:
+    abort the shared child-request signal
+    call cancel("workflow settled") on every host-registered run
+
+  settle chosen
+
+Host at the first worker death signal:
+  close worker-message admission
+  claim death or preserve an earlier cancellation/Result/grace outcome
+  cancel and dispose every registered child
+  synthesize missing lifecycle ends
+
+Host at physical worker exit:
+  perform a final disposal-only sweep
+  do not repeat explicit child cancellation
 ```
 
-Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, sends `ChildStarted` only after `started` fulfills, and sends `ChildStartError` plus host-driven disposal when readiness rejects.
+Every downstream protocol that announces a subagent must honor the same boundary. The workflow worker bridge therefore registers the returned run before waiting, observes and snapshots `result` immediately, and sends `ChildStarted` only after `started` fulfills while admission remains open. A readiness rejection is refused and host-disposed; `ChildStartError` is sent while worker-message admission remains open, and an already-retired exact run is not cleaned twice. Provider `start()` is itself arbitrary code and may synchronously reenter workflow cancellation before its returned run reaches that registry. The bridge attaches both promise observers, re-checks terminal admission immediately after `start()` returns and again at readiness, and turns a closed boundary into identity-guarded cancellation, disposal, and refusal rather than late worker admission or lifecycle announcement. An arbitrary provider may still fulfill its own `started` promise after the workflow boundary; the bridge refuses and cleans up that attempt instead of claiming it can undo provider-side publication.
 
 Cancellation before readiness is a publication decision, not merely a flag for later result mapping. The in-process run synchronously deactivates its owner fiber. If cancellation lands before publication, the factory's liveness check prevents either creation edge. If it begins synchronously inside `session/created`, `agent/created`, or `agent/session-start`, the publication barrier lets the current notification phase unwind without revoking its world, the next liveness check prevents every later phase and driver start, and rollback pairs every creation edge that already began. In either case `started` rejects, no `subagent/start` or `subagent/end` is emitted, and the run result settles as `aborted`.
 
-Before the workflow's own result becomes observable, its host likewise drives both permitted cancellation channels: it aborts the shared request signal and calls each registered run's `cancel()`, including runs still waiting on readiness. Provider cancel callbacks are contained independently so one broken implementation cannot prevent peers from receiving cancellation or wedge the workflow result.
+Receipt of the worker's `Result` message is the workflow host's atomic first-wins boundary. The worker queues that message before its own settlement-reap `ChildCancel` messages, so same-port FIFO prevents an internal child callback from masquerading as earlier run cancellation. Each contender records its claim before its own callback fanout: external `cancel()` records its reason first, while Result receipt snapshots any earlier cancellation and claims the resulting terminal outcome before invoking settlement-cleanup provider code. A caller, signal, or dispose cancellation already in flight therefore overrides a non-cancelled worker report, while the report wins otherwise. Before exposing that chosen result, the host drives both permitted child-cancellation channels by aborting the shared request signal and calling every registered run's `cancel()`, including runs still waiting on readiness. Those calls are settlement-only cleanup, and the terminal claim makes a reentrant `WorkerRun.cancel()` a side-effect-free loser rather than merely repairing its result afterward. Host fanout and the worker's FIFO-later `ChildCancel` can both reach the explicit channel, so a per-call gate invokes each provider `cancel()` at most once; the seam does not require that callback to be idempotent. Explicit child cancel callbacks are contained independently so one throwing callback cannot starve peers or alter settlement.
 
-Together these rules prevent an early result rejection from going unhandled, ensure `workflow/agent-start` never names an unpublished child, and prevent a child from publishing after its workflow has ended.
+Unexpected worker death uses the same terminal-claim rule, but terminal ownership, message admission, and exit cleanup are separate state. The host snapshots whether external cancellation was already accepted, claims either `cancelled` or the death error, closes inbound worker messages, and only then reaps children and synthesizes missing lifecycle events. Closing admission is necessary because Node may emit `error`, deliver an already-queued `message`, and only then emit `exit`; without the logical barrier, that message could start a child or narrate after `workflow/end`. Provider code reentering cancellation during cleanup cannot rewrite a death-first error; conversely, a cancellation accepted before death remains the winner. If Result or grace already claimed the outcome, death preserves it while still reaping promptly. Physical exit then performs a final disposal-only sweep without repeating explicit provider cancellation. `handle.dispose()` claims its public promise before that traversal invokes cancellation or disposal callbacks, and every `disposeChild` path independently claims the call ID promise before invoking the wrapped child disposer. Public-first reentry returns the existing holder promise; worker-first reentry may begin holder disposal, whose child traversal joins the already-claimed call ID promise. This distinction is necessary because grace settlement precedes `worker.terminate()` and its exit event: suppressing a duplicate outcome, late message, or repeated cleanup request must not suppress disposal of survivors in the host registry.
+
+Together these rules prevent an early result rejection from going unhandled, ensure `workflow/agent-start` never names an unready child, and prevent the bridge from admitting or announcing a child after its workflow has ended.
 
 Parent teardown reaches `runOwner` by nesting; the provider and returned run handle reach the same node through their explicit disposers.
 

@@ -14,6 +14,11 @@
  * A `cancel` arriving instead of `go` still releases the gate: `drive()`
  * sees the cancelled state and settles without running the body.
  *
+ * Terminal ordering is Result first, settlement cleanup second. The session
+ * queues the Result message before asking the execution to reap stray children;
+ * MessagePort FIFO therefore lets the host atomically claim the result before a
+ * cleanup ChildCancel can invoke arbitrary provider code.
+ *
  * @module @deepseek-ai/dsh-workflow-workerthread/session
  */
 
@@ -208,5 +213,12 @@ export async function runWorkerSession(port: MessagePort, init: WorkerInit): Pro
   post(WorkerToHostType.Ready, {})
   await gate.promise
   const result = await execution.drive()
-  post(WorkerToHostType.Result, { result })
+  try {
+    // This post is the worker's terminal claim. Queue it BEFORE aborting stray
+    // children: MessagePort FIFO then guarantees the host claims Result before
+    // any settlement-only ChildCancel can invoke arbitrary provider callbacks.
+    post(WorkerToHostType.Result, { result })
+  } finally {
+    execution.reapAfterResult()
+  }
 }

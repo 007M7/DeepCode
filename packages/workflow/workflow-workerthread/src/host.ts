@@ -7,19 +7,31 @@
  * run.
  *
  * The run's `result` promise settles exactly once, from whichever of these
- * lands first: the worker's `result` message (a host-side cancellation in
- * flight overrides a non-cancelled report — the seam-visible result had not
- * settled when cancellation was requested), an unexpected worker death
- * (`error`/`messageerror`/premature `exit` → `stopReason: 'error'`, or
- * `'cancelled'` when a cancel was in flight), or the post-cancel grace timer
- * (a script that never settles is force-settled `cancelled` and its worker
- * terminated — the real kill an in-process engine could not perform).
+ * lands first: receipt of the worker's `result` message, an unexpected worker
+ * death (`error`/`messageerror`/premature `exit` → `stopReason: 'error'`, or
+ * `'cancelled'` when a cancel was in flight), or the post-cancel grace timer (a
+ * script that never settles is force-settled `cancelled` and its worker
+ * terminated — the real kill an in-process engine could not perform). At
+ * `result` receipt the host snapshots whether caller/signal/dispose
+ * cancellation is already in flight: an earlier cancellation overrides a
+ * non-cancelled report; otherwise the report wins before settlement-only child
+ * cleanup invokes arbitrary provider callbacks. Worker death uses the same
+ * boundary: it claims `error` (or a previously requested `cancelled`) before
+ * reaping children, so cleanup callbacks cannot rewrite the outcome. That
+ * first signal also closes inbound message admission: Node may emit `error`,
+ * then deliver queued messages, then emit `exit`, but those late messages may
+ * neither create work nor narrate after settlement. If Result or grace already
+ * owns the outcome, death preserves it while still cleaning resources; the
+ * eventual exit performs a final disposal-only sweep without repeating child
+ * cancellation.
  *
  * Children live in a host-side registry (callId → run) as soon as the provider
  * accepts them, so cancellation reaches even a pre-publication attempt. Both
  * explicit run cancellation and the shared request signal are driven when the
  * workflow is cancelled OR normally settles, so a fire-and-forget child cannot
- * survive merely by honoring only one channel. The host observes `result`
+ * survive merely by honoring only one channel. A per-call gate invokes each
+ * explicit provider `cancel()` at most once even though host fanout and the
+ * worker's later relay can both request it. The host observes `result`
  * immediately but acknowledges the child to the worker only after `started`
  * fulfills; readiness failure is a start error and the host disposes the
  * attempt because the worker never received a handle. The
@@ -31,10 +43,12 @@
  * paths share ONE disposal per child (memoized by callId; the seam's
  * dispose() is idempotent anyway, the memo keeps the bookkeeping and the
  * containment warn single). Lifecycle pairing is host-guaranteed the same
- * way: every forwarded `agent-start` lives in a ledger, and a start the
- * dead or terminated worker never paired is closed by a synthesized
- * `agent-end` (outcome `'cancelled'`) before the run settles. On a
- * termination path `agentsStarted` reports the
+ * way: every forwarded `agent-start` lives in a ledger, and a start the dead
+ * or terminated worker never paired is closed exactly once by a synthesized
+ * `agent-end` (outcome `'cancelled'`). When death or grace is the terminal
+ * source, already-known pairs close before the run settles; cleanup after an
+ * earlier Result can close a survivor afterward. On a termination path
+ * `agentsStarted` reports the
  * HOST-observed count (accepted `child-start` messages) — `agent()` calls
  * still queued worker-side for a concurrency slot are unknowable then; the
  * worker's own count rides the result message on every graceful path.
@@ -132,6 +146,10 @@ export class WorkerRun implements WorkflowRun {
   readonly result: Promise<WorkflowResult>
   private settleResolve!: (result: WorkflowResult) => void
   private settled = false
+  /** A Result/death/grace outcome atomically won before teardown callbacks. */
+  private terminalClaimed = false
+  /** The first death signal closes worker-message admission and owns failure-time cleanup. */
+  private workerDeathObserved = false
   private cancelReason: string | undefined
   private graceTimer: NodeJS.Timeout | undefined
   private readonly worker: Worker
@@ -143,6 +161,8 @@ export class WorkerRun implements WorkflowRun {
   private readonly children = new Map<number, SubagentRun>()
   /** In-flight child disposals by callId — the memo that gives every path (worker RPC, dispose(), reap) ONE shared disposal per child. */
   private readonly childDisposals = new Map<number, Promise<void>>()
+  /** callIds whose explicit provider cancel callback has already been invoked. */
+  private readonly childCancellations = new Set<number>()
   /** Started-but-not-ended agents by seq — the pairing ledger the HOST guarantees (see {@link endAgent}). */
   private readonly liveAgents = new Map<number, WorkflowAgentInfo>()
   private readonly quiescenceWaiters: (() => void)[] = []
@@ -172,12 +192,12 @@ export class WorkerRun implements WorkflowRun {
     const { entry, options } = resolveWorkerSpawn(init)
     this.worker = new Worker(entry, options)
     this.worker.on('message', (message: WorkerToHostMessage) => { this.onMessage(message) })
-    this.worker.on('error', (error) => { this.onWorkerDeath(`workflow worker failed: ${renderThrown(error)}`) })
+    this.worker.on('error', (error) => { this.onWorkerDeath(`workflow worker failed: ${renderThrown(error)}`, false) })
     /* v8 ignore next -- messageerror: not constructible from the engine's own protocol (every payload is JSON data) */
-    this.worker.on('messageerror', (error) => { this.onWorkerDeath(`workflow worker message failed to deserialize: ${renderThrown(error)}`) })
+    this.worker.on('messageerror', (error) => { this.onWorkerDeath(`workflow worker message failed to deserialize: ${renderThrown(error)}`, false) })
     this.worker.on('exit', (code) => {
       this.workerGone = true
-      this.onWorkerDeath(`workflow worker exited before the run settled (exit code ${code})`)
+      this.onWorkerDeath(`workflow worker exited before the run settled (exit code ${code})`, true)
     })
     if (signal?.aborted) {
       this.cancel('workflow start signal already aborted')
@@ -205,18 +225,24 @@ export class WorkerRun implements WorkflowRun {
    * @param reason - human-readable cause (default `'workflow cancelled'`).
    */
   cancel(reason?: string): void {
-    // A settled run has nothing left to cancel: without this guard the
+    // A settled run has nothing left to cancel, and a terminal source claimed
+    // before its cleanup callbacks must exclude cancellation reentered by one
+    // of those callbacks. Without the settled guard the
     // ordinary consumer path (await result, then dispose -> cancel) would arm
     // a grace timer nothing ever clears, pinning the run and its Worker
     // closure until the grace expires - a bounded leak per completed run.
-    if (this.settled || this.cancelReason !== undefined) return
+    if (this.settled || this.terminalClaimed || this.cancelReason !== undefined) return
     this.cancelReason = reason ?? 'workflow cancelled'
     this.post(HostToWorkerType.Cancel, { reason: this.cancelReason })
     // The explicit channel is driven host-side, not left to the worker: a
     // provider honoring only run.cancel() must not wait on a wedged worker's
-    // ChildCancel relay (those later RPCs land as idempotent no-ops).
+    // ChildCancel relay (the per-call cancellation gate makes those later
+    // RPCs no-ops without imposing idempotence on the provider).
     this.cancelChildren(this.cancelReason)
     this.graceTimer = setTimeout(() => {
+      // Cancellation already owns the race through cancelReason; close the
+      // terminal boundary explicitly before observer teardown callbacks.
+      this.terminalClaimed = true
       // The worker may no longer speak (it is about to be terminated): pair
       // every stranded start before the run settles, so ends precede
       // workflow/end.
@@ -244,7 +270,13 @@ export class WorkerRun implements WorkflowRun {
    * @returns resolves when the run's resources are released or abandoned.
    */
   dispose(): Promise<void> {
-    this.disposed ??= (async () => {
+    if (this.disposed !== undefined) return this.disposed
+    // Claim the public transaction BEFORE its body invokes child/provider
+    // disposal. A raw provider callback can reenter handle.dispose(); it must
+    // join this promise rather than start a second traversal.
+    const claimed = Promise.withResolvers<undefined>()
+    this.disposed = claimed.promise
+    void (async () => {
       this.detachInputSignal()
       this.cancel('workflow disposed')
       for (const [callId, run] of [...this.children]) void this.disposeChild(callId, run)
@@ -257,13 +289,17 @@ export class WorkerRun implements WorkflowRun {
       ])
       await this.worker.terminate()
       this.reapChildren('workflow disposed')
-    })()
+    })().then(
+      () => { claimed.resolve(undefined) },
+      /* v8 ignore next -- result/quiescence never reject and Worker.terminate is the only external promise */
+      (error: unknown) => { claimed.reject(error) },
+    )
     return this.disposed
   }
 
   /** Post one message to the worker (payload looked up from the tag's map entry), tolerating a thread that is already gone. */
   private post<T extends HostToWorkerType>(type: T, payload: HostToWorkerPayloads[T]): void {
-    if (this.workerGone) return
+    if (this.workerGone || this.workerDeathObserved) return
     try {
       this.worker.postMessage({ type, ...payload })
     } catch (error: unknown) {
@@ -276,6 +312,11 @@ export class WorkerRun implements WorkflowRun {
   }
 
   private onMessage(message: WorkerToHostMessage): void {
+    // Node may emit `error`, then deliver an already-queued `message`, then
+    // emit `exit`. The first death signal is the host's logical delivery
+    // barrier: nothing arriving afterward may create a child, narrate after
+    // workflow/end, or compete with the chosen outcome.
+    if (this.workerDeathObserved) return
     switch (message.type) {
       case WorkerToHostType.Ready:
         this.post(HostToWorkerType.Go, {})
@@ -308,7 +349,7 @@ export class WorkerRun implements WorkflowRun {
       case WorkerToHostType.ChildCancel:
         {
           const run = this.children.get(message.callId)
-          if (run !== undefined) this.cancelChild(run, message.reason)
+          if (run !== undefined) this.cancelChild(message.callId, run, message.reason)
         }
         break
       case WorkerToHostType.ChildDispose:
@@ -323,12 +364,27 @@ export class WorkerRun implements WorkflowRun {
     }
   }
 
-  private onChildStart(callId: number, request: ChildStartRequest): void {
+  /** Why a child may no longer cross the provider readiness boundary. */
+  private childAdmissionFailure(): { reason: string; rendered: string } | undefined {
     if (this.cancelReason !== undefined) {
-      // The worker's start raced our cancel: refuse — a child must never
-      // start on an already-aborted signal (a provider subscribing only to
-      // future abort events would never observe it).
-      this.post(HostToWorkerType.ChildStartError, { callId, rendered: `workflow run cancelled: ${this.cancelReason}` })
+      return { reason: this.cancelReason, rendered: `workflow run cancelled: ${this.cancelReason}` }
+    }
+    if (this.workerDeathObserved) {
+      return { reason: 'workflow worker gone', rendered: 'workflow worker is no longer available' }
+    }
+    if (this.terminalClaimed) {
+      return { reason: 'workflow settled', rendered: 'workflow run already settled' }
+    }
+    return undefined
+  }
+
+  private onChildStart(callId: number, request: ChildStartRequest): void {
+    const initialFailure = this.childAdmissionFailure()
+    if (initialFailure !== undefined) {
+      // Refuse after a terminal boundary: a child must never start on an
+      // already-aborted signal (a provider subscribing only to future abort
+      // events would never observe it).
+      this.post(HostToWorkerType.ChildStartError, { callId, rendered: initialFailure.rendered })
       return
     }
     this.hostStarted += 1
@@ -382,22 +438,54 @@ export class WorkerRun implements WorkflowRun {
       },
     )
 
-    // The provider owns the publication boundary. Only acknowledge the child
-    // after it is real, then flush any result that settled unusually early. A
-    // readiness rejection is a START failure, not AGENT_RESULT: the worker
-    // never receives a handle, so the host must also dispose the registered
-    // attempt. A concurrent host disposal may already have removed it; the
-    // identity guard preserves the one-disposal memo in that race.
+    // The provider owns the publication boundary. Observe both promises before
+    // invoking cancellation/disposal below: provider.start() itself is
+    // arbitrary code and may have reentered handle.cancel() before the returned
+    // run reached our registry. Exactly one branch answers this ChildStart.
+    let startReplySent = false
+    const refusePublication = (failure: { reason: string; rendered: string }): void => {
+      startReplySent = true
+      this.post(HostToWorkerType.ChildStartError, { callId, rendered: failure.rendered })
+      // A prior dispose/death can finish and remove this run while readiness
+      // is still pending. In that case teardown already owned cancellation and
+      // disposal; touching the retired callId would repeat cancel and orphan a
+      // fresh gate entry after finishChild deleted it.
+      if (this.children.get(callId) !== run) return
+      this.cancelChild(callId, run, failure.reason)
+      void this.disposeChild(callId, run)
+    }
+
+    // Only acknowledge the child after it is real, then flush any result that
+    // settled unusually early. Re-check admission at that exact boundary: a
+    // cancellation while readiness was pending is a refusal, not a late
+    // publication into a terminal workflow. A readiness rejection is a START
+    // failure, not AGENT_RESULT; the worker never receives a handle, so the
+    // host disposes the registered attempt. Identity guards preserve the one
+    // disposal memo against concurrent host teardown.
     void run.started.then(
       () => {
+        if (startReplySent) return
+        const failure = this.childAdmissionFailure()
+        if (failure !== undefined) {
+          refusePublication(failure)
+          return
+        }
+        startReplySent = true
         this.post(HostToWorkerType.ChildStarted, { callId, childId })
         void forwardResult.then((forward) => { forward() })
       },
       (error: unknown) => {
+        if (startReplySent) return
+        startReplySent = true
         this.post(HostToWorkerType.ChildStartError, { callId, rendered: renderThrown(error) })
         if (this.children.get(callId) === run) void this.disposeChild(callId, run)
       },
     )
+
+    // Close the synchronous hole around provider.start(): cancel()/dispose()
+    // can run before the returned run is visible to their children loop.
+    const reentrantFailure = this.childAdmissionFailure()
+    if (reentrantFailure !== undefined) refusePublication(reentrantFailure)
   }
 
   private onChildDispose(callId: number): void {
@@ -427,17 +515,26 @@ export class WorkerRun implements WorkflowRun {
   private disposeChild(callId: number, run: SubagentRun): Promise<void> {
     let disposal = this.childDisposals.get(callId)
     if (disposal === undefined) {
+      // Claim before run.dispose() invokes provider code. Reentrant holder
+      // disposal then joins this exact child transaction instead of entering
+      // the provider wrapper twice before either memo is installed.
+      const claimed = Promise.withResolvers<undefined>()
+      disposal = claimed.promise
+      this.childDisposals.set(callId, disposal)
       // The seam promises a Promise, but invoke inside an async boundary so a
       // contract-violating synchronous throw is contained exactly like a
       // rejected disposal and cannot break host quiescence.
-      disposal = (async () => { await run.dispose() })().then(
-        () => { this.finishChild(callId) },
+      void (async () => { await run.dispose() })().then(
+        () => {
+          this.finishChild(callId)
+          claimed.resolve(undefined)
+        },
         (error: unknown) => {
           this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
           this.finishChild(callId)
+          claimed.resolve(undefined)
         },
       )
-      this.childDisposals.set(callId, disposal)
     }
     return disposal
   }
@@ -446,6 +543,7 @@ export class WorkerRun implements WorkflowRun {
   private finishChild(callId: number): void {
     this.children.delete(callId)
     this.childDisposals.delete(callId)
+    this.childCancellations.delete(callId)
     if (this.children.size === 0) {
       for (const waiter of this.quiescenceWaiters.splice(0)) waiter()
     }
@@ -469,11 +567,16 @@ export class WorkerRun implements WorkflowRun {
   /** Drive both cancellation channels for every child already accepted by the host. */
   private cancelChildren(reason: string): void {
     this.controller.abort(reason)
-    for (const run of this.children.values()) this.cancelChild(run, reason)
+    for (const [callId, run] of this.children) this.cancelChild(callId, run, reason)
   }
 
-  /** Contain one provider-owned cancel callback so every peer still receives cancellation. */
-  private cancelChild(run: SubagentRun, reason?: string): void {
+  /** Invoke one provider-owned cancel callback at most once and contain its exception. */
+  private cancelChild(callId: number, run: SubagentRun, reason?: string): void {
+    // Host fanout and the worker's FIFO-later ChildCancel relay are two paths
+    // to the same provider callback. The seam does not require cancel() to be
+    // idempotent, so claim the callId before invoking arbitrary provider code.
+    if (this.childCancellations.has(callId)) return
+    this.childCancellations.add(callId)
     try {
       run.cancel(reason)
     } catch (error: unknown) {
@@ -482,12 +585,30 @@ export class WorkerRun implements WorkflowRun {
   }
 
   private onResult(result: WorkflowResult): void {
+    // The owned worker session sends one Result. Keep a late duplicate or a
+    // Result queued behind another terminal source completely side-effect-free.
+    if (this.terminalClaimed) return
+    // First-wins is decided when the Result message reaches the host. If no
+    // external cancellation was already in flight, this result won. Reaping a
+    // stray child below may synchronously reenter cancel() through provider
+    // callbacks, but that internal post-result cleanup must not retroactively
+    // rewrite the worker result that arrived first.
+    const cancellationWasRequested = this.cancelReason !== undefined
+    // Claim before either settlement-cleanup cancellation channel invokes
+    // provider code. A provider callback can reenter cancel() synchronously or
+    // from a queued microtask; once Result won, that losing cancellation must
+    // have no state, message, child-fanout, or grace-timer side effects.
+    this.terminalClaimed = true
     // The worker cancels handles it already received, but a fire-and-forget
     // child may still be waiting on readiness and therefore have no worker
     // handle. Drive BOTH provider-permitted channels from the host before the
     // workflow becomes externally settled.
-    if (this.cancelReason === undefined) this.cancelChildren('workflow settled')
-    if (this.cancelReason !== undefined && result.stopReason !== 'cancelled') {
+    if (!cancellationWasRequested) {
+      this.cancelChildren('workflow settled')
+      this.settleResult(result)
+      return
+    }
+    if (result.stopReason !== 'cancelled') {
       // The script settled while our cancel was crossing the thread boundary
       // — the seam-visible result had NOT settled when cancellation was
       // requested, so report cancelled (the vm drive()'s post-settle check,
@@ -498,21 +619,39 @@ export class WorkerRun implements WorkflowRun {
     this.settleResult(result)
   }
 
-  /** An unexpected worker death (or the expected exit after termination). */
-  private onWorkerDeath(message: string): void {
-    // Whatever the worker left behind must not leak — abort + dispose it all.
-    if (this.children.size > 0) this.reapChildren('workflow worker gone')
-    // The thread is gone: no more worker-authored agent-ends can arrive —
-    // pair every stranded start (a start that crossed between the grace
-    // force-settle and this exit included) before the run settles.
-    this.endStrandedAgents()
-    // settleResult no-ops on an already-settled run (the expected exit after
-    // a dispose's terminate lands here too).
-    if (this.cancelReason !== undefined) {
-      this.settleResult(this.cancelledResult(this.hostStarted))
-      return
+  /** Process an error/messageerror/exit signal; `exit` also performs the final disposal sweep. */
+  private onWorkerDeath(message: string, isExit: boolean): void {
+    if (!this.workerDeathObserved) {
+      // Close message admission BEFORE cleanup callbacks: Node can deliver a
+      // message queued before the crash after its `error` event. Treating the
+      // first death signal as a logical barrier prevents that late message
+      // from creating work or narrating after workflow/end.
+      this.workerDeathObserved = true
+      const outcomeWasClaimed = this.terminalClaimed
+      const cancellationWasRequested = this.cancelReason !== undefined
+      // When death is itself the terminal source, claim BEFORE child reap or
+      // synthesized observer callbacks. Either can reenter cancel(); a death
+      // that arrived first remains an error, while a cancellation already
+      // accepted before death remains cancelled. If Result/grace already won,
+      // preserve it while still performing prompt failure-time cleanup.
+      if (!outcomeWasClaimed) this.terminalClaimed = true
+      if (this.children.size > 0) this.reapChildren('workflow worker gone')
+      this.endStrandedAgents()
+      if (!outcomeWasClaimed) {
+        if (cancellationWasRequested) {
+          this.settleResult(this.cancelledResult(this.hostStarted))
+        } else {
+          this.settleResult({ value: null, stopReason: 'error', error: message, agentsStarted: this.hostStarted })
+        }
+      }
     }
-    this.settleResult({ value: null, stopReason: 'error', error: message, agentsStarted: this.hostStarted })
+    if (!isExit) return
+    // `error` is not Node's physical delivery barrier: a queued message may
+    // precede `exit`. Admission is already closed, so this final sweep only
+    // joins/starts disposal for registry survivors; it deliberately does not
+    // repeat explicit provider cancellation.
+    for (const [callId, run] of [...this.children]) void this.disposeChild(callId, run)
+    this.endStrandedAgents()
   }
 
   /**
@@ -531,11 +670,14 @@ export class WorkerRun implements WorkflowRun {
   /**
    * Synthesize the missing `agent-end` for every started-but-unpaired agent,
    * outcome `'cancelled'`: the reap cancels every child, and a real
-   * settlement racing the force-settle loses to the cancellation — the same
-   * first-wins override {@link onResult} applies to the run's own result.
+   * settlement racing the force-settle loses to that already-started external
+   * cancellation. The atomic terminal boundaries in {@link onResult} and
+   * {@link onWorkerDeath} deliberately exclude teardown callbacks as contenders.
    * Called where the worker can no longer speak (the grace force-settle,
-   * worker death), BEFORE settleResult, so the paired ends reach observers
-   * before `workflow/end`.
+   * worker death, physical exit). When grace/death is the terminal source it
+   * runs before settleResult, so already-known pairs precede `workflow/end`;
+   * after an earlier Result, exit cleanup may close a survivor afterward.
+   * The ledger preserves exactly-once pairing in both orders.
    */
   private endStrandedAgents(): void {
     for (const info of [...this.liveAgents.values()]) {
@@ -563,7 +705,11 @@ export class WorkerRun implements WorkflowRun {
 
   /** First settle wins; disarms the grace timer and releases the caller signal. */
   private settleResult(result: WorkflowResult): void {
+    // Every current terminal source claims ownership before calling here; keep
+    // the fallback local so a future caller cannot resolve twice.
+    /* v8 ignore next -- defensive fallback outside the claimed state machine */
     if (this.settled) return
+    this.terminalClaimed = true
     this.settled = true
     this.detachInputSignal()
     clearTimeout(this.graceTimer)
