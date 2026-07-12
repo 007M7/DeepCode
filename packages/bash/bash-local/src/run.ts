@@ -58,10 +58,11 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  * `ENV_OVERRIDES` then forces model-friendly terminal values, ordinary `extra`
  * follows, and `dshEnv` merges last. Ordinary `extra` may restore a
  * credential-shaped name whose value the caller already holds, but cannot set
- * the managed namespace. `dsh-tool-bash` builds both channels from trusted
- * named fields and never forwards model-provided environment objects.
+ * the managed namespace; `dshEnv` rejects ordinary names symmetrically.
+ * `dsh-tool-bash` builds both channels from trusted named fields and never
+ * forwards model-provided environment objects.
  * @param extra - ordinary caller-supplied entries; `DSH_*` names are rejected.
- * @param dshEnv - trusted managed `DSH_*` entries for the current execution.
+ * @param dshEnv - managed entries; names outside `DSH_*` are rejected.
  * @returns the environment to hand to `spawn` for the child process.
  */
 export function childEnv(
@@ -75,6 +76,11 @@ export function childEnv(
   for (const key of Object.keys(extra ?? {})) {
     if (key.startsWith(DSH_ENV_PREFIX)) {
       throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+    }
+  }
+  for (const key of Object.keys(dshEnv ?? {})) {
+    if (!key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`managed bash env cannot set ordinary variable "${key}"; use env`)
     }
   }
   return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
@@ -107,7 +113,7 @@ export interface SpawnSpec {
    * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
    */
   env?: Record<string, string> | undefined
-  /** Harness-owned `DSH_*` entries merged after ambient `DSH_*` removal. */
+  /** Harness-owned entries; non-`DSH_*` names are rejected before spawn. */
   dshEnv?: DshEnvironment | undefined
 }
 

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
 import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
+import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -390,6 +391,12 @@ describe('review fixes: env scrubbing and spill hardening', () => {
   it('rejects DSH variables on the ordinary env channel', () => {
     expect(() => runBash(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
       .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
+  })
+
+  it('rejects ordinary variables on the managed env channel', () => {
+    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
+    expect(() => runBash(spec('true', { dshEnv: invalid })))
+      .toThrow(/managed bash env.*PATH.*use env/)
   })
 
   it('creates spill files with owner-only permissions and random names', async () => {

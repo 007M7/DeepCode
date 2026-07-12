@@ -125,7 +125,8 @@ export interface BashExecRequest {
   /**
    * Harness-owned `DSH_*` variables for this execution. Executors discard
    * ambient `DSH_*` entries before merging this snapshot, so an unavailable
-   * current fact cannot inherit a stale value from the harness process.
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
    */
   dshEnv?: DshEnvironment | undefined
   /**
@@ -182,7 +183,7 @@ export interface BashExecSpec {
    * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /** Trusted `DSH_*` snapshot carried through from {@link BashExecRequest.dshEnv}. */
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
   dshEnv?: DshEnvironment | undefined
   /**
    * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
