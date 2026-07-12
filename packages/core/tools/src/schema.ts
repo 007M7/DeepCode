@@ -20,7 +20,6 @@
  */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
@@ -288,21 +287,23 @@ export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
 /** Options for {@link defineTool}. */
 export interface DefineToolOptions<S extends SchemaSpec> {
   /** Tool name (must be unique). */
-  name: string
+  readonly name: string
   /** Human-readable description sent to the model. */
-  description: string
+  readonly description: string
   /**
    * Parameter schema using the per-property-required DSL. Converted to
    * standard JSON Schema at runtime.
    */
-  parameters: S
+  readonly parameters: S
   /**
    * Optional cooperative tool-call timeout budget in milliseconds. When given it
    * must be a positive finite number; it is attached to the produced
    * {@link ToolDefinition} for `@deepseek-ai/dsh-timeout-policy` to enforce and
    * is never sent to the model.
    */
-  timeoutMs?: number
+  readonly timeoutMs?: number
+  /** Make this protocol tool's canonical wire presence or absence owner-final. */
+  readonly ownerFinal?: boolean
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
@@ -355,11 +356,6 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * by `ToolRegistry.register()` directly — `defineTool` is sugar for
  * first-party plugin authors.
  *
- * Definition is an acceptance boundary: every top-level option is read once,
- * and the parameter spec is detached before either the wire schema or the
- * runtime validators are built. Later mutation of the caller's options or
- * schema therefore cannot make the model-visible schema disagree with execute
- * or presentation validation.
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
@@ -369,13 +365,6 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  *   args).
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
-  // Capture every caller-owned top-level field before inspecting any nested
-  // schema value. Accessors may be stateful, so validation, presentation, and
-  // the returned definition must all derive from this one accepted record.
-  const name = options.name
-  const description = options.description
-  const inputParameters = options.parameters
-  const timeoutMs = options.timeoutMs
   // Object-literal execute methods don't use `this`; the reference is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
@@ -383,31 +372,21 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
-  if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
-    throw new Error(`defineTool(${name}): timeoutMs must be a positive finite number`)
-  }
-  // The internal SchemaSpec and public wire schema must not share mutable
-  // subobjects. Each is materialized through the lossless one-pass boundary;
-  // structuredClone alone could sanitize an exotic default or nested getter.
-  const parameterSpec = snapshotJsonValue(inputParameters)
-  if (parameterSpec === undefined) {
-    throw new Error(`defineTool(${name}): parameters must be losslessly JSON-serializable`)
-  }
-  const wireParameters = snapshotJsonValue(schemaSpecToJsonSchema(parameterSpec))
-  if (wireParameters === undefined) {
-    throw new Error(`defineTool(${name}): generated parameters must be losslessly JSON-serializable`)
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
   const tool: ToolDefinition = {
-    name,
-    description,
-    parameters: wireParameters as unknown as Record<string, unknown>,
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    name: options.name,
+    description: options.description,
+    parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.ownerFinal === true ? { ownerFinal: true } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the
       // cast to InferArgs<S> reflects the validated shape.
-      const violations = validateArgs(parameterSpec, args)
+      const violations = validateArgs(options.parameters, args)
       if (violations.length > 0) throw new ToolArgsError(violations)
       return userExecute(args as InferArgs<S>, exec)
     },
@@ -418,13 +397,13 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
     tool.presentCall = (args: unknown): ToolCallView | undefined => {
-      if (validateArgs(parameterSpec, args).length > 0) return undefined
+      if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentCall(args as InferArgs<S>)
     }
   }
   if (userPresentResult) {
     tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
-      if (validateArgs(parameterSpec, args).length > 0) return undefined
+      if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
     }
   }

@@ -40,21 +40,20 @@ declare module 'cordis' {
  */
 export interface CreateAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: AgentId
+  readonly agentId: AgentId
   /** The live session's id (NOT derived from agentId). */
-  sessionId: SessionId
+  readonly sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd`, `parentSession`
    * fork lineage, and the `seedLength` seed boundary. Mirrors the
    * `cwd`/`parentSession`/`seedLength` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
-   * excluded — a factory caller never sets it). The factory reads this raw
-   * reference once and hands it synchronously to the session boundary, which
-   * rejects an exotic shell and captures each accepted field once before any
-   * asynchronous setup.
+   * excluded — a factory caller never sets it). This is durable session data,
+   * so the session boundary validates and snapshots it before asynchronous
+   * setup begins.
    */
-  meta?: { cwd?: string; parentSession?: SessionId; seedLength?: number }
+  readonly meta?: { readonly cwd?: string; readonly parentSession?: SessionId; readonly seedLength?: number }
   /**
    * Seed events to reconstruct the child session's log from (the fork lineage
    * primitive). When present, the factory creates the session with this event
@@ -64,12 +63,14 @@ export interface CreateAgentOptions {
    * from seq 0, carry only lossless-JSON data, and be balanced (no open
    * turn/step, no dangling tool-call), or the session constructor (and the
    * dev-mode invariants replay) reject it. The factory passes the raw seed to
-   * the synchronous one-pass validator/copier; it never pre-clones and thereby
-   * sanitizes exotic prototypes. Absent for a fresh (spawn) child.
+   * the session's durable validator/snapshot boundary. Absent for a fresh
+   * (spawn) child.
    */
-  seed?: SessionEvent[]
+  readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */
-  agentOptions?: AgentOptions
+  readonly agentOptions?: AgentOptions
+  /** Optional creation-only cancellation signal; detached before the returned handle becomes visible. */
+  readonly signal?: AbortSignal
   /**
    * Creation-time composition of the agent's scoped world. The factory awaits
    * setup after minting `agentCtx` but BEFORE inserting or announcing either
@@ -80,11 +81,11 @@ export interface CreateAgentOptions {
    * first prompt assembly. A throw/rejection or owner disposal rolls the scope
    * back without publishing either id.
    *
-   * **Setup composes, it never drives**: calling `send`/`steer`/`inject` here
-   * would run an unpublished agent and violate the session-start boundary.
-   * Drive the agent only after the creation promise resolves.
+   * **Setup composes, it never drives**: the callback is trusted same-process
+   * code and receives the full scoped context, so this is a contract rather
+   * than a runtime restriction. Drive the agent only after creation resolves.
    */
-  setup?: (agentCtx: Context) => Promise<void> | void
+  readonly setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
@@ -93,21 +94,23 @@ export interface CreateAgentOptions {
  */
 export interface ResumeAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: AgentId
+  readonly agentId: AgentId
   /** The persisted session id to load and resume on. */
-  resumeSessionId: SessionId
+  readonly resumeSessionId: SessionId
   /** Per-agent options (model, …). */
-  agentOptions?: AgentOptions
+  readonly agentOptions?: AgentOptions
+  /** Optional creation-only cancellation signal for persistence load/setup; detached before return. */
+  readonly signal?: AbortSignal
   /**
    * Resume-time composition of the agent's fresh scoped world. Persistence is
    * loaded first; the factory then mints `agentCtx` and awaits setup while the
    * reconstructed session and agent remain unpublished. The callback has the
-   * same composition-only contract as {@link CreateAgentOptions.setup}: all
-   * registrations exist before either creation announcement, driving verbs are
-   * unavailable until the session-start boundary, and rejection or owner
-   * disposal rolls the transaction back without publishing either id.
+   * same trusted composition-only contract as
+   * {@link CreateAgentOptions.setup}: all registrations exist before either
+   * creation announcement, and rejection or owner disposal rolls the
+   * transaction back without publishing either id.
    */
-  setup?: (agentCtx: Context) => Promise<void> | void
+  readonly setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
@@ -143,8 +146,8 @@ export interface AgentFactory {
   /**
    * Create a new agent on a caller-supplied session id. Async because creation
    * awaits unpublished setup, inserts both session and agent, emits their
-   * creation notifications in order, unlocks driving at
-   * `agent/session-start`, and only then starts the loop. The sequence is
+   * creation notifications in order, emits `agent/session-start`, and only
+   * then starts the loop. The sequence is
    * rollback-covered, but notifications delivered before a later listener
    * failure remain observable; every agent or session creation announcement
    * that began is paired by `agent/disposed` or `session/disposed` during
@@ -163,8 +166,8 @@ export interface AgentFactory {
    * Load a persisted session and resume an agent on it. Async because it awaits
    * both `ctx.sessionPersistence.load` and the optional unpublished setup
    * transaction; must be called after that service exists (consumers inject
-   * `sessionPersistence`). Publication and drive unlocking follow the same
-   * ordered boundary as {@link createAgent}.
+   * `sessionPersistence`). Publication follows the same ordered boundary as
+   * {@link createAgent}.
    * @param ownerCtx - caller-bound context that owns load, setup, and the live handle.
    * @param options - persisted identity, configuration, and optional setup.
    * @returns the owned handle after setup, both announcements, and loop start complete.
@@ -172,72 +175,22 @@ export interface AgentFactory {
   resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 }
 
-/** One accepted factory target plus the callback identities captured at registration. */
-interface AcceptedAgentFactory {
-  target: AgentFactory
-  createAgent: AgentFactory['createAgent']
-  resume: AgentFactory['resume']
-}
-
-/** Slot reservation while callback accessors are being captured. */
-const ACCEPTING_FACTORY = Symbol('accepting agent factory')
-
-/** Capture and validate the complete factory contract exactly once. */
-function acceptAgentFactory(factory: unknown): AcceptedAgentFactory {
-  if ((typeof factory !== 'object' && typeof factory !== 'function') || factory === null) {
-    throw new TypeError('agent factory must be a non-null object or function')
-  }
-  // A service read through ctx is already a Cordis trace proxy. Retaining that
-  // proxy and tracing it again for each create() caller produces two shadow
-  // layers; raw-identity state (AgentLoop's private ownership controller is
-  // one example) then unwraps only to the inner proxy instead of its service.
-  // Canonicalize the one framework-produced layer at acceptance and capture
-  // callbacks from the concrete target. Plain objects expose no original.
-  const original: unknown = Reflect.get(factory, symbols.original)
-  const target = ((typeof original === 'object' || typeof original === 'function') && original !== null)
-    ? original
-    : factory
-  const createAgent: unknown = Reflect.get(target, 'createAgent')
-  const resume: unknown = Reflect.get(target, 'resume')
-  if (typeof createAgent !== 'function') throw new TypeError('agent factory createAgent must be a function')
-  if (typeof resume !== 'function') throw new TypeError('agent factory resume must be a function')
-  return Object.freeze({
-    target: target as AgentFactory,
-    createAgent: createAgent as AgentFactory['createAgent'],
-    resume: resume as AgentFactory['resume'],
-  })
-}
-
 /** Thrown when create/resume is called before an agent factory is registered. */
 const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
 
-/** Render an arbitrary thrown value without allowing coercion to throw again. */
-function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
+/** All mutable lifecycle state for one exact registry entry. */
+interface AgentEntry {
+  readonly id: AgentId
+  readonly agent: Agent
+  readonly carrier: Scoped<Agent>
+  announced: boolean
+  announcing: boolean
+  detachRequested: boolean
 }
 
-/**
- * Unforgeable ownership handle for one unpublished agent id. The factory holds
- * this object across asynchronous setup; while it is live, ordinary public
- * registration of that id fails, so setup cannot publish the factory's agent
- * (or a replacement with the same id) ahead of the transaction. Callers obtain
- * handles only from {@link AgentRegistry.reserve}.
- */
-export interface AgentRegistrationReservation {
-  /** The reserved registry id. */
-  readonly id: AgentId
-  /**
-   * Release the unpublished reservation; idempotent. The registry also
-   * releases it automatically when the fiber that called `reserve` disposes.
-   * This function is that exact Cordis effect disposer, so an ordered
-   * lifecycle may yield it by identity and place release after quiescence.
-   * @returns nothing.
-   */
-  release(): void
+/** Plain holder prevents Cordis from tracing the factory field before the caller context is known. */
+interface FactorySlot {
+  readonly target: AgentFactory
 }
 
 /**
@@ -248,22 +201,9 @@ export interface AgentRegistrationReservation {
  * {@link setFactory}.
  */
 export class AgentRegistry extends Service {
-  private store = new Map<AgentId, Agent>()
-  /** Ids claimed across caller-code boundaries before their exact entry commits. */
-  private enteringIds = new Set<AgentId>()
-  /** The one accepted registry key for each live agent; never reread caller state. */
-  private acceptedIds = new WeakMap<Agent, AgentId>()
-  /** Unpublished identities held across factory setup/load transactions. */
-  private reservations = new Map<AgentId, AgentRegistrationReservation>()
-  /** Entries whose `agent/created` announcement phase began. */
-  private announced = new WeakSet<Agent>()
-  /** Entries currently dispatching `agent/created`; detach waits for that dispatch to unwind. */
-  private announcing = new WeakSet<Agent>()
-  /** A detach requested reentrantly from `agent/created`. */
-  private pendingDetach = new WeakSet<Agent>()
-  /** Stable lifecycle dispatch carrier captured before an entry commits. */
-  private carriers = new WeakMap<Agent, Scoped<Agent>>()
-  private factory: AcceptedAgentFactory | typeof ACCEPTING_FACTORY | undefined
+  private store = new Map<AgentId, AgentEntry>()
+  private entries = new WeakMap<Agent, AgentEntry>()
+  private factory: FactorySlot | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -277,40 +217,12 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Reserve an unpublished agent id. Registration through {@link register} or
-   * bare {@link enter} fails until the returned capability is released; the
-   * owning factory passes the exact capability back to `enter` at publication.
-   * This makes “setup cannot publish” structural rather than a cooperative
-   * convention, including attempts to register a different object under the
-   * reserved id. The reservation belongs to the calling fiber and is released
-   * automatically if that owner unloads before the transaction settles.
-   * @param id - the id the factory transaction will publish.
-   * @returns the opaque reservation capability.
-   * @throws if the id is malformed, live, or already reserved.
-   */
-  reserve(id: AgentId): AgentRegistrationReservation {
-    if (typeof id !== 'string') throw new TypeError('agent id must be a string')
-    if (this.store.has(id) || this.reservations.has(id) || this.enteringIds.has(id)) {
-      throw new Error(`agent "${id}" is already registered or reserved`)
-    }
-    const rawRelease = (): void => {
-      this.reservations.delete(id)
-    }
-    // `release` is the exact effect disposer. A composite lifecycle can yield
-    // it by identity, moving automatic owner cleanup from a racing sibling to
-    // the transaction's final ordered position.
-    const release = this.ctx.effect(() => rawRelease, `agents.reserve(${id})`)
-    const reservation: AgentRegistrationReservation = Object.freeze({ id, release })
-    this.reservations.set(id, reservation)
-    return reservation
-  }
-
-  /**
    * Register the agent-creation factory (the loop calls this on construction,
-   * effect-scoped). The registry captures both callback identities once and
-   * later invokes them against the retained target receiver. Throws if a
-   * factory is already registered. Returns the disposer; on dispose the
-   * factory slot is cleared.
+   * effect-scoped). A traced Cordis service is canonicalized to its concrete
+   * target; each create/resume call is then traced through that caller's
+   * context so ownership follows the caller without stacking proxy layers.
+   * Throws if a factory is already registered. Returns the disposer; on
+   * dispose the factory slot is cleared.
    * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
    * @returns the disposer that clears the factory slot. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -319,17 +231,11 @@ export class AgentRegistry extends Service {
   setFactory(factory: AgentFactory): () => Promise<void> | void {
     const dispose = this.ctx.effect(() => {
       if (this.factory !== undefined) throw new Error('an agent factory is already registered')
-      // Claim the slot before reading caller-controlled method accessors. A
-      // getter may synchronously re-enter setFactory(); it must observe the
-      // registration in progress instead of installing a nested factory that
-      // the outer call would silently overwrite.
-      this.factory = ACCEPTING_FACTORY
-      try {
-        this.factory = acceptAgentFactory(factory)
-      } catch (error: unknown) {
-        this.factory = undefined
-        throw error
-      }
+      // Avoid stacking two Cordis shadow layers when a caller passes a Service
+      // already read through a context. Calls are re-traced through their
+      // actual owner context below.
+      const target = (factory as AgentFactory & { [symbols.original]?: AgentFactory })[symbols.original] ?? factory
+      this.factory = { target }
       return () => { this.factory = undefined }
     }, 'agents.setFactory()')
     // The exact cordis effect disposer (the agents.register() convention): a
@@ -339,11 +245,10 @@ export class AgentRegistry extends Service {
     return dispose
   }
 
-  /** Return the accepted factory, excluding absence and reentrant acceptance. */
-  private requireFactory(): AcceptedAgentFactory {
-    const accepted = this.factory
-    if (accepted === undefined || accepted === ACCEPTING_FACTORY) throw new Error(NO_FACTORY_MESSAGE)
-    return accepted
+  /** Return the active creation factory. */
+  private requireFactory(): FactorySlot {
+    if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
+    return this.factory
   }
 
   /**
@@ -356,14 +261,15 @@ export class AgentRegistry extends Service {
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async create(options: CreateAgentOptions): Promise<AgentHandle> {
-    const accepted = this.requireFactory()
     const ownerCtx = this.ctx
     // Re-trace a Service-backed factory through the accessing context
     // explicitly. This preserves AgentLoop's dependency origin while binding
     // its effects to ownerCtx; plain factories receive ownerCtx as an explicit
     // capability and need no Cordis tracker magic.
-    const receiver = getTraceable(ownerCtx, accepted.target)
-    return Reflect.apply(accepted.createAgent, receiver, [ownerCtx, options])
+    const { target } = this.requireFactory()
+    const receiver = getTraceable(ownerCtx, target)
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
+    return Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
   }
 
   /**
@@ -374,10 +280,11 @@ export class AgentRegistry extends Service {
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
-    const accepted = this.requireFactory()
     const ownerCtx = this.ctx
-    const receiver = getTraceable(ownerCtx, accepted.target)
-    return Reflect.apply(accepted.resume, receiver, [ownerCtx, options])
+    const { target } = this.requireFactory()
+    const receiver = getTraceable(ownerCtx, target)
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
+    return Reflect.apply(target.resume, receiver, [ownerCtx, options])
   }
 
   /**
@@ -413,74 +320,27 @@ export class AgentRegistry extends Service {
    * returned detach closure into its pre-installed composite teardown before
    * calling {@link announce}. Ordinary callers use {@link register}.
    * @param agent - the prepared, unpublished agent.
-   * @param reservation - the exact unpublished-id capability, when a factory
-   *   reserved this id across setup.
    * @returns an idempotent closure that removes this exact entry and emits
    *   `agent/disposed` with listener failures contained. When called from a
    *   synchronous `agent/created` listener, removal and disposal wait until
    *   that creation dispatch unwinds.
    */
-  enter(agent: Agent, reservation?: AgentRegistrationReservation): () => void {
+  enter(agent: Agent): () => void {
     const id = agent.id
-    if (typeof id !== 'string') throw new TypeError('agent id must be a string')
-    const held = this.reservations.get(id)
-    if (reservation === undefined) {
-      if (held !== undefined) throw new Error(`agent "${id}" is reserved for unpublished creation`)
-    } else if (reservation.id !== id || held !== reservation) {
-      throw new Error(`agent "${id}" registration reservation is not active for this id`)
+    const carrier = scopeTarget(agent, agent)
+    // This is the authoritative collision boundary. Concurrent create/resume
+    // operations may both prepare, but only one exact entry can publish.
+    if (this.entries.has(agent) || this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
+    const entry: AgentEntry = {
+      id,
+      agent,
+      carrier,
+      announced: false,
+      announcing: false,
+      detachRequested: false,
     }
-    if (this.acceptedIds.has(agent)) {
-      throw new Error(`agent "${id}" is already registered`)
-    }
-    if (this.store.has(id) || this.enteringIds.has(id)) {
-      throw new Error(`agent "${id}" is already registered`)
-    }
-    this.enteringIds.add(id)
-    let carrier: Scoped<Agent>
-    try {
-      // Registration accepts ownership of the public identity contract. Pin an
-      // own data slot from the one captured value so a custom JavaScript Agent
-      // with a getter or writable field cannot later present a different id to
-      // event listeners while the registry still owns the accepted key.
-      try {
-        Object.defineProperty(agent, 'id', {
-          value: id,
-          enumerable: true,
-          writable: false,
-          configurable: false,
-        })
-      } catch {
-        // Only the engine's property-definition failure is normalized; filter
-        // construction below retains its own precise failure.
-        throw new TypeError('agent id must be installable as a stable own property')
-      }
-      // Capture one carrier for the paired lifecycle edges. Constructing it
-      // reads a custom Agent's Context.filter and is therefore caller code;
-      // the id claim above makes a same-id reentrant enter lose deterministically.
-      carrier = scopeTarget(agent, agent)
-    } finally {
-      // Kept through the entire caller-code window; the final commit below is
-      // synchronous and callback-free.
-      this.enteringIds.delete(id)
-    }
-    const currentReservation = this.reservations.get(id)
-    if (reservation === undefined) {
-      /* v8 ignore next 2 -- reserve() rejects enteringIds, so no callback in
-       * carrier construction can install a new same-id reservation */
-      if (currentReservation !== undefined) {
-        throw new Error(`agent "${id}" is reserved for unpublished creation`)
-      }
-    } else if (currentReservation !== reservation) {
-      throw new Error(`agent "${id}" registration reservation is not active for this id`)
-    }
-    /* v8 ignore next 2 -- the enteringIds claim blocks every public same-id
-     * commit until this callback-free final check has completed */
-    if (this.acceptedIds.has(agent) || this.store.has(id)) {
-      throw new Error(`agent "${id}" is already registered`)
-    }
-    this.store.set(id, agent)
-    this.acceptedIds.set(agent, id)
-    this.carriers.set(agent, carrier)
+    this.store.set(id, entry)
+    this.entries.set(agent, entry)
     let entered = true
     const detach = (): void => {
       if (!entered) return
@@ -490,49 +350,43 @@ export class AgentRegistry extends Service {
       // the advanced detach capability, so make that ordering structural:
       // visibility and the paired disposal are deferred until announce()'s
       // synchronous dispatch has unwound.
-      if (this.announcing.has(agent)) {
-        this.pendingDetach.add(agent)
+      if (entry.announcing) {
+        entry.detachRequested = true
         return
       }
-      this.detachEntered(agent, id)
+      this.detachEntered(entry)
     }
     return detach
   }
 
   /** Remove one exact entered agent and emit its paired disposal when announced. */
-  private detachEntered(agent: Agent, id: AgentId): void {
-    this.pendingDetach.delete(agent)
+  private detachEntered(entry: AgentEntry): void {
+    entry.detachRequested = false
     // A stale capability can never delete a later same-id lifecycle. The
-    // commit claim prevents this mismatch in normal operation; retain the
-    // exact-object guard as the final identity boundary.
-    /* v8 ignore next 1 -- the commit claim makes replacement impossible; this
-     * remains the exact-identity backstop against future mutation paths */
-    if (this.store.get(id) !== agent || this.acceptedIds.get(agent) !== id) return
-    this.store.delete(id)
-    this.acceptedIds.delete(agent)
-    const carrier = this.carriers.get(agent)
-    this.carriers.delete(agent)
+    // captured entry identity is the final boundary.
+    /* v8 ignore next -- enter() rejects replacement while this single-shot detach capability is live. */
+    if (this.store.get(entry.id) !== entry) return
+    this.store.delete(entry.id)
+    this.entries.delete(entry.agent)
     // An insertion rolled back before announce was never externally created,
     // so emitting disposed would invent an impossible lifecycle edge. Marking
     // happens before the created emit: if a later created listener throws,
     // earlier listeners may already have observed it and must see disposal.
-    if (!this.announced.delete(agent)) return
-    /* v8 ignore next -- enter commits the carrier with the exact store entry */
-    if (carrier === undefined) throw new Error(`agent "${id}" has no dispatch carrier`)
-    this.emitDisposed(agent, carrier, id)
+    if (!entry.announced) return
+    this.emitDisposed(entry)
   }
 
   /** Emit the paired disposal edge through the entry's stable carrier. */
-  private emitDisposed(agent: Agent, carrier: Scoped<Agent>, id: AgentId): void {
-    const args: unknown[] = [carrier, 'agent/disposed', agent]
+  private emitDisposed(entry: AgentEntry): void {
+    const args: unknown[] = [entry.carrier, 'agent/disposed', entry.agent]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
         void Promise.resolve(returned).catch((error: unknown) => {
-          this.ctx.logger.warn(`agent "${id}": agent/disposed listener rejected: ${renderThrown(error)}`)
+          this.ctx.logger.warn(`agent "${entry.id}": agent/disposed listener rejected: ${String(error)}`)
         })
       } catch (error: unknown) {
-        this.ctx.logger.warn(`agent "${id}": agent/disposed listener threw: ${renderThrown(error)}`)
+        this.ctx.logger.warn(`agent "${entry.id}": agent/disposed listener threw: ${String(error)}`)
       }
     }
   }
@@ -545,21 +399,18 @@ export class AgentRegistry extends Service {
    *   creation listener).
    */
   announce(agent: Agent): void {
-    const id = this.acceptedIds.get(agent)
-    if (id === undefined || this.store.get(id) !== agent) {
-      throw new Error(`agent "${id ?? '<unknown>'}" is not live in this registry`)
+    const entry = this.entries.get(agent)
+    if (entry === undefined || this.store.get(entry.id) !== entry) {
+      throw new Error(`agent "${agent.id}" is not live in this registry`)
     }
-    if (this.announced.has(agent) || this.announcing.has(agent)) {
-      throw new Error(`agent "${id}" was already announced`)
+    if (entry.announced || entry.announcing) {
+      throw new Error(`agent "${entry.id}" was already announced`)
     }
-    const carrier = this.carriers.get(agent)
-    /* v8 ignore next -- enter commits the carrier with the exact store entry */
-    if (carrier === undefined) throw new Error(`agent "${id}" has no dispatch carrier`)
     // Mark before dispatch so a listener cannot recursively create a second
     // lifecycle edge; detach still pairs a partially delivered first edge.
-    this.announcing.add(agent)
-    this.announced.add(agent)
-    const args: unknown[] = [carrier, 'agent/created', agent]
+    entry.announcing = true
+    entry.announced = true
+    const args: unknown[] = [entry.carrier, 'agent/created', entry.agent]
     try {
       for (const callback of this.ctx.events.dispatch('emit', args)) {
         // A synchronous creation failure vetoes publication and rolls back.
@@ -567,12 +418,12 @@ export class AgentRegistry extends Service {
         // observe and report it instead of leaking an unhandled rejection.
         const returned: unknown = callback(...args)
         void Promise.resolve(returned).catch((error: unknown) => {
-          this.ctx.logger.warn(`agent "${id}": agent/created listener rejected: ${renderThrown(error)}`)
+          this.ctx.logger.warn(`agent "${entry.id}": agent/created listener rejected: ${String(error)}`)
         })
       }
     } finally {
-      this.announcing.delete(agent)
-      if (this.pendingDetach.has(agent)) this.detachEntered(agent, id)
+      entry.announcing = false
+      if (entry.detachRequested) this.detachEntered(entry)
     }
   }
 
@@ -582,7 +433,7 @@ export class AgentRegistry extends Service {
    * @returns the agent, or undefined when no live agent has that id.
    */
   get(id: AgentId): Agent | undefined {
-    return this.store.get(id)
+    return this.store.get(id)?.agent
   }
 
   /**
@@ -590,7 +441,7 @@ export class AgentRegistry extends Service {
    * @returns a fresh array; mutating it does not affect the registry.
    */
   list(): Agent[] {
-    return [...this.store.values()]
+    return [...this.store.values()].map(entry => entry.agent)
   }
 }
 

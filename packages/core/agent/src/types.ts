@@ -294,10 +294,10 @@ declare module 'cordis' {
     // ---- lifecycle (emit) ----
     /**
      * An agent's fully composed scoped world was published in the
-     * {@link AgentRegistry}. Its session is already live in the session store,
-     * but concrete factories may keep driving verbs locked until the subsequent
-     * `agent/session-start` boundary; that event is the first supported place
-     * to inject or queue work during startup. A synchronous listener throw
+     * {@link AgentRegistry}. Its session is already live in the session store.
+     * Setup is composition-only by contract; the subsequent
+     * `agent/session-start` boundary is the first supported place to inject or
+     * queue startup work. A synchronous listener throw
      * vetoes publication and rollback emits the matching disposal edges;
      * returned-promise rejection is observed and logged but cannot
      * retroactively veto this synchronous boundary. A synchronous listener
@@ -346,9 +346,7 @@ declare module 'cordis' {
     /**
      * A message entered the agent's inbox (queued or steering). Content and the
      * resolved source are the detached, deeply-frozen values retained by the
-     * inbox; the `info` wrapper is frozen too, so one listener cannot rewrite
-     * what another listener observes. `source` has defaults applied and is not
-     * the caller's raw options.
+     * inbox. `source` has defaults applied and is not the caller's raw options.
      * @param agent - the agent whose inbox received the message.
      * @param content - the accepted content blocks retained by the inbox.
      * @param info - the accepted source plus whether it entered as steering.

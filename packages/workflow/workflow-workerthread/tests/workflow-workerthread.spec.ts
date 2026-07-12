@@ -48,9 +48,9 @@ const ESCAPE = "globalThis.constructor.constructor('return process')()"
 /** One controllable child run: the test (or auto mode) settles it. */
 interface ControlledRun {
   request: SubagentStartRequest
-  /** Fulfill the provider publication/readiness boundary. */
+  /** Fulfill the provider's async start with a ready child. */
   publish(): void
-  /** Reject the provider publication/readiness boundary. */
+  /** Reject the provider's async start before ownership transfer. */
   rejectStart(error: unknown): void
   settle(result: SubagentResult): void
   rejectResult(error: unknown): void
@@ -75,17 +75,19 @@ class StubProvider implements SubagentProvider {
     private readonly reply?: (request: SubagentStartRequest, index: number) => SubagentResult,
     private readonly disposeDelayMs = 0,
     private readonly deferStart = false,
-    private readonly onCancel?: (reason: string | undefined, index: number) => void,
+    private readonly onAbortString?: (reason: string | undefined, index: number) => void,
     private readonly onSignalAbort?: (reason: unknown, index: number) => void,
   ) {}
 
-  start(request: SubagentStartRequest): SubagentRun {
-    const readiness = Promise.withResolvers<undefined>()
+  async start(request: SubagentStartRequest): Promise<SubagentRun> {
+    const startGate = Promise.withResolvers<undefined>()
     const terminal = Promise.withResolvers<SubagentResult>()
+    terminal.promise.catch(() => { /* provider owns early settlement until publication */ })
+    let published = false
     const controlled: ControlledRun = {
       request,
-      publish: () => { readiness.resolve(undefined) },
-      rejectStart: (error) => { readiness.reject(error) },
+      publish: () => { published = true; startGate.resolve(undefined) },
+      rejectStart: (error) => { startGate.reject(error) },
       settle: (result) => { terminal.resolve(result) },
       rejectResult: (error) => { terminal.reject(error) },
       cancelled: undefined,
@@ -94,24 +96,29 @@ class StubProvider implements SubagentProvider {
     }
     this.runs.push(controlled)
     const index = this.runs.length - 1
-    request.signal?.addEventListener('abort', () => {
-      this.onSignalAbort?.(request.signal?.reason, index)
-      terminal.resolve({ output: [], stopReason: 'aborted' })
+    request.signal.addEventListener('abort', () => {
+      controlled.cancelled = String(request.signal.reason ?? 'cancelled')
+      this.onAbortString?.(String(request.signal.reason ?? 'cancelled'), index)
+      this.onSignalAbort?.(request.signal.reason, index)
+      if (published) terminal.resolve({ output: [], stopReason: 'aborted' })
+      else startGate.reject(new Error('child start aborted before publication'))
     }, { once: true })
-    if (!this.deferStart) readiness.resolve(undefined)
+    if (!this.deferStart) controlled.publish()
     if (this.reply) {
       const reply = this.reply
       queueMicrotask(() => { terminal.resolve(reply(request, index)) })
     }
+    try {
+      await startGate.promise
+    } catch (error: unknown) {
+      controlled.disposeCalls += 1
+      controlled.disposed = true
+      throw error
+    }
+    if (request.signal.aborted) throw new Error('child start aborted before publication')
     return {
       id: AgentId(`stub-child-${index}`),
-      started: readiness.promise,
       result: terminal.promise,
-      cancel: (reason?: string) => {
-        controlled.cancelled = reason ?? 'cancelled'
-        this.onCancel?.(reason, index)
-        terminal.resolve({ output: [], stopReason: 'aborted' })
-      },
       dispose: () => {
         controlled.disposeCalls += 1
         if (this.disposeDelayMs === 0) {
@@ -140,7 +147,7 @@ interface SetupOptions {
   manual?: boolean
   disposeDelayMs?: number
   deferStart?: boolean
-  onChildCancel?: (reason: string | undefined, index: number) => void
+  onChildAbortString?: (reason: string | undefined, index: number) => void
   onChildSignalAbort?: (reason: unknown, index: number) => void
 }
 
@@ -152,7 +159,7 @@ async function setup(options?: SetupOptions) {
     options?.manual ? undefined : options?.reply ?? (() => text('stub reply')),
     options?.disposeDelayMs ?? 0,
     options?.deferStart ?? false,
-    options?.onChildCancel,
+    options?.onChildAbortString,
     options?.onChildSignalAbort,
   )
   ctx.subagents.registerProvider(provider)
@@ -243,7 +250,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.error).toContain('agent() could not start a child')
     })
 
-    it('waits for child readiness before announcing it and snapshots a result that settled early', async () => {
+    it('waits for async provider start before announcing a result that settled early', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, deferStart: true })
       const order: string[] = []
       ctx.on('workflow/agent-start', (_info, agent) => { order.push(`start:${agent.seq}`) })
@@ -254,10 +261,8 @@ describe('dsh-workflow-workerthread', () => {
       await waitFor(() => { expect(provider.runs.length).toBe(1) })
       const early = text('accepted value')
       provider.runs[0]!.settle(early)
-      // Let the host observe + snapshot result while readiness remains pending.
+      // The provider still owns this early result while start is pending.
       await new Promise(resolve => setTimeout(resolve, 0))
-      const earlyText = early.output[0] as { type: 'text'; text: string }
-      earlyText.text = 'mutated after settlement'
       expect(order).toEqual([])
 
       provider.runs[0]!.publish()
@@ -268,7 +273,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.disposeCalls).toBe(1)
     })
 
-    it('observes an early result rejection but sends ChildStarted before ChildFailed after readiness', async () => {
+    it('observes an early result rejection but sends ChildStarted before ChildFailed after start fulfills', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, deferStart: true })
       const lifecycle: string[] = []
       ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
@@ -299,7 +304,7 @@ describe('dsh-workflow-workerthread', () => {
       await handle.dispose()
     })
 
-    it('classifies readiness rejection as AGENT_START, drops an early result, and emits no false lifecycle pair', async () => {
+    it('classifies provider start rejection as AGENT_START, drops an early result, and emits no false lifecycle pair', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, deferStart: true })
       const lifecycle: string[] = []
       ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
@@ -311,7 +316,7 @@ describe('dsh-workflow-workerthread', () => {
       })
       await waitFor(() => { expect(provider.runs.length).toBe(1) })
       // ACP-style failure can settle result(error) before its session/publication
-      // boundary rejects. Readiness must dominate that buffered child outcome.
+      // boundary rejects. Start rejection must dominate that buffered child outcome.
       provider.runs[0]!.settle({ output: [], stopReason: 'error' })
       await new Promise(resolve => setTimeout(resolve, 0))
       provider.runs[0]!.rejectStart(new Error('publication rolled back'))
@@ -328,7 +333,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.disposeCalls).toBe(1)
     })
 
-    it('cancels and disposes a readiness-pending child once without publishing workflow lifecycle', async () => {
+    it('aborts a pending provider start once without publishing workflow lifecycle', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, deferStart: true, config: { disposeGraceMs: 500 } })
       const lifecycle: string[] = []
       ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
@@ -342,7 +347,7 @@ describe('dsh-workflow-workerthread', () => {
         expect(provider.runs[0]!.disposed).toBe(true)
       })
       // Ensure the host-driven disposal removed the registry entry before the
-      // late readiness rejection; its callback must not invoke dispose again.
+      // late start rejection; its callback must not invoke dispose again.
       await new Promise(resolve => setTimeout(resolve, 0))
       provider.runs[0]!.rejectStart(new Error('cancelled before publication'))
 
@@ -360,11 +365,9 @@ describe('dsh-workflow-workerthread', () => {
         name: 'rejecting',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
-        start: () => ({
+        start: async () => ({
           id: AgentId('reject-child'),
-          started: Promise.resolve(),
           result: Promise.reject(new Error('backend exploded')),
-          cancel: () => { /* nothing in flight */ },
           dispose: () => Promise.resolve(),
         }),
       }
@@ -385,24 +388,20 @@ describe('dsh-workflow-workerthread', () => {
         try { await agent('p'); return 'unreachable' } catch (e) { return { code: e.code, message: e.message } }
       `))
       expect(result.value).toMatchObject({ code: 'AGENT_RESULT' })
-      expect((result.value as { message: string }).message).toContain('subagent result must be losslessly JSON-serializable')
+      expect((result.value as { message: string }).message).toContain('workflow child result could not cross the worker boundary')
     })
 
     it('contains a non-JSON result even if the injected subagent service violates its normalization contract', async () => {
-      // SubagentService normally rejects this before the workflow sees it. Stub
-      // the injected seam itself so the host's defensive worker-boundary guard
-      // remains independently covered rather than becoming dead, untested code.
+      // The real worker boundary must reject a non-JSON same-process result.
       const { ctx, parent } = await setup()
       const invalid = {
         output: [],
         structured: () => { /* deliberately outside lossless JSON */ },
         stopReason: 'completed',
       } as unknown as SubagentResult
-      const start = vi.spyOn(ctx.subagents, 'start').mockReturnValue({
+      const start = vi.spyOn(ctx.subagents, 'start').mockResolvedValue({
         id: AgentId('raw-invalid-child'),
-        started: Promise.resolve(),
         result: Promise.resolve(invalid),
-        cancel: () => { /* already settled */ },
         dispose: () => Promise.resolve(),
       })
 
@@ -416,31 +415,6 @@ describe('dsh-workflow-workerthread', () => {
         .toContain('workflow child result could not cross the worker boundary')
     })
 
-    it('reads each resolved child-result field once before crossing the worker boundary', async () => {
-      let structuredReads = 0
-      class DriftedStructured { readonly value = 'drifted' }
-      const { ctx, parent } = await setup({
-        reply: () => ({
-          output: [],
-          get structured() {
-            structuredReads += 1
-            return structuredReads === 1 ? { value: 'accepted' } : new DriftedStructured()
-          },
-          stopReason: 'completed',
-        }),
-      })
-
-      const result = await run(ctx, parent, scripted(`
-        const found = await agent('p', {
-          schema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] }
-        })
-        return found.value
-      `))
-
-      expect(result.value).toBe('accepted')
-      expect(structuredReads).toBe(1)
-    })
-
     it('a child whose dispose() throws synchronously cannot wedge the script (the host acks anyway)', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
@@ -448,9 +422,8 @@ describe('dsh-workflow-workerthread', () => {
         name: 'bad-dispose',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
-        start: () => ({
+        start: async () => ({
           id: AgentId('bad-dispose-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           dispose: () => { throw new Error('dispose exploded') },
@@ -470,9 +443,8 @@ describe('dsh-workflow-workerthread', () => {
         name: 'coercion-trap-dispose',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
-        start: () => ({
+        start: async () => ({
           id: AgentId('trap-child'),
-          started: Promise.resolve(),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           // The rejection VALUE's own coercion throws: a warn built with bare
@@ -755,7 +727,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.disposed).toBe(true)
     })
 
-    it('dispose() reaps a registered stray after result settlement even when the worker cannot relay disposal', async () => {
+    it('result settlement reaps a registered stray even when the worker cannot relay disposal', async () => {
       const { ctx, parent, provider } = await setup({
         manual: true,
         config: { provider: 'stub', disposeGraceMs: 30_000 },
@@ -775,13 +747,9 @@ describe('dsh-workflow-workerthread', () => {
         result: { value: 'synthetic completion', stopReason: 'completed', agentsStarted: 1 },
       })
       await expect(handle.result).resolves.toMatchObject({ stopReason: 'completed' })
-      expect(provider.runs[0]!.disposed).toBe(false)
+      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
 
       const disposal = handle.dispose()
-      // A 30-second grace makes this assertion mutation-sensitive: without the
-      // settled-path host reap, no worker message can start child disposal and
-      // this bounded wait fails long before the grace fallback.
-      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
       await disposal
       expect(provider.runs[0]!.disposeCalls).toBe(1)
       await ctx.fiber.dispose()
@@ -795,21 +763,16 @@ describe('dsh-workflow-workerthread', () => {
         name: 'signal-only',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
-        start: (request) => {
+        start: async (request) => {
           let settle!: (result: SubagentResult) => void
           const result = new Promise<SubagentResult>((resolve) => { settle = resolve })
-          request.signal?.addEventListener('abort', () => {
-            aborted.push(String(request.signal?.reason))
+          request.signal.addEventListener('abort', () => {
+            aborted.push(String(request.signal.reason))
             settle({ output: [], stopReason: 'aborted' })
           }, { once: true })
           return {
             id: AgentId('signal-only-child'),
-            started: Promise.resolve(),
             result,
-            // The seam leaves a provider free to honor EITHER cancel channel;
-            // this one deliberately ignores run.cancel() — only the request
-            // signal can wind it down.
-            cancel: () => { /* signal-only by design */ },
             dispose: () => Promise.resolve(),
           }
         },
@@ -834,7 +797,7 @@ describe('dsh-workflow-workerthread', () => {
       await handle.dispose()
     })
 
-    it('the settle-reap explicitly cancels a readiness-pending stray before workflow/end', async () => {
+    it('the settle-reap aborts a pending provider start before workflow/end', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, deferStart: true })
       const childLifecycle: string[] = []
       let cancellationAtWorkflowEnd: string | undefined
@@ -845,7 +808,7 @@ describe('dsh-workflow-workerthread', () => {
       })
       const handle = ctx.workflows.start({
         ...scripted(`
-          agent('readiness-pending stray')
+          agent('start-pending stray')
           return 'done'
         `),
         parent,
@@ -864,129 +827,11 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.disposeCalls).toBe(1)
     })
 
-    it('post-result child cleanup cannot reentrantly rewrite a completed workflow as cancelled', async () => {
-      let cancelCallbacks = 0
-      let signalCallbacks = 0
-      const { ctx, parent, provider } = await setup({
-        manual: true,
-        deferStart: true,
-        onChildCancel: () => {
-          cancelCallbacks += 1
-          // The first callback is host cleanup for the already-arrived Result.
-          // Reentering cancel() here is later than that message and must not
-          // retroactively win the result race. Its nested child cancel is
-          // intentionally ignored to keep the adversarial callback finite.
-          if (cancelCallbacks === 1) handle.cancel('reentrant child cleanup')
-        },
-        onChildSignalAbort: () => {
-          signalCallbacks += 1
-          handle.cancel('reentrant signal cleanup')
-        },
-      })
-      const handle = ctx.workflows.start({
-        ...scripted(`
-          agent('readiness-pending stray')
-          return 'completed first'
-        `),
-        parent,
-      })
-
-      const result = await handle.result
-
-      expect(result).toMatchObject({ value: 'completed first', stopReason: 'completed', agentsStarted: 1 })
-      expect(signalCallbacks).toBe(1)
-      expect(cancelCallbacks).toBe(1)
-      // Readiness crossing after Result is a terminal-admission refusal: no
-      // ChildStarted/lifecycle publication, and host-owned disposal begins.
-      provider.runs[0]!.publish()
-      await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
-      expect(cancelCallbacks).toBe(1)
-      await handle.dispose()
-      await ctx.fiber.dispose()
-    })
-
-    it('late readiness after completed disposal cannot cancel or dispose the retired child twice', async () => {
-      let explicitCancels = 0
-      const lifecycle: string[] = []
-      const { ctx, parent, provider } = await setup({
-        manual: true,
-        deferStart: true,
-        onChildCancel: () => { explicitCancels += 1 },
-      })
-      ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
-      ctx.on('workflow/agent-end', () => { lifecycle.push('end') })
-      const handle = ctx.workflows.start({
-        ...scripted("agent('retired readiness')\nreturn 'done'"),
-        parent,
-      })
-
-      await expect(handle.result).resolves.toMatchObject({ stopReason: 'completed' })
-      expect(explicitCancels).toBe(1)
-      await handle.dispose()
-      expect(provider.runs[0]!.disposed).toBe(true)
-      expect(provider.runs[0]!.disposeCalls).toBe(1)
-
-      // The Promise may still fulfill after its run left every host ledger.
-      // Refusal replies once but must not recreate the deleted cancel gate.
-      provider.runs[0]!.publish()
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(explicitCancels).toBe(1)
-      expect(provider.runs[0]!.disposeCalls).toBe(1)
-      expect(lifecycle).toEqual([])
-      await ctx.fiber.dispose()
-    })
-
-    it.each([
-      ['synchronous', (cancel: () => void) => { cancel() }],
-      ['microtask', (cancel: () => void) => { queueMicrotask(cancel) }],
-    ])('a ready stray %s cleanup callback cannot beat the earlier worker result claim', async (_mode, reenter) => {
-      let reentered = false
-      const explicitCancels = new Map<number, number>()
-      const { ctx, parent, provider } = await setup({
-        manual: true,
-        onChildCancel: (_reason, index) => {
-          explicitCancels.set(index, (explicitCancels.get(index) ?? 0) + 1)
-          if (index !== 0 || reentered) return
-          reentered = true
-          reenter(() => { handle.cancel('reentered from child cleanup') })
-        },
-      })
-      const handle = ctx.workflows.start({
-        ...scripted(`
-          agent('ready stray')
-          return await agent('gate')
-        `),
-        parent,
-      })
-      const cancelChildSpy = vi.spyOn(handle as unknown as {
-        cancelChild(callId: number, run: SubagentRun, reason?: string): void
-      }, 'cancelChild')
-      await waitFor(() => { expect(provider.runs).toHaveLength(2) })
-      provider.runs[1]!.settle(text('gate completed'))
-
-      const result = await handle.result
-      await Promise.resolve()
-
-      expect(result).toMatchObject({ value: 'gate completed', stopReason: 'completed', agentsStarted: 2 })
-      expect(reentered).toBe(true)
-      // The host claim and worker's FIFO-later ChildCancel both reach the
-      // routing gate, but the provider callback is not an idempotent seam:
-      // invoke it exactly once for this callId.
-      await waitFor(() => {
-        expect(cancelChildSpy.mock.calls.filter(([callId]) => callId === 1)).toHaveLength(2)
-      }, 1000)
-      expect(explicitCancels.get(0)).toBe(1)
-      cancelChildSpy.mockRestore()
-      await handle.dispose()
-      await ctx.fiber.dispose()
-    })
-
     it('a duplicate Result after the terminal claim cannot repeat cleanup or rewrite the outcome', async () => {
-      let explicitCancels = 0
+      let signalAborts = 0
       const { ctx, parent, provider } = await setup({
         manual: true,
-        onChildCancel: (_reason, index) => { if (index === 0) explicitCancels += 1 },
+        onChildAbortString: (_reason, index) => { if (index === 0) signalAborts += 1 },
       })
       const handle = ctx.workflows.start({
         ...scripted("agent('stray')\nawait new Promise(() => {})"),
@@ -1005,266 +850,9 @@ describe('dsh-workflow-workerthread', () => {
       })
 
       await expect(handle.result).resolves.toMatchObject({ value: 'first', stopReason: 'completed' })
-      expect(explicitCancels).toBe(1)
+      expect(signalAborts).toBe(1)
       await handle.dispose()
-      expect(explicitCancels).toBe(1)
-      await ctx.fiber.dispose()
-    })
-
-    it('contains a throwing child cancel and still settles after cancelling peer strays', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SubagentService)
-      let starts = 0
-      const cancelled: string[] = []
-      const warnings: string[] = []
-      ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
-      const provider: SubagentProvider = {
-        name: 'throwing-cancel',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
-        inheritsParentContext: false,
-        start: () => {
-          const index = starts++
-          return {
-            id: AgentId(`throwing-cancel-${index}`),
-            started: new Promise(() => { /* readiness stays pending */ }),
-            result: new Promise(() => { /* cancellation callback owns settlement */ }),
-            cancel: (reason?: string) => {
-              if (index === 0) throw new Error('cancel callback broke')
-              cancelled.push(`${index}:${reason ?? 'cancelled'}`)
-            },
-            dispose: () => Promise.resolve(),
-          }
-        },
-      }
-      ctx.subagents.registerProvider(provider)
-      await ctx.plugin(WorkerWorkflowEngine, { provider: 'throwing-cancel', maxConcurrentAgents: 2 })
-      const handle = ctx.workflows.start({
-        ...scripted(`
-          agent('first stray')
-          agent('second stray')
-          return 'done'
-        `),
-        parent: fakeParent(),
-      })
-
-      const result = await handle.result
-
-      expect(result.stopReason).toBe('completed')
-      expect(starts).toBe(2)
-      expect(cancelled).toContain('1:workflow settled')
-      expect(warnings.some(message => message.includes('cancel callback broke'))).toBe(true)
-      await handle.dispose()
-    })
-
-    it("cancel() drives each child's explicit cancel() host-side: a wedged worker cannot delay it", async () => {
-      const ctx = new Context()
-      await ctx.plugin(SubagentService)
-      let starts = 0
-      const cancelled: string[] = []
-      const provider: SubagentProvider = {
-        name: 'cancel-only',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
-        inheritsParentContext: false,
-        start: () => {
-          starts += 1
-          return {
-            id: AgentId('cancel-only-child'),
-            started: Promise.resolve(),
-            result: new Promise(() => { /* only cancel() ends this child */ }),
-            // Deliberately ignores the request signal — the seam leaves a
-            // provider free to honor ONLY the explicit cancel() channel.
-            cancel: (reason?: string) => { cancelled.push(reason ?? 'cancelled') },
-            dispose: () => Promise.resolve(),
-          }
-        },
-      }
-      ctx.subagents.registerProvider(provider)
-      // A deliberately huge grace: if only the grace/terminate reap could
-      // reach this child, the assertion below would time out first.
-      await ctx.plugin(WorkerWorkflowEngine, { provider: 'cancel-only', maxConcurrentAgents: 2, disposeGraceMs: 30_000 })
-      const handle = ctx.workflows.start({
-        // The stray child's start RPC reaches the host, then the script wedges
-        // its own worker in a synchronous spin: the worker cannot process the
-        // Cancel message, so it can relay NO ChildCancel RPC — only the host's
-        // own children loop can deliver the explicit cancel in time. The
-        // microtask yields let the agent() continuation POST its child-start
-        // before the spin seizes the worker's loop (the posted message needs
-        // no further worker-loop turns to reach the host).
-        ...scripted(`
-          agent('wedged child')
-          for (let i = 0; i < 20; i++) await null
-          const end = Date.now() + 1500
-          while (Date.now() < end) {}
-          return 'raced'
-        `),
-        parent: fakeParent(),
-      })
-      await waitFor(() => { expect(starts).toBe(1) })
-      handle.cancel('stop now')
-      await waitFor(() => { expect(cancelled).toEqual(['stop now']) }, 800)
-      // The wedged worker's own completion loses to the in-flight cancel.
-      const result = await handle.result
-      expect(result.stopReason).toBe('cancelled')
-      await handle.dispose()
-    }, 15_000)
-
-    it.each(['fulfills', 'rejects'] as const)('provider.start() reentrant cancellation refuses the run when readiness later %s', async (readinessOutcome) => {
-      const ctx = new Context()
-      await ctx.plugin(SubagentService)
-      const readiness = Promise.withResolvers<undefined>()
-      let starts = 0
-      let explicitCancels = 0
-      let disposals = 0
-      let sawAbortedSignal = false
-      const lifecycle: string[] = []
-      const provider: SubagentProvider = {
-        name: 'start-reentry',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
-        inheritsParentContext: false,
-        start: (request) => {
-          starts += 1
-          // This arbitrary provider callback runs before onChildStart can put
-          // the returned run in its registry. Cancellation must be rechecked
-          // after return instead of trusting the pre-start admission check.
-          handle.cancel('provider start reentered cancellation')
-          sawAbortedSignal = request.signal?.aborted === true
-          return {
-            id: AgentId('start-reentry-child'),
-            started: readiness.promise,
-            result: new Promise(() => { /* refusal owns teardown */ }),
-            // Deliberately honors only the explicit channel. It must still be
-            // reached promptly even though the first host fanout saw no run.
-            cancel: () => { explicitCancels += 1 },
-            dispose: () => {
-              disposals += 1
-              return Promise.resolve()
-            },
-          }
-        },
-      }
-      ctx.subagents.registerProvider(provider)
-      await ctx.plugin(WorkerWorkflowEngine, {
-        provider: 'start-reentry',
-        maxConcurrentAgents: 2,
-        disposeGraceMs: 30_000,
-      })
-      ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
-      ctx.on('workflow/agent-end', () => { lifecycle.push('end') })
-      const handle = ctx.workflows.start({
-        ...scripted("await agent('reentrant provider')\nreturn 'unreachable'"),
-        parent: fakeParent(),
-      })
-
-      await waitFor(() => { expect(starts).toBe(1) })
-      // Either later readiness settlement must not answer the already-refused
-      // start again or emit a workflow lifecycle pair.
-      if (readinessOutcome === 'fulfills') readiness.resolve(undefined)
-      else readiness.reject(new Error('late readiness rejection after refusal'))
-      let result: WorkflowResult | undefined
-      void handle.result.then((value) => { result = value })
-      await waitFor(() => {
-        expect(explicitCancels).toBe(1)
-        expect(disposals).toBe(1)
-        expect(result?.stopReason).toBe('cancelled')
-      }, 1000)
-      expect(sawAbortedSignal).toBe(true)
-      expect(lifecycle).toEqual([])
-      await handle.dispose()
-      expect(explicitCancels).toBe(1)
-      expect(disposals).toBe(1)
-      await ctx.fiber.dispose()
-    })
-
-    it('claims workflow and child disposal before a raw provider disposer reenters handle.dispose()', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SubagentService)
-      const terminal = Promise.withResolvers<SubagentResult>()
-      const observed: { reentrant?: Promise<void> } = {}
-      let starts = 0
-      let rawDisposeCalls = 0
-      const provider: SubagentProvider = {
-        name: 'dispose-reentry',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
-        inheritsParentContext: false,
-        start: () => {
-          starts += 1
-          return {
-            id: AgentId('dispose-reentry-child'),
-            started: Promise.resolve(),
-            result: terminal.promise,
-            cancel: () => { terminal.resolve({ output: [], stopReason: 'aborted' }) },
-            dispose: () => {
-              rawDisposeCalls += 1
-              observed.reentrant = handle.dispose()
-              return Promise.resolve()
-            },
-          }
-        },
-      }
-      ctx.subagents.registerProvider(provider)
-      await ctx.plugin(WorkerWorkflowEngine, { provider: 'dispose-reentry', maxConcurrentAgents: 2 })
-      const handle = ctx.workflows.start({
-        ...scripted("await agent('live child')\nreturn 'unreachable'"),
-        parent: fakeParent(),
-      })
-      await waitFor(() => { expect(starts).toBe(1) })
-
-      const disposal = handle.dispose()
-
-      expect(observed.reentrant).toBe(disposal)
-      await disposal
-      expect(rawDisposeCalls).toBe(1)
-      await expect(handle.result).resolves.toMatchObject({ stopReason: 'cancelled' })
-      await ctx.fiber.dispose()
-    })
-
-    it('claims worker-originated child disposal before its raw disposer reenters holder disposal', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SubagentService)
-      const terminal = Promise.withResolvers<SubagentResult>()
-      const observed: { reentrant?: Promise<void> } = {}
-      let starts = 0
-      let rawDisposeCalls = 0
-      const provider: SubagentProvider = {
-        name: 'child-dispose-reentry',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
-        inheritsParentContext: false,
-        start: () => {
-          starts += 1
-          return {
-            id: AgentId('child-dispose-reentry-child'),
-            started: Promise.resolve(),
-            result: terminal.promise,
-            cancel: () => { terminal.resolve({ output: [], stopReason: 'aborted' }) },
-            dispose: () => {
-              rawDisposeCalls += 1
-              // This begins holder disposal from the worker's ChildDispose
-              // callback, before any public handle.dispose() call exists.
-              observed.reentrant = handle.dispose()
-              return Promise.resolve()
-            },
-          }
-        },
-      }
-      ctx.subagents.registerProvider(provider)
-      await ctx.plugin(WorkerWorkflowEngine, { provider: 'child-dispose-reentry', maxConcurrentAgents: 2 })
-      const handle = ctx.workflows.start({
-        ...scripted("return await agent('settling child')"),
-        parent: fakeParent(),
-      })
-      const finishChildSpy = vi.spyOn(handle as unknown as {
-        finishChild(callId: number): void
-      }, 'finishChild')
-      await waitFor(() => { expect(starts).toBe(1) })
-
-      terminal.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' })
-
-      await waitFor(() => { expect(observed.reentrant).toBeDefined() }, 1000)
-      await observed.reentrant
-      expect(rawDisposeCalls).toBe(1)
-      expect(finishChildSpy.mock.calls.filter(([callId]) => callId === 1)).toHaveLength(1)
-      finishChildSpy.mockRestore()
-      await expect(handle.result).resolves.toMatchObject({ stopReason: 'cancelled' })
+      expect(signalAborts).toBe(1)
       await ctx.fiber.dispose()
     })
 
@@ -1461,34 +1049,87 @@ describe('dsh-workflow-workerthread', () => {
       await ctx.fiber.dispose()
     })
 
+    it('refuses and disposes a provider run that becomes ready after its real worker dies', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      const requested = Promise.withResolvers<SubagentStartRequest>()
+      const ready = Promise.withResolvers<SubagentRun>()
+      let disposeCalls = 0
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => ctx.logger)
+      const provider: SubagentProvider = {
+        name: 'late-ready',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
+        inheritsParentContext: false,
+        start: (request) => {
+          requested.resolve(request)
+          // Model a backend whose independent startup boundary cannot be
+          // interrupted promptly. The host must still reject ownership if the
+          // worker dies before this promise transfers the ready run.
+          return ready.promise
+        },
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(WorkerWorkflowEngine, { provider: 'late-ready', maxConcurrentAgents: 1 })
+      const lifecycle: string[] = []
+      ctx.on('workflow/agent-start', () => { lifecycle.push('start') })
+      ctx.on('workflow/agent-end', () => { lifecycle.push('end') })
+
+      const handle = ctx.workflows.start({
+        ...scripted("return await agent('pending startup')"),
+        parent: fakeParent(),
+      })
+      const request = await requested.promise
+      const worker = (handle as unknown as { worker: Worker }).worker
+
+      // Kill the actual Worker while provider startup is independently
+      // pending. Death closes admission and aborts the shared signal, but this
+      // deliberately uncooperative provider still fulfills afterward.
+      await worker.terminate()
+      const result = await handle.result
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('exit code')
+      expect(request.signal.aborted).toBe(true)
+      expect(request.signal.reason).toBe('workflow worker gone')
+
+      ready.resolve({
+        id: AgentId('late-ready-child'),
+        result: Promise.resolve({ output: [], stopReason: 'aborted' }),
+        dispose: () => {
+          disposeCalls += 1
+          return Promise.reject(new Error('late ready dispose failed'))
+        },
+      })
+      await waitFor(() => {
+        expect(disposeCalls).toBe(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('refused child dispose failed: Error: late ready dispose failed'))
+      }, 1000)
+      expect(lifecycle).toEqual([])
+
+      await handle.dispose()
+      expect(disposeCalls).toBe(1)
+      await ctx.fiber.dispose()
+    })
+
     it('a worker that exits before settling reports an error result and reaps its children', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
       // The child's dispose() REJECTS on top of the worker death: the reap
       // must contain it (warn, not crash) while still emptying the registry.
-      const cancelled: string[] = []
       const signalAborts: unknown[] = []
       const provider: SubagentProvider = {
         name: 'doomed',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
-        start: (request) => {
-          request.signal?.addEventListener('abort', () => {
-            signalAborts.push(request.signal?.reason)
+        start: async (request) => {
+          request.signal.addEventListener('abort', () => {
+            signalAborts.push(request.signal.reason)
             // The death claim precedes the shared-signal fanout. This
             // synchronous callback cannot turn death into cancellation.
             handle.cancel('reentered from worker-death signal cleanup')
           }, { once: true })
           return {
             id: AgentId('doomed-child'),
-            started: Promise.resolve(),
             result: new Promise(() => { /* never settles; the reap is the teardown */ }),
-            cancel: (reason?: string) => {
-              cancelled.push(reason ?? 'cancelled')
-              // Exercise the later microtask case too: terminal ownership
-              // remains closed after the death callback returns.
-              queueMicrotask(() => { handle.cancel('reentered from worker-death child cleanup') })
-            },
             dispose: () => Promise.reject(new Error('dispose exploded during reap')),
           }
         },
@@ -1521,7 +1162,6 @@ describe('dsh-workflow-workerthread', () => {
       // cold-start race; tight explicit bound (see the helper's doc comment).
       await waitFor(() => {
         expect(signalAborts).toEqual(['workflow worker gone'])
-        expect(cancelled).toEqual(['workflow worker gone'])
       }, 1000)
       await Promise.resolve()
       expect(result.stopReason).toBe('error')
@@ -1647,14 +1287,14 @@ describe('dsh-workflow-workerthread', () => {
   })
 
   describe('service surface', () => {
-    it('run ids are unique per start; the run handle and event payloads hold SEPARATE meta clones', async () => {
+    it('run ids are unique and lifecycle meta is the run\'s borrowed immutable value', async () => {
       const { ctx, parent } = await setup()
       let eventMeta: WorkflowRunInfo | undefined
       ctx.on('workflow/start', (info) => { eventMeta = info })
       const first = ctx.workflows.start({ ...scripted('return 1'), parent })
       const second = ctx.workflows.start({ ...scripted('return 2'), parent })
       expect(first.id).not.toBe(second.id)
-      eventMeta!.meta.name = 'corrupted'
+      expect(eventMeta!.meta).toBe(second.meta)
       expect(second.meta.name).toBe('test-flow')
       await Promise.all([first.result, second.result])
       await first.dispose()

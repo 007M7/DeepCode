@@ -19,8 +19,6 @@
 
 import type { Context } from 'cordis'
 import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
-import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -90,6 +88,12 @@ interface SessionTraceTransition {
 /** Event payload prefix for scoped seams whose first argument names its agent. */
 interface AgentSubject {
   agent: Agent
+}
+
+/** Structural subject fields used without coupling this dev plugin to owning services. */
+interface ScopedSubjectFields {
+  agent?: Agent
+  scope?: object
 }
 
 /** Assert that a step-scoped event names the currently open turn and step. */
@@ -412,32 +416,6 @@ export function apply(ctx: Context): void {
     lastStatus.set(agent, status)
   }, { global: true })
 
-  // --- Setup-drives invariant ---------------------------------------------
-  //
-  // CreateAgentOptions.setup COMPOSES the agent's scoped world; it must not
-  // DRIVE the agent. ReactLoopAgent rejects every driving verb structurally
-  // until rollback-covered publication reaches the session-start boundary;
-  // this event-level invariant remains the cross-implementation backstop for
-  // alternate Agent implementations and raw session writes. A turn/start
-  // candidate before agent/session-start is rejected by internal/dispatch,
-  // before Session commits it. Sessions of agents that exist BEFORE this
-  // plugin applies are marked started (their ordering is unknowable after the
-  // fact — never a false positive on HMR). `agents` is read via ctx.get (a
-  // strict, optional store lookup) rather than injected: the invariants plugin
-  // must load in harnesses that carry no agent registry at all (bare session
-  // tests), where this check simply never trips.
-  const sessionStarted = new WeakSet<Session>()
-  for (const agent of ctx.get('agents')?.list() ?? []) sessionStarted.add(agent.session)
-  const assertSessionStartedBeforeTurn = (session: Session, event: SessionEvent): void => {
-    if (event.type !== 'turn/start' || sessionStarted.has(session)) return
-    const owner = ctx.get('agents')?.list().find(agent => agent.session === session)
-    if (owner === undefined) return
-    throw new InvariantError(
-      `agent "${owner.id}": a turn opened before agent/session-start fired — `
-      + 'CreateAgentOptions.setup composes the scoped world, it must not drive the agent '
-      + '(send/steer/inject belong after creation returns)')
-  }
-
   // --- Scoped-dispatch invariants (the agent-scoping seam) ---------------
   //
   // Every scope-filtered event family must dispatch with a scope carrier
@@ -466,11 +444,11 @@ export function apply(ctx: Context): void {
     'agent/turn-stop': args => args[0],
     'agent/error': args => args[0],
     'approval/request': args => (args[0] as AgentSubject).agent,
-    'tools/pre-execute': args => (args[0] as ToolExecution).agent,
-    'tools/execute': args => (args[0] as ToolExecution).agent,
-    'tools/post-execute': args => (args[0] as ToolExecution).agent,
-    'tools/result': args => (args[0] as ToolExecution).agent,
-    'system-prompt/assemble': args => (args[1] as AssembleContext).scope,
+    'tools/pre-execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/post-execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/result': args => (args[0] as ScopedSubjectFields).agent,
+    'system-prompt/assemble': args => (args[1] as ScopedSubjectFields).scope,
     'session/created': null,
     'session/disposed': null,
     'session/event': null,
@@ -491,32 +469,15 @@ export function apply(ctx: Context): void {
         `"${name}" was dispatched with a scope carrier keyed to a DIFFERENT subject than its arguments name — `
         + 'the carrier key and the event\'s subject must be the same object (use agentEvents(ctx, agent))')
     }
-    if (name === 'agent/session-start') {
-      // Mark before product listeners run: a prepended session-start listener is
-      // explicitly allowed to inject the first turn's context synchronously.
-      sessionStarted.add((args[0] as Agent).session)
-    }
     if (name === 'session/event') {
       const [session, event] = args as [Session, SessionEvent]
       const trace = traceFor(session)
       const transition = validateEvent(trace, event)
-      assertSessionStartedBeforeTurn(session, event)
       // The exact event identity reaches the contained post-commit listener.
       // A later internal/dispatch listener may still veto; because validation
       // is pure, abandoning this weakly keyed transition does not advance the
       // committed trace or retain the session.
       stagedTransitions.set(event, { session, trace, transition })
-    }
-    // The assembly context must never carry the agent DX field without the
-    // scope layer selector: the assembly would silently miss the agent's
-    // scoped sections/tools (use assembleContextFor(agent)).
-    if (name === 'system-prompt/assemble') {
-      const context = args[1] as AssembleContext
-      if (context.agent !== undefined && context.scope !== context.agent) {
-        throw new InvariantError(
-          'an assembly context carries `agent` without `scope` (or with a mismatched scope) — '
-          + 'use assembleContextFor(agent) so the assembly resolves the agent\'s scoped layer')
-      }
     }
   }, { global: true })
 

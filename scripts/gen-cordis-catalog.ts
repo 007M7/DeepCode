@@ -81,7 +81,6 @@ const FENCE = 'ts cordis-catalog'
  */
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
-  AgentRegistrationReservation: 'core.md',
   ContentBlock: 'core.md',
   Message: 'core.md',
   MessageSource: 'core.md',
@@ -89,7 +88,6 @@ export const LINK_MAP: Record<string, string> = {
   LlmCallConfig: 'core.md',
   SessionEvent: 'core.md',
   SessionStartSource: 'core.md',
-  SessionRegistrationReservation: 'session.md',
   StreamChunk: 'llm-streaming.md',
   TurnEndReason: 'session.md',
   ToolDefinition: 'tools.md',

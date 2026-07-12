@@ -11,7 +11,7 @@ import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, ContinuationStop, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -34,20 +34,6 @@ type CodedError = Error & { code?: string }
  */
 function toError(error: unknown): CodedError {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
-}
-
-/**
- * Validate the runtime result of the terminal-stop serial event. Event types
- * protect TypeScript listeners, but JavaScript and casts can still return an
- * arbitrary bail value; accepting one as an implicit stop would hide a broken
- * policy plugin.
- */
-function assertContinuationStop(value: unknown): asserts value is ContinuationStop | undefined {
-  if (value === undefined) return
-  const candidate = Object(value) as { action?: unknown }
-  if (candidate.action !== 'stop') {
-    throw new Error('agent/turn-stop returned an invalid result; expected { action: \'stop\' } or undefined')
-  }
 }
 
 /**
@@ -644,8 +630,7 @@ async function runTurn(
       // no later listener or steering override can resurrect the turn.
       let terminalStop = false
       try {
-        const stop = await events.strictSerial('agent/turn-stop', turn)
-        assertContinuationStop(stop)
+        const stop = await events.serial('agent/turn-stop', turn)
         terminalStop = stop !== undefined
       } catch (error: unknown) {
         // A broken terminal policy is an ordinary continuation failure: fail

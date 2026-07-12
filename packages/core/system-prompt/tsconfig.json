@@ -22,9 +22,6 @@
     },
     {
       "path": "../../core/scope"
-    },
-    {
-      "path": "../../core/session"
     }
   ]
 }

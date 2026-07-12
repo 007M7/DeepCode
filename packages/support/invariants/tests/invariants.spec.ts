@@ -79,34 +79,6 @@ describe('session-log invariants', () => {
     expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
   })
 
-  it('does not stage a substituted candidate from prepended internal instrumentation', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create(SessionId('dispatch-substitution-rollback'))
-    let substitute = true
-    const replacement = {
-      type: 'turn/start',
-      seq: 0,
-      time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
-    } as const
-    ctx.on('internal/dispatch', (_mode, name, args) => {
-      if (name !== 'session/event' || !substitute) return
-      substitute = false
-      args[1] = replacement
-    }, { prepend: true })
-
-    expect(() => session.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })).toThrow('session/event internal dispatch replaced the accepted callback tuple')
-    expect(session.events).toEqual([])
-
-    expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    }).not.toThrow()
-  })
-
   it('applies the committed transition after a prepended observer throws', async () => {
     const { ctx } = await setup()
     const warnings: string[] = []
@@ -921,62 +893,4 @@ describe('scoped-dispatch invariants', () => {
       .not.toThrow()
   })
 
-  it('rejects an assembly context carrying agent without scope', async () => {
-    const ctx = await scopedCtx()
-    const agent = { id: 'a1' } as unknown as Agent
-    const base = { name: 'systemPrompt' }
-    const assembly = { sections: [], tools: [], variables: {} }
-    const bad = { agent }
-    expect(() => {
-      // The carrier base stands in for the SystemPrompt service (the declared `this`); the invariant only reads the carrier marks.
-      void ctx.waterfall(scopeTarget(base, undefined) as never, 'system-prompt/assemble', assembly as never, bad as never, () => Promise.resolve(assembly as never))
-    }).toThrow(/agent.*without.*scope|assembleContextFor/)
-    const good = { agent, scope: agent }
-    expect(() => {
-      void ctx.waterfall(scopeTarget(base, agent) as never, 'system-prompt/assemble', assembly as never, good as never, () => Promise.resolve(assembly as never))
-    }).not.toThrow()
-  })
-
-  it('backstops alternate agents that open a turn before agent/session-start', async () => {
-    const ctx = await scopedCtx()
-    // A live agent whose session is in the store but whose session-start has
-    // not fired: appending turn/start must throw the teaching error.
-    const session = ctx.sessions.create(SessionId('drive-s'))
-    const agent = { id: 'driver', session } as unknown as Agent
-    // Provide a minimal agents lookup: the invariant reads ctx.get('agents').
-    const registryStub = { list: () => [agent] }
-    ctx.root.provide('agents', registryStub as never)
-    expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).toThrow(/turn opened before agent\/session-start/)
-    expect(session.events).toEqual([])
-    // The internal boundary marks the session before even a prepended product
-    // listener runs, so the supported session-start injection pattern can open
-    // and close its one-shot context turn synchronously.
-    ctx.on('agent/session-start', () => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    }, { prepend: true })
-    expect(() => {
-      ctx.emit(scopeTarget(agent, agent), 'agent/session-start', agent, 'startup')
-    }).not.toThrow()
-    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
-    expect(() => {
-      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).not.toThrow()
-  })
-
-  it('marks sessions of agents that predate the plugin as started (HMR re-apply safety)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create(SessionId('pre-s'))
-    const agent = { id: 'pre', session } as unknown as Agent
-    ctx.root.provide('agents', { list: () => [agent] } as never)
-    // Invariants apply AFTER the agent exists: its ordering is unknowable, so
-    // a turn opening without an observed session-start must NOT false-positive.
-    await ctx.plugin(Invariants)
-    expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    }).not.toThrow()
-  })
 })

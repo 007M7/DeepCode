@@ -443,14 +443,12 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
-    let notifiedInfoFrozen = false
     ctx.on('agent/queued', (subject, acceptedContent, info) => {
       if (subject !== agent || info.steering) return
       // Retain the exact notification references: cloning here would test the
       // listener's copy rather than the event/inbox ownership boundary.
       notifiedContent = acceptedContent
       notifiedSource = info.source
-      notifiedInfoFrozen = Object.isFrozen(info)
     })
 
     agent.send(content, { source })
@@ -463,7 +461,6 @@ describe('MEDIUM: misc registry and config fixes', () => {
     expect(Object.isFrozen(notifiedContent)).toBe(true)
     expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
     expect(Object.isFrozen(notifiedSource)).toBe(true)
-    expect(notifiedInfoFrozen).toBe(true)
     const recorded = agent.session.events.flatMap(event => event.type === 'user/message' ? [event.data] : [])
     expect(recorded).toContainEqual({
       content: [{ type: 'text', text: 'accepted-send' }],
@@ -472,33 +469,6 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const request = JSON.stringify(adapter.requests[0]!.messages)
     expect(request).toContain('accepted-send')
     expect(request).not.toContain('caller-mutated-send')
-  })
-
-  it('send() rechecks disposal after materializing caller getters', async () => {
-    const adapter = new MockAdapter([textResponse('unused')])
-    const ctx = await harness(adapter)
-    const handle = await ctx.agents.create({
-      agentId: AgentId('reentrant-send-dispose'),
-      sessionId: SessionId('reentrant-send-dispose-session'),
-      agentOptions: { model: 'mock' },
-    })
-    const { agent } = handle
-    let queued = 0
-    ctx.on('agent/queued', subject => void (queued += Number(subject === agent)))
-    const content = [{
-      type: 'text' as const,
-      get text() {
-        void handle.dispose()
-        return 'accepted-after-dispose'
-      },
-    }]
-
-    expect(() => { agent.send(content) }).toThrow(/agent "reentrant-send-dispose" is disposed/)
-    await handle.dispose()
-
-    expect(queued).toBe(0)
-    expect(agent.session.events).toHaveLength(0)
-    expect(adapter.requests).toHaveLength(0)
   })
 
   it('running steer() owns content and source before notification and delivery', async () => {
@@ -519,12 +489,10 @@ describe('MEDIUM: misc registry and config fixes', () => {
     }))
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
-    let notifiedInfoFrozen = false
     ctx.on('agent/queued', (subject, acceptedContent, info) => {
       if (subject !== agent || !info.steering) return
       notifiedContent = acceptedContent
       notifiedSource = info.source
-      notifiedInfoFrozen = Object.isFrozen(info)
     })
 
     agent.send([{ type: 'text', text: 'start' }])
@@ -544,7 +512,6 @@ describe('MEDIUM: misc registry and config fixes', () => {
     expect(Object.isFrozen(notifiedContent)).toBe(true)
     expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
     expect(Object.isFrozen(notifiedSource)).toBe(true)
-    expect(notifiedInfoFrozen).toBe(true)
     const recorded = agent.session.events.flatMap(event => event.type === 'steering/message' ? [event.data] : [])
     expect(recorded).toContainEqual({
       turn: 1,
@@ -579,7 +546,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     const seeded = ctx2.sessions.create(SessionId('forked'), { seed: [...agent.session.events] })
     const prepared = prepareReactLoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
     const forked = prepared.agent
-    prepared.enableDrive()
+    prepared.markPublished()
     ctx2.effect(() => prepared.startDriver())
 
     const turns: number[] = []

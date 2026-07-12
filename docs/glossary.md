@@ -1,10 +1,12 @@
-# Context glossary
+# Glossary
 
-Domain vocabulary for the DeepSeek Harness SDK — one canonical term per concept. Terms link with `[[name]]`; implementation detail stays in the package READMEs and RFCs.
+Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and RFCs.
+
+FIXME(glossary-completeness): Expand this glossary before the first release so it covers the SDK's other core and capability subsystems, not only agent scope.
 
 ## agent-scope
 
-- **scope** — the unit of per-agent registration: a contribution (tool, prompt section, variable, restriction, listener) is either *global* (visible to every agent) or *scoped* (owned by exactly one [[scope-key]]). Two levels, flat: scoped registrations do not inherit down to subagents; subtree behavior is expressed with [[lineage]] data, never scope structure.
+- **scope** — the unit of per-agent registration: a contribution (tool, prompt section, variable, restriction, listener) is either *global* (visible to every agent) or *scoped* (owned by exactly one [scope key](#scope-key)). Two levels, flat: scoped registrations do not inherit down to subagents; subtree behavior is expressed with [lineage](#lineage) data, never scope structure.
 - **scope key** — the opaque identity a scope is keyed by, compared by object identity. The harness convention: a live agent is the key of its own scope. <a id="scope-key"></a>
 - **agent context (`agent.ctx`)** — the agent's scoped context; registrations through it are scope-visible AND scope-lifetime (one fact drives both), and listeners on it participate in that agent's scope-filtered dispatches. Registry-subject events may remain deliberately unfiltered under their own event contracts.
 - **scope carrier** — the `thisArg` a scope-filtered dispatch carries (built by `scopeTarget`); its filter admits untagged listeners plus the subject's own. A *subject-less* carrier (no key) admits untagged listeners only.

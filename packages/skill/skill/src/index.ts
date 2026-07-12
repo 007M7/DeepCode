@@ -32,56 +32,56 @@ export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-d
 
 /** Optional provider-specific base used by loaded skill bodies to resolve relative resources. */
 export type SkillResourceBase =
-  | { kind: 'directory'; path: string }
-  | { kind: 'url'; url: string }
-  | { kind: 'opaque'; description: string }
+  | { readonly kind: 'directory'; readonly path: string }
+  | { readonly kind: 'url'; readonly url: string }
+  | { readonly kind: 'opaque'; readonly description: string }
 
 /** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
 export interface SkillSummary {
   /** Kebab-case identifier used with the `skill` tool. */
-  name: string
+  readonly name: string
   /** Short routing description shown to the model. */
-  description: string
+  readonly description: string
   /** Optional extra routing guidance shown to the model. */
-  whenToUse?: string
+  readonly whenToUse?: string
   /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
-  disableModelInvocation?: boolean
+  readonly disableModelInvocation?: boolean
   /** Discovery source that produced this winning skill. */
-  source: SkillSource
+  readonly source: SkillSource
   /** Provider that owns this skill body. */
-  provider: string
+  readonly provider: string
   /** Provider-specific base for relative resources. */
-  resourceBase?: SkillResourceBase
+  readonly resourceBase?: SkillResourceBase
 }
 
 /** Provider catalog entry used by the registry to merge and later load skills. */
 export interface SkillCandidate extends SkillSummary {
   /** Lower ranks win duplicate skill names before provider registration order is considered. */
-  rank: number
+  readonly rank: number
   /** Opaque provider-owned handle passed back to `provider.get()`. */
-  locator: unknown
+  readonly locator: unknown
   /** Absolute file path when the provider has one. */
-  path?: string
+  readonly path?: string
   /** Parsed optional metadata object from provider-specific skill frontmatter. */
-  metadata?: Record<string, unknown>
+  readonly metadata?: Readonly<Record<string, unknown>>
 }
 
 /** Complete parsed skill definition, including the body loaded by `ctx.skills.get()`. */
 export interface SkillDefinition extends SkillSummary {
   /** Markdown instruction body after any provider-specific metadata removal. */
-  content: string
+  readonly content: string
   /** Absolute file path when the skill came from disk. */
-  path?: string
+  readonly path?: string
   /** Parsed optional metadata object from frontmatter. */
-  metadata?: Record<string, unknown>
+  readonly metadata?: Readonly<Record<string, unknown>>
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-export type SkillRegistration = Omit<SkillDefinition, 'provider'> & { provider?: string }
+export type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
 
 /** Caller context used for cwd-sensitive and abortable provider work. */
 export interface SkillLookupOptions {
-  /** Workspace selector captured at lookup entry; providers receive a read-only snapshot. */
+  /** Workspace selector for the current lookup. */
   readonly cwd?: string | undefined
   /** Abort discovery or loading work for the current caller. */
   readonly signal?: AbortSignal | undefined
@@ -90,7 +90,7 @@ export interface SkillLookupOptions {
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
 export interface SkillProvider {
   /** Unique provider name in the `ctx.skills` registry. */
-  name: string
+  readonly name: string
   /**
    * List available skill candidates for the current lookup context. Provider
    * plugins register synchronously during `apply()`; remote initialization,
@@ -99,21 +99,20 @@ export interface SkillProvider {
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns provider candidates with precedence ranks and opaque locators.
    */
-  list(options: SkillLookupOptions): Promise<SkillCandidate[]>
+  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
   /**
    * Load a complete skill body for a previously listed candidate.
-   * @param candidate - a detached snapshot of the winning candidate; its opaque
-   *   `locator` retains the exact identity originally returned by this provider.
+   * @param candidate - the winning candidate originally returned by this provider.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns the full skill body, or `undefined` if it is no longer loadable.
    */
-  get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>
+  readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
 }
 
 /** Skill registry configuration. */
 export interface Config {
-  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
-  collectCacheMaxEntries?: number
+  /** Maximum number of completed cwd/provider catalogs kept in memory. */
+  readonly collectCacheMaxEntries?: number
 }
 
 declare module 'cordis' {
@@ -163,7 +162,7 @@ export class SkillService extends Service {
 
   private readonly collectCacheMaxEntries: number
   private readonly providers = new Map<string, { provider: SkillProvider; order: number }>()
-  private readonly runtime = new Map<string, SkillDefinition>()
+  private readonly runtime = new Map<string, SkillRegistration>()
   private readonly collectCache = new Map<string, IndexedCandidate[]>()
   private providerRevision = 0
   private nextProviderOrder = 0
@@ -179,53 +178,38 @@ export class SkillService extends Service {
    * Register a skill provider synchronously during the provider plugin's
    * `apply()`. Throws if another provider already owns the same provider name,
    * including the reserved runtime provider name. Providers that need remote
-   * initialization do that work inside `list()` after registration. The name
-   * and callback identities are snapshotted at registration, so later
-   * replacement of those fields cannot change the registry key, dispatch
-   * callbacks, or HMR cleanup identity. Bound callbacks retain the original
-   * provider object as their receiver, so provider-owned mutable state remains
-   * live. Effect-scoped and HMR-safe: disposing the caller's fiber unregisters
-   * the provider and invalidates cached catalogs.
+   * initialization do that work inside `list()` after registration. Providers
+   * are readonly same-process registrations: the registry borrows the provider
+   * object and invokes its methods directly. Effect-scoped and HMR-safe:
+   * disposing the caller's fiber unregisters the provider and invalidates
+   * cached catalogs.
    * @param provider - the provider to register by `provider.name`.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
   registerProvider(provider: SkillProvider): () => Promise<void> | void {
-    // Snapshot the registration contract before entering the effect. The
-    // callback binding preserves the historical method receiver while making
-    // replacement of `provider.list`/`provider.get` after registration inert.
-    // In particular, cleanup must never re-read caller-owned `provider.name`:
-    // an HMR host may mutate or reuse that object before its old fiber unloads.
     const name = provider.name
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const inputList = provider.list
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const inputGet = provider.get
-    if (typeof name !== 'string') throw new TypeError('skill provider name must be a string')
-    if (typeof inputList !== 'function') throw new TypeError(`skill provider "${name}" list must be a function`)
-    if (typeof inputGet !== 'function') throw new TypeError(`skill provider "${name}" get must be a function`)
-    const snapshot: SkillProvider = Object.freeze({
-      name,
-      list: inputList.bind(provider),
-      get: inputGet.bind(provider),
-    })
-    const dispose = this.ctx.effect(function* (this: SkillService) {
-      if (snapshot.name === RUNTIME_PROVIDER) {
-        throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
-      }
-      if (this.providers.has(snapshot.name)) {
-        throw new Error(`a skill provider named "${snapshot.name}" is already registered`)
-      }
-      this.providers.set(snapshot.name, { provider: snapshot, order: this.nextProviderOrder })
-      this.nextProviderOrder += 1
-      this.invalidateCache()
+    if (name === RUNTIME_PROVIDER) {
+      throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
+    }
+    if (this.providers.has(name)) {
+      throw new Error(`a skill provider named "${name}" is already registered`)
+    }
+    const providers = this.providers
+    const ctx = this.ctx
+    const order = this.nextProviderOrder
+    const invalidateCache = (): void => { this.invalidateCache() }
+    this.nextProviderOrder += 1
+    const dispose = ctx.effect(function* () {
+      providers.set(name, { provider, order })
+      invalidateCache()
       yield () => {
-        this.providers.delete(snapshot.name)
-        this.invalidateCache()
-        this.ctx.emit('skill/provider-removed', snapshot.name)
+        providers.delete(name)
+        invalidateCache()
+        ctx.emit('skill/provider-removed', name)
       }
-      this.ctx.emit('skill/provider-added', snapshot)
-    }.bind(this), 'skills.registerProvider()')
+      ctx.emit('skill/provider-added', provider)
+    }, 'skills.registerProvider()')
     return dispose
   }
 
@@ -233,44 +217,46 @@ export class SkillService extends Service {
    * Register a runtime skill contribution. Runtime registrations are treated as
    * embedded provider entries with project-over-user priority. Same-name runtime
    * registrations are first-wins: a duplicate logs a warning and gets a no-op
-   * disposer so it cannot remove the active contribution. The registry detaches
-   * the accepted definition, including nested resource metadata, so later caller
-   * mutation cannot rewrite the live contribution.
+   * disposer so it cannot remove the active contribution. Runtime definitions
+   * are readonly same-process registrations; the registry borrows their nested
+   * resource metadata.
    * @param skill - the complete skill definition to expose for discovery.
    * @returns the exact Cordis effect disposer that removes this runtime
    *   contribution and invalidates caches; composite effects may yield it
    *   directly to preserve teardown ordering.
    */
   register(skill: SkillRegistration): () => Promise<void> | void {
-    const normalized = normalizeRuntimeSkill(skill)
-    const existing = this.runtime.get(normalized.name)
+    validateRuntimeSkill(skill)
+    const existing = this.runtime.get(skill.name)
     if (existing !== undefined) {
-      this.ctx.logger.warn(`runtime skill "${normalized.name}" ignored because it is already registered`)
+      this.ctx.logger.warn(`runtime skill "${skill.name}" ignored because it is already registered`)
       return () => {}
     }
-    const dispose = this.ctx.effect(function* (this: SkillService) {
-      this.runtime.set(normalized.name, normalized)
-      this.runtimeRevision += 1
-      this.invalidateCache()
+    const runtime = this.runtime
+    const updateRevision = (): void => { this.runtimeRevision += 1 }
+    const invalidateCache = (): void => { this.invalidateCache() }
+    const dispose = this.ctx.effect(function* () {
+      runtime.set(skill.name, skill)
+      updateRevision()
+      invalidateCache()
       yield () => {
-        this.runtime.delete(normalized.name)
-        this.runtimeRevision += 1
-        this.invalidateCache()
+        runtime.delete(skill.name)
+        updateRevision()
+        invalidateCache()
       }
-    }.bind(this), 'skills.register()')
+    }, 'skills.register()')
     return dispose
   }
 
   /**
-   * List model-invocable skill summaries for a workspace. The lookup options are
-   * snapshotted before discovery, and every returned summary is detached from the
-   * cached provider catalog.
+   * List model-invocable skill summaries for a workspace. Lookup options and
+   * provider candidates are readonly same-process values borrowed throughout
+   * discovery.
    * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
    * @returns sorted summaries, excluding skills disabled for model invocation.
    */
   async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
-    const accepted = snapshotLookupOptions(options)
-    return (await this.collect(accepted))
+    return (await this.collect(options))
       .map(entry => entry.candidate)
       .filter(skill => skill.disableModelInvocation !== true)
       .map(toSummary)
@@ -278,10 +264,10 @@ export class SkillService extends Service {
   }
 
   /**
-   * Load one full skill definition by name. One lookup-options snapshot selects
-   * and loads the winner; the provider receives detached candidate metadata with
-   * its opaque locator identity preserved, and the returned definition is also
-   * detached from provider-owned data. Cancellation is rechecked after catalog
+   * Load one full skill definition by name. The provider receives the winning
+   * candidate it returned during discovery, including its opaque locator, and
+   * the registry returns the provider's definition after validating it.
+   * Cancellation is rechecked after catalog
    * selection (including a cache hit), and provider loading is raced against the
    * same signal so an uncooperative provider cannot hang the caller.
    * @param name - kebab-case skill name.
@@ -290,16 +276,17 @@ export class SkillService extends Service {
    */
   async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined> {
     if (!isSkillName(name)) return undefined
-    const accepted = snapshotLookupOptions(options)
-    const collected = await this.collect(accepted)
-    throwIfAborted(accepted.signal)
+    const collected = await this.collect(options)
+    throwIfAborted(options.signal)
     const match = collected.find(entry => entry.candidate.name === name)
     if (match === undefined) return undefined
     const definition = await waitWithAbort(
-      match.provider.get(copyCandidate(match.candidate), accepted),
-      accepted.signal,
+      match.provider.get(match.candidate, options),
+      options.signal,
     )
-    return definition === undefined ? undefined : snapshotDefinition(definition)
+    if (definition === undefined) return undefined
+    validateDefinition(definition)
+    return definition
   }
 
   private async collect(options: SkillLookupOptions): Promise<IndexedCandidate[]> {
@@ -358,21 +345,22 @@ export class SkillService extends Service {
     }
     for (const { provider, order } of [...this.providers.values()]) {
       let localOrder = 0
-      let listed: SkillCandidate[] | undefined
+      let output: unknown
       try {
-        listed = await waitWithAbort(provider.list(options), options.signal)
+        output = await waitWithAbort(provider.list(options), options.signal)
       } catch (error) {
         if (options.signal?.aborted === true) throw toError(options.signal.reason)
         cacheable = false
         this.ctx.logger.warn(`skill provider "${provider.name}" skipped: ${errorMessage(error)}`)
       }
-      if (listed === undefined) continue
-      if (!Array.isArray(listed)) {
+      if (output === undefined) continue
+      if (!Array.isArray(output)) {
         throw new TypeError(`skill provider "${provider.name}" list() must return an array`)
       }
+      const listed = output as readonly SkillCandidate[]
       for (const candidate of listed) {
-        const snapshot = snapshotCandidate(candidate, provider.name)
-        candidates.push({ candidate: snapshot, provider, providerOrder: order, localOrder })
+        validateCandidate(candidate, provider.name)
+        candidates.push({ candidate, provider, providerOrder: order, localOrder })
         localOrder += 1
       }
     }
@@ -392,63 +380,25 @@ const RUNTIME_SKILL_PROVIDER: SkillProvider = {
     return Promise.resolve([])
   },
   get(candidate) {
-    const skill = candidate.locator as SkillDefinition
-    return Promise.resolve({ ...skill })
+    const skill = candidate.locator as SkillRegistration
+    return Promise.resolve({ ...skill, provider: skill.provider ?? RUNTIME_PROVIDER })
   },
 }
 
-function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
+function runtimeCandidate(skill: SkillRegistration): SkillCandidate {
   return {
-    ...toSummary(skill),
+    name: skill.name,
+    description: skill.description,
+    ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
+    ...skill.disableModelInvocation !== undefined ? { disableModelInvocation: skill.disableModelInvocation } : {},
+    source: skill.source,
+    provider: skill.provider ?? RUNTIME_PROVIDER,
+    ...skill.resourceBase !== undefined ? { resourceBase: skill.resourceBase } : {},
     rank: RUNTIME_RANK,
     locator: skill,
     ...skill.path !== undefined ? { path: skill.path } : {},
     ...skill.metadata !== undefined ? { metadata: skill.metadata } : {},
   }
-}
-
-/** Read provider candidate data once and detach it while preserving its opaque locator identity. */
-function copyCandidate(candidate: SkillCandidate, providerName?: string): SkillCandidate {
-  const name = candidate.name
-  const description = candidate.description
-  const whenToUse = candidate.whenToUse
-  const disableModelInvocation = candidate.disableModelInvocation
-  const source = candidate.source
-  const provider = candidate.provider
-  const resourceBase = candidate.resourceBase
-  const rank = candidate.rank
-  const locator = candidate.locator
-  const path = candidate.path
-  const metadata = candidate.metadata
-  const accepted: SkillCandidate = {
-    name,
-    description,
-    ...whenToUse !== undefined ? { whenToUse } : {},
-    ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
-    source,
-    provider,
-    ...resourceBase !== undefined ? { resourceBase } : {},
-    rank,
-    // `locator` is the one deliberately provider-owned capability in a
-    // candidate. Its exact identity must round-trip back to provider.get().
-    locator,
-    ...path !== undefined ? { path } : {},
-    ...metadata !== undefined ? { metadata } : {},
-  }
-  // Validate the exact scalar snapshot before cloning nested data. This keeps a
-  // malformed candidate's provider-contract error from being masked by an
-  // unrelated DataCloneError in its metadata.
-  if (providerName !== undefined) validateCandidate(accepted, providerName)
-  return {
-    ...accepted,
-    ...resourceBase !== undefined ? { resourceBase: structuredClone(resourceBase) } : {},
-    ...metadata !== undefined ? { metadata: structuredClone(metadata) } : {},
-  }
-}
-
-/** Normalize one provider result into the registry-owned catalog snapshot. */
-function snapshotCandidate(candidate: SkillCandidate, providerName: string): SkillCandidate {
-  return copyCandidate(candidate, providerName)
 }
 
 function validateCandidate(candidate: SkillCandidate, providerName: string): void {
@@ -487,58 +437,21 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   }
 }
 
-function normalizeRuntimeSkill(skill: SkillRegistration): SkillDefinition {
-  // Read every caller-owned top-level field once so validation and storage use
-  // one coherent definition even when JavaScript accessors are involved.
-  const name = skill.name
-  const description = skill.description
-  const whenToUse = skill.whenToUse
-  const disableModelInvocation = skill.disableModelInvocation
-  const source = skill.source
-  const inputProvider = skill.provider
-  const provider = inputProvider === undefined ? RUNTIME_PROVIDER : inputProvider
-  const resourceBase = skill.resourceBase
-  const content = skill.content
-  const path = skill.path
-  const metadata = skill.metadata
-  if (typeof name !== 'string') throw new TypeError('runtime skill name must be a string')
-  if (!SKILL_NAME.test(name)) throw new Error(`invalid skill name "${name}"`)
-  if (typeof description !== 'string') throw new TypeError(`skill "${name}" description must be a string`)
-  if (description.length === 0) throw new Error(`skill "${name}" requires a description`)
-  if (disableModelInvocation !== undefined && typeof disableModelInvocation !== 'boolean') {
-    throw new TypeError(`skill "${name}" disableModelInvocation must be a boolean`)
-  }
-  if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`skill "${name}" whenToUse must be a string`)
-  if (typeof source !== 'string') throw new TypeError(`skill "${name}" source must be a string`)
-  if (typeof provider !== 'string') throw new TypeError(`skill "${name}" provider must be a string`)
-  if (typeof content !== 'string') throw new TypeError(`skill "${name}" content must be a string`)
-  if (path !== undefined && typeof path !== 'string') throw new TypeError(`skill "${name}" path must be a string`)
-  return {
-    name,
-    description,
-    ...whenToUse !== undefined ? { whenToUse } : {},
-    ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
-    source,
-    provider,
-    ...resourceBase !== undefined ? { resourceBase: structuredClone(resourceBase) } : {},
-    content,
-    ...path !== undefined ? { path } : {},
-    ...metadata !== undefined ? { metadata: structuredClone(metadata) } : {},
-  }
+function validateRuntimeSkill(skill: SkillRegistration): void {
+  if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
+  if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
 }
 
-/** Detach a provider-loaded definition before it crosses back to the caller. */
-function snapshotDefinition(skill: SkillDefinition): SkillDefinition {
+/** Validate a definition loaded from a provider-controlled parser or remote source. */
+function validateDefinition(skill: SkillDefinition): void {
   const name = skill.name
   const description = skill.description
   const whenToUse = skill.whenToUse
   const disableModelInvocation = skill.disableModelInvocation
   const source = skill.source
   const provider = skill.provider
-  const resourceBase = skill.resourceBase
   const content = skill.content
   const path = skill.path
-  const metadata = skill.metadata
   if (typeof name !== 'string') throw new TypeError('loaded skill name must be a string')
   if (!SKILL_NAME.test(name)) throw new Error(`loaded skill has invalid name "${name}"`)
   if (typeof description !== 'string') throw new TypeError(`loaded skill "${name}" description must be a string`)
@@ -551,18 +464,6 @@ function snapshotDefinition(skill: SkillDefinition): SkillDefinition {
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
   if (typeof content !== 'string') throw new TypeError(`loaded skill "${name}" content must be a string`)
   if (path !== undefined && typeof path !== 'string') throw new TypeError(`loaded skill "${name}" path must be a string`)
-  return {
-    name,
-    description,
-    ...whenToUse !== undefined ? { whenToUse } : {},
-    ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
-    source,
-    provider,
-    ...resourceBase !== undefined ? { resourceBase: structuredClone(resourceBase) } : {},
-    content,
-    ...path !== undefined ? { path } : {},
-    ...metadata !== undefined ? { metadata: structuredClone(metadata) } : {},
-  }
 }
 
 function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
@@ -574,7 +475,7 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
     source,
     provider,
-    ...resourceBase !== undefined ? { resourceBase: structuredClone(resourceBase) } : {},
+    ...resourceBase !== undefined ? { resourceBase } : {},
   }
 }
 
@@ -604,16 +505,6 @@ function collectCacheKey(options: SkillLookupOptions, providerRevision: number, 
   return JSON.stringify({ cwd: options.cwd, providerRevision, runtimeRevision })
 }
 
-/** Capture one lookup identity before any provider or cache async boundary. */
-function snapshotLookupOptions(options: SkillLookupOptions): Readonly<SkillLookupOptions> {
-  const cwd = options.cwd
-  const signal = options.signal
-  return Object.freeze({
-    ...cwd !== undefined ? { cwd } : {},
-    ...signal !== undefined ? { signal } : {},
-  })
-}
-
 function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return promise
   throwIfAborted(signal)
@@ -636,7 +527,6 @@ function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined):
         reject(toError(error))
       },
     )
-    if (signal.aborted) onAbort()
   })
 }
 

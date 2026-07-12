@@ -212,7 +212,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     host.close()
   })
 
-  it('cancel mid-run: in-flight children get cancel RPCs, hooks throw at entry, the run reports cancelled', async () => {
+  it('cancel mid-run: hooks throw at entry and the run reports cancelled', async () => {
     const host = fakeHost()
     void runWorkerSession(host.port, init(`
       phase('before')
@@ -232,7 +232,6 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const result = await host.result()
     expect(result.stopReason).toBe('cancelled')
     expect(result.error).toContain('stop everything')
-    expect(host.ofType(WorkerToHostType.ChildCancel).map(m => m.callId)).toContain(callId)
     expect(host.ofType(WorkerToHostType.AgentEnd)[0]!.info.outcome).toBe('cancelled')
     // No post-cancel narration left the runtime (the hooks threw at entry).
     expect(host.ofType(WorkerToHostType.Phase).map(m => m.title)).toEqual(['before'])
@@ -279,36 +278,6 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
-  })
-
-  it('queues Result before settlement-only cancellation of a ready stray', async () => {
-    const host = fakeHost({ manual: true })
-    const session = runWorkerSession(host.port, init(`
-      agent('ready stray')
-      return await agent('gate')
-    `))
-    await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart)).toHaveLength(2) })
-    const starts = host.ofType(WorkerToHostType.ChildStart)
-    const stray = starts.find(message => message.request.prompt === 'ready stray')!
-    const gate = starts.find(message => message.request.prompt === 'gate')!
-    host.send({ type: HostToWorkerType.ChildStarted, callId: stray.callId, childId: 'stray-child' })
-    host.send({ type: HostToWorkerType.ChildStarted, callId: gate.callId, childId: 'gate-child' })
-    host.send({ type: HostToWorkerType.ChildSettled, callId: gate.callId, result: text('gate completed') })
-
-    const result = await host.result()
-    await session
-    await vi.waitFor(() => {
-      expect(host.ofType(WorkerToHostType.ChildCancel).map(message => message.callId)).toContain(stray.callId)
-    })
-
-    expect(result).toMatchObject({ value: 'gate completed', stopReason: 'completed', agentsStarted: 2 })
-    const resultIndex = host.messages.findIndex(message => message.type === WorkerToHostType.Result)
-    const strayCancelIndex = host.messages.findIndex(message =>
-      message.type === WorkerToHostType.ChildCancel && message.callId === stray.callId)
-    expect(resultIndex).toBeGreaterThanOrEqual(0)
-    expect(strayCancelIndex).toBeGreaterThan(resultIndex)
-    host.send({ type: HostToWorkerType.ChildSettled, callId: stray.callId, result: { output: [], stopReason: 'aborted' } })
-    host.close()
   })
 
   it('an unparseable body settles an error result instead of dying without one (host pre-parse skew guard)', async () => {
@@ -463,7 +432,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     host.close()
   })
 
-  it('a cancel landing DURING the start round-trip winds the fresh child down (cancel + dispose) and dies cancelled', async () => {
+  it('a cancel landing DURING the start round-trip disposes the fresh child and dies cancelled', async () => {
     const host = fakeHost({ manual: true })
     void runWorkerSession(host.port, init("return await agent('p')"))
     await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart).length).toBe(1) })
@@ -477,7 +446,6 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const result = await host.result()
     expect(result.stopReason).toBe('cancelled')
     await vi.waitFor(() => {
-      expect(host.ofType(WorkerToHostType.ChildCancel).map(m => m.callId)).toContain(callId)
       expect(host.ofType(WorkerToHostType.ChildDispose).map(m => m.callId)).toContain(callId)
     })
     // The child never became an agent-start: it was wound down pre-lifecycle.

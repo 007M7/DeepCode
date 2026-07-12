@@ -6,8 +6,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
-  type DefineToolOptions, type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
-  type ToolDefinition, type ToolExecution, type ToolExecutionInput, type ToolExecutionResult, type ToolGuard,
+  type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
+  type ToolExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -83,95 +83,6 @@ describe('ToolRegistry', () => {
     expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
-  it.each([
-    { field: 'callId', value: 1n },
-    { field: 'callId', value: 123 },
-    { field: 'name', value: 1n },
-    { field: 'name', value: 123 },
-  ] as const)('rejects a non-string $field before final observation', async ({ field, value }) => {
-    const ctx = await setup()
-    let observed = 0
-    ctx.on('tools/result', () => { observed += 1 })
-    const input: Record<string, unknown> = {
-      callId: CallId('valid-call'),
-      name: 'missing',
-      arguments: {},
-    }
-    input[field] = value
-
-    await expect(ctx.tools.execute(input as unknown as ToolExecutionInput))
-      .rejects.toThrow(`tool execution ${field} must be a string`)
-    expect(observed).toBe(0)
-  })
-
-  it('reads correlation accessors once and normalizes a later hostile accessor', async () => {
-    const ctx = await setup()
-    const reads = { callId: 0, name: 0, arguments: 0 }
-    let observed: { callId: unknown; name: unknown; isError: boolean } | undefined
-    ctx.on('tools/result', (exec, result) => {
-      observed = { callId: exec.callId, name: exec.name, isError: result.isError }
-    })
-    const input = Object.defineProperties({}, {
-      callId: {
-        enumerable: true,
-        get: () => {
-          reads.callId += 1
-          if (reads.callId > 1) throw new Error('callId reread')
-          return CallId('one-read-call')
-        },
-      },
-      name: {
-        enumerable: true,
-        get: () => {
-          reads.name += 1
-          if (reads.name > 1) throw new Error('name reread')
-          return 'missing'
-        },
-      },
-      arguments: {
-        enumerable: true,
-        get: () => {
-          reads.arguments += 1
-          throw new Error('arguments accessor broke')
-        },
-      },
-    }) as unknown as ToolExecutionInput
-
-    const result = await ctx.tools.execute(input)
-
-    expect(reads).toEqual({ callId: 1, name: 1, arguments: 1 })
-    expect(result).toMatchObject({ callId: CallId('one-read-call'), isError: true })
-    expect(result.content[0]).toMatchObject({ text: 'Error: arguments accessor broke' })
-    expect(observed).toEqual({ callId: CallId('one-read-call'), name: 'missing', isError: true })
-  })
-
-  it('reads callId once before a hostile name accessor rejects correlation', async () => {
-    const ctx = await setup()
-    const reads = { callId: 0, name: 0 }
-    let observed = 0
-    ctx.on('tools/result', () => { observed += 1 })
-    const input = Object.defineProperties({ arguments: {} }, {
-      callId: {
-        enumerable: true,
-        get: () => {
-          reads.callId += 1
-          return CallId('hostile-name')
-        },
-      },
-      name: {
-        enumerable: true,
-        get: () => {
-          reads.name += 1
-          throw new Error('name accessor broke')
-        },
-      },
-    }) as unknown as ToolExecutionInput
-
-    await expect(ctx.tools.execute(input)).rejects.toThrow('name accessor broke')
-    expect(reads).toEqual({ callId: 1, name: 1 })
-    expect(observed).toBe(0)
-  })
-
   it('threads a tool-attached meta (object return form) onto the result', async () => {
     const ctx = await setup()
     ctx.tools.register({
@@ -222,77 +133,6 @@ describe('ToolRegistry', () => {
     expect(result.isError).toBe(true)
     expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
     expect(observedError).toBe(true)
-  })
-
-  it('reads each result value once so later getter drift cannot change the snapshot', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    let reads = 0
-    const hostileBlock = Object.defineProperty({ type: 'text' }, 'text', {
-      enumerable: true,
-      get: () => ++reads === 1 ? 'safe' : new Map([['mutable', true]]),
-    })
-    ctx.on('tools/execute', async exec => ({
-      callId: exec.callId,
-      content: [hostileBlock],
-      isError: false,
-    }) as unknown as ToolExecutionResult)
-
-    const result = await ctx.tools.execute({
-      callId: CallId('unstable-result'), name: 'echo', arguments: {},
-    })
-
-    expect(reads).toBe(1)
-    expect(result).toEqual({
-      callId: CallId('unstable-result'),
-      content: [{ type: 'text', text: 'safe' }],
-      isError: false,
-    })
-  })
-
-  it('reads every top-level execution result field once before validation', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    const reads = { callId: 0, content: 0, isError: 0, error: 0, additionalContext: 0, meta: 0 }
-    ctx.on('tools/execute', async exec => Object.defineProperties({}, {
-      callId: { enumerable: true, get: () => { reads.callId += 1; return reads.callId === 1 ? exec.callId : CallId('drifted') } },
-      content: { enumerable: true, get: () => { reads.content += 1; return reads.content === 1 ? [{ type: 'text', text: 'accepted' }] : [] } },
-      isError: { enumerable: true, get: () => { reads.isError += 1; return reads.isError !== 1 } },
-      error: { enumerable: true, get: () => { reads.error += 1; return undefined } },
-      additionalContext: { enumerable: true, get: () => { reads.additionalContext += 1; return undefined } },
-      meta: { enumerable: true, get: () => { reads.meta += 1; return undefined } },
-    }) as ToolExecutionResult)
-
-    const result = await ctx.tools.execute({
-      callId: CallId('one-read-result'), name: 'echo', arguments: {},
-    })
-
-    expect(reads).toEqual({ callId: 1, content: 1, isError: 1, error: 1, additionalContext: 1, meta: 1 })
-    expect(result).toEqual({
-      callId: CallId('one-read-result'),
-      content: [{ type: 'text', text: 'accepted' }],
-      isError: false,
-    })
-  })
-
-  it('rejects an exotic nested result before its prototype can be sanitized', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    class ExoticText { readonly value = 'not text' }
-    ctx.on('tools/execute', exec => Promise.resolve({
-      callId: exec.callId,
-      content: [{ type: 'text', text: new ExoticText() }],
-      isError: false,
-    } as unknown as ToolExecutionResult))
-
-    const result = await ctx.tools.execute({
-      callId: CallId('exotic-result'), name: 'echo', arguments: {},
-    })
-
-    expect(result.isError).toBe(true)
-    expect(result.content).toEqual([{
-      type: 'text', text: 'Error: tools/execute must return a losslessly JSON-serializable ToolExecutionResult',
-    }])
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -360,85 +200,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
-  })
-
-  it.each([
-    {
-      name: 'non-object decision',
-      replacement: null,
-      message: 'tools/pre-execute must return a PreToolDecision object',
-    },
-    {
-      name: 'unknown decision kind',
-      replacement: { kind: 'permit' },
-      message: 'tools/pre-execute must return an allow, deny, or ask decision',
-    },
-    {
-      name: 'allow decision carrying extra fields',
-      replacement: { kind: 'allow', reason: 'smuggled' },
-      message: 'tools/pre-execute allow decision must contain only kind',
-    },
-    {
-      name: 'deny decision without a reason',
-      replacement: { kind: 'deny' },
-      message: 'tools/pre-execute deny decision must contain only kind and a string reason',
-    },
-    {
-      name: 'deny decision with a non-string reason',
-      replacement: { kind: 'deny', reason: 42 },
-      message: 'tools/pre-execute deny decision must contain only kind and a string reason',
-    },
-    {
-      name: 'ask decision with a non-string reason',
-      replacement: { kind: 'ask', reason: true },
-      message: 'tools/pre-execute ask decision must contain only kind and an optional string reason',
-    },
-    {
-      name: 'ask decision carrying extra fields',
-      replacement: { kind: 'ask', cache: true },
-      message: 'tools/pre-execute ask decision must contain only kind and an optional string reason',
-    },
-  ])('fails closed on a malformed tools/pre-execute $name', async ({ replacement, message }) => {
-    const ctx = await setup()
-    let bodyCalls = 0
-    const observed: ToolExecutionResult[] = []
-    ctx.tools.register({
-      ...echoTool,
-      async execute() {
-        bodyCalls += 1
-        return []
-      },
-    })
-    ctx.on('tools/pre-execute', async () => replacement as unknown as PreToolDecision)
-    ctx.on('tools/result', (_exec, result) => { observed.push(result) })
-
-    const result = await ctx.tools.execute({
-      callId: CallId('malformed-pre'), name: 'echo', arguments: {},
-    })
-
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({ text: `Error: ${message}` })
-    expect(bodyCalls).toBe(0)
-    expect(observed).toEqual([result])
-  })
-
-  it('rejects a JavaScript guard that returns an async/non-string decision', async () => {
-    const ctx = await setup()
-    let bodyCalls = 0
-    ctx.tools.register({
-      ...echoTool,
-      async execute() {
-        bodyCalls += 1
-        return []
-      },
-    })
-    ctx.tools.guard((() => Promise.resolve('late denial')) as unknown as ToolGuard)
-
-    const result = await ctx.tools.execute({ callId: CallId('bad-guard'), name: 'echo', arguments: {} })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.type === 'text' && result.content[0].text)
-      .toContain('tools.guard() must return')
-    expect(bodyCalls).toBe(0)
   })
 
   it('an ask decision degrades to deny when no approval seam is mounted', async () => {
@@ -615,55 +376,6 @@ describe('ToolRegistry', () => {
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
-  })
-
-  it('a post-execute listener cannot mutate any nested part of the dispatched result', async () => {
-    // The decision is the ONLY sanctioned channel to change the outcome. A
-    // listener that reaches in and mutates the passed result reference (flipping
-    // isError, rewriting callId, attaching a bogus error) must NOT affect what
-    // execute() returns — the registry snapshots the authoritative fields before
-    // the waterfall and rebuilds from the snapshot + decision.
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async (_exec, next) => {
-      await next()
-      return {
-        callId: CallId('c1'),
-        content: [{ type: 'text', text: 'original' }],
-        isError: true,
-        error: { name: 'OriginalError', code: 'ORIGINAL' },
-        meta: { nested: { label: 'original' } },
-      }
-    })
-
-    ctx.on('tools/post-execute', async (_exec, result, next) => {
-      const mutable = result as {
-        callId: string
-        isError: boolean
-        error?: { name: string; code: string }
-        content: { type: 'text'; text: string }[]
-        meta?: { nested: { label: string } }
-      }
-      mutable.callId = 'hijacked'
-      mutable.isError = false
-      if (mutable.error) {
-        mutable.error.name = 'Evil'
-        mutable.error.code = 'EVIL'
-      }
-      mutable.content[0]!.text = 'MUTATED'
-      mutable.content.push({ type: 'text', text: 'INJECTED' }) // in-place array mutation
-      if (mutable.meta) mutable.meta.nested.label = 'MUTATED'
-      return next() // delegate to the default accept — no decision-level override
-    })
-
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
-    expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'OriginalError', code: 'ORIGINAL' })
-    expect(result.content).toHaveLength(1)       // the in-place push did not leak in
-    expect(result.content[0]).toMatchObject({ text: 'original' })
-    expect(result.content.some(b => (b as { text?: string }).text === 'INJECTED')).toBe(false)
-    expect(result.meta).toEqual({ nested: { label: 'original' } })
   })
 
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
@@ -844,113 +556,18 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('normalizes malformed tools/execute results instead of treating them as success', async () => {
+  it('normalizes a tools/execute result with the wrong call id', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    let observedError: boolean | undefined
-    ctx.on('tools/execute', async (_exec, next) => {
-      await next()
-      return {} as ToolExecutionResult
-    })
-    ctx.on('tools/result', (_exec, result) => { observedError = result.isError })
-
-    const result = await ctx.tools.execute({ callId: CallId('malformed'), name: 'echo', arguments: {} })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({
-      text: 'Error: tools/execute must return a ToolExecutionResult with content[] and boolean isError',
-    })
-    expect(observedError).toBe(true)
-  })
-
-  it('rejects non-JSON data at the defensive final-result notification boundary', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    let execution: ToolExecution | undefined
-    ctx.on('tools/execute', async (exec, next) => {
-      execution = exec
-      return next()
-    })
-    await ctx.tools.execute({ callId: CallId('capture-execution'), name: 'echo', arguments: {} })
-    if (execution === undefined) throw new Error('test fixture did not capture the execution')
-
-    const internal = ctx.tools as unknown as {
-      notifyResult(exec: ToolExecution, result: ToolExecutionResult): Promise<void>
-    }
-    const invalid = {
-      callId: CallId('capture-execution'),
-      content: new Map() as unknown as ToolExecutionResult['content'],
-      isError: false,
-    }
-    await expect(internal.notifyResult(execution, invalid))
-      .rejects.toThrow('tool result notification must be losslessly JSON-serializable')
-  })
-
-  it.each([
-    {
-      name: 'non-object result',
-      replacement: null,
-      message: 'tools/execute must return a ToolExecutionResult object',
-    },
-    {
-      name: 'wrong call id',
-      replacement: { callId: CallId('other'), content: [], isError: false },
-      message: 'tools/execute returned callId "other" for authoritative call "malformed-shape"',
-    },
-  ])('normalizes a tools/execute $name', async ({ replacement, message }) => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async () => replacement as ToolExecutionResult)
+    ctx.on('tools/execute', async () => ({ callId: CallId('other'), content: [], isError: false }))
 
     const result = await ctx.tools.execute({
       callId: CallId('malformed-shape'), name: 'echo', arguments: {},
     })
     expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({ text: `Error: ${message}` })
-  })
-
-  it('normalizes malformed tools/post-execute decisions', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/post-execute', async () => ({ kind: 'accept', content: 'not blocks' }) as unknown as PostToolDecision)
-
-    const result = await ctx.tools.execute({ callId: CallId('malformed-post'), name: 'echo', arguments: {} })
-    expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({
-      text: 'Error: tools/post-execute accept content must be an array',
+      text: 'Error: tools/execute returned callId "other" for authoritative call "malformed-shape"',
     })
-  })
-
-  it.each([
-    {
-      name: 'non-object decision',
-      replacement: null,
-      message: 'tools/post-execute must return a PostToolDecision object',
-    },
-    {
-      name: 'block without feedback blocks',
-      replacement: { kind: 'block', feedback: 'not blocks' },
-      message: 'tools/post-execute block feedback must be an array',
-    },
-    {
-      name: 'unknown decision kind',
-      replacement: { kind: 'defer' },
-      message: 'tools/post-execute must return an accept or block decision',
-    },
-    {
-      name: 'non-JSON decision',
-      replacement: { kind: 'accept', content: new Map() },
-      message: 'tools/post-execute must return a losslessly JSON-serializable decision',
-    },
-  ])('normalizes a tools/post-execute $name', async ({ replacement, message }) => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/post-execute', async () => replacement as unknown as PostToolDecision)
-
-    const result = await ctx.tools.execute({
-      callId: CallId('malformed-post-shape'), name: 'echo', arguments: {},
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({ text: `Error: ${message}` })
   })
 
   it('returns an isError result when a tools/execute listener throws', async () => {
@@ -1030,109 +647,12 @@ describe('ToolRegistry', () => {
     }])
   })
 
-  it.each([
-    ['Map', new Map([['mutable', true]])],
-    ['class instance', new (class Parameters { value = 1 })()],
-  ])('rejects cloneable non-JSON tool parameters (%s) without registry residue', async (_kind, parameters) => {
+  it('rejects a non-positive or non-finite registration timeout', async () => {
     const ctx = await setup()
-    const definition = {
-      ...echoTool,
-      name: 'invalid-parameters',
-      parameters,
-    } as unknown as typeof echoTool
-
-    expect(() => ctx.tools.register(definition)).toThrow(
-      'tool parameters must be losslessly JSON-serializable',
-    )
-    expect(ctx.tools.get('invalid-parameters')).toBeUndefined()
-  })
-
-  it('reads nested tool parameters once into the accepted snapshot', async () => {
-    const ctx = await setup()
-    let reads = 0
-    const parameters = Object.defineProperty({}, 'properties', {
-      enumerable: true,
-      get: () => ++reads === 1 ? {} : new Map([['mutable', true]]),
-    })
-
-    expect(() => ctx.tools.register({
-      ...echoTool,
-      name: 'unstable-parameters',
-      parameters,
-    })).not.toThrow()
-    expect(reads).toBe(1)
-    expect(ctx.tools.get('unstable-parameters')?.parameters).toEqual({ properties: {} })
-  })
-
-  it('reads a top-level parameters accessor once so validation and storage use one value', async () => {
-    const ctx = await setup()
-    const accepted = { type: 'object', properties: { accepted: { type: 'string' } } }
-    class DriftedParameters {
-      readonly type = 'object'
-      readonly properties = { drifted: { type: 'number' } }
-    }
-    let reads = 0
-    const definition = { ...echoTool, name: 'top-level-parameters' }
-    Object.defineProperty(definition, 'parameters', {
-      enumerable: true,
-      get: () => {
-        reads += 1
-        return reads === 1 ? accepted : new DriftedParameters()
-      },
-    })
-
-    ctx.tools.register(definition)
-
-    expect(reads).toBe(1)
-    expect(ctx.tools.get('top-level-parameters')?.parameters).toEqual(accepted)
-  })
-
-  it('rejects malformed fixed definition fields without freezing caller objects', async () => {
-    const ctx = await setup()
-    const badName = { value: 'object-name' }
-    const badDescription = { value: 'object-description' }
-    const badTimeout = { value: 100 }
-
-    expect(() => ctx.tools.register({ ...echoTool, name: badName as unknown as string }))
-      .toThrow('tool name must be a string')
-    expect(() => ctx.tools.register({ ...echoTool, name: 'bad-description', description: badDescription as unknown as string }))
-      .toThrow('description must be a string')
-    expect(() => ctx.tools.register({ ...echoTool, name: 'bad-timeout', timeoutMs: badTimeout as unknown as number }))
-      .toThrow('timeoutMs must be a positive finite number')
     expect(() => ctx.tools.register({ ...echoTool, name: 'zero-timeout', timeoutMs: 0 }))
       .toThrow('timeoutMs must be a positive finite number')
-    expect(() => ctx.tools.register({ ...echoTool, name: 'bad-execute', execute: { bind() {} } as unknown as typeof echoTool.execute }))
-      .toThrow('execute must be a function')
-    expect(() => ctx.tools.register({ ...echoTool, name: 'bad-present-call', presentCall: 1 as unknown as NonNullable<ToolDefinition['presentCall']> }))
-      .toThrow('presentCall must be a function')
-    expect(() => ctx.tools.register({ ...echoTool, name: 'bad-present-result', presentResult: 1 as unknown as NonNullable<ToolDefinition['presentResult']> }))
-      .toThrow('presentResult must be a function')
-    expect(Object.isFrozen(badName)).toBe(false)
-    expect(Object.isFrozen(badDescription)).toBe(false)
-    expect(Object.isFrozen(badTimeout)).toBe(false)
-    expect(ctx.tools.schemas()).toEqual([])
-  })
-
-  it('snapshots callbacks while preserving their registration-time method receiver', async () => {
-    const ctx = await setup()
-    const receivers: object[] = []
-    const definition = {
-      ...echoTool,
-      name: 'callback-snapshot',
-      async execute() {
-        receivers.push(this)
-        return [{ type: 'text' as const, text: 'original' }]
-      },
-    }
-    ctx.tools.register(definition)
-    definition.execute = async () => [{ type: 'text' as const, text: 'replacement' }]
-
-    const result = await ctx.tools.execute({
-      callId: CallId('callback-snapshot'), name: definition.name, arguments: {},
-    })
-
-    expect(receivers).toEqual([definition])
-    expect(result.content).toEqual([{ type: 'text', text: 'original' }])
+    expect(() => ctx.tools.register({ ...echoTool, name: 'infinite-timeout', timeoutMs: Number.POSITIVE_INFINITY }))
+      .toThrow('timeoutMs must be a positive finite number')
   })
 
   it('rejects duplicate names and unregisters on fiber dispose (HMR safety)', async () => {
@@ -1303,101 +823,6 @@ describe('defineTool / schema DSL', () => {
     })
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: 'HELLO' }])
-  })
-
-  it('reads defineTool options once and keeps wire and runtime schemas on one detached snapshot', async () => {
-    const accepted: SchemaSpec = { value: { type: 'string', required: true, enum: ['accepted'] } }
-    const drifted: SchemaSpec = { count: { type: 'number', required: true } }
-    const reads = {
-      name: 0,
-      description: 0,
-      parameters: 0,
-      timeoutMs: 0,
-      execute: 0,
-      presentCall: 0,
-      presentResult: 0,
-    }
-    const options = {} as DefineToolOptions<SchemaSpec>
-    Object.defineProperties(options, {
-      name: { enumerable: true, get: () => { reads.name += 1; return reads.name === 1 ? 'accepted' : 'drifted' } },
-      description: { enumerable: true, get: () => { reads.description += 1; return reads.description === 1 ? 'accepted description' : 'drifted description' } },
-      parameters: { enumerable: true, get: () => { reads.parameters += 1; return reads.parameters === 1 ? accepted : drifted } },
-      timeoutMs: { enumerable: true, get: () => { reads.timeoutMs += 1; return reads.timeoutMs === 1 ? 250 : 0 } },
-      execute: {
-        enumerable: true,
-        get: () => {
-          reads.execute += 1
-          return (args: Record<string, unknown>) => Promise.resolve([{ type: 'text' as const, text: String(args['value']) }])
-        },
-      },
-      presentCall: {
-        enumerable: true,
-        get: () => {
-          reads.presentCall += 1
-          return (args: Record<string, unknown>) => ({ card: 'generic' as const, title: String(args['value']) })
-        },
-      },
-      presentResult: {
-        enumerable: true,
-        get: () => {
-          reads.presentResult += 1
-          return (args: Record<string, unknown>) => ({ card: 'generic' as const, title: String(args['value']) })
-        },
-      },
-    })
-
-    const tool = defineTool(options)
-    accepted.value!.type = 'number'
-    accepted.value!.enum!.push('mutated')
-
-    expect(tool).toMatchObject({
-      name: 'accepted',
-      description: 'accepted description',
-      timeoutMs: 250,
-      parameters: {
-        type: 'object',
-        properties: { value: { type: 'string', enum: ['accepted'] } },
-        required: ['value'],
-      },
-    })
-    await expect(tool.execute({ value: 'accepted' }, {} as ToolExecution))
-      .resolves.toEqual([{ type: 'text', text: 'accepted' }])
-    expect(tool.presentCall?.({ value: 'accepted' })).toEqual({ card: 'generic', title: 'accepted' })
-    expect(tool.presentResult?.(
-      { value: 'accepted' },
-      { content: [], isError: false },
-    )).toEqual({ card: 'generic', title: 'accepted' })
-    expect(reads).toEqual({
-      name: 1,
-      description: 1,
-      parameters: 1,
-      timeoutMs: 1,
-      execute: 1,
-      presentCall: 1,
-      presentResult: 1,
-    })
-  })
-
-  it('rejects an exotic defineTool schema before it can be normalized for the wire', () => {
-    class ExoticDefault { readonly value = 'not JSON' }
-
-    expect(() => defineTool({
-      name: 'exotic-schema',
-      description: 'must reject exotic defaults',
-      parameters: {
-        value: { type: 'string', default: new ExoticDefault() },
-      },
-      execute: () => Promise.resolve([]),
-    })).toThrow(/parameters must be losslessly JSON-serializable/)
-  })
-
-  it('rejects a malformed defineTool spec whose generated wire schema is not JSON', () => {
-    expect(() => defineTool({
-      name: 'malformed-schema',
-      description: 'missing property type',
-      parameters: { value: {} } as unknown as SchemaSpec,
-      execute: () => Promise.resolve([]),
-    })).toThrow(/generated parameters must be losslessly JSON-serializable/)
   })
 
   it('type-level: InferArgs maps required properties to non-optional', () => {

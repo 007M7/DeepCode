@@ -242,24 +242,14 @@ export function apply(ctx: Context, config: Config): void {
         const request: SubagentStartRequest = {
           prompt: [{ type: 'text', text: args.prompt }],
           parent,
-          ...exec.signal ? { signal: exec.signal } : {},
+          signal: exec.signal ?? new AbortController().signal,
           ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
           ...config.persona !== undefined ? { persona: config.persona } : {},
           ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
           ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
         }
 
-        const run: SubagentRun = ctx.subagents.start(config.provider, request)
-
-        // Bridge the tool's abort signal to the run: if the parent step is
-        // aborted while the child is in flight, cancel the child too.
-        const onAbort = (): void => { run.cancel('parent step aborted') }
-        exec.signal?.addEventListener('abort', onAbort, { once: true })
-        // `addEventListener` does NOT fire for a signal already aborted before this
-        // line, so a step cancelled before the tool ran would never reach the
-        // child. Cancel explicitly in that case — the bridge must honor an
-        // already-aborted signal, not lean on each provider re-checking it.
-        if (exec.signal?.aborted) run.cancel('parent step aborted')
+        const run: SubagentRun = await ctx.subagents.start(config.provider, request)
 
         try {
           const result = await run.result
@@ -271,7 +261,6 @@ export function apply(ctx: Context, config: Config): void {
           }
           return [{ type: 'text', text: outputText(result.output) }]
         } finally {
-          exec.signal?.removeEventListener('abort', onAbort)
           // Always reach child quiescence — never leak a live idle child/session.
           await run.dispose()
         }

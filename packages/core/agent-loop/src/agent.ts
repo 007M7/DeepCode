@@ -16,9 +16,6 @@ import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
-/** Agents whose rollback-covered publication enabled driving. */
-const driveEnabledAgents = new WeakSet<ReactLoopAgent>()
-
 /** Sessions already claimed by a concrete driver construction. */
 const claimedDriverSessions = new WeakSet<Session>()
 
@@ -28,12 +25,18 @@ const startDriver = Symbol('dsh.agent-loop.start-driver')
 /** Module-private quiescent stop, valid both before and after driver start. */
 const stopDriver = Symbol('dsh.agent-loop.stop-driver')
 
+/** Module-private context binding for the mutually referential agent scope. */
+const bindContext = Symbol('dsh.agent-loop.bind-context')
+
+/** Module-private publication marker. */
+const publishAgent = Symbol('dsh.agent-loop.publish-agent')
+
 /** Factory-owned controls that can operate only on the agent created with them. */
 export interface PreparedReactLoopAgent {
   /** The unpublished concrete agent. */
   agent: ReactLoopAgent
-  /** Open its driving verbs at the rollback-covered publication boundary. */
-  enableDrive(): void
+  /** Mark the agent public so teardown emits its status lifecycle. */
+  markPublished(): void
   /** Stop the prepared instance even when publication has not started its loop. */
   dispose(): Promise<void> | void
   /**
@@ -48,7 +51,7 @@ export interface PreparedReactLoopAgent {
  * Construct one concrete agent together with unforgeable, instance-bound
  * lifecycle controls. The package surface deliberately exposes neither source
  * subpaths nor this helper: setup code may identify the concrete class, but it
- * cannot enable or start the factory's unpublished instance.
+ * cannot publish or start the factory's unpublished instance.
  * @param ctx - the agent-loop service context used for driving and events.
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
@@ -62,14 +65,11 @@ export function prepareReactLoopAgent(
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
   }
   const agent = new ReactLoopAgent(ctx, id, options, session)
-  // Construction snapshots caller options and can throw. Claim only the fully
-  // initialized driver so the same prepared session remains retryable after a
-  // rejected caller value.
   claimedDriverSessions.add(session)
   const dispose = () => agent[stopDriver]()
   return {
     agent,
-    enableDrive: () => { driveEnabledAgents.add(agent) },
+    markPublished: () => { agent[publishAgent]() },
     dispose,
     startDriver: () => {
       agent[startDriver]()
@@ -82,20 +82,12 @@ export function prepareReactLoopAgent(
  * Install the concrete agent's scope context exactly once. Construction and
  * scope minting are mutually referential (the scope key is the agent), so the
  * factory performs this one post-construction binding before setup receives
- * the unpublished agent. The runtime slot is non-writable/non-configurable;
- * TypeScript `readonly` alone would still let JavaScript redirect later
- * registrations to another context.
+ * the unpublished agent. The module-private binding rejects a second bind.
  * @param agent - the unpublished concrete agent to bind.
  * @param ctx - its fully extended agent scope context.
  */
 export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): void {
-  if (Object.hasOwn(agent, 'ctx')) throw new Error(`agent "${agent.id}" context is already bound`)
-  Object.defineProperty(agent, 'ctx', {
-    value: ctx,
-    enumerable: true,
-    writable: false,
-    configurable: false,
-  })
+  agent[bindContext](ctx)
 }
 
 /**
@@ -106,7 +98,7 @@ export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): 
  * the agent/* event taxonomy — plugins never need this class.
  */
 export class ReactLoopAgent implements Agent {
-  /** Queued + steering FIFOs; native-private so setup cannot bypass driving verbs. */
+  /** Queued + steering FIFOs; native-private so callers cannot bypass the public driving verbs. */
   readonly #inbox = new Inbox()
 
   /**
@@ -117,12 +109,20 @@ export class ReactLoopAgent implements Agent {
    * context are mutually referential (the scope is keyed BY this agent), so
    * neither can exist strictly before the other.
    */
-  declare readonly ctx: Context
+  private boundContext: Context | undefined
+
+  /** The agent's scoped composition context, bound once by its factory. */
+  get ctx(): Context {
+    if (this.boundContext === undefined) throw new Error(`agent "${this.id}" context is not bound`)
+    return this.boundContext
+  }
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
   /** Whether runLoop has been installed into {@link done}. */
   private driverStarted = false
+  /** Whether registry publication began and status disposal is externally visible. */
+  private published = false
   /**
    * Turn-scoped cancel marker, set by {@link cancel} and read/cleared by the
    * driver loop (via the LoopHandle) at every point a turn could start or
@@ -167,16 +167,6 @@ export class ReactLoopAgent implements Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
-    const acceptedOptions = deepFreeze(structuredClone(options))
-    // Pin the public ownership/identity bindings in the runtime object. A
-    // JavaScript caller can otherwise replace TS-readonly parameter properties
-    // after publication and split the registry, driver, session, and model
-    // configuration into different worlds.
-    Object.defineProperties(this, {
-      id: { value: id, enumerable: true, writable: false, configurable: false },
-      options: { value: acceptedOptions, enumerable: true, writable: false, configurable: false },
-      session: { value: session, enumerable: true, writable: false, configurable: false },
-    })
     const { promise, resolve } = Promise.withResolvers<void>()
     this.disposed = promise
     this.resolveDisposed = resolve
@@ -233,36 +223,24 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
   }
 
-  /** Reject every driving verb while creation setup still owns the agent. */
-  private assertDriveEnabled(action: string): void {
-    if (driveEnabledAgents.has(this)) return
-    throw new Error(`agent "${this.id}" cannot ${action} before creation setup completes`)
-  }
-
   send(content: ContentBlock[], options?: SendOptions): void {
-    this.assertDriveEnabled('send')
     this.assertNotDisposed()
     const accepted = this.acceptInboxMessage(content, options)
-    // Materialization invokes caller getters, which may reenter handle disposal.
-    this.assertNotDisposed()
     this.#inbox.enqueue(accepted)
-    const info = deepFreeze({ source: accepted.source, steering: false })
+    const info = { source: accepted.source, steering: false } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
-    this.assertDriveEnabled('steer')
     this.assertNotDisposed()
     if (this._status !== 'running') { this.send(content, options); return }
     const accepted = this.acceptInboxMessage(content, options)
-    this.assertNotDisposed()
     this.#inbox.steer(accepted)
-    const info = deepFreeze({ source: accepted.source, steering: true })
+    const info = { source: accepted.source, steering: true } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
-    this.assertDriveEnabled('inject')
     this.assertNotDisposed()
     const source = this.resolveSource(options)
     if (isTurnOpen(this.session)) {
@@ -323,7 +301,6 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(reason?: string): void {
-    this.assertDriveEnabled('cancel')
     // Arm-gate: only mark a cancellation when there is actually work to cancel —
     // a running turn, an in-flight step, or queued/steering work. An idle cancel
     // with nothing pending is a true no-op; arming the marker then would wrongly
@@ -382,6 +359,17 @@ export class ReactLoopAgent implements Agent {
     })
   }
 
+  /** Bind the mutually referential scope context once. */
+  private [bindContext](ctx: Context): void {
+    if (this.boundContext !== undefined) throw new Error(`agent "${this.id}" context is already bound`)
+    this.boundContext = ctx
+  }
+
+  /** Mark that public lifecycle publication began. */
+  private [publishAgent](): void {
+    this.published = true
+  }
+
   /**
    * Start the driver loop. The prepared controller already owns its stable
    * disposer, so teardown can mark the agent disposed even in the narrow
@@ -424,15 +412,15 @@ export class ReactLoopAgent implements Agent {
       this.settleIdleWaiters()
       this.currentAbort?.abort('disposed')
       // An unpublished rollback has no public status lifecycle to announce.
-      // Once driving is enabled, disposed is part of the agent/status contract.
-      if (driveEnabledAgents.has(this)) {
+      // Once publication begins, disposed is part of the agent/status contract.
+      if (this.published) {
         agentEvents(this.loopCtx, this).emit('agent/status', 'disposed')
       }
     }
     // Before runLoop starts there is normally nothing asynchronous to drain;
     // keep publication rollback synchronous so create() cannot throw while its
     // session/agent entries are still briefly live. A session-start listener
-    // may have used the newly enabled inject() surface, however, so preserve
+    // may have called inject(), however, so preserve
     // its durability checkpoint as a real quiescence boundary.
     if (!this.driverStarted && this.pendingIdleFlushes.size === 0) return
     return this.drainDriver()
@@ -455,11 +443,7 @@ export class ReactLoopAgent implements Agent {
   }
 }
 
-/** Render an arbitrary thrown value without allowing coercion to throw again. */
+/** Render an ordinary thrown value for the error event and log. */
 function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? value.message : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
+  return value instanceof Error ? value.message : String(value)
 }

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { carrierKeyOf, scopeHost } from '@deepseek-ai/dsh-scope'
+import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -39,158 +40,6 @@ function requestOf(agent: Agent, overrides: Partial<ApprovalRequest> = {}): Appr
 }
 
 describe('ApprovalService.request', () => {
-  it('rejects malformed fixed fields and identities before appending or dispatching', async () => {
-    const ctx = await mounted()
-    const consulted = vi.fn()
-    ctx.on('approval/request', () => {
-      consulted()
-      return Promise.resolve<ApprovalOutcome>('allowed-once')
-    })
-    const { agent, appended } = fakeAgent()
-    const badSessionAppends: Array<ReturnType<typeof vi.fn>> = []
-    const badSession = (events: unknown, append: unknown): Agent => ({
-      session: { events, append },
-    }) as unknown as Agent
-    const appendSpy = (): ReturnType<typeof vi.fn> => {
-      const append = vi.fn()
-      badSessionAppends.push(append)
-      return append
-    }
-    const validSignalShape = {
-      aborted: false,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }
-    const cases: Array<{ request: unknown; message: string }> = [
-      { request: null, message: 'requires a request object' },
-      { request: 1, message: 'requires a request object' },
-      { request: { agent: null, toolName: 'echo' }, message: 'agent must be an object' },
-      { request: { agent: 1, toolName: 'echo' }, message: 'agent must be an object' },
-      { request: { agent, toolName: 1 }, message: 'toolName must be a string' },
-      { request: { agent, toolName: 'echo', callId: 1 }, message: 'callId must be a string' },
-      { request: { agent, toolName: 'echo', reason: 1 }, message: 'reason must be a string' },
-      { request: { agent, toolName: 'echo', signal: null }, message: 'signal must be an AbortSignal' },
-      { request: { agent, toolName: 'echo', signal: 1 }, message: 'signal must be an AbortSignal' },
-      {
-        request: { agent, toolName: 'echo', signal: { ...validSignalShape, aborted: 'no' } },
-        message: 'signal must be an AbortSignal',
-      },
-      {
-        request: { agent, toolName: 'echo', signal: { ...validSignalShape, addEventListener: 1 } },
-        message: 'signal must be an AbortSignal',
-      },
-      {
-        request: { agent, toolName: 'echo', signal: { ...validSignalShape, removeEventListener: 1 } },
-        message: 'signal must be an AbortSignal',
-      },
-      {
-        request: { agent: { session: null }, toolName: 'echo' },
-        message: 'agent session must be an object',
-      },
-      {
-        request: { agent: { session: 1 }, toolName: 'echo' },
-        message: 'agent session must be an object',
-      },
-      {
-        request: { agent: badSession(null, appendSpy()), toolName: 'echo' },
-        message: 'session events must be an array',
-      },
-      {
-        request: { agent: badSession([{ type: 'turn/start' }], 1), toolName: 'echo' },
-        message: 'session append must be a function',
-      },
-    ]
-
-    for (const { request, message } of cases) {
-      await expect(ctx.approval.request(request as ApprovalRequest)).rejects.toThrow(message)
-    }
-
-    expect(appended).toEqual([])
-    for (const append of badSessionAppends) expect(append).not.toHaveBeenCalled()
-    expect(consulted).not.toHaveBeenCalled()
-  })
-
-  it('reads request fields, the agent session, and the session append method once', async () => {
-    const ctx = await mounted()
-    const { agent: acceptedSessionOwner, appended: acceptedAudit } = fakeAgent()
-    const { agent: replacementAgent, appended: replacementAudit } = fakeAgent()
-    const acceptedSession = acceptedSessionOwner.session
-    const acceptedAppend = acceptedSession.append.bind(acceptedSession)
-    const signal = new AbortController().signal
-    const reads = {
-      agent: 0,
-      toolName: 0,
-      callId: 0,
-      reason: 0,
-      signal: 0,
-      session: 0,
-      append: 0,
-    }
-    const session = {
-      events: acceptedSession.events,
-      get append(): Session['append'] {
-        reads.append += 1
-        return reads.append === 1 ? acceptedAppend : undefined as unknown as Session['append']
-      },
-    } as Session
-    const agent = Object.defineProperty({}, 'session', {
-      enumerable: true,
-      get: () => {
-        reads.session += 1
-        return reads.session === 1 ? session : replacementAgent.session
-      },
-    }) as Agent
-    const request = Object.defineProperties({}, {
-      agent: {
-        enumerable: true,
-        get: () => (++reads.agent === 1 ? agent : null),
-      },
-      toolName: {
-        enumerable: true,
-        get: () => (++reads.toolName === 1 ? 'stable-tool' : 1),
-      },
-      callId: {
-        enumerable: true,
-        get: () => (++reads.callId === 1 ? CallId('stable-call') : {}),
-      },
-      reason: {
-        enumerable: true,
-        get: () => (++reads.reason === 1 ? 'stable reason' : {}),
-      },
-      signal: {
-        enumerable: true,
-        get: () => (++reads.signal === 1 ? signal : {}),
-      },
-    }) as ApprovalRequest
-    let received: ApprovalRequest | undefined
-    ctx.on('approval/request', (accepted) => {
-      received = accepted
-      return Promise.resolve<ApprovalOutcome>('allowed-once')
-    })
-
-    await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
-
-    expect(reads).toEqual({
-      agent: 1,
-      toolName: 1,
-      callId: 1,
-      reason: 1,
-      signal: 1,
-      session: 1,
-      append: 1,
-    })
-    expect(received).toMatchObject({
-      agent,
-      toolName: 'stable-tool',
-      callId: 'stable-call',
-      reason: 'stable reason',
-      signal,
-    })
-    expect(Object.isFrozen(received)).toBe(true)
-    expect(acceptedAudit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
-    expect(replacementAudit).toEqual([])
-  })
-
   it('throws before appending anything when no turn has ever opened (idle ask)', async () => {
     const ctx = await mounted()
     const { agent, appended } = fakeAgent([])
@@ -230,77 +79,38 @@ describe('ApprovalService.request', () => {
     expect(Object.keys(appended[0]?.data ?? {}).sort()).toEqual(['id', 'toolName'])
   })
 
-  it('snapshots request identity, scope, payload, and audit before deferred dispatch', async () => {
+  it('borrows the exact readonly request for scoped dispatch and audit', async () => {
     const ctx = await mounted()
-    const { agent: acceptedAgent, appended: acceptedAudit } = fakeAgent()
-    const { agent: replacementAgent, appended: replacementAudit } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const acceptedScope = host.mint(acceptedAgent)
-    const replacementScope = host.mint(replacementAgent)
-    const dispatchStarted = Promise.withResolvers<'started'>()
-    const answer = Promise.withResolvers<ApprovalOutcome>()
-    const originalSignal = new AbortController().signal
-    const replacementSignal = new AbortController().signal
-    let heardBy: 'accepted' | 'replacement' | undefined
+    const { agent, appended } = fakeAgent()
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
     let received: ApprovalRequest | undefined
     let carrier: unknown
-    acceptedScope.ctx.on('approval/request', function (req) {
-      heardBy = 'accepted'
+    scope.ctx.on('approval/request', function (req) {
       received = req
       carrier = carrierKeyOf(this)
-      dispatchStarted.resolve('started')
-      return answer.promise
+      return Promise.resolve<ApprovalOutcome>('allowed-once')
     })
-    replacementScope.ctx.on('approval/request', function (req) {
-      heardBy = 'replacement'
-      received = req
-      carrier = carrierKeyOf(this)
-      dispatchStarted.resolve('started')
-      return answer.promise
-    })
-    const request = requestOf(acceptedAgent, {
-      toolName: 'original-tool',
-      callId: CallId('original-call'),
-      reason: 'original reason',
-      signal: originalSignal,
+    const request = requestOf(agent, {
+      toolName: 'scoped-tool',
+      callId: CallId('scoped-call'),
+      reason: 'scoped reason',
     })
 
-    const pending = ctx.approval.request(request)
-    // request() has returned, but the answerer dispatch is deliberately queued
-    // in a microtask. Mutating the caller-owned record must not redirect it.
-    request.agent = replacementAgent
-    request.toolName = 'mutated-before-dispatch'
-    request.callId = CallId('mutated-call')
-    request.reason = 'mutated reason'
-    request.signal = replacementSignal
-    await dispatchStarted.promise
-    // Mutation while the answer is pending must not redirect the final audit.
-    request.toolName = 'mutated-after-dispatch'
-    request.reason = 'mutated again'
-    answer.resolve('allowed-once')
-
-    await expect(pending).resolves.toBe('allowed-once')
-    expect(heardBy).toBe('accepted')
-    expect(carrier).toBe(acceptedAgent)
-    expect(received).not.toBe(request)
-    expect(Object.isFrozen(received)).toBe(true)
-    expect(received).toMatchObject({
-      agent: acceptedAgent,
-      toolName: 'original-tool',
-      callId: 'original-call',
-      reason: 'original reason',
-      signal: originalSignal,
+    await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
+    expect(carrier).toBe(agent)
+    expect(received).toBe(request)
+    expect(appended).toHaveLength(2)
+    expect(appended[0]?.data).toMatchObject({
+      toolName: 'scoped-tool',
+      callId: 'scoped-call',
+      reason: 'scoped reason',
     })
-    expect(acceptedAudit).toHaveLength(2)
-    expect(acceptedAudit[0]?.data).toMatchObject({
-      toolName: 'original-tool',
-      callId: 'original-call',
-      reason: 'original reason',
-    })
-    expect(acceptedAudit[1]?.data).toMatchObject({ outcome: 'allowed-once' })
-    expect(acceptedAudit[1]?.data['id']).toBe(acceptedAudit[0]?.data['id'])
-    expect(replacementAudit).toEqual([])
-    await host.dispose()
+    expect(appended[1]?.data).toMatchObject({ outcome: 'allowed-once' })
+    expect(appended[1]?.data['id']).toBe(appended[0]?.data['id'])
+    await scopeFiber.dispose()
   })
 
   it('contains an approval/asked observer throw after append and still completes the pair', async () => {
@@ -388,9 +198,12 @@ describe('ApprovalService.request', () => {
     const ctx = await mounted()
     const { agent: agentA } = fakeAgent()
     const { agent: agentB } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const scopeA = host.mint(agentA)
-    const scopeB = host.mint(agentB)
+    let scopeA!: Scope
+    let scopeB!: Scope
+    const scopesFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scopeA = createScope(inner, agentA)
+      scopeB = createScope(inner, agentB)
+    }, { inject: ['approval'] }))
     const heard: string[] = []
     ctx.on('approval/request', (req, next) => {
       heard.push(req.agent === agentA ? 'global:A' : 'global:B')
@@ -409,14 +222,16 @@ describe('ApprovalService.request', () => {
     await expect(ctx.approval.request(requestOf(agentB))).resolves.toBe('unavailable')
 
     expect(heard).toEqual(['global:A', 'scoped:A', 'global:B', 'scoped:B'])
-    await host.dispose()
+    await scopesFiber.dispose()
   })
 
   it('keys the scoped dispatch carrier to the exact request agent', async () => {
     const ctx = await mounted()
     const { agent } = fakeAgent()
-    const host = await scopeHost(ctx, ['approval'])
-    const scope = host.mint(agent)
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
     let seenKey: object | undefined
     scope.ctx.on('approval/request', function (req, next) {
       seenKey = carrierKeyOf(this)
@@ -427,7 +242,7 @@ describe('ApprovalService.request', () => {
     await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('unavailable')
 
     expect(seenKey).toBe(agent)
-    await host.dispose()
+    await scopeFiber.dispose()
   })
 
   it('contains a throwing answerer as unavailable', async () => {

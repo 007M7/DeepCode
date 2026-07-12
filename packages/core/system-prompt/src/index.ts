@@ -1,8 +1,8 @@
 /**
  * System prompt assembly registry. Plugins contribute ordered text sections,
- * tool schema providers, named prompt variables, and owner-final named
- * protections; `assemble(context)` collates them through a waterfall that
- * runs once per step, restores protected contributions, and `renderPrompt`
+ * tool schema providers, and named prompt variables; protocol contributions
+ * may declare themselves owner-final. `assemble(context)` collates them through a waterfall that
+ * runs once per step, restores owner-final contributions, and `renderPrompt`
  * interpolates `{{variable}}` references into the final text.
  *
  * The harness-owned prompt openers live here too: this plugin registers the
@@ -18,7 +18,6 @@ import z from 'schemastery'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 
 declare module 'cordis' {
   interface Context {
@@ -45,7 +44,7 @@ declare module 'cordis' {
      */
     'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
     /**
-     * A section, tool provider, variable provider, or protection was registered
+     * A section, tool provider, or variable provider was registered
      * or unregistered (the assembly inputs changed — possibly for one scope
      * only). An UNFILTERED registry-subject notification, deliberately not
      * scope-filtered dispatch: a global change concerns every agent's next
@@ -81,19 +80,25 @@ export interface AssembleContext {
 /** One contributed section of the system prompt (registry input). */
 export interface PromptSection {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.section}). */
-  name: string
+  readonly name: string
   /**
    * Sections are concatenated in ascending order. Convention: `-100` is the
    * harness identity, `0` the deployment persona, tool guidance uses 100–199;
    * other negative orders also render before the persona.
    */
-  order: number
+  readonly order: number
   /**
    * Static text or a provider evaluated at each assembly with that assembly's
    * {@link AssembleContext}. The text may reference `{{variable}}`s — they are
    * interpolated later, by {@link renderPrompt}.
    */
-  text: string | ((context: AssembleContext) => string)
+  readonly text: string | ((context: AssembleContext) => string)
+  /**
+   * Whether this section's canonical presence and definition survive the
+   * complete assembly waterfall. Use this only for owner-required protocol
+   * instructions; ordinary sections remain transformable.
+   */
+  readonly ownerFinal?: boolean
 }
 
 /** One section of an assembly: {@link PromptSection} with its text resolved. */
@@ -118,30 +123,15 @@ export interface AssembledSection {
  */
 export interface ToolProviderResult {
   /** The schemas this provider contributes to THIS assembly. */
-  schemas: ToolSchema[]
+  readonly schemas: readonly ToolSchema[]
   /** The pre-restriction name universe for config validation (defaults to `schemas`' names). */
-  knownNames?: readonly string[]
-}
-
-/**
- * Canonical prompt contributions that survive the assembly waterfall.
- *
- * Protection is declarative by contribution name rather than an ordered
- * callback: after every `system-prompt/assemble` listener has finished, the
- * service restores each protected name to the exact presence and definition
- * produced by its registries before the waterfall. Restored entries keep
- * canonical order with one another and anchor before their first surviving
- * later unprotected canonical neighbor (or at the end); the service does not
- * undo a listener's reordering of unprotected entries. A name absent from that
- * canonical assembly is removed from the result. This makes mode-dependent
- * absence protectable too (for example, a native tool that intentionally stays
- * off the wire in Code Mode).
- */
-export interface PromptProtection {
-  /** Section names whose canonical presence and definition are restored after the waterfall. */
-  sections?: readonly string[]
-  /** Tool names whose canonical presence and definition are restored after the waterfall. */
-  tools?: readonly string[]
+  readonly knownNames?: readonly string[]
+  /**
+   * Tool names this provider owns finally. The names need not be present in
+   * `schemas`: naming a mode-hidden tool makes its canonical absence final, so
+   * an assembly listener cannot fabricate it onto the wire.
+   */
+  readonly ownerFinalNames?: readonly string[]
 }
 
 /**
@@ -234,76 +224,28 @@ function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined, knownN
     name === TOOL_ORDER_REST ? rest : tools.filter(tool => tool.name === name))
 }
 
-/** Snapshot one waterfall-produced named entry with a stable, own data `name`. */
-function snapshotNamedEntry<T extends { name: string }>(entry: T): { entry: T; name: string } {
-  // Read the name exactly once before protection matching. The waterfall owns
-  // its output and may return accessor-backed records; retaining such an entry
-  // would let a getter answer "unprotected" during filtering and the protected
-  // name later when a consumer reads the final assembly.
-  const name = entry.name
-  const snapshot: Record<string, unknown> = {}
-  Object.defineProperty(snapshot, 'name', {
-    value: name,
-    enumerable: true,
-    configurable: true,
-    writable: true,
-  })
-  // Copy every other enumerable field once while deliberately skipping name.
-  // defineProperty keeps a literal "__proto__" extension field ordinary data.
-  for (const key of Object.keys(entry)) {
-    if (key === 'name') continue
-    Object.defineProperty(snapshot, key, {
-      value: (entry as unknown as Record<string, unknown>)[key],
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    })
-  }
-  return { entry: snapshot as T, name }
-}
-
-/** Restore protected named entries from `canonical`, anchored before their next unprotected canonical neighbor. */
-function restoreProtected<T extends { name: string }>(
-  canonical: readonly T[], result: readonly T[], protectedNames: ReadonlySet<string>,
+/** Restore owner-final entries from `canonical`, anchored before their next ordinary canonical neighbor. */
+function restoreOwnerFinal<T extends { name: string }>(
+  canonical: readonly T[], result: readonly T[], ownerFinalNames: ReadonlySet<string>,
 ): T[] {
-  const restored = result
-    .map(snapshotNamedEntry)
-    .filter(record => !protectedNames.has(record.name))
+  const restored = result.filter(entry => !ownerFinalNames.has(entry.name))
   for (const [index, entry] of canonical.entries()) {
-    if (!protectedNames.has(entry.name)) continue
+    if (!ownerFinalNames.has(entry.name)) continue
     // Protected entries are inserted in canonical order. Anchor each one
     // before the first later UNPROTECTED canonical neighbor that survived the
     // waterfall; if none survived, it belongs at the end. Looking only at
-    // unprotected neighbors avoids reversing adjacent protected entries.
+    // ordinary neighbors avoids reversing adjacent owner-final entries.
     const following = new Set(
       canonical.slice(index + 1)
-        .filter(candidate => !protectedNames.has(candidate.name))
+        .filter(candidate => !ownerFinalNames.has(candidate.name))
         .map(candidate => candidate.name),
     )
     const next = restored.findIndex(candidate => following.has(candidate.name))
-    restored.splice(next < 0 ? restored.length : next, 0, {
-      entry: structuredClone(entry),
-      name: entry.name,
-    })
+    // `canonical` is an owned snapshot made before the waterfall; no second
+    // clone is needed when moving its entries into the finalized assembly.
+    restored.splice(next < 0 ? restored.length : next, 0, entry)
   }
-  return restored.map(record => record.entry)
-}
-
-/** Validate and detach one protection-name array without rereading an element. */
-function snapshotProtectionNames(value: unknown, field: 'sections' | 'tools'): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new TypeError(`systemPrompt.protect() ${field} must be an array of strings`)
-  }
-  const names: string[] = []
-  const length = value.length
-  for (let index = 0; index < length; index += 1) {
-    const name: unknown = value[index]
-    if (typeof name !== 'string') {
-      throw new TypeError(`systemPrompt.protect() ${field} must be an array of strings`)
-    }
-    names.push(name)
-  }
-  return Object.freeze([...new Set(names)])
+  return restored
 }
 
 /** Lexicographic (code-unit) name comparison — locale-independent, so the order is identical on every machine. */
@@ -423,7 +365,7 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 /**
  * Registry service (`ctx.systemPrompt`): plugins contribute ordered text
  * sections, tool-schema providers, named prompt variables, and owner-final
- * contribution protections; the agent loop calls `assemble(context)` once per
+ * contributions; the agent loop calls `assemble(context)` once per
  * step. Registers the harness-owned `harness:identity` and
  * `deployment:persona` sections itself (see {@link Config.persona}).
  */
@@ -442,12 +384,10 @@ export class SystemPrompt extends Service {
   private sections: PromptSection[] = []
   private toolProviders: ((context: AssembleContext) => ToolProviderResult)[] = []
   private variableProviders = new Map<string, (context: AssembleContext) => string | undefined>()
-  private protections: PromptProtection[] = []
   /** Per-scope layers (`@deepseek-ai/dsh-scope`); entries drop when a layer empties, so a disposed scope leaves no residue. */
   private scopedSections = new Map<ScopeKey, PromptSection[]>()
   private scopedToolProviders = new Map<ScopeKey, ((context: AssembleContext) => ToolProviderResult)[]>()
   private scopedVariableProviders = new Map<ScopeKey, Map<string, (context: AssembleContext) => string | undefined>>()
-  private scopedProtections = new Map<ScopeKey, PromptProtection[]>()
   private readonly toolOrder: string[] | undefined
 
   constructor(ctx: Context, public config: Config) {
@@ -480,13 +420,11 @@ export class SystemPrompt extends Service {
    * scoped context (`agent.ctx`) contributes to that scope alone — and a
    * scoped section SHADOWS a same-named global section for that scope's
    * assemblies (most-specific-wins; this is how a per-agent persona overrides
-   * `deployment:persona`) unless that global name is protected: global
-   * protection reserves its section name against scoped shadows so the
+   * `deployment:persona`) unless that global contribution is owner-final: it
+   * reserves its section name against scoped shadows so the
    * registration owner—not a later scope—defines the canonical value. The
-   * registry reads `name`, `order`, and `text` once, validates their fixed
-   * string/finite-number/string-or-function types, and stores only that
-   * accepted record, so later caller-object mutation cannot rename or reshape
-   * a contribution. Throws if the SAME layer already has the name (a
+   * readonly typed contribution is borrowed until disposal; only the semantic
+   * finite-order rule is checked at runtime. Throws if the SAME layer already has the name (a
    * duplicate would silently double prompt text — e.g. a double-loaded tool
    * plugin; the global-duplicate message names `agent.ctx` as the per-agent
    * alternative). Removed when the calling fiber is disposed. Emits
@@ -497,25 +435,20 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   section(section: PromptSection): () => Promise<void> | void {
-    const input: unknown = section
-    if (typeof input !== 'object' || input === null) {
-      throw new TypeError('systemPrompt.section() requires a section object')
-    }
-    const accepted = input as PromptSection
-    const name = accepted.name
-    const order = accepted.order
-    const text = accepted.text
-    if (typeof name !== 'string') throw new TypeError('prompt section name must be a string')
-    if (typeof order !== 'number' || !Number.isFinite(order)) {
-      throw new TypeError(`prompt section "${name}" order must be a finite number`)
-    }
-    if (typeof text !== 'string' && typeof text !== 'function') {
-      throw new TypeError(`prompt section "${name}" text must be a string or function`)
+    if (!Number.isFinite(section.order)) {
+      throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
     const scope = scopeOf(this.ctx)
-    const snapshot: PromptSection = { name, order, text }
-    if (scope !== undefined && this.protections.some(record => record.sections?.includes(snapshot.name))) {
-      throw new Error(`prompt section "${snapshot.name}" is globally protected and cannot be shadowed in an agent scope`)
+    if (scope !== undefined
+      && this.sections.some(global => global.name === section.name && global.ownerFinal === true)) {
+      throw new Error(`prompt section "${section.name}" is globally owner-final and cannot be shadowed in an agent scope`)
+    }
+    if (scope === undefined && section.ownerFinal === true) {
+      const hasScopedShadow = [...this.scopedSections.values()]
+        .some(layer => layer.some(scoped => scoped.name === section.name))
+      if (hasScopedShadow) {
+        throw new Error(`owner-final prompt section "${section.name}" cannot be registered while a scoped shadow exists`)
+      }
     }
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -525,18 +458,18 @@ export class SystemPrompt extends Service {
           this.scopedSections.set(scope, created)
           return created
         })()
-      if (layer.some(existing => existing.name === snapshot.name)) {
+      if (layer.some(existing => existing.name === section.name)) {
         throw new Error(scope === undefined
-          ? `prompt section "${snapshot.name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
-          : `prompt section "${snapshot.name}" is already registered in this scope`)
+          ? `prompt section "${section.name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
+          : `prompt section "${section.name}" is already registered in this scope`)
       }
-      layer.push(snapshot)
+      layer.push(section)
       // Yield the rollback BEFORE emitting `system-prompt/change`: a generator
       // effect collects each yielded disposer before the next step runs, so a
       // throwing change listener removes the section instead of leaking it into
       // every future assembly.
       yield () => {
-        const index = layer.indexOf(snapshot)
+        const index = layer.indexOf(section)
         /* v8 ignore next 3 -- defensive: section was registered, so indexOf is guaranteed >= 0 */
         if (index >= 0) layer.splice(index, 1)
         if (scope !== undefined && layer.length === 0) this.scopedSections.delete(scope)
@@ -560,8 +493,7 @@ export class SystemPrompt extends Service {
    * `schemas`/`knownNames` split). The layer is decided by the calling
    * context: a scoped provider (registered through `agent.ctx`) is consulted
    * only for that scope's assemblies. Removed when the calling fiber is
-   * disposed. A non-function provider is rejected before any effect is stored.
-   * A provider must not return a schema named
+   * disposed. A provider must not return a schema named
    * {@link TOOL_ORDER_REST}; that name is reserved for
    * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
    * `system-prompt/change`.
@@ -571,9 +503,6 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void {
-    if (typeof provider !== 'function') {
-      throw new TypeError('system prompt tool provider must be a function')
-    }
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -611,8 +540,7 @@ export class SystemPrompt extends Service {
    * deployment must not claim facts it does not have). The layer is decided
    * by the calling context: a scoped variable (registered through
    * `agent.ctx`) resolves only for that scope's assemblies and SHADOWS a
-   * same-named global variable there. The fixed name and callback types are
-   * validated before effect storage. Throws on a name that does not match
+   * same-named global variable there. Throws on a name that does not match
    * `[a-z][a-z0-9_]*` (it could never be referenced) or one already registered
    * in the SAME layer. Removed when the calling fiber is disposed; emits
    * `system-prompt/change` on register/unregister.
@@ -623,13 +551,8 @@ export class SystemPrompt extends Service {
    *   yield it directly — exact identity nests the teardown in order.
    */
   variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void {
-    const inputName: unknown = name
-    if (typeof inputName !== 'string') throw new TypeError('prompt variable name must be a string')
-    if (!VARIABLE_NAME.test(inputName)) {
-      throw new Error(`invalid prompt variable name "${inputName}" (must match ${String(VARIABLE_NAME)})`)
-    }
-    if (typeof provider !== 'function') {
-      throw new TypeError(`prompt variable "${inputName}" provider must be a function`)
+    if (!VARIABLE_NAME.test(name)) {
+      throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
     }
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
@@ -664,91 +587,6 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Protect named section/tool contributions from the assembly waterfall.
-   * The layer is decided by the calling context: a global protection applies
-   * to every assembly, while one registered through `agent.ctx` applies only
-   * to that agent's scope. The name's canonical registry/provider output is
-   * restored AFTER the whole waterfall, so listener registration order cannot
-   * strip, replace, duplicate, or fabricate it. Canonical absence is restored
-   * too: if the protected name is intentionally absent for an assembly, a
-   * listener-injected entry with that name is removed. Each optional field and
-   * array slot is read once; non-array fields or non-string names reject before
-   * effect storage, and the accepted deduplicated arrays are frozen. During
-   * finalization each waterfall-produced entry name is likewise read once into
-   * an owned data record, so a stateful getter cannot look unprotected during
-   * filtering and later impersonate a protected name. An empty protection
-   * throws because it cannot affect output.
-   * Removed with the calling fiber and emits `system-prompt/change` on
-   * registration/unregistration. A global section protection also reserves the
-   * name against scoped section shadows; registering protection when such a
-   * shadow already exists fails loudly instead of protecting the wrong owner.
-   * @param protection - section and/or tool names whose canonical presence and definitions are restored after the waterfall.
-   * @returns the exact Cordis effect disposer that removes the protection.
-   */
-  protect(protection: PromptProtection): () => Promise<void> | void {
-    const input: unknown = protection
-    if (typeof input !== 'object' || input === null) {
-      throw new TypeError('systemPrompt.protect() requires a protection object')
-    }
-    const accepted = input as PromptProtection
-    const inputSections = accepted.sections
-    const inputTools = accepted.tools
-    const sections = inputSections === undefined
-      ? undefined
-      : snapshotProtectionNames(inputSections, 'sections')
-    const tools = inputTools === undefined
-      ? undefined
-      : snapshotProtectionNames(inputTools, 'tools')
-    const scope = scopeOf(this.ctx)
-    const snapshot: PromptProtection = Object.freeze({
-      ...sections !== undefined ? { sections } : {},
-      ...tools !== undefined ? { tools } : {},
-    })
-    if ((snapshot.sections?.length ?? 0) === 0 && (snapshot.tools?.length ?? 0) === 0) {
-      throw new Error('systemPrompt.protect() requires at least one section or tool name')
-    }
-    if (scope === undefined && snapshot.sections !== undefined) {
-      const protectedSections = new Set(snapshot.sections)
-      const conflicts = [...this.scopedSections.values()]
-        .flatMap(layer => layer.filter(section => protectedSections.has(section.name)).map(section => section.name))
-      if (conflicts.length > 0) {
-        throw new Error(`systemPrompt.protect() cannot globally protect section${conflicts.length > 1 ? 's' : ''} ${[...new Set(conflicts)].map(name => `"${name}"`).join(', ')} while scoped shadows are registered`)
-      }
-    }
-    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      const layer = scope === undefined
-        ? this.protections
-        : this.scopedProtections.get(scope) ?? (() => {
-          const created: PromptProtection[] = []
-          this.scopedProtections.set(scope, created)
-          return created
-        })()
-      layer.push(snapshot)
-      yield () => {
-        const index = layer.indexOf(snapshot)
-        /* v8 ignore next 3 -- defensive: protection was registered, so indexOf is guaranteed >= 0 */
-        if (index >= 0) layer.splice(index, 1)
-        if (scope !== undefined && layer.length === 0) this.scopedProtections.delete(scope)
-        this.ctx.emit('system-prompt/change')
-      }
-      this.ctx.emit('system-prompt/change')
-    }.bind(this), 'systemPrompt.protect()')
-    return dispose
-  }
-
-  /** Resolve the owner-final names registered for one assembly scope. */
-  private protectedNames(scope: ScopeKey | undefined): { sections: Set<string>; tools: Set<string> } {
-    const records = [
-      ...this.protections,
-      ...(scope === undefined ? [] : this.scopedProtections.get(scope)) ?? [],
-    ]
-    return {
-      sections: new Set(records.flatMap(record => record.sections ?? [])),
-      tools: new Set(records.flatMap(record => record.tools ?? [])),
-    }
-  }
-
-  /**
    * Assemble the current prompt for one caller: the global layer merged with
    * {@link AssembleContext.scope}'s layer (scoped sections/variables SHADOW
    * same-named global ones — most-specific-wins) — section texts resolved
@@ -760,14 +598,12 @@ export class SystemPrompt extends Service {
    * the providers' `knownNames` universe rejects the assembly, while a known
    * name restricted away for this scope is a normal absence), and every
    * visible variable resolved against `context` into `assembly.variables`.
-   * Each provider result and schema field is read once; those same captured
-   * names drive both `toolOrder` validation and the model-visible collection.
-   * Tool schemas are deep-cloned because adapters and request waterfalls may
-   * mutate schema objects. Runs through the `system-prompt/assemble`
+   * Tool schemas are detached because assembly waterfalls may mutate them.
+   * Runs through the `system-prompt/assemble`
    * waterfall, giving listeners the opportunity to mutate or replace the
-   * assembly, then restores every visible {@link PromptProtection} from the
-   * pre-waterfall canonical assembly. Like the sections' `order` sort, tool
-   * canonicalization happens on the initial assembly; unprotected listener
+   * assembly, then restores every contribution whose owner declared it final
+   * from the pre-waterfall canonical assembly. Like the sections' `order` sort, tool
+   * canonicalization happens on the initial assembly; ordinary listener
    * output owns its own determinism. Await the result before reading the
    * assembly values — waterfall listeners may be async.
    * Interpolation happens later, in {@link renderPrompt}.
@@ -780,10 +616,6 @@ export class SystemPrompt extends Service {
   // (`assemble().catch(...)` would miss it).
   async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
     const scope = context.scope
-    // Protection is a registry input too: snapshot which names are protected
-    // at assembly start. Registrations that land while an async waterfall is
-    // in flight affect the NEXT assembly, matching the other registries.
-    const protectedNames = this.protectedNames(scope)
     // Variables: global layer first, then the scope's layer OVERWRITES
     // same-named entries (shadowing — a per-agent value wins for that agent).
     const variables: Record<string, string | undefined> = {}
@@ -803,6 +635,11 @@ export class SystemPrompt extends Service {
     for (const section of (scope === undefined ? [] : this.scopedSections.get(scope)) ?? []) {
       sectionByName.set(section.name, section)
     }
+    const ownerFinalSections = new Set(
+      [...sectionByName.values()]
+        .filter(section => section.ownerFinal === true)
+        .map(section => section.name),
+    )
     // Tools: consult the global providers plus the scope's, each with this
     // assembly's context. `schemas` are what the model may see (already
     // post-restriction, per provider); `knownNames` (defaulting to the
@@ -815,45 +652,18 @@ export class SystemPrompt extends Service {
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()
+    const ownerFinalTools = new Set<string>()
     for (const provider of providers) {
       const result = provider(context)
-      // One provider result snapshot: `schemas`, `knownNames`, and each schema
-      // field may be accessor-backed. The same captured names must drive both
-      // toolOrder validation and the model-visible collection.
-      const inputSchemas = result.schemas
-      const inputKnownNames = result.knownNames
-      const schemas = inputSchemas.map((tool, index): ToolSchema => {
-        const name = tool.name
-        const description = tool.description
-        const inputParameters = tool.parameters
-        if (typeof name !== 'string') {
-          throw new TypeError(`system prompt tool schema at index ${index} name must be a string`)
-        }
-        if (typeof description !== 'string') {
-          throw new TypeError(`system prompt tool "${name}" description must be a string`)
-        }
-        const parameters = snapshotJsonValue(inputParameters)
-        if (parameters === undefined) {
-          throw new TypeError(`system prompt tool "${name}" parameters must be losslessly JSON-serializable`)
-        }
-        return { name, description, parameters }
-      })
-      let acceptedKnownNames: string[]
-      if (inputKnownNames === undefined) {
-        acceptedKnownNames = schemas.map(tool => tool.name)
-      } else {
-        if (!Array.isArray(inputKnownNames)) {
-          throw new TypeError('system prompt tool provider knownNames must be an array of strings')
-        }
-        acceptedKnownNames = Array.from(inputKnownNames, (name) => {
-          if (typeof name !== 'string') {
-            throw new TypeError('system prompt tool provider knownNames must be an array of strings')
-          }
-          return name
-        })
-      }
+      const schemas = result.schemas.map(({ name, description, parameters }): ToolSchema => ({
+        name,
+        description,
+        parameters: structuredClone(parameters),
+      }))
+      const acceptedKnownNames = result.knownNames ?? schemas.map(tool => tool.name)
       collected.push(...schemas)
       for (const name of acceptedKnownNames) knownNames.add(name)
+      for (const name of result.ownerFinalNames ?? []) ownerFinalTools.add(name)
     }
     const assembly: PromptAssembly = {
       sections: [...sectionByName.values()]
@@ -866,11 +676,11 @@ export class SystemPrompt extends Service {
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
-    // Snapshot only the fields protection can restore. The waterfall receives
+    // Snapshot only the owner-final fields. The waterfall receives
     // `assembly` by reference and may mutate it or return a replacement; these
     // independent snapshots remain the authoritative registry product.
-    const canonicalSections = protectedNames.sections.size > 0 ? structuredClone(assembly.sections) : undefined
-    const canonicalTools = protectedNames.tools.size > 0 ? structuredClone(assembly.tools) : undefined
+    const canonicalSections = ownerFinalSections.size > 0 ? structuredClone(assembly.sections) : undefined
+    const canonicalTools = ownerFinalTools.size > 0 ? structuredClone(assembly.tools) : undefined
     const result = await this.ctx.waterfall(
       scopeTarget(this, scope), 'system-prompt/assemble', assembly, context,
       () => Promise.resolve(assembly),
@@ -881,10 +691,10 @@ export class SystemPrompt extends Service {
     return {
       ...result,
       ...canonicalSections !== undefined
-        ? { sections: restoreProtected(canonicalSections, result.sections, protectedNames.sections) }
+        ? { sections: restoreOwnerFinal(canonicalSections, result.sections, ownerFinalSections) }
         : {},
       ...canonicalTools !== undefined
-        ? { tools: restoreProtected(canonicalTools, result.tools, protectedNames.tools) }
+        ? { tools: restoreOwnerFinal(canonicalTools, result.tools, ownerFinalTools) }
         : {},
     }
   }

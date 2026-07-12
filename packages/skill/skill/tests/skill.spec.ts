@@ -107,85 +107,9 @@ describe('SkillService registry', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
   })
 
-  it('snapshots a provider registration so caller mutation cannot corrupt HMR cleanup', async () => {
+  it('validates parsed candidate fields', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    const candidate: SkillCandidate = {
-      name: 'stable-skill',
-      description: 'Stable skill',
-      provider: 'stable-provider',
-      source: 'test',
-      rank: 1,
-      locator: 'original',
-    }
-    const originalList = vi.fn(() => Promise.resolve([candidate]))
-    const originalGet = vi.fn((listed: SkillCandidate) => Promise.resolve<SkillDefinition>({
-      ...listed,
-      content: 'Original body.',
-    }))
-    const provider: SkillProvider = {
-      name: 'stable-provider',
-      list: originalList,
-      get: originalGet,
-    }
-    const added: SkillProvider[] = []
-    const removed: string[] = []
-    ctx.on('skill/provider-added', (registered) => { added.push(registered) })
-    ctx.on('skill/provider-removed', (name) => { removed.push(name) })
-    const owner = await ctx.plugin({
-      name: 'mutable-provider-owner',
-      inject: ['skills'],
-      apply(pluginCtx: Context) {
-        pluginCtx.skills.registerProvider(provider)
-      },
-    })
-
-    provider.name = 'mutated-provider'
-    const replacementList = vi.fn(() => Promise.resolve([]))
-    const replacementGet = vi.fn(() => Promise.resolve(undefined))
-    provider.list = replacementList
-    provider.get = replacementGet
-
-    expect(added).toHaveLength(1)
-    expect(added[0]).not.toBe(provider)
-    expect(added[0]?.name).toBe('stable-provider')
-    expect(Object.isFrozen(added[0])).toBe(true)
-    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['stable-skill'])
-    expect((await ctx.skills.get('stable-skill'))?.content).toBe('Original body.')
-    expect(originalList).toHaveBeenCalledOnce()
-    expect(originalGet).toHaveBeenCalledOnce()
-    expect(replacementList).not.toHaveBeenCalled()
-    expect(replacementGet).not.toHaveBeenCalled()
-
-    await owner.dispose()
-    expect(removed).toEqual(['stable-provider'])
-    expect(await ctx.skills.list()).toEqual([])
-    const replacement = new MemoryProvider([])
-    Object.defineProperty(replacement, 'name', { value: 'stable-provider' })
-    expect(() => ctx.skills.registerProvider(replacement)).not.toThrow()
-  })
-
-  it('rejects malformed provider and candidate scalar fields without freezing caller objects', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SkillService)
-    const badProviderName = { value: 'object-provider' }
-    expect(() => ctx.skills.registerProvider({
-      name: badProviderName as unknown as string,
-      list: () => Promise.resolve([]),
-      get: () => Promise.resolve(undefined),
-    })).toThrow('skill provider name must be a string')
-    expect(Object.isFrozen(badProviderName)).toBe(false)
-    expect(() => ctx.skills.registerProvider({
-      name: 'bad-list',
-      list: { bind() {} } as unknown as SkillProvider['list'],
-      get: () => Promise.resolve(undefined),
-    })).toThrow('list must be a function')
-    expect(() => ctx.skills.registerProvider({
-      name: 'bad-get',
-      list: () => Promise.resolve([]),
-      get: { bind() {} } as unknown as SkillProvider['get'],
-    })).toThrow('get must be a function')
-
     const badDescription = { value: 'object-description' }
     ctx.skills.registerProvider({
       name: 'bad-candidate',
@@ -198,7 +122,6 @@ describe('SkillService registry', () => {
       get: () => Promise.resolve(undefined),
     })
     await expect(ctx.skills.list()).rejects.toThrow('non-string description')
-    expect(Object.isFrozen(badDescription)).toBe(false)
 
     const badBoolean = new Context()
     await badBoolean.plugin(SkillService)
@@ -258,46 +181,37 @@ describe('SkillService registry', () => {
     }
   })
 
-  it('snapshots lookup options before asynchronous discovery and loading', async () => {
+  it('borrows the exact lookup options through discovery and loading', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    let release: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    const listCwds: (string | undefined)[] = []
-    const getCwds: (string | undefined)[] = []
+    const options: SkillLookupOptions = { cwd: '/workspace/a' }
+    let listedWith: SkillLookupOptions | undefined
+    let loadedWith: SkillLookupOptions | undefined
+    const candidate: SkillCandidate = {
+      name: 'skill-a',
+      description: 'Skill A',
+      provider: 'contextual',
+      source: 'test',
+      rank: 1,
+      locator: 'skill-a',
+    }
     ctx.skills.registerProvider({
       name: 'contextual',
-      async list(options) {
-        listCwds.push(options.cwd)
-        await gate
-        const name = options.cwd === '/workspace/a' ? 'skill-a' : 'skill-b'
-        return [
-          { name, description: name, provider: 'contextual', source: 'test', rank: 1, locator: name },
-          { name: 'vanished', description: 'Vanished', provider: 'contextual', source: 'test', rank: 2, locator: 'vanished' },
-        ]
+      async list(received) {
+        listedWith = received
+        return [candidate]
       },
-      async get(candidate, options) {
-        getCwds.push(options.cwd)
-        if (candidate.name === 'vanished') return undefined
-        return { ...candidate, content: `${options.cwd}:${candidate.name}` }
+      async get(received, lookup) {
+        expect(received).toBe(candidate)
+        loadedWith = lookup
+        return { ...received, content: 'Skill A body.' }
       },
     })
 
-    const listOptions: { cwd: string | undefined } = { cwd: '/workspace/a' }
-    const pending = ctx.skills.list(listOptions)
-    listOptions.cwd = '/workspace/b'
-    release?.()
-
-    expect((await pending).map(skill => skill.name)).toEqual(['skill-a', 'vanished'])
-    expect((await ctx.skills.list({ cwd: '/workspace/a' })).map(skill => skill.name)).toEqual(['skill-a', 'vanished'])
-    expect(listCwds).toEqual(['/workspace/a'])
-
-    const getOptions: { cwd: string | undefined } = { cwd: '/workspace/a' }
-    const loading = ctx.skills.get('skill-a', getOptions)
-    getOptions.cwd = '/workspace/b'
-    expect((await loading)?.content).toBe('/workspace/a:skill-a')
-    expect(await ctx.skills.get('vanished', { cwd: '/workspace/a' })).toBeUndefined()
-    expect(getCwds).toEqual(['/workspace/a', '/workspace/a'])
+    expect((await ctx.skills.list(options)).map(skill => skill.name)).toEqual(['skill-a'])
+    expect(await ctx.skills.get('skill-a', options)).toMatchObject({ content: 'Skill A body.' })
+    expect(listedWith).toBe(options)
+    expect(loadedWith).toBe(options)
   })
 
   it('rechecks cancellation after cached discovery before provider loading', async () => {
@@ -402,7 +316,7 @@ describe('SkillService registry', () => {
     expect(settled).toBe('aborted')
   })
 
-  it('detaches cached candidates and loaded definitions while preserving locator identity', async () => {
+  it('borrows cached candidates and loaded definitions from the provider', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const locator = { id: 'provider-owned' }
@@ -445,50 +359,27 @@ describe('SkillService registry', () => {
       },
     })
 
-    const first = await ctx.skills.list()
-    candidate.name = 'Bad_Name'
-    candidate.description = ''
-    if (candidate.resourceBase?.kind === 'opaque') candidate.resourceBase.description = 'mutated candidate'
-    if (candidate.metadata) candidate.metadata.owner = 'mutated candidate'
-    if (first[0]?.resourceBase?.kind === 'opaque') first[0].resourceBase.description = 'mutated summary'
-
-    const second = await ctx.skills.list()
-    expect(second).toEqual([expect.objectContaining({
+    const listed = await ctx.skills.list()
+    expect(listed).toEqual([expect.objectContaining({
       name: 'stable-skill',
       description: 'Stable description',
       resourceBase: { kind: 'opaque', description: 'candidate resources' },
     })])
+    expect(listed[0]?.resourceBase).toBe(candidate.resourceBase)
     expect(listCalls).toBe(1)
 
     const loaded = await ctx.skills.get('stable-skill')
-    expect(received).not.toBe(candidate)
+    expect(received).toBe(candidate)
     expect(received?.locator).toBe(locator)
-    expect(received).toMatchObject({
-      name: 'stable-skill',
-      description: 'Stable description',
-      resourceBase: { kind: 'opaque', description: 'candidate resources' },
-      metadata: { owner: 'candidate' },
-    })
-    expect(loaded).not.toBe(definition)
-    if (loaded?.resourceBase?.kind === 'opaque') loaded.resourceBase.description = 'mutated definition output'
-    if (loaded?.metadata) loaded.metadata.owner = 'mutated definition output'
-
-    expect(await ctx.skills.get('stable-skill')).toMatchObject({
-      resourceBase: { kind: 'opaque', description: 'definition resources' },
-      metadata: { owner: 'definition' },
-    })
-    expect(definition).toMatchObject({
-      resourceBase: { kind: 'opaque', description: 'definition resources' },
-      metadata: { owner: 'definition' },
-    })
+    expect(loaded).toBe(definition)
   })
 
-  it('detaches runtime registrations and every public resource view', async () => {
+  it('preserves readonly runtime resource identities while adding the default provider', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const resourceBase = { kind: 'opaque' as const, description: 'runtime resources' }
     const metadata = { owner: 'runtime' }
-    ctx.skills.register({
+    const registration = {
       name: 'runtime-skill',
       description: 'Runtime',
       whenToUse: 'When runtime data is needed.',
@@ -497,101 +388,20 @@ describe('SkillService registry', () => {
       resourceBase,
       metadata,
       content: 'Runtime body.',
-    })
+    }
+    ctx.skills.register(registration)
     ctx.skills.register({
       name: 'z-runtime',
       description: 'Second runtime skill',
       source: 'runtime',
       content: 'Second runtime body.',
     })
-    resourceBase.description = 'mutated registration'
-    metadata.owner = 'mutated registration'
-
     const listed = await ctx.skills.list()
     const loaded = await ctx.skills.get('runtime-skill')
-    expect(listed[0]?.resourceBase).toEqual({ kind: 'opaque', description: 'runtime resources' })
-    expect(loaded?.metadata).toEqual({ owner: 'runtime' })
-    if (listed[0]?.resourceBase?.kind === 'opaque') listed[0].resourceBase.description = 'mutated list output'
-    if (loaded?.resourceBase?.kind === 'opaque') loaded.resourceBase.description = 'mutated get output'
-    if (loaded?.metadata) loaded.metadata.owner = 'mutated get output'
-
-    expect((await ctx.skills.list())[0]?.resourceBase).toEqual({ kind: 'opaque', description: 'runtime resources' })
-    expect(await ctx.skills.get('runtime-skill')).toMatchObject({
-      resourceBase: { kind: 'opaque', description: 'runtime resources' },
-      metadata: { owner: 'runtime' },
-    })
-  })
-
-  it('rejects malformed runtime and loaded-definition scalar fields without freezing them', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SkillService)
-    const runtimeDescription = { value: 'runtime-description' }
-    expect(() => ctx.skills.register({
-      name: 'bad-runtime',
-      description: runtimeDescription as unknown as string,
-      source: 'runtime',
-      content: 'body',
-    })).toThrow('description must be a string')
-    expect(Object.isFrozen(runtimeDescription)).toBe(false)
-    expect(() => ctx.skills.register({
-      name: 'bad-runtime-boolean',
-      description: 'Runtime',
-      disableModelInvocation: 'false' as unknown as boolean,
-      source: 'runtime',
-      content: 'body',
-    })).toThrow('disableModelInvocation must be a boolean')
-    expect(() => ctx.skills.register({
-      name: 'bad-runtime-provider',
-      description: 'Runtime',
-      source: 'runtime',
-      provider: null as unknown as string,
-      content: 'body',
-    })).toThrow('provider must be a string')
-
-    const loadedContent = { value: 'loaded-content' }
-    ctx.skills.registerProvider({
-      name: 'bad-definition',
-      list: () => Promise.resolve([{
-        name: 'bad-definition',
-        description: 'Candidate',
-        provider: 'bad-definition',
-        source: 'test',
-        rank: 1,
-        locator: 'bad-definition',
-      }]),
-      get: candidate => Promise.resolve({
-        ...candidate,
-        content: loadedContent as unknown as string,
-      }),
-    })
-    await expect(ctx.skills.get('bad-definition')).rejects.toThrow('content must be a string')
-    expect(Object.isFrozen(loadedContent)).toBe(false)
-  })
-
-  it('rejects every other malformed runtime scalar', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SkillService)
-    type Registration = Parameters<typeof ctx.skills.register>[0]
-    const valid: Registration = {
-      name: 'runtime-validation',
-      description: 'Runtime validation',
-      whenToUse: 'Use this runtime skill.',
-      disableModelInvocation: false,
-      source: 'runtime',
-      provider: 'runtime-validation',
-      content: 'Runtime body.',
-      path: '/skills/runtime-validation/SKILL.md',
-    }
-    const cases: { patch: Partial<Registration>; expected: string }[] = [
-      { patch: { name: { value: 'runtime' } as unknown as string }, expected: 'runtime skill name must be a string' },
-      { patch: { whenToUse: 1 as unknown as string }, expected: 'whenToUse must be a string' },
-      { patch: { source: { value: 'source' } as unknown as string }, expected: 'source must be a string' },
-      { patch: { content: { value: 'content' } as unknown as string }, expected: 'content must be a string' },
-      { patch: { path: 1 as unknown as string }, expected: 'path must be a string' },
-    ]
-    for (const { patch, expected } of cases) {
-      expect(() => ctx.skills.register({ ...valid, ...patch })).toThrow(expected)
-    }
+    expect(listed[0]?.resourceBase).toBe(resourceBase)
+    expect(loaded?.resourceBase).toBe(resourceBase)
+    expect(loaded?.metadata).toBe(metadata)
+    expect(loaded?.provider).toBe('runtime')
   })
 
   it('rejects every malformed scalar in provider-loaded definitions', async () => {
@@ -851,39 +661,6 @@ describe('SkillService registry', () => {
 
     expect(seenSignal).toBe(controller.signal)
     expect(settled).toBe('aborted')
-  })
-
-  it('does not miss an abort racing listener installation', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SkillService)
-    const reason = new Error('racing abort')
-    let aborted = false
-    const signal = {
-      get aborted() {
-        return aborted
-      },
-      reason,
-      throwIfAborted() {
-        if (aborted) throw reason
-      },
-      addEventListener(_type: string, listener: () => void) {
-        aborted = true
-        listener()
-      },
-      removeEventListener() {},
-    } as unknown as AbortSignal
-    ctx.skills.registerProvider({
-      name: 'racing-abort',
-      list() {
-        return Promise.reject(new Error('late provider failure'))
-      },
-      async get() {
-        return undefined
-      },
-    })
-
-    await expect(ctx.skills.list({ signal })).rejects.toBe(reason)
-    await Promise.resolve()
   })
 
   it('rejects invalid runtime skill registrations and ignores duplicates', async () => {

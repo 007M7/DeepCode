@@ -4,30 +4,28 @@ Status: implemented
 
 ## Problem
 
-One application needs to share infrastructure across many agents while giving each agent a coherent local world. Model adapters, persistence, user interfaces, and most tool implementations belong to the deployment; personas, visible tools, live policy, event listeners, and cleanup often belong to one agent.
+One application needs to share infrastructure across many agents while letting each agent have its own tools, prompt contributions, policies, and listeners. Shared adapters, persistence, and user interfaces belong to the deployment; a persona, tool variant, or listener often belongs to one agent.
 
-A separate service graph per agent duplicates shared infrastructure. One global registration graph has the opposite failure: an agent-specific tool, prompt section, restriction, or listener can leak into unrelated agents. Contributors need one way to compose local behavior without learning a different registration API for every service.
+A separate service graph per agent duplicates shared infrastructure. One global registration graph has the opposite failure: an agent-specific contribution can leak into unrelated agents. Contributors need one ordinary registration mechanism that determines both who can see a contribution and when it is cleaned up.
 
-The mechanism also needs a clear lifetime. An agent must not become visible before its local registrations exist, and final loop work must not lose those registrations before it settles. Parent-owned subagents make both failures easy to trigger because several differently configured agents can exist concurrently inside one application.
+The mechanism also needs a publication boundary. An agent must not become visible before its local world is complete, and teardown must retain that world until final work has stopped.
 
 ## Decision
 
-Every live agent owns one flat registration layer through `agent.ctx`. Code registers through the context that owns the contribution; scope-aware services resolve deployment-global registrations plus exactly one matching agent layer; scoped events route by the operation's real agent; and the layer is published and revoked with the agent lifecycle.
+Every live agent owns one flat registration layer exposed as `agent.ctx`. Code registers through the context that owns a contribution; scope-aware services combine deployment-global registrations with exactly one matching agent layer; operations choose that layer from their real agent; and the layer exists for the agent's complete published lifetime.
 
-A Cordis **context** is the object through which code accesses services and registers owned effects. The [Cordis primer](../../../cordis-primer.md) explains the framework beyond that concept.
+Cordis is the plugin framework underneath the SDK. A Cordis **context** is the object plugins use to access services and register effects whose cleanup follows that context. The [Cordis primer](../../../cordis-primer.md) explains the framework in more detail.
 
-The contract has four parts:
+For most contributors, the complete contract is four rules:
 
-| Contributor question | Contract |
+| Question | Rule |
 |---|---|
-| Where do I register agent-local behavior? | Use the ordinary service API through `agent.ctx` |
-| What does an agent see? | Deployment globals plus its own layer, with service-specific merge rules |
-| Which scoped listeners run? | By default, unscoped listeners plus listeners for the operation's agent; an explicit global-listener exception is described below |
-| How long does local behavior exist? | Assembled during unpublished setup, observable only after creation succeeds, and retained through quiescent teardown |
+| Where do I register behavior for one agent? | Call the ordinary registration API through `agent.ctx` |
+| What does an operation for an agent see? | Deployment globals plus that agent's layer, using the owning service's merge rules |
+| Which scoped listeners run? | Unscoped listeners plus listeners registered for the operation's agent |
+| How long does the layer exist? | Setup completes before publication; disposal keeps it until work reaches quiescence |
 
-The scope is deliberately flat. Resolution never walks parent or sibling scopes. Parent ownership links lifetimes without importing registrations.
-
-For scope-aware registries and default listener routing, the whole mechanism can be read from left to right: the registering context chooses a layer, while the agent named by an operation chooses which one local layer joins the deployment-global layer.
+The scope is flat. Resolution never walks parent or sibling scopes, and lifetime ownership does not imply registration inheritance.
 
 ```mermaid
 flowchart LR
@@ -35,41 +33,32 @@ flowchart LR
   agentAContext["agentA.ctx<br/>cleanup follows Agent A"] -->|"registers into"| agentALayer["Agent A layer"]
   agentBContext["agentB.ctx<br/>cleanup follows Agent B"] -->|"registers into"| agentBLayer["Agent B layer"]
 
-  operationA["Operation for Agent A"] -->|"selects"| agentAView["Agent A view<br/>eligible globals plus A local only"]
+  operationA["Operation for Agent A"] -->|"selects"| agentAView["Agent A view<br/>globals plus A local"]
   globalLayer --> agentAView
   agentALayer --> agentAView
-  operationB["Operation for Agent B"] -->|"selects"| agentBView["Agent B view<br/>eligible globals plus B local only"]
+  operationB["Operation for Agent B"] -->|"selects"| agentBView["Agent B view<br/>globals plus B local"]
   globalLayer --> agentBView
   agentBLayer --> agentBView
 ```
 
-The missing cross-edges describe registry resolution and default listener routing: Agent A's registered values and ordinary scoped listeners do not enter Agent B's view, and a parent's layer does not enter a child's view merely because the parent owns the child's lifetime. For scope-filtered events, `{ global: true }` is the explicit opt-in exception; it can observe across scopes while cleanup still follows the registering agent. Registry-membership notifications are a separate unfiltered event class described below.
+The missing cross-edges are the isolation rule: Agent A's local registrations do not enter Agent B's view, and a parent's registrations do not enter a child merely because the parent owns the child's lifetime.
 
-The companion [runtime-design RFC](2026-07-12-agent-scope-runtime-design.md) explains how the implementation preserves this contract under Cordis dispatch, JavaScript mutation and reentrancy, asynchronous setup, rollback, and racing disposal.
+The companion [runtime-design RFC](2026-07-12-agent-scope-runtime-design.md) explains the implementation and correctness reasoning. The [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the separate `persona`, `toolFilter`, and `maxDepth` feature.
 
-### Registration origin selects visibility and cleanup
+### Registration origin chooses visibility and cleanup
 
-A contribution made through a plain plugin context is deployment-global and is disposed with that plugin. The same method called through `agent.ctx` contributes only to that agent and is disposed with the agent scope.
+A registration made through a plain plugin context is deployment-global and is disposed with that plugin. The same method called through `agent.ctx` contributes to one agent and is disposed with that agent's scope.
 
-| Registration origin | Registration layer and default audience | Disposed with |
+| Registration origin | Default visibility | Disposed with |
 |---|---|---|
-| Plain plugin context | Deployment-global; eligible for every agent view, subject to service merge and restriction rules | Registering plugin |
-| `agent.ctx` | Agent-local; visible to that agent by default | Agent scope |
+| Plain plugin context | Every eligible agent view | Registering plugin |
+| `agent.ctx` | Exactly that agent's view | Agent scope |
 
-This applies to tools, prompt sections and variables, restrictions, protections, guards, and scoped event listeners. Named scoped values ordinarily shadow same-named global values; an owning service may reserve a protected name and reject the shadow instead. Duplicate names within one layer fail. Event listeners have the explicit `{ global: true }` audience exception described below.
+Tools, prompt sections and variables, tool restrictions, guards, and scoped event listeners adopt this contract. Named local values ordinarily shadow a same-named global value for that agent; each owning service documents exceptions and merge behavior.
 
-The public pattern is ordinary registration inside `setup`:
+The ordinary contributor pattern is to register the complete local world during agent setup:
 
 ```js
-const reviewSummaryTool = {
-  name: 'review_summary',
-  description: 'Return the review summary.',
-  parameters: { type: 'object', properties: {} },
-  async execute() {
-    return [{ type: 'text', text: 'review complete' }]
-  },
-}
-
 const handle = await ctx.agents.create({
   agentId: AgentId('reviewer'),
   sessionId: SessionId('reviewer-session'),
@@ -80,130 +69,108 @@ const handle = await ctx.agents.create({
       order: 0,
       text: 'Review code, but do not modify files.',
     })
-    agentCtx.tools.restrict({ allow: ['read'] })
-    agentCtx.tools.register(reviewSummaryTool)
+    agentCtx.tools.register({
+      name: 'review_summary',
+      description: 'Return the review summary.',
+      parameters: { type: 'object', properties: {} },
+      async execute() {
+        return [{ type: 'text', text: 'review complete' }]
+      },
+    })
   },
 })
 
-const reviewer = handle.agent
-ctx.tools.get('read', reviewer)            // global and allowed
-ctx.tools.get('bash', reviewer)            // undefined: filtered global
-ctx.tools.get('review_summary')            // undefined: not global
-ctx.tools.get('review_summary', reviewer)  // reviewer-local
+ctx.tools.get('review_summary')                // undefined: not global
+ctx.tools.get('review_summary', handle.agent)  // the reviewer-local tool
 
 await handle.dispose()
-ctx.tools.get('review_summary', reviewer)  // undefined: scope is gone
+ctx.tools.get('review_summary', handle.agent)  // undefined: scope is gone
 ```
 
-### The operation selects the view
+Setup receives a full trusted Cordis context so it can compose ordinary plugins and services. Its contract is composition-only: driving or publishing the in-flight agent through casts or internal registry calls is unsupported.
 
-Registration origin and operation subject are separate facts. Calling a read method through `agent.ctx` does not implicitly select that agent; lookup, execution, prompt assembly, and event dispatch still receive the agent or scope they act for.
+### The operation chooses the view
 
-For example, `agent.ctx.systemPrompt.assemble()` without an assembly scope requests the global view. `ctx.tools.get(name, agent)` and `ctx.tools.execute({ ..., agent })` select that agent's tool view explicitly. This lets one shared service act for any agent without binding the service instance itself to one scope.
+Registration origin and operation subject are separate facts. Calling a service through `agent.ctx` selects where a new registration belongs; it does not bind later reads to that agent.
 
-`agent.ctx.agent` is the associated agent for setup code, but it is not a general scope-selection shortcut. Contributors creating nested generic scopes use the nearest scope tag as the registration key; inheriting an `agent` property does not import the outer registration layer.
+Tool lookup and execution receive the agent they act for. Prompt assembly receives an assembly context for the agent whose request is being built. Event dispatch receives its domain subject. This keeps shared service instances reusable across agents while making each operation's view explicit.
 
-### Scoped events follow the operation's real subject
+Only services that adopt the scope contract resolve an agent layer. `agent.ctx` does not automatically change arbitrary Cordis service calls.
 
-By default, an event about agent A reaches unscoped listeners and A-scoped listeners, not B-scoped listeners; agent-less dispatch reaches only unscoped listeners. Product helpers and service-owned paths couple the routing key to the value the operation already owns—such as `ToolExecution.agent`, `ApprovalRequest.agent`, the prompt assembly scope, or the session's captured owner. Advanced code that constructs a low-level carrier or assembly context directly must keep its subject and scope fields aligned; development invariants detect mismatches, but the low-level types do not make every mismatch unrepresentable.
+### Scoped events keep routing separate from event data
 
-Cordis listeners have one explicit exception. `{ global: true }` bypasses contextual filtering, so a listener registered through `agent.ctx` can observe other agents and subjectless dispatches while its cleanup still belongs to that agent scope. Use it only for deliberate cross-scope observation.
+An event about Agent A normally reaches unscoped listeners and A-scoped listeners, not B-scoped listeners. An event without an agent subject reaches only unscoped listeners.
 
-Registry-membership notifications remain unfiltered because they describe shared registry state rather than an operation for one agent. The generated [event catalog](../../../cordis-catalog/events.md) is the exhaustive reference for event signatures and modes.
+At the Cordis level, `Scoped<T>` is an opaque routing receiver. It carries the filter used to choose listeners but is not the domain object. Event signatures therefore keep the real `Agent`, tool execution, approval request, or other subject as an explicit argument that listeners can inspect.
 
-### Creation publishes after setup; disposal revokes after work stops
+A listener registered with `{ global: true }` deliberately bypasses contextual audience filtering while its cleanup still follows the registering context. Registry-membership notifications remain unfiltered because they describe shared registry state rather than one agent's operation. The generated [event catalog](../../../cordis-catalog/events.md) is the exhaustive event reference.
 
-`ctx.agents.create()` and `resume()` construct an unpublished agent. Their optional `setup(agentCtx)` callback may await child-plugin activation and register the complete local world. During setup, neither the agent nor its session is visible in the public registries, and driving methods reject.
+### Creation publishes last and disposal revokes last
 
-The returned promise resolves only after setup, ordered lifecycle notification, and loop start succeed. Setup failure or owner loss rolls the unpublished world back and releases its IDs. A caller therefore never receives a handle to a partially configured agent.
+`ctx.agents.create()` and `resume()` build an unpublished session, scope, agent, and driver. They await `setup`, admit the final session and agent entries, announce them in order, start the loop, and only then return a handle.
 
-`AgentHandle.dispose()` performs the reverse boundary. It stops and drains the loop, preserves the session and scoped listeners through final events and flushes, detaches the agent and session, unwinds the scope, and releases IDs. Repeated or racing calls join the same completion promise.
+An optional creation signal cancels work only while create or resume is pending. After the promise resolves, the returned `AgentHandle` owns explicit disposal.
 
-The calling Cordis context and AgentLoop are structural co-owners. Unloading either disposes the agent, so creation through a short-lived plugin context intentionally gives the agent that shorter lifetime.
+If loading, setup, admission, or publication fails, the private transaction rolls back everything it prepared. Concurrent operations using the same caller-supplied live ID may both reach setup, but final registry entry admits only one; every loser rejects and cleans its private resources. Sequential reuse after awaited disposal remains valid.
 
-The lifecycle keeps the local layer private until setup succeeds and keeps it alive until final work has drained:
+`AgentHandle.dispose()` reverses the boundary. It deactivates creation or driving, waits for synchronous publication to unwind, stops and drains the driver and final session flushes, detaches the agent and session, and finally disposes the scope. Repeated or racing disposal requests join one completion promise.
+
+The calling Cordis context and the concrete AgentLoop factory are structural co-owners. Unloading either disposes the transaction or live agent.
 
 ```mermaid
 flowchart TB
-  request["Create or resume"] --> reserve["Reserve agent and session IDs"]
-  reserve --> privateWorld["Load or build private session, scope, and driver"]
-  privateWorld --> setup["Await setup through agent.ctx"]
-  setup --> publish["Publish session and agent, then start the loop"]
-  publish --> live["Return the live handle"]
+  request["Create or resume"] --> privateWorld["Build private session, scope, agent, and driver"]
+  privateWorld --> setup["Await composition through agent.ctx"]
+  setup --> admission["Admit final session and agent entries"]
+  admission --> publish["Announce lifecycle and start the driver"]
+  publish --> live["Return AgentHandle"]
 
-  privateWorld -->|"load or preparation failure, or owner loss"| rollback["Rollback startup<br/>no handle escapes"]
-  setup -->|"setup failure or owner loss"| rollback
-  publish -->|"publication failure or owner loss"| rollback
-  live -->|"handle disposal, owner unload, or AgentLoop unload"| settle["Quiesce prepared or running work"]
-  rollback --> settle
-  settle --> detach["Detach any published agent, then session"]
-  detach --> revoke["Dispose any created agent scope"]
-  revoke --> release["Release acquired IDs"]
+  privateWorld -->|"failure, cancellation, or owner loss"| rollback["Rollback private work"]
+  setup -->|"failure, cancellation, or owner loss"| rollback
+  admission -->|"duplicate or owner loss"| rollback
+  publish -->|"listener failure or owner loss"| rollback
+  live -->|"handle or owner disposal"| quiesce["Stop and drain work"]
+  rollback --> quiesce
+  quiesce --> detach["Detach agent, then session"]
+  detach --> revoke["Dispose the agent scope"]
 ```
 
-Contributors should put agent-local activation inside `setup` and always dispose the returned handle. Code that needs to observe a live agent waits for `create()`/`resume()` to resolve rather than polling the registries during setup.
+### Subagent controls are an independent feature
 
-## Tool restrictions resolve against a live flat view
+In-process subagents consume agent scope by installing their local composition during unpublished setup. Their optional persona, live global-tool filter, and absolute depth cap are not intrinsic scope semantics; the [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) defines those controls, provider capability checks, and dynamic tool behavior.
 
-A tool restriction filters the live deployment-global end-capability layer, after which scope-local tools are added. `allow` retains named globals, `deny` removes named globals, multiple restrictions intersect, and a hidden global tool is absent from both registry presentation and executable lookup.
+`inheritsParentContext` describes conversation-history seeding only. It says nothing about Cordis scope, injected services, tools, or authority.
 
-Filter presence is explicit: omitting a filter installs no restriction, `restrict({})` rejects, and `allow: []` deliberately hides every global end capability.
+## Security and authority are non-goals
 
-Because globals are live, allow- and deny-lists intentionally differ when a new global tool appears:
+Agent scopes compose trusted same-process registrations. They do not sandbox plugins, define a parent-to-child authority lattice, freeze grants at creation, or guarantee that a child can do no more than its parent.
 
-```text
-at time 0:
-  global tools        = { read, bash }
-  deny { bash } view  = { read }
-  allow { read } view = { read }
+A parent may own a child whose visible tools are wider than its own because lifetime ownership does not donate or cap registrations. A plugin holding a Cordis context also runs in the same process and can call available services directly.
 
-after registering global tool web:
-  deny { bash } view  = { read, web }
-  allow { read } view = { read }
-```
-
-Scope-local tools are merged after the filter. A local tool can therefore exist even when it is absent from an allow-list over globals. This is composition behavior, not an authorization promise.
-
-Reserved Code Mode presentation is not part of the filterable end-capability layer. The [Code Mode RFC](../feature/2026-06-15-code-mode.md) owns the `run_code`, SDK, `toolOrder`, and presentation-versus-execution contracts; contributors changing Code Mode behavior follow that decision rather than inferring new authority semantics from agent scope.
-
-## Security and authority are explicit non-goals
-
-Agent scopes compose trusted in-process registrations. They do not sandbox plugins, define a parent-to-child authority lattice, freeze a creation-time grant set, or guarantee that a child can do no more than its parent. A plugin holding a Cordis context runs in the same process and can call the services injected into that context.
-
-A parent can own a child whose visible tool set is wider than its own. For example, a parent restricted to global `read` can spawn a child with no restriction; the child then sees later global tools plus its own local registrations. The parent owns the child's lifetime but does not donate or cap the child's registration layer.
-
-Deployments that need non-escalation require a separate authority representation, propagation rule, and execution check. Authority-versus-visibility ledgers, parent-subset grants, explicit future-grant APIs, and generic capability/output/termination tags are outside this decision.
-
-## Subagents use the same composition rule
-
-In-process subagents are a consumer of agent scope, not a second scoping model. A child gets a fresh flat layer during unpublished setup; its persona, tool filter, structured-output protocol, and listeners are ordinary registrations through the child's context. Parent teardown, backend teardown, and manual run disposal own the child lifetime without importing the parent's registrations.
-
-`inheritsParentContext` describes conversation-history seeding only, not Cordis scope, service injection, tools, or authority. The [subagent capability RFC](../feature/2026-06-21-subagent-capability-seam.md) owns run usage and the provider contract, while the [runtime-design RFC](2026-07-12-agent-scope-runtime-design.md) explains in-process structured output and workflow race handling.
+Deployments that need non-escalation require a separate authority representation, propagation rule, and execution check. Parent-subset grants, creation-time authorization snapshots, explicit future-grant APIs, and generic capability/output/termination tags are outside this decision.
 
 ## Alternatives considered
 
-The rejected architectures either separate visibility from cleanup, scope only behavior but not registered data, duplicate shared infrastructure, or conflate parent ownership with registration inheritance.
+The rejected designs either separate visibility from cleanup, cover only one registration family, duplicate shared infrastructure, or conflate lifetime ownership with inheritance.
 
 ### Pass an agent option to every registration
 
-An API such as `tools.register(definition, { agent })` leaves global registration as the leak-by-omission default and repeats scope plumbing in every registry. It can also express “visible to A, disposed with unrelated plugin B,” which registration through `agent.ctx` prevents.
+An API such as `tools.register(definition, { agent })` repeats scope plumbing in every registry and permits visibility ownership to drift from cleanup ownership. Registering through `agent.ctx` makes both facts follow one Cordis effect owner.
 
 ### Filter events while keeping registries global
 
-Listener filtering prevents a hook from intercepting the wrong agent but does not scope tool schemas, executable lookup, prompt sections, variables, or Code Mode bindings. Agent-local composition would still require temporary global mutation.
+Listener filtering prevents the wrong hook from running but does not scope tool schemas, executable lookup, prompt sections, variables, or other registered data. Agent-local composition would still require temporary global mutation.
 
-### Create one isolated service graph per agent
+### Create one service graph per agent
 
-Service isolation chooses one registry instance, while the desired view is deployment globals plus one agent layer. Per-agent graphs duplicate adapters and force shared persistence and UI infrastructure to discover every instance. Independent applications still deserve separate graphs; collaborating agents inside one deployment do not.
+The required view is shared deployment services plus one local registration layer. Per-agent graphs duplicate adapters and complicate shared persistence, provider registries, and application boot.
 
-### Inherit the parent's registrations into a child
+### Inherit parent registration scopes
 
-Hierarchical inheritance silently imports every parent-scoped tool and policy. Flat layers plus parent-owned disposal separate lifetime from composition: the parent owns the child without deciding the child's local world. This choice deliberately makes authorization a separate design.
+Parentage describes lifetime and conversation lineage, not a universal merge policy. Hierarchical lookup makes unrelated services inherit accidentally and cannot define security without a separate authority model.
 
 ## Consequences
 
-Contributors use the same registration methods at both deployment and agent scope; changing the calling context changes visibility and cleanup together. Model-visible tool lookup, execution, prompt assembly, policy, observation, and teardown agree on one agent key instead of maintaining parallel per-feature scope options.
+Contributors use one familiar pattern: register shared behavior through a plugin context, register local behavior through `agent.ctx`, select the real agent on operations, and dispose the returned handle. Setup is atomic from an observer's perspective, and teardown preserves local behavior until work stops.
 
-The cost is explicit subject selection on reads and dispatch, asynchronous programmatic creation, disciplined handle disposal, and awareness that flat registration scope is not authority. Registries retain service-specific merge behavior, and only services that adopt the scope contract become agent-scoped automatically.
-
-The decision applies to tools, prompt state, scoped events, session lifecycle and scoped session events, approvals, and in-process subagent composition. Filesystem policy, LLM interception, background backend state, and other registries retain their own subject or policy mechanisms until their designs explicitly adopt agent scope.
+The cost is explicit subject selection, asynchronous programmatic creation, and service-specific scope adoption. Flat registration scope is intentionally not authority, and subagent composition controls remain a separate feature rather than hidden scope semantics.

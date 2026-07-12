@@ -156,12 +156,9 @@ describe('agent/turn-stop', () => {
     expect(adapter.requests).toHaveLength(3)
   })
 
-  it('fails throwing and malformed terminal policies closed while the driver survives', async () => {
+  it('fails a throwing terminal policy closed while the driver survives', async () => {
     const adapter = new MockAdapter([
       textResponse('throwing policy'),
-      textResponse('malformed continue policy'),
-      textResponse('malformed false policy'),
-      textResponse('malformed null policy'),
       textResponse('healthy later turn'),
     ])
     const ctx = await harness(adapter)
@@ -179,21 +176,10 @@ describe('agent/turn-stop', () => {
     await send(agent, 'first')
     disposeThrowing()
 
-    for (const [index, malformed] of [
-      { action: 'continue' },
-      false,
-      null,
-    ].entries()) {
-      const disposeMalformed = agent.ctx.on('agent/turn-stop', () => malformed as unknown as ContinuationStop)
-      await send(agent, `malformed ${index}`)
-      disposeMalformed()
-    }
-
     await send(agent, 'healthy')
 
-    expect(reasons.map(reason => reason.kind)).toEqual(['error', 'error', 'error', 'error', 'completed'])
+    expect(reasons.map(reason => reason.kind)).toEqual(['error', 'completed'])
     expect(errors).toContain('terminal policy exploded')
-    expect(errors).toContain("agent/turn-stop returned an invalid result; expected { action: 'stop' } or undefined")
-    expect(adapter.requests).toHaveLength(5)
+    expect(adapter.requests).toHaveLength(2)
   })
 })

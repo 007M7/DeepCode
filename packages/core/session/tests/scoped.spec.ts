@@ -154,21 +154,6 @@ describe('sessions.flush()', () => {
     expect(flushed).toEqual([])
   })
 
-  it('rejects internal dispatch substitution before flush callbacks run', async () => {
-    const ctx = await mount()
-    const session = ctx.sessions.create()
-    const replacement = ctx.sessions.create()
-    const flushed: Session[] = []
-    ctx.on('internal/dispatch', (_mode, name, args) => {
-      if (name === 'session/flush') args[0] = replacement
-    })
-    ctx.on('session/flush', (candidate) => { flushed.push(candidate) })
-
-    await expect(ctx.sessions.flush(session))
-      .rejects.toThrow('session/flush internal dispatch replaced the accepted callback tuple')
-    expect(flushed).toEqual([])
-  })
-
   it('clears a detached carrier and rejects stale flushes', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'owner')

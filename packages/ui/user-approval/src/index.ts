@@ -63,10 +63,8 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a
      * listener registered through `agent.ctx` receives only that agent's
      * questions, while a plain-context listener receives every agent's.
-     * `req` is the service's shallow-frozen acceptance snapshot: later caller
-     * mutation cannot redirect the question, while the `agent` and `signal`
-     * identity capabilities remain exact.
-     * @param req - the accepted decision (agent, tool identity, reason, signal).
+     * `req` is a readonly same-process value borrowed from the caller.
+     * @param req - the pending decision (agent, tool identity, reason, signal).
      * @mode waterfall
      */
     'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
@@ -241,11 +239,9 @@ export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): voi
  * for an answerer to present it and for the audit events to reconstruct what
  * was asked — it deliberately does NOT carry tool arguments: a UI answerer
  * attaches the prompt to the already-streamed tool call via `callId` instead
- * of re-rendering the call. `request()` synchronously copies and shallow-freezes
- * this record before crossing an asynchronous boundary. It reads each field
- * and the agent's session binding once, validates the public fixed-field
- * contract before audit, and detaches the scalar values; the `agent` and live
- * `signal` identity capabilities are preserved rather than cloned or frozen.
+ * of re-rendering the call. This is a readonly same-process contract:
+ * `request()` borrows the request and its `agent` and `signal` capabilities
+ * directly rather than treating them as serialized input.
  */
 export interface ApprovalRequest {
   /**
@@ -253,28 +249,21 @@ export interface ApprovalRequest {
    * UI answerer only answers for agents it owns) and receives the audit
    * events on its session log.
    */
-  agent: Agent
+  readonly agent: Agent
   /** The tool the question is about (presentation and audit). */
-  toolName: string
+  readonly toolName: string
   /**
    * The exact tool call being decided, when the asker has one — lets a UI
    * attach the prompt to the tool call it already streamed.
    */
-  callId?: CallId
+  readonly callId?: CallId
   /** The asker's human-readable explanation of WHY it is asking. */
-  reason?: string
+  readonly reason?: string
   /**
    * Aborting withdraws the question: the request settles `'cancelled'`
    * immediately and a late answer from a still-pending answerer is discarded.
    */
-  signal?: AbortSignal
-}
-
-/** Live signal capability accepted at the synchronous request boundary. */
-interface AcceptedSignal {
-  signal: AbortSignal
-  addEventListener: AbortSignal['addEventListener']
-  removeEventListener: AbortSignal['removeEventListener']
+  readonly signal?: AbortSignal
 }
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -285,7 +274,7 @@ export interface Config {
    * (fail-closed with none); `'never'` auto-rejects every ask without
    * prompting (the deterministic CI/unattended stance).
    */
-  policy?: ApprovalPolicy
+  readonly policy?: ApprovalPolicy
 }
 
 /**
@@ -374,104 +363,26 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Ask the composed answerers to decide one request. Synchronously reads each
-   * request field and the agent's session binding once, validates the fixed
-   * agent/session, string, and live-signal contracts, and rejects before any
-   * audit append when malformed. The signal remains the caller's exact live
-   * identity capability; it is neither cloned nor frozen. Requires an open
-   * turn on the accepted session — the audit pair below is turn-enclosed by
-   * contract (the turn is the log's commit/replay boundary; an idle append
-   * would be dropped as crash tail on reload) — and likewise throws before
-   * appending anything when called idle; asking outside a turn is a deferred
-   * design. The answerer phase always produces an outcome: an aborted signal
-   * yields `'cancelled'`, a missing or throwing answerer yields `'unavailable'`
-   * (fail closed), and a rogue non-vocabulary return value is normalized to
-   * `'unavailable'`. A failure that prevents either audit append from committing
-   * still rejects; returning an unlogged decision would violate the audit pair.
-   * The caller-owned request is synchronously
-   * snapshotted, so later mutation cannot split routing, dispatch payload,
-   * cancellation, policy lookup, or the audit pair across agents/sessions.
-   * Appends the
-   * `approval/asked`/`approval/decided` audit pair (log-only) around the
-   * decision regardless of outcome. Session contains each post-commit observer
-   * failure, so an already authoritative audit event cannot make this request
-   * reject or suppress its matching event.
+   * Ask the composed answerers to decide one readonly same-process request.
+   * The service borrows the request, agent, session, and live signal directly.
+   * The request requires an open turn because the audit pair must be enclosed
+   * by the durable log's commit/replay boundary; an idle ask rejects before
+   * appending anything. The answerer phase always produces an outcome: an
+   * aborted signal yields `'cancelled'`, a missing or throwing answerer yields
+   * `'unavailable'` (fail closed), and a rogue non-vocabulary return value is
+   * normalized to `'unavailable'`. A failure that prevents either audit append
+   * from committing still rejects because returning an unlogged decision would
+   * violate the pair. Session contains post-commit observer failures, so an
+   * authoritative append cannot reject the request or suppress its matching
+   * audit event.
    * @param req - the pending decision (agent, tool identity, reason, signal).
    * @returns the closed outcome; `'allowed-once'` is the only grant.
-   * @throws when request acceptance fails, no turn is open, or either audit
-   *   event fails before the session append commit point.
+   * @throws when no turn is open or either audit event fails before the session
+   *   append commit point.
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
-    // Accept one immutable request shape before the first async boundary. The
-    // caller retains its record and may mutate it as soon as this async method
-    // returns; identity capabilities stay live, but the record is never reread.
-    const input: unknown = req
-    if (typeof input !== 'object' || input === null) {
-      throw new TypeError('approval.request() requires a request object')
-    }
-    const source = input as Record<string, unknown>
-    const agentInput = source['agent']
-    const toolName = source['toolName']
-    const callId = source['callId']
-    const reason = source['reason']
-    const signalInput = source['signal']
-    if (typeof agentInput !== 'object' || agentInput === null) {
-      throw new TypeError('approval request agent must be an object')
-    }
-    if (typeof toolName !== 'string') {
-      throw new TypeError('approval request toolName must be a string')
-    }
-    if (callId !== undefined && typeof callId !== 'string') {
-      throw new TypeError('approval request callId must be a string when provided')
-    }
-    if (reason !== undefined && typeof reason !== 'string') {
-      throw new TypeError('approval request reason must be a string when provided')
-    }
-    let acceptedSignal: AcceptedSignal | undefined
-    if (signalInput !== undefined) {
-      if (typeof signalInput !== 'object' || signalInput === null) {
-        throw new TypeError('approval request signal must be an AbortSignal when provided')
-      }
-      const signalRecord = signalInput as unknown as Record<string, unknown>
-      const aborted = signalRecord['aborted']
-      const addEventListener = signalRecord['addEventListener']
-      const removeEventListener = signalRecord['removeEventListener']
-      if (typeof aborted !== 'boolean'
-        || typeof addEventListener !== 'function'
-        || typeof removeEventListener !== 'function') {
-        throw new TypeError('approval request signal must be an AbortSignal when provided')
-      }
-      acceptedSignal = {
-        signal: signalInput as AbortSignal,
-        addEventListener: addEventListener as AbortSignal['addEventListener'],
-        removeEventListener: removeEventListener as AbortSignal['removeEventListener'],
-      }
-    }
-    const sessionInput = (agentInput as unknown as Record<string, unknown>)['session']
-    if (typeof sessionInput !== 'object' || sessionInput === null) {
-      throw new TypeError('approval request agent session must be an object')
-    }
-    const sessionRecord = sessionInput as unknown as Record<string, unknown>
-    const events = sessionRecord['events']
-    const append = sessionRecord['append']
-    if (!Array.isArray(events)) {
-      throw new TypeError('approval request session events must be an array')
-    }
-    if (typeof append !== 'function') {
-      throw new TypeError('approval request session append must be a function')
-    }
-    const agent = agentInput as Agent
-    const session = sessionInput as Session
-    const acceptedCallId = callId as CallId | undefined
-    const signal = signalInput as AbortSignal | undefined
-    const accepted: Readonly<ApprovalRequest> = Object.freeze({
-      agent,
-      toolName,
-      ...acceptedCallId !== undefined ? { callId: acceptedCallId } : {},
-      ...reason !== undefined ? { reason } : {},
-      ...signal !== undefined ? { signal } : {},
-    })
-    if (!hasOpenTurn(events)) {
+    const session = req.agent.session
+    if (!hasOpenTurn(session.events)) {
       throw new Error(
         'approval.request() outside an open turn: the approval/asked + approval/decided audit pair '
         + 'must be turn-enclosed (a bare event between turns is crash-tail garbage on reload). '
@@ -479,14 +390,14 @@ export class ApprovalService extends Service {
       )
     }
     const id = ApprovalRequestId(randomUUID())
-    Reflect.apply(append, session, ['approval/asked', {
+    session.append('approval/asked', {
       id,
-      toolName: accepted.toolName,
-      ...accepted.callId !== undefined ? { callId: accepted.callId } : {},
-      ...accepted.reason !== undefined ? { reason: accepted.reason } : {},
-    }])
-    const outcome = await this.decide(accepted, session, acceptedSignal)
-    Reflect.apply(append, session, ['approval/decided', { id, outcome }])
+      toolName: req.toolName,
+      ...req.callId !== undefined ? { callId: req.callId } : {},
+      ...req.reason !== undefined ? { reason: req.reason } : {},
+    })
+    const outcome = await this.decide(req, session)
+    session.append('approval/decided', { id, outcome })
     return outcome
   }
 
@@ -502,16 +413,14 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Dispatch the waterfall, contained and raced against the accepted signal.
-   * @param req - the detached public request snapshot.
-   * @param session - the captured session used for policy lookup.
-   * @param acceptedSignal - the validated live signal capability, if supplied.
+   * Dispatch the waterfall, contained and raced against the request signal.
+   * @param req - the borrowed public request.
+   * @param session - the request agent's session used for policy lookup.
    * @returns the normalized closed outcome.
    */
-  private async decide(
-    req: Readonly<ApprovalRequest>, session: Session, acceptedSignal: AcceptedSignal | undefined,
-  ): Promise<ApprovalOutcome> {
-    if (acceptedSignal?.signal.aborted) return 'cancelled'
+  private async decide(req: ApprovalRequest, session: Session): Promise<ApprovalOutcome> {
+    const signal = req.signal
+    if (signal?.aborted) return 'cancelled'
     // The 'never' policy is decided HERE, before any dispatch: a listener
     // registered with `prepend: true` after this service mounts would sit
     // ahead of any gate LISTENER, so a listener-shaped gate cannot keep the
@@ -535,13 +444,15 @@ export class ApprovalService extends Service {
       // tool call open — the seam contains its callbacks.
       () => 'unavailable',
     )
-    if (acceptedSignal === undefined) return answer
-    const { signal, addEventListener, removeEventListener } = acceptedSignal
+    if (signal === undefined) return answer
     return await new Promise<ApprovalOutcome>((resolve) => {
-      const onAbort = () => { resolve('cancelled') }
-      addEventListener.call(signal, 'abort', onAbort, { once: true })
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort)
+        resolve('cancelled')
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
       void answer.then((outcome) => {
-        removeEventListener.call(signal, 'abort', onAbort)
+        signal.removeEventListener('abort', onAbort)
         // After an abort won the race this resolve is a settled-promise no-op:
         // the late answer is discarded by construction.
         resolve(outcome)
