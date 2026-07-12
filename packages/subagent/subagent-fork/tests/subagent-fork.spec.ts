@@ -8,7 +8,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as fork from '../src/index.ts'
@@ -17,16 +17,19 @@ import { completedTurnPrefix } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
+function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
+  return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
+}
+
 /** A bare `stop` finish that streams no content → the turn ends `completed`
  * with NO `assistant/message` of its own. */
 const emptyStop: StreamChunk[] = [{ type: 'finish', reason: { kind: 'stop' } }]
 
 /**
  * Drives the REAL fork backend with a real loop + scripted mock MODEL + the
- * real dsh-invariants plugin. The invariants plugin re-replays a seeded child
- * log on `session/created` (its freeze-check), so a malformed (unbalanced) fork
- * seed makes these tests THROW — that is the regression guard for the
- * completed-turn-prefix boundary.
+ * real dsh-invariants plugin. The plugin replays a seeded child log on
+ * `session/created`, so a malformed (unbalanced) fork seed makes these tests
+ * THROW — that is the regression guard for the completed-turn-prefix boundary.
  */
 async function setup(script: Script) {
   const ctx = new Context()
@@ -78,9 +81,9 @@ describe('dsh-subagent-fork', () => {
       if (info.provider === 'fork') childAtStart = ctx.agents.get(info.id)
     })
 
-    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
+    const starting = start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
     expect(childAtStart).toBeUndefined()
-    await run.started
+    const run = await starting
     expect(childAtStart).toBe(ctx.agents.get(run.id))
     expect(childAtStart?.id).toBe(run.id)
 
@@ -93,7 +96,7 @@ describe('dsh-subagent-fork', () => {
     // the seed → the child runs fresh. Exercises the `seed.length > 0` false arm.
     const { ctx, parent } = await setup([textResponse('fresh child')])
     expect(completedTurnPrefix(parent)).toEqual([])
-    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
+    const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('fresh child')
@@ -111,7 +114,7 @@ describe('dsh-subagent-fork', () => {
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
-    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child question' }], parent })
+    const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child question' }], parent })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('child answer')
@@ -144,7 +147,7 @@ describe('dsh-subagent-fork', () => {
     await new Promise(r => setTimeout(r, 20)) // let the hanging turn open
 
     // Forking now must NOT throw (the open second turn is excluded from the seed).
-    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
+    const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('child')
@@ -166,7 +169,7 @@ describe('dsh-subagent-fork', () => {
     ])
     parent.send([{ type: 'text', text: 'warm up' }])
     await parent.whenIdle()
-    const run = ctx.subagents.start('fork', {
+    const run = await start(ctx, 'fork', {
       prompt: [{ type: 'text', text: 'report structured' }],
       parent,
       outputSchema: { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] },
@@ -190,7 +193,7 @@ describe('dsh-subagent-fork', () => {
     parent.send([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()
 
-    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child question' }], parent })
+    const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child question' }], parent })
     const result = await run.result
     // The child completed its own (empty) turn — completed, but with NO output
     // borrowed from the seeded parent prefix.

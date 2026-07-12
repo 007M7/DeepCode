@@ -143,6 +143,11 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'node-compat':
       return [
         pnpmScript('typecheck', 'typecheck'),
+        pnpmExec('source-worker-smoke', [
+          'vitest',
+          'run',
+          'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
+        ], { label: 'source worker smoke' }),
       ]
     case 'pre-push':
       return [

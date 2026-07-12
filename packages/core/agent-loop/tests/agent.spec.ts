@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { prepareReactLoopAgent } from '../src/agent.ts'
+import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -49,6 +49,33 @@ function send(agent: ReactLoopAgent, text: string) {
 }
 
 describe('ReactLoopAgent', () => {
+  it('rejects access before context binding and a second driver for one session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('exclusive-driver'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('first-driver'), { model: 'mock' }, session)
+
+    expect(() => prepared.agent.ctx).toThrow('context is not bound')
+    expect(() => prepareReactLoopAgent(ctx, AgentId('second-driver'), { model: 'mock' }, session))
+      .toThrow('already has a concrete agent driver')
+
+    await prepared.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('borrows caller options and binds its scoped context exactly once', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('unused')]))
+    const options = { model: 'mock' }
+    const agent = ctx.agentLoop.create(AgentId('owned-bindings'), options)
+
+    expect(agent.options).toBe(options)
+    expect(agent.id).toBe('owned-bindings')
+    expect(agent.session.id).toMatch(/^owned-bindings-session-/)
+    expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
+
+    await ctx.fiber.dispose()
+  })
+
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -159,10 +186,8 @@ describe('ReactLoopAgent', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    // A session/event listener that throws on the synthetic turn/end. Append
-    // pushes before notifying, so turn/end is in the log (turn balanced) but the
-    // throw must NOT skip the durability checkpoint — the flush decision is made
-    // from the log, not a flag set after the (throwing) append.
+    // Session contains a throwing post-commit turn/end observer. The accepted
+    // boundary still triggers the idle injection's durability checkpoint.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }
@@ -238,7 +263,7 @@ describe('ReactLoopAgent', () => {
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
-    prepared.enableDrive()
+    prepared.markPublished()
     const dispose = prepared.startDriver()
 
     // First dispose
@@ -249,6 +274,21 @@ describe('ReactLoopAgent', () => {
     // Second dispose — idempotent, no throw
     await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
+  })
+
+  it('a pre-start disposal makes a later driver-start attempt inert', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('pre-start-dispose'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('pre-start-dispose'), { model: 'mock' }, session)
+
+    await prepared.dispose()
+    expect(prepared.agent.status).toBe('disposed')
+    const dispose = prepared.startDriver()
+    await dispose()
+    await expect(prepared.agent.done).resolves.toBeUndefined()
+    expect(prepared.agent.session.events).toEqual([])
+    await ctx.fiber.dispose()
   })
 
   it('setting the same status does not emit agent/status again', async () => {
@@ -341,7 +381,7 @@ describe('ReactLoopAgent', () => {
     const session = ctx.sessions.create(SessionId('bare'))
     const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
     const { agent } = prepared
-    prepared.enableDrive()
+    prepared.markPublished()
     const dispose = prepared.startDriver()
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
@@ -416,7 +456,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on running'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 
@@ -434,7 +474,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on idle'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 })

@@ -5,7 +5,7 @@ Packages that exist to serve development, testing, and the examples rather than 
 | Package | Role | ctx key |
 |---|---|---|
 | `acp-snapshot/` | ACP snapshot suite kit: subprocess scenario harness + golden normalizers + the `defineAcpSnapshotSuite` factory | (library — imported by example `*.snapshot.ts` suites) |
-| `invariants/` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
+| `invariants/` | Dev-mode event-contract assertions | (listens on `session/*`, `agent/*`) |
 | `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent-mock/` | Scripted `SubagentProvider` for deterministic seam/tool tests | (registers on `ctx.subagents`) |
 

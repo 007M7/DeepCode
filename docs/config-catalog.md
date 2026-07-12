@@ -113,30 +113,15 @@ Source: [`packages/core/agent-core/src/index.ts:87`](../packages/core/agent-core
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
-/**
- * Plugin config: the agents to create — or resume, via `resumeSessionId` —
- * declaratively at startup, so a cordis.yml deployment needs no code.
- */
+/** Plugin configuration for declarative startup agents. */
 export interface Config {
-  /** Agents created from configuration at startup. */
+  /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Agent id to register under; also seeds the fresh per-run session id (`${id}-session-<uuid>`). */
+    /** Registry identity for the live agent. */
     id: AgentId
-    /** Optional workspace cwd for the config-created fresh session. */
+    /** Optional workspace for a fresh session. */
     cwd?: string
-    /**
-     * If set, the config agent RESUMES this persisted session id instead of
-     * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
-     * cordis.yml (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`), so a
-     * demo can continue a prior conversation without code changes. Requires a
-     * `dsh-session-persistence` backend; the resume is deferred until that
-     * service is available (via `ctx.inject`) and the loaded session's events
-     * seed the live session so history continues.
-     *
-     * The schema accepts a plain string at runtime (cordis.yml values are
-     * untyped); the brand is compile-time only — the config format is the
-     * boundary where an id enters, so the TYPE declares the brand here.
-     */
+    /** Persisted session to resume instead of creating a fresh session. */
     resumeSessionId?: SessionId
   })[]
 }
@@ -144,7 +129,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:37`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:325`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -342,24 +327,6 @@ export interface Config {
 ```
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
-
-## `@deepseek-ai/dsh-invariants`
-
-Requires: `sessions`
-
-```ts config-catalog
-/** Plugin config. */
-export interface Config {
-  /**
-   * Deep-freeze logged session-event data so mutating a logged event throws.
-   * Default true — this plugin only runs in dev/test, where freezing is the
-   * point. Set false to assert the event contract without freezing.
-   */
-  freeze?: boolean
-}
-```
-
-Source: [`packages/support/invariants/src/index.ts:48`](../packages/support/invariants/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -578,12 +545,12 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
 ```ts config-catalog
 /** Skill registry configuration. */
 export interface Config {
-  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
-  collectCacheMaxEntries?: number
+  /** Maximum number of completed cwd/provider catalogs kept in memory. */
+  readonly collectCacheMaxEntries?: number
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:112`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:113`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -730,9 +697,11 @@ export interface Config {
   /** Which start-time capabilities to advertise (default: all `true`). */
   capabilities?: Partial<SubagentCapabilities>
   /**
-   * The context contract to declare ({@link SubagentProvider.inheritsParentContext});
-   * default `false` (spawn-like). Set `true` to exercise the fork-shaped tool
-   * wording in consumer tests.
+   * The conversation-history descriptor to declare
+   * ({@link SubagentProvider.inheritsParentContext}); default `false` (fresh
+   * conversation). Set `true` to exercise seeded/fork wording in consumer
+   * tests. This flag says nothing about tool, service, scope, or authority
+   * inheritance.
    */
   inheritsParentContext?: boolean
   /**
@@ -745,7 +714,7 @@ export interface Config {
 
 Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
 
-Source: [`packages/support/subagent-mock/src/index.ts:87`](../packages/support/subagent-mock/src/index.ts)
+Source: [`packages/support/subagent-mock/src/index.ts:97`](../packages/support/subagent-mock/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -808,7 +777,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:264`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:257`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -911,8 +880,9 @@ export interface Config {
    * Recursion cap applied to every child this tool spawns (see
    * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
    * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Omitted ⇒ unbounded (bound it in deployments
-   * that expose this tool to children).
+   * `depthLimit` capability. Must be a non-negative safe integer and is
+   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
+   * deployments that expose this tool to children).
    */
   maxDepth?: number
 }
@@ -920,7 +890,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:44`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:47`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -988,7 +958,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:409`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:407`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1001,7 +971,7 @@ export interface Config {
    * (fail-closed with none); `'never'` auto-rejects every ask without
    * prompting (the deterministic CI/unattended stance).
    */
-  policy?: ApprovalPolicy
+  readonly policy?: ApprovalPolicy
 }
 
 /**
@@ -1019,7 +989,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:268`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:270`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -1168,6 +1138,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
+- `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))

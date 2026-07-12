@@ -59,10 +59,6 @@ class RpcChildHandle implements ChildHandle {
     this.result = entry.settled.promise
   }
 
-  cancel(reason?: string): void {
-    this.post(WorkerToHostType.ChildCancel, { callId: this.callId, reason })
-  }
-
   dispose(): Promise<void> {
     this.post(WorkerToHostType.ChildDispose, { callId: this.callId })
     return this.entry.disposed.promise
@@ -71,7 +67,7 @@ class RpcChildHandle implements ChildHandle {
 
 /**
  * The worker-side child-RPC bridge ({@link ChildPort}): allocates callIds,
- * posts the start/cancel/dispose RPCs, and owns the per-call pending
+ * posts the start/dispose RPCs, and owns the per-call pending
  * book-keeping the session's message handler settles via the `onChild*`
  * entry points.
  */
@@ -89,10 +85,10 @@ class ChildRpcBridge implements ChildPort {
       settled: Promise.withResolvers<ChildResult>(),
       disposed: Promise.withResolvers<void>(),
     }
-    // Containment: when synchronous start or asynchronous readiness fails (or
+    // Containment: when asynchronous provider start fails (or
     // the run is torn down), the settled promise may never gain a consumer —
     // it must not surface as an unhandled rejection and kill the worker.
-    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after failed start/readiness */ })
+    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after failed start */ })
     this.pending.set(callId, entry)
     this.post(WorkerToHostType.ChildStart, { callId, request })
     const childId = await entry.started.promise
@@ -104,7 +100,7 @@ class ChildRpcBridge implements ChildPort {
     this.pending.get(callId)?.started.resolve(childId)
   }
 
-  /** Synchronous start or asynchronous readiness failed; reject and retire the pending RPC. */
+  /** Asynchronous provider start failed; reject and retire the pending RPC. */
   onChildStartError(callId: number, rendered: string): void {
     const entry = this.pending.get(callId)
     this.pending.delete(callId)

@@ -17,7 +17,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 - **Append-only; a crashed turn is closed, not truncated.** Committed events (at or below a flushed `turn/end`) are never rewritten. A crash can leave an unclosed final turn whose events are real and possibly large; `load` preserves them and durably appends synthetic closers (an error `tool/result` per unanswered `tool-call`, then `step/end?`+`turn/end {interrupted}`) to balance the log and keep the rehydrated history a valid provider transcript. Only a never-fully-written torn tail fragment is discarded.
 - **Contiguous seq.** `load` rejects a `seq` gap/parse error in the MIDDLE of the log; `append`'s first `seq` must equal the stored next-seq.
-- **JSON-serializable data.** `append` rejects non-serializable `event.data`; backends snapshot each event when buffering (the live `session.events` object is mutable).
+- **JSON-serializable data.** `append` materializes each direct/replay batch through the shared one-pass lossless-JSON boundary. Live `Session` events are already deep-frozen, but the write coordinator still copies each event into a persistence-owned buffer.
 - **Durability.** `append` returns only once the batch is durable.
 
 ## The write coordinator

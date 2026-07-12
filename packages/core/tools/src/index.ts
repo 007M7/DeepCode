@@ -23,7 +23,7 @@ import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
-import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -91,9 +91,6 @@ declare module 'cordis' {
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
      * {@link PreToolDecision}); `ask` is serviced by the `ctx.approval` seam
      * when one is mounted, and degrades to deny otherwise.
-     * The returned union is validated as an exact runtime shape before approval
-     * or guards run; a malformed JavaScript/casted decision fails closed as an
-     * `isError` result and the tool body never runs.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a
      * listener registered through `agent.ctx` fires only for that agent's
      * calls, while a plain plugin listener fires for every call (including
@@ -115,8 +112,8 @@ declare module 'cordis' {
      * set or replace the one mutable field, `exec.signal` (e.g. with a per-call
      * deadline), BEFORE `next()`, restore/delete it afterward, and inspect the result AFTER. Call identity
      * (`token`, `callId`, `name`, `arguments`, `agent`, and `parent`) is immutable throughout the
-     * pipeline so a wrapper cannot change which capability or scope was
-     * authorized. (Cordis `next()` ignores passed arguments and re-invokes
+     * pipeline so a wrapper cannot change which tool and scope the pipeline
+     * accepted. (Cordis `next()` ignores passed arguments and re-invokes
      * downstream with the shared payload, so a wrapper changes `exec.signal` in
      * place rather than passing a new object to `next()`.)
      * Multiple listeners compose by registration order — an outer one wraps the
@@ -148,7 +145,7 @@ declare module 'cordis' {
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
      */
-    'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+    'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
      * Awaited notification of the authoritative FINAL tool outcome, after the
      * complete pre/execute/post pipeline, final lossless-JSON validation, and
@@ -203,6 +200,12 @@ export interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
+   * Whether this tool name's canonical wire presence or absence survives the
+   * complete system-prompt assembly waterfall. Reserved for protocol tools
+   * whose owner must retain the final definition.
+   */
+  readonly ownerFinal?: boolean
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
@@ -239,23 +242,18 @@ export interface ToolResult {
 
 declare const toolExecutionTokenBrand: unique symbol
 
-/** Tokens minted in this module; a cast or JavaScript object cannot forge membership. */
-const executionTokens = new WeakSet<object>()
-
 /**
- * Opaque, immutable identity for one trip through the tool pipeline. Nested
+ * Opaque identity for one trip through the tool pipeline. Nested
  * transports carry the enclosing execution's token instead of its live object,
  * so observe-only result listeners can correlate calls without gaining a
  * mutation path into an outer around-dispatch wrapper.
  */
-export interface ToolExecutionToken {
-  readonly [toolExecutionTokenBrand]: true
-}
+export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 
 /**
  * Caller-supplied description of one tool call. {@link ToolRegistry.execute}
- * snapshots this input into a pipeline-owned {@link ToolExecution}; callers do
- * not choose the execution token.
+ * adds the registry-owned token to form a pipeline {@link ToolExecution};
+ * callers do not choose that token.
  */
 export interface ToolExecutionInput {
   readonly callId: CallId
@@ -274,11 +272,11 @@ export interface ToolExecutionInput {
 }
 
 /**
- * One pending tool call inside the registry pipeline. Call identity, the
- * registry-assigned {@link token}, and a lossless-JSON-validated, deep-frozen
- * clone of the parsed arguments are immutable from the first policy listener onward, while an
- * around-dispatch wrapper may set, replace, or remove only `signal`. The
- * registry freezes the complete object before `tools/result` observers run.
+ * One pending tool call inside the registry pipeline. Parsed arguments cross
+ * one lossless-JSON materialization boundary before policy and are deep-frozen;
+ * call identity and the registry-assigned {@link token} are readonly. An
+ * around-dispatch wrapper may set, replace, or remove `signal`. The registry
+ * freezes the complete object before `tools/result` observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
@@ -429,17 +427,38 @@ export interface Config {
  * {@link ToolRegistry.restrict}. `allow` keeps only the listed global tools;
  * `deny` removes the listed ones; both present = allow first, then deny.
  * Restrictions never touch scoped registrations — a tool registered through
- * the same scope is an explicit grant that bypasses them (which is what keeps
- * e.g. a structured-output capture tool alive under an allow-list). The
+ * the same scope is merged after the global filter (which is what keeps e.g. a
+ * structured-output capture tool alive under an allow-list). The readonly
+ * filter values compile to private sets at registration, but resolution uses the live global registry:
+ * a later global name passes a deny-only filter unless explicitly denied and
+ * fails an allow-list unless explicitly allowed. The
  * reserved `run_code` presentation transport is likewise outside capability
  * filtering, and naming it explicitly is rejected. Multiple restrictions on
  * one scope compose by intersection: every one must admit.
  */
 export interface ToolRestriction {
   /** Global tool names that stay visible; everything else is removed. */
-  allow?: string[]
+  readonly allow?: readonly string[]
   /** Global tool names removed from visibility. */
-  deny?: string[]
+  readonly deny?: readonly string[]
+}
+
+/** One restriction compiled at registration for repeated live-global lookup. */
+interface CompiledToolRestriction {
+  readonly allow?: ReadonlySet<string>
+  readonly deny?: ReadonlySet<string>
+}
+
+/** One scope's complete registry view, derived in a single layer traversal. */
+interface ToolView {
+  /** Visible definitions after restrictions, scoped shadowing, and transport insertion. */
+  readonly visible: ReadonlyMap<string, ToolDefinition>
+  /** Pre-restriction capability names used by prompt-order validation. */
+  readonly knownNames: ReadonlySet<string>
+  /** Current global names that a scoped restriction may name. */
+  readonly restrictableNames: ReadonlySet<string>
+  /** Canonical names whose wire presence or absence is owner-final. */
+  readonly ownerFinalNames: ReadonlySet<string>
 }
 
 /**
@@ -472,7 +491,7 @@ interface ToolGuardRegistration {
  * that agent alone, disposed with the scope, and SHADOWING a global tool of
  * the same name for that agent (most-specific-wins; within one layer a
  * duplicate name still throws). {@link restrict} masks the global layer per
- * scope. One visibility function ({@link visible}) feeds prompt assembly,
+ * scope. One private visibility resolver feeds prompt assembly,
  * {@link get}, and {@link execute} — and, under a non-native mode, the SDK
  * section and `run_code`'s bindings — so what the model is shown, what a
  * presenter renders, what a program can call, and what dispatches can never
@@ -487,8 +506,8 @@ export class ToolRegistry extends Service {
 
   private global = new Map<string, ToolDefinition>()
   private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
-  /** Snapshot-at-registration restriction filters, per scope (see {@link restrict}). */
-  private restrictions = new Map<ScopeKey, ToolRestriction[]>()
+  /** Compiled restriction filters, per scope (see {@link restrict}). */
+  private restrictions = new Map<ScopeKey, CompiledToolRestriction[]>()
   /** Monotonic post-policy guards, split into global and per-agent layers. */
   private globalGuards = new Set<ToolGuardRegistration>()
   private scopedGuards = new Map<ScopeKey, Set<ToolGuardRegistration>>()
@@ -508,12 +527,13 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : deepFreeze(createRunCodeTool(this, () => this.requireCodeRuntime()))
+      : createRunCodeTool(this, () => this.requireCodeRuntime())
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
         name: 'tools:sdk',
         order: SDK_SECTION_ORDER,
+        ownerFinal: true,
         // A lazy thunk over the live registry, per assembly CONTEXT:
         // regenerated at each assembly over the CALLING SCOPE's visible set
         // (scoped tools join, restricted globals vanish — the SDK declares
@@ -526,11 +546,6 @@ export class ToolRegistry extends Service {
           return renderToolsSdk(this.schemas(context.scope).filter(schema => schema.name !== RUN_CODE_NAME))
         },
       })
-      // These are presentation infrastructure, not optional end capabilities.
-      // Protect them at their owner: assembly listeners may still transform
-      // ordinary tools and prose, but cannot silently leave Code Mode without
-      // its only wire transport or the SDK that tells the model how to use it.
-      ctx.systemPrompt.protect({ sections: ['tools:sdk'], tools: [RUN_CODE_NAME] })
     }
   }
 
@@ -550,16 +565,24 @@ export class ToolRegistry extends Service {
    * `mode: 'code'` the universe is `[run_code]` and a `toolOrder` naming a
    * native tool is dead configuration that fails every assembly loud. Under
    * `mode: 'both'`, the provider adds the reserved transport to the
-   * capability-only {@link knownNames} universe for `toolOrder` validation.
+   * capability-only known-name universe for `toolOrder` validation.
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
-    if (this.mode === 'native') return { schemas: this.schemas(scope), knownNames: this.knownNames(scope) }
-    this.requireCodeRuntime()
-    const all = this.schemas(scope)
-    if (this.mode === 'code') {
-      return { schemas: all.filter(schema => schema.name === RUN_CODE_NAME), knownNames: [RUN_CODE_NAME] }
+    const view = this.view(scope)
+    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
+    const ownerFinalNames = [...view.ownerFinalNames]
+    if (this.mode === 'native') {
+      return { schemas, knownNames: [...view.knownNames], ownerFinalNames }
     }
-    return { schemas: all, knownNames: [...this.knownNames(scope), RUN_CODE_NAME] }
+    this.requireCodeRuntime()
+    if (this.mode === 'code') {
+      return {
+        schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
+        knownNames: [RUN_CODE_NAME],
+        ownerFinalNames,
+      }
+    }
+    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME], ownerFinalNames }
   }
 
   /**
@@ -590,12 +613,10 @@ export class ToolRegistry extends Service {
    * the shadowing feature, not an error; the global-duplicate message names
    * `agent.ctx` as the per-agent alternative), or if a non-native mode reserves
    * the `run_code` name for its presentation transport. The visible schema set
-   * flows into prompt assembly automatically. Registration validates and
-   * clones the JSON parameters, copies scalar fields, binds each callback once
-   * to the caller's definition as its method receiver, and freezes the stored
-   * snapshot; later mutation or callback replacement on the input object does
-   * not rewrite the registry. Disposed with the calling fiber. Emits
-   * `tools/change` on register/unregister.
+   * flows into prompt assembly automatically. Definitions are trusted typed
+   * same-process contributions; JSON materialization happens when the schema or
+   * result reaches its model/log boundary. Emits `tools/change` on
+   * register/unregister.
    * @param definition - the tool's schema plus its execute (and optional
    *   presentation) functions.
    * @returns the disposer that unregisters the tool. The exact
@@ -604,52 +625,39 @@ export class ToolRegistry extends Service {
    */
   register(definition: ToolDefinition): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
-    // A schema crosses the same model/log boundary as execution arguments.
-    // Validate BEFORE cloning because structuredClone silently turns some
-    // forbidden values (for example class instances) into plain records, then
-    // validate the detached value again to contain hostile getters that change
-    // between inspection and snapshotting. A frozen Map is still mutable, so
-    // deepFreeze alone is not a sufficient registration boundary.
-    if (!isJsonValue(definition.parameters)) {
-      throw new TypeError('tool parameters must be losslessly JSON-serializable')
+    const name = definition.name
+    const timeoutMs = definition.timeoutMs
+    if (timeoutMs !== undefined
+      && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+      throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`)
     }
-    const parameters = structuredClone(definition.parameters)
-    if (!isJsonValue(parameters)) {
-      throw new TypeError('tool parameters must be stable losslessly JSON-serializable data')
-    }
-    // Bind once so replacing a callback on the caller-owned definition after
-    // registration cannot change dispatch, while preserving the historical
-    // method receiver (`this === definition`) for callbacks that use it.
-    const execute = definition.execute.bind(definition)
-    const presentCall = definition.presentCall?.bind(definition)
-    const presentResult = definition.presentResult?.bind(definition)
-    const snapshot: ToolDefinition = deepFreeze({
-      name: definition.name,
-      description: definition.description,
-      parameters,
-      execute,
-      ...definition.timeoutMs !== undefined ? { timeoutMs: definition.timeoutMs } : {},
-      ...presentCall !== undefined ? { presentCall } : {},
-      ...presentResult !== undefined ? { presentResult } : {},
-    })
-    if (this.codeTransport !== undefined && snapshot.name === RUN_CODE_NAME) {
+    if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
+    }
+    if (scope !== undefined && this.global.get(name)?.ownerFinal === true) {
+      throw new Error(`tool "${name}" is globally owner-final and cannot be shadowed in an agent scope`)
+    }
+    if (scope === undefined && definition.ownerFinal === true) {
+      const hasScopedShadow = [...this.scoped.values()].some(layer => layer.has(name))
+      if (hasScopedShadow) {
+        throw new Error(`owner-final tool "${name}" cannot be registered while a scoped shadow exists`)
+      }
     }
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       const layer = scope === undefined ? this.global : this.layerFor(scope)
-      if (layer.has(snapshot.name)) {
+      if (layer.has(name)) {
         throw new Error(scope === undefined
-          ? `tool "${snapshot.name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
-          : `tool "${snapshot.name}" is already registered in this scope`)
+          ? `tool "${name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
+          : `tool "${name}" is already registered in this scope`)
       }
-      layer.set(snapshot.name, snapshot)
+      layer.set(name, definition)
       // Yield the rollback BEFORE emitting `tools/change`: a generator effect
       // collects each yielded disposer before the next step runs, so a throwing
       // `tools/change` listener removes the tool instead of leaking it (a leak
       // would wedge the duplicate-name check until restart). The duplicate
       // throw above fires before any mutation — it leaks nothing.
       yield () => {
-        layer.delete(snapshot.name)
+        layer.delete(name)
         // An emptied scope layer is dropped so a disposed scope leaves no
         // residue keyed by its (dead) key.
         if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
@@ -671,17 +679,19 @@ export class ToolRegistry extends Service {
    * through a scoped context (`agent.ctx`) — restricting "everyone" is not a
    * thing (throw), and an empty filter (neither `allow` nor `deny`) is a no-op
    * that can only be a bug (throw — the materialized-empty-config trap).
-   * Validates every listed name against the scope's CURRENT pre-restriction
-   * name universe ({@link knownNames}) and throws on an unknown one (fail loud
+   * Validates every listed name against the CURRENT global end-capability
+   * universe and throws on an unknown or scope-local name (fail loud
    * beats a typo silently filtering nothing) — register restrictions after the
    * global tools they mask exist (the agent-creation `setup` window satisfies
    * this). A non-native mode's reserved `run_code` presentation transport is
    * not a filterable capability; naming it explicitly throws, while omitting
-   * it from an allow-list cannot remove it. The filter is SNAPSHOT at
-   * registration: later caller mutation of the arrays changes nothing.
-   * Multiple restrictions compose by intersection. Scoped registrations
-   * bypass restrictions (explicit grants win). Disposed with the calling
-   * fiber (revocable independently); emits `tools/change`.
+   * it from an allow-list cannot remove it. The readonly arrays are compiled to
+   * private sets at registration. Resolution still uses the live global registry, so a later
+   * global name passes a deny-only filter unless named and fails an allow-list
+   * unless named. Multiple restrictions compose by intersection. Scoped
+   * registrations are merged after restrictions and therefore remain visible.
+   * Disposed with the calling fiber (revocable independently); emits
+   * `tools/change`.
    * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
    * @returns the disposer that lifts this restriction. The exact
    *   Cordis effect disposer (single-shot): composite (generator) effects may
@@ -692,30 +702,31 @@ export class ToolRegistry extends Service {
     if (scope === undefined) {
       throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
     }
-    if (filter.allow === undefined && filter.deny === undefined) {
+    const allow = filter.allow
+    const deny = filter.deny
+    if (allow === undefined && deny === undefined) {
       throw new Error('tools.restrict({}) is a no-op: pass `allow` and/or `deny` (an empty filter is almost always a materialized-empty-config bug)')
     }
-    // Snapshot BEFORE validation so what was checked is what is enforced.
-    const snapshot: ToolRestriction = {
-      ...filter.allow !== undefined ? { allow: [...filter.allow] } : {},
-      ...filter.deny !== undefined ? { deny: [...filter.deny] } : {},
+    const compiled: CompiledToolRestriction = {
+      ...allow !== undefined ? { allow: new Set(allow) } : {},
+      ...deny !== undefined ? { deny: new Set(deny) } : {},
     }
     if (this.codeTransport !== undefined
-      && [...snapshot.allow ?? [], ...snapshot.deny ?? []].includes(RUN_CODE_NAME)) {
+      && [...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved Code Mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
-    const known = new Set(this.knownNames(scope))
-    const unknown = [...snapshot.allow ?? [], ...snapshot.deny ?? []].filter(name => !known.has(name))
+    const known = this.view(scope).restrictableNames
+    const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known tools for this scope: ${[...known].sort().join(', ') || '(none)'}`)
+      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       const list = this.restrictions.get(scope) ?? []
       this.restrictions.set(scope, list)
-      list.push(snapshot)
+      list.push(compiled)
       yield () => {
-        const index = list.indexOf(snapshot)
-        /* v8 ignore next 3 -- defensive: the snapshot was pushed, so indexOf is guaranteed >= 0 */
+        const index = list.indexOf(compiled)
+        /* v8 ignore next 3 -- defensive: the compiled restriction was pushed, so indexOf is guaranteed >= 0 */
         if (index >= 0) list.splice(index, 1)
         if (list.length === 0) this.restrictions.delete(scope)
         this.ctx.emit('tools/change')
@@ -777,29 +788,17 @@ export class ToolRegistry extends Service {
 
   /** First monotonic denial from the global then matching scoped guard layers. */
   private guardReason(exec: ToolExecution): string | undefined {
-    // Guards are policy, not another transform seam. The pipeline execution's
-    // identity and arguments are already protected; freeze a detached view so
-    // an untyped guard cannot replace the wrapper-mutable signal either.
-    const view: Readonly<ToolExecution> = Object.freeze({ ...exec })
     for (const { guard } of this.globalGuards) {
-      const reason = guard(view)
-      if (reason !== undefined) return this.assertGuardReason(reason)
+      const reason = guard(exec)
+      if (reason !== undefined) return reason
     }
     if (exec.agent !== undefined) {
       for (const { guard } of this.scopedGuards.get(exec.agent) ?? []) {
-        const reason = guard(view)
-        if (reason !== undefined) return this.assertGuardReason(reason)
+        const reason = guard(exec)
+        if (reason !== undefined) return reason
       }
     }
     return undefined
-  }
-
-  /** Runtime boundary for JavaScript/casted guards: only strings can deny. */
-  private assertGuardReason(reason: unknown): string {
-    if (typeof reason !== 'string') {
-      throw new TypeError(`tools.guard() must return a denial string or undefined, got ${typeof reason}`)
-    }
-    return reason
   }
 
   /** Whether every restriction registered for `scope` admits the global tool `name` (intersection semantics). */
@@ -808,38 +807,50 @@ export class ToolRegistry extends Service {
     const filters = this.restrictions.get(scope)
     if (!filters) return true
     return filters.every(filter =>
-      (filter.allow === undefined || filter.allow.includes(name))
-      && (filter.deny === undefined || !filter.deny.includes(name)))
+      (filter.allow === undefined || filter.allow.has(name))
+      && (filter.deny === undefined || !filter.deny.has(name)))
   }
 
   /**
-   * THE visibility function — one resolution feeding prompt assembly,
-   * {@link get}, and {@link execute}: the global layer masked by the scope's
-   * restrictions, unioned with the scope's own layer, scoped shadowing global
-   * on a name conflict, then the non-native mode's reserved `run_code`
-   * presentation transport. No scope = the unrestricted global view.
+   * Resolve every registry fact one scope needs in one layer traversal. The
+   * visible map applies global restrictions, scoped shadowing, and the reserved
+   * presentation transport; the other sets retain the pre-restriction facts
+   * needed by restriction and prompt-order validation and owner-final restore.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
-   * @returns the visible definitions (scoped shadows applied), in per-layer
-   *   registration order, global layer first.
+   * @returns the complete derived view for that scope.
    */
-  visible(scope?: ScopeKey): ToolDefinition[] {
+  private view(scope?: ScopeKey): ToolView {
     const layer = scope === undefined ? undefined : this.scoped.get(scope)
-    const result = new Map<string, ToolDefinition>()
+    const visible = new Map<string, ToolDefinition>()
+    const knownNames = new Set<string>()
+    const restrictableNames = new Set<string>()
+    const ownerFinalNames = new Set<string>()
     for (const [name, definition] of this.global) {
-      if (this.admits(scope, name)) result.set(name, definition)
+      knownNames.add(name)
+      restrictableNames.add(name)
+      if (definition.ownerFinal === true) ownerFinalNames.add(name)
+      if (this.admits(scope, name)) visible.set(name, definition)
     }
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
-    // and grants bypass restrictions by construction (never filtered above).
-    for (const [name, definition] of layer ?? []) result.set(name, definition)
+    // and scope-local registrations are never part of the global filter above.
+    for (const [name, definition] of layer ?? []) {
+      knownNames.add(name)
+      if (definition.ownerFinal === true) ownerFinalNames.add(name)
+      visible.set(name, definition)
+    }
     // Presentation infrastructure is resolved last and outside capability
     // filtering. Registration rejects this reserved name, so this set is an
     // invariant assertion as well as protection against future layer changes.
-    if (this.codeTransport !== undefined) result.set(RUN_CODE_NAME, this.codeTransport)
-    return [...result.values()]
+    if (this.codeTransport !== undefined) {
+      visible.set(RUN_CODE_NAME, this.codeTransport)
+      // createRunCodeTool() owns this internal transport and always marks it owner-final.
+      ownerFinalNames.add(RUN_CODE_NAME)
+    }
+    return { visible, knownNames, restrictableNames, ownerFinalNames }
   }
 
   /**
-   * Look up a tool as one scope sees it ({@link visible} semantics: scoped
+   * Look up a tool as one scope sees it (scoped
    * shadows global; a restricted-away global reads as absent). Presenters pass
    * the calling agent so the rendered card matches the definition that
    * actually executed.
@@ -848,11 +859,7 @@ export class ToolRegistry extends Service {
    * @returns the definition the scope resolves, or undefined when none is visible.
    */
   get(name: string, scope?: ScopeKey): ToolDefinition | undefined {
-    if (name === RUN_CODE_NAME && this.codeTransport !== undefined) return this.codeTransport
-    const shadowed = scope === undefined ? undefined : this.scoped.get(scope)?.get(name)
-    if (shadowed) return shadowed
-    if (!this.admits(scope, name)) return undefined
-    return this.global.get(name)
+    return this.view(scope).visible.get(name)
   }
 
   /**
@@ -868,30 +875,17 @@ export class ToolRegistry extends Service {
    * @returns one deep-cloned schema per visible tool.
    */
   schemas(scope?: ScopeKey): ToolSchema[] {
-    return this.visible(scope).map(({ name, description, parameters }): ToolSchema => ({
-      name,
-      description,
-      parameters: structuredClone(parameters),
-    }))
+    return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
   }
 
-  /**
-   * The PRE-restriction END-CAPABILITY name universe for `scope`: every global
-   * name plus the scope's own layer, ignoring restrictions. This is the set
-   * `restrict()` validates against, so a typo fails loud while a
-   * restricted-away tool remains a normal, non-erroneous absence. Reserved
-   * presentation transports are deliberately absent: `restrict()` rejects
-   * naming one, while {@link wireSchemas} adds it to the separate `toolOrder`
-   * validation universe when its presentation mode contributes it.
-   * @param scope - the viewing scope (the agent); omitted = global names only.
-   * @returns the known names, deduplicated.
-   */
-  knownNames(scope?: ScopeKey): string[] {
-    const names = new Set(this.global.keys())
-    if (scope !== undefined) {
-      for (const name of this.scoped.get(scope)?.keys() ?? []) names.add(name)
+  /** Project one definition onto the model-facing schema fields. */
+  private schemaOf(definition: ToolDefinition, detachParameters: boolean): ToolSchema {
+    const { name, description, parameters } = definition
+    return {
+      name,
+      description,
+      parameters: detachParameters ? structuredClone(parameters) : parameters,
     }
-    return [...names]
   }
 
   /**
@@ -909,95 +903,55 @@ export class ToolRegistry extends Service {
    * restricted-away global is exactly as absent as a nonexistent one), the
    * result is an `isError` carrying a `UNKNOWN_TOOL` structured error. A thrown
    * {@link HarnessError} surfaces its `{ name, code }` on the result. Before
-   * the final observe-only notification, the authoritative outcome must survive
-   * a lossless JSON round trip; an invalid outcome is normalized to an error.
-   * A malformed runtime/casted `tools/pre-execute` decision likewise normalizes
-   * to an error before approval, guards, or the tool body.
-   * Caller-owned arguments must survive lossless-JSON validation before and
-   * after cloning; a violation normalizes to an error before policy or dispatch.
-   * @param exec - the single-use call input; its identity is snapshotted and
-   *   protected before policy runs.
-   * @returns the final result after every waterfall; failures resolve as
-   *   `isError` results, never rejections.
+   * the final observe-only notification, the authoritative outcome is
+   * materialized as a detached lossless-JSON snapshot; an invalid outcome is
+   * normalized to an error.
+   * @param exec - the typed same-process call input. The registry assigns its
+   *   correlation token before policy begins.
+   * @returns the materialized final result after every waterfall; listener and
+   *   tool failures resolve as `isError` results rather than rejections.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
+    const token = createExecutionToken()
+    const callId = exec.callId
+    const name = exec.name
+    const agent = exec.agent
+    const parent = exec.parent
+    const signal = exec.signal
+    const base = {
+      token,
+      callId,
+      name,
+      ...agent !== undefined ? { agent } : {},
+      ...parent !== undefined ? { parent } : {},
+      ...signal !== undefined ? { signal } : {},
+    }
     let execution: ToolExecution
     try {
-      execution = this.prepareExecution(exec)
+      const detached = snapshotJsonValue(exec.arguments)
+      if (detached === undefined) {
+        throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
+      }
+      execution = {
+        ...base,
+        arguments: deepFreeze(detached),
+      }
     } catch (error: unknown) {
-      // Contract-violating non-JSON or non-cloneable arguments cannot enter a
-      // pipeline whose logged and executed forms must agree. Still publish one
-      // scoped final outcome, using an immutable identity shell, so result
-      // observers retain their every-call guarantee without seeing the invalid
-      // value.
-      execution = Object.freeze({
-        token: createExecutionToken(),
-        callId: exec.callId,
-        name: exec.name,
-        arguments: undefined,
-        ...exec.agent !== undefined ? { agent: exec.agent } : {},
-        ...isExecutionToken(exec.parent) ? { parent: exec.parent } : {},
-        ...exec.signal !== undefined ? { signal: exec.signal } : {},
-      })
-      const result = toolErrorResult(execution.callId, error)
+      execution = { ...base, arguments: undefined }
+      const result = this.materializeFinalResult(toolErrorResult(callId, error))
       await this.notifyResult(execution, result)
       return result
     }
     let result: ToolExecutionResult
     try {
-      // Validate the authoritative FINAL result, not merely the tool body's
-      // intermediate return. Post-policy may replace content or attach context,
-      // and every one of these fields is session-bound. Reject anything that
-      // cannot round-trip losslessly through the durable JSON log before the
-      // observe-only `tools/result` commit point sees success.
-      result = this.snapshotExecutionResult(execution, await this.executePipeline(execution))
+      result = this.materializeFinalResult(await this.executePipeline(execution))
     } catch (error: unknown) {
       // Outer backstop: a throwing pre/post-execute listener, guard, or the
       // waterfall machinery becomes an isError result, never a turn failure.
-      result = toolErrorResult(execution.callId, error)
+      result = this.materializeFinalResult(toolErrorResult(execution.callId, error))
     }
     await this.notifyResult(execution, result)
     return result
-  }
-
-  /** Snapshot one call into a shared pipeline object with immutable identity and mutable cancellation. */
-  private prepareExecution(input: ToolExecutionInput): ToolExecution {
-    if (input.parent !== undefined && !isExecutionToken(input.parent)) {
-      throw new TypeError('tool execution parent must be a registry-minted opaque token')
-    }
-    if (!isJsonValue(input.arguments)) {
-      throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
-    }
-    const args = structuredClone(input.arguments)
-    if (!isJsonValue(args)) {
-      throw new TypeError('tool execution arguments must be stable losslessly JSON-serializable data')
-    }
-    const execution: ToolExecution = {
-      token: createExecutionToken(),
-      callId: input.callId,
-      name: input.name,
-      arguments: deepFreeze(args),
-      ...input.agent !== undefined ? { agent: input.agent } : {},
-      ...input.parent !== undefined ? { parent: input.parent } : {},
-      ...input.signal !== undefined ? { signal: input.signal } : {},
-    }
-    Object.defineProperties(execution, {
-      token: { value: execution.token, enumerable: true, writable: false, configurable: false },
-      callId: { value: execution.callId, enumerable: true, writable: false, configurable: false },
-      name: { value: execution.name, enumerable: true, writable: false, configurable: false },
-      arguments: { value: execution.arguments, enumerable: true, writable: false, configurable: false },
-      agent: { value: input.agent, enumerable: true, writable: false, configurable: false },
-      parent: { value: input.parent, enumerable: true, writable: false, configurable: false },
-    })
-    if (input.signal !== undefined) {
-      Object.defineProperty(execution, 'signal', {
-        value: input.signal,
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      })
-    }
-    return execution
   }
 
   /** Run the transformable pipeline; {@link execute} owns final normalization and notification. */
@@ -1007,10 +961,10 @@ export class ToolRegistry extends Service {
     // carrier keys dispatch by exec.agent, so an `agent.ctx` listener gates only
     // its own agent's calls (agent-less calls are subject-less).
     const carrier = scopeTarget(this, exec.agent)
-    const gate = this.snapshotPreDecision(await this.ctx.waterfall(
+    const gate = await this.ctx.waterfall(
       carrier, 'tools/pre-execute', exec,
       () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
-    ))
+    )
     const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
     const denialReason = decision.kind === 'allow'
       ? this.guardReason(exec)
@@ -1034,7 +988,7 @@ export class ToolRegistry extends Service {
     // before delegating and inspect the normalized result after. Dispatched with the
     // same carrier as the gate, so an `agent.ctx` wrapper wraps only its own
     // agent's calls. ---
-    const result = this.snapshotExecutionResult(exec, await this.ctx.waterfall(
+    const result = await this.ctx.waterfall(
       carrier, 'tools/execute', exec,
       async (): Promise<ToolExecutionResult> => {
         try {
@@ -1055,44 +1009,12 @@ export class ToolRegistry extends Service {
           return toolErrorResult(exec.callId, error)
         }
       },
-    ))
+    )
+    if (result.callId !== exec.callId) {
+      throw new TypeError(`tools/execute returned callId "${String(result.callId)}" for authoritative call "${exec.callId}"`)
+    }
 
     return await this.postExecute(exec, result)
-  }
-
-  /** Validate and detach the extensible gate's decision before any grant can dispatch. */
-  private snapshotPreDecision(value: unknown): PreToolDecision {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new TypeError('tools/pre-execute must return a PreToolDecision object')
-    }
-    const decision = value as { kind?: unknown; reason?: unknown }
-    const keys = Reflect.ownKeys(decision)
-    const hasExactKeys = (...expected: string[]): boolean =>
-      keys.length === expected.length && expected.every(key => Object.hasOwn(decision, key))
-    switch (decision.kind) {
-      case 'allow':
-        if (!hasExactKeys('kind')) {
-          throw new TypeError('tools/pre-execute allow decision must contain only kind')
-        }
-        return { kind: 'allow' }
-      case 'deny': {
-        const reason = decision.reason
-        if (!hasExactKeys('kind', 'reason') || typeof reason !== 'string') {
-          throw new TypeError('tools/pre-execute deny decision must contain only kind and a string reason')
-        }
-        return { kind: 'deny', reason }
-      }
-      case 'ask': {
-        const reason = decision.reason
-        if (!(hasExactKeys('kind') || hasExactKeys('kind', 'reason'))
-          || (reason !== undefined && typeof reason !== 'string')) {
-          throw new TypeError('tools/pre-execute ask decision must contain only kind and an optional string reason')
-        }
-        return { kind: 'ask', ...reason !== undefined ? { reason } : {} }
-      }
-      default:
-        throw new TypeError('tools/pre-execute must return an allow, deny, or ask decision')
-    }
   }
 
   /** Notify final-result observers without giving them a mutation/error channel into the outcome. */
@@ -1100,16 +1022,12 @@ export class ToolRegistry extends Service {
     // The pipeline is over: freeze the remaining mutable signal slot so every
     // observer sees the SAME WeakMap-keyable execution without a mutation race.
     Object.freeze(exec)
-    // postExecute clones every accepted result/decision before rebuilding the
-    // outcome; all error paths construct plain data. The final result is thus
-    // structurally cloneable before it reaches this observe-only boundary.
-    const snapshot = deepFreeze(structuredClone(result))
     const callbacks = this.ctx.events.dispatch('parallel', [
-      scopeTarget(this, exec.agent), 'tools/result', exec, snapshot,
+      scopeTarget(this, exec.agent), 'tools/result', exec, result,
     ])
     await Promise.all(callbacks.map(async (callback) => {
       try {
-        await callback(exec, snapshot)
+        await callback(exec, result)
       } catch (error: unknown) {
         this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): tools/result observer failed: ${errorMessage(error)}`)
       }
@@ -1163,104 +1081,40 @@ export class ToolRegistry extends Service {
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
-    // Snapshot the protected outcome BEFORE the waterfall. A listener receives
-    // the same `result` reference, so a post-waterfall read of `result.callId`/
-    // `.isError`/`.error` could carry a listener's mutation — violating the
-    // authoritative-call-id requirement and the "preserve the dispatched
-    // isError/error" contract. The decision is the ONLY sanctioned channel for a
-    // listener to change the outcome (block, or accept-with-replacement); the
-    // call id is always the authoritative `exec.callId`. Deep cloning protects
-    // nested content, error, and meta data from in-place listener mutation.
-    const dispatched = this.snapshotExecutionResult(exec, result)
-    const decision = structuredClone(await this.ctx.waterfall(
+    const decision = await this.ctx.waterfall(
       scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
-    ))
-    this.assertPostDecision(decision)
+    )
     const additionalContext = decision.additionalContext
     if (decision.kind === 'block') {
       return {
-        callId: dispatched.callId,
+        callId: result.callId,
         content: decision.feedback,
         isError: true,
         ...additionalContext ? { additionalContext } : {},
       }
     }
-    // accept: replace content if supplied, preserve the dispatched isError/error.
+    // Accept: replace content if supplied and preserve the dispatched outcome.
     return {
-      ...dispatched,
+      ...result,
       ...decision.content ? { content: decision.content } : {},
       ...additionalContext ? { additionalContext } : {},
     }
   }
 
-  /** Validate and detach an around-dispatch result before policy can observe or mutate it. */
-  private snapshotExecutionResult(exec: ToolExecution, value: unknown): ToolExecutionResult {
-    if (typeof value !== 'object' || value === null) {
-      throw new TypeError('tools/execute must return a ToolExecutionResult object')
+  /** Materialize the authoritative commit outcome once, immediately before `tools/result`. */
+  private materializeFinalResult(result: ToolExecutionResult): ToolExecutionResult {
+    const detached = snapshotJsonValue(result)
+    if (detached === undefined) {
+      throw new TypeError('tool result must be losslessly JSON-serializable')
     }
-    const result = value as Partial<ToolExecutionResult>
-    if (!Array.isArray(result.content) || typeof result.isError !== 'boolean') {
-      throw new TypeError('tools/execute must return a ToolExecutionResult with content[] and boolean isError')
-    }
-    if (result.callId !== exec.callId) {
-      throw new TypeError(`tools/execute returned callId "${String(result.callId)}" for authoritative call "${exec.callId}"`)
-    }
-    const candidate = {
-      callId: exec.callId,
-      content: result.content,
-      isError: result.isError,
-      ...result.error !== undefined ? { error: result.error } : {},
-      ...result.additionalContext !== undefined ? { additionalContext: result.additionalContext } : {},
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }
-    // Validate BEFORE cloning: structuredClone turns some forbidden exotic or
-    // class instances into plain objects, which would hide a lossy JSON
-    // boundary violation. Validate the detached clone again to contain hostile
-    // getters whose value changes between inspection and snapshotting.
-    if (!isJsonValue(candidate)) {
-      throw new TypeError('tools/execute must return a losslessly JSON-serializable ToolExecutionResult')
-    }
-    const snapshot = structuredClone(candidate)
-    if (!isJsonValue(snapshot)) {
-      throw new TypeError('tools/execute must return a stable losslessly JSON-serializable ToolExecutionResult')
-    }
-    return snapshot
-  }
-
-  /** Reject malformed JavaScript/casted post decisions at the public event boundary. */
-  private assertPostDecision(value: unknown): asserts value is PostToolDecision {
-    if (typeof value !== 'object' || value === null) {
-      throw new TypeError('tools/post-execute must return a PostToolDecision object')
-    }
-    const decision = value as Partial<PostToolDecision>
-    switch (decision.kind) {
-      case 'accept':
-        if (decision.content !== undefined && !Array.isArray(decision.content)) {
-          throw new TypeError('tools/post-execute accept content must be an array')
-        }
-        return
-      case 'block':
-        if (!Array.isArray(decision.feedback)) {
-          throw new TypeError('tools/post-execute block feedback must be an array')
-        }
-        return
-      default:
-        throw new TypeError('tools/post-execute must return an accept or block decision')
-    }
+    return deepFreeze(detached)
   }
 }
 
-/** Mint a frozen, property-free correlation token whose identity is its value. */
+/** Mint a same-process correlation token whose identity is its value. */
 function createExecutionToken(): ToolExecutionToken {
-  const token = Object.freeze(Object.create(null)) as ToolExecutionToken
-  executionTokens.add(token)
-  return token
-}
-
-/** Runtime counterpart of the opaque token type, including `undefined` input. */
-function isExecutionToken(value: unknown): value is ToolExecutionToken {
-  return typeof value === 'object' && value !== null && executionTokens.has(value)
+  return Symbol('dsh.tool.execution') as ToolExecutionToken
 }
 
 function toolErrorResult(callId: ToolExecution['callId'], error: unknown): ToolExecutionResult {

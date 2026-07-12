@@ -11,7 +11,7 @@ import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, ContinuationStop, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -34,20 +34,6 @@ type CodedError = Error & { code?: string }
  */
 function toError(error: unknown): CodedError {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
-}
-
-/**
- * Validate the runtime result of the terminal-stop serial event. Event types
- * protect TypeScript listeners, but JavaScript and casts can still return an
- * arbitrary bail value; accepting one as an implicit stop would hide a broken
- * policy plugin.
- */
-function assertContinuationStop(value: unknown): asserts value is ContinuationStop | undefined {
-  if (value === undefined) return
-  const candidate = Object(value) as { action?: unknown }
-  if (candidate.action !== 'stop') {
-    throw new Error('agent/turn-stop returned an invalid result; expected { action: \'stop\' } or undefined')
-  }
 }
 
 /**
@@ -291,6 +277,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
       // the previous turn/end), where the persistence backend drops it as a
       // crash tail (the turn-enclosure RFC). Report via agent/error + the logger only; the
       // driver survives and moves on.
+      // Acceptance and internal dispatch validation can reject before
+      // turn/start commits. Report that supported pre-turn failure without
+      // inventing a turn/end for a turn that never opened.
       const err = toError(error)
       ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
       try {
@@ -342,34 +331,14 @@ async function runTurn(
   let errorReported = false
   let terminalStopped = false
 
-  // Close the open step exactly once (idempotent via stepOpen). Step boundaries
-  // are durable session events only — there is no agent/* step emit to mirror
-  // them (see the agent event-domain rule). A throwing step/end session-event
-  // listener must not abort finalization and strand the turn open (turn/end
-  // balance > notifying one bad listener); it is contained and surfaced as a
-  // turn error below.
-  const closeStep = (): boolean => {
-    if (!stepOpen) return false
+  // Close the open step exactly once (idempotent via stepOpen). Post-commit
+  // session/event observers are contained by Session; a pre-commit validator
+  // failure still escapes so the outer recovery path may retry the boundary or
+  // fail loudly without pretending an uncommitted step/end exists.
+  const closeStep = (): void => {
+    if (!stepOpen) return
+    session.append('step/end', { turn, step })
     stepOpen = false
-    // Session.append pushes step/end BEFORE notifying session/event listeners,
-    // so a throwing listener leaves step/end in the log (balance holds) but
-    // would otherwise abort finalization. Contain it and surface it as a turn
-    // error below.
-    let failure: unknown
-    try {
-      session.append('step/end', { turn, step })
-    } catch (error: unknown) {
-      failure = error
-    }
-    // A throwing step/end session-event listener surfaces as a turn error via
-    // failTurn (idempotent). This prevents a throwing listener from producing a
-    // silent "completed" turn when the step itself succeeded, AND keeps
-    // finalization going when closeStep runs from the outer catch.
-    if (failure !== undefined) {
-      failTurn(toError(failure))
-      return true
-    }
-    return false
   }
 
   // Record a step/turn failure exactly once: set the error reason (carrying the
@@ -381,12 +350,9 @@ async function runTurn(
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    // The turn is always still open here: the only failure that can reach
-    // failTurn once turn/end is appended would be a throwing turn-boundary
-    // listener, and turn boundaries are durable session events with no agent/*
-    // mirror to throw. A throwing `turn/end` session-event listener is already
-    // contained inside closeTurn (append pushes before notifying, so the
-    // boundary is durable). So set the error reason for closeTurn to append.
+    // The turn is still open here. Post-commit observers cannot escape append,
+    // and a pre-commit turn/end veto leaves no closing boundary to overwrite.
+    // Set the reason that the next successful closeTurn will append.
     reason = { kind: 'error', step, ...errorData(err) }
     try {
       events.emit('agent/error', turn, step, err)
@@ -396,30 +362,17 @@ async function runTurn(
     }
   }
 
-  // Close the turn. Called exactly once per turn — the normal loop exit and the
-  // outer catch are mutually exclusive paths, and this never throws (the append
-  // is contained below), so there is no re-entry to guard against (unlike
-  // closeStep, which the cancel branches and the outer catch can both reach).
-  // Turn boundaries are durable session events only — there is no agent/* turn
-  // emit to mirror them (see the agent event-domain rule).
+  // Close the turn. Post-commit observer failures are contained by Session;
+  // pre-commit validation failures escape to recovery instead of being mistaken
+  // for a committed boundary. Turn boundaries are durable session events only.
   const closeTurn = (): void => {
-    // Session.append pushes turn/end BEFORE notifying session/event listeners,
-    // so a throwing listener leaves turn/end in the log (the turn is balanced)
-    // but would otherwise escape — from the outer catch it would propagate to
-    // the runLoop backstop. Contain it: the boundary is durable either way, and
-    // finalization must not abort on a bad listener.
-    try {
-      session.append('turn/end', { turn, reason })
-    } catch (error: unknown) {
-      ctx.logger.warn(`agent "${agent.id}": session/event listener threw on turn/end at turn ${turn}: ${toError(error).message}`)
-    }
+    session.append('turn/end', { turn, reason })
   }
 
   try {
     // --- Turn boundary. Once turn/start is appended, a turn/end is owed no
-    // matter what throws below; the catch + closeTurn guarantee it (the catch
-    // decides "owed" from the log via isTurnOpen, so even a throwing turn/start
-    // listener — append pushes before notifying — still gets its turn/end).
+    // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
+    // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
     // Each drained queued message runs the `agent/prompt-submit` waterfall before
     // it becomes a `user/message` — a hook can rewrite the prompt or block it.
@@ -577,20 +530,19 @@ async function runTurn(
       // messages are snapshotted HERE, in the same synchronous frame as the
       // step/start append directly below — so the snapshot is exactly the
       // derivation over the log prefix strictly before step/start's seq.
-      // Anything appended later — by a step/start session/event listener, an
-      // agent/request-window inject(), any concurrent task — lands after the
-      // boundary and joins the NEXT request. An external reconstructor
+      // Anything appended later by the request-window inject seam or a
+      // concurrent task lands after the boundary and joins the NEXT request.
+      // session/event itself is observe-only: append reentrancy is rejected
+      // until the current callback list drains. An external reconstructor
       // recovers these exact messages by folding the surface over
       // events[0..stepStartSeq).
       const boundaryMessages = session.deriveMessages()
 
-      // Mark the step open BEFORE the append: Session.append pushes the event
-      // to the log before notifying session/event listeners, so a THROWING
-      // step/start listener leaves step/start in the log. Setting stepOpen first
-      // means the outer catch's closeStep() then appends the balancing step/end
-      // (turn stays enclosed) instead of stranding an open step under turn/end.
-      stepOpen = true
       session.append('step/start', { turn, step })
+      // Only a committed step/start creates a balancing obligation. A
+      // pre-commit veto throws before this assignment; post-commit observers
+      // are contained inside Session.append().
+      stepOpen = true
 
       // Cancel landing in the step-start window: a synchronous `session/event`
       // step/start listener can cancel after the step is already open. Check
@@ -643,7 +595,7 @@ async function runTurn(
       // Steering that arrived during streaming/tool execution.
       const steered = drainSteering(agent, handle.inbox, turn)
 
-      if (closeStep()) break
+      closeStep()
 
       const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
       let decision: ContinuationDecision
@@ -678,8 +630,7 @@ async function runTurn(
       // no later listener or steering override can resurrect the turn.
       let terminalStop = false
       try {
-        const stop = await events.strictSerial('agent/turn-stop', turn)
-        assertContinuationStop(stop)
+        const stop = await events.serial('agent/turn-stop', turn)
         terminalStop = stop !== undefined
       } catch (error: unknown) {
         // A broken terminal policy is an ordinary continuation failure: fail
@@ -717,21 +668,10 @@ async function runTurn(
     // Normal / inline-error loop exit: close the turn.
     closeTurn()
   } catch (error: unknown) {
-    // Decide whether this turn was ever opened from the LOG, not a flag.
-    // Session.append pushes the event BEFORE notifying session/event listeners,
-    // so a throwing listener on the `turn/start` append leaves turn/start in the
-    // log even though execution never reached the lines after that append.
-    // Gating on a "turn started" boolean would skip turn/end and leave a
-    // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
-    // check the log for THIS turn's turn/start: present means a turn/end is owed
-    // and the normal-exit `closeTurn()` did NOT run (we are here because a throw
-    // preceded it — the two `closeTurn()` sites are on mutually exclusive paths),
-    // so this catch appends turn/end with the disposed/error reason chosen below.
-    // `closeStep()` IS idempotent (guarded by `stepOpen`) — it may have run
-    // already in a step branch, so running it again is a safe no-op. Absent
-    // turn/start means the append threw BEFORE its push (a non-serializable
-    // trigger — impossible for our fixed trigger); nothing was opened, so rethrow
-    // to the runLoop backstop.
+    // Decide whether this turn opened from the LOG, not a speculative flag. A
+    // pre-commit validator or acceptance failure leaves no turn/start and owes
+    // no turn/end, so it propagates to runLoop's backstop. Once turn/start is
+    // present, this path balances any committed step and records the failure.
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()
