@@ -6,72 +6,70 @@ English | [中文](2026-07-12-scoped-layers-store.zh.md)
 
 ## Problem
 
-Agent scoping ([the agent-scope RFC](../../implemented/architecture/2026-07-08-agent-scope-contexts.md), [runtime design](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md)) made "a registry with a global layer plus per-agent layers" a recurring shape, and every occurrence is hand-written. Seven registration sites exist today — `tools.register`/`tools.restrict`/`tools.guard` in `dsh-tools` and `section`/`tools`/`variable`/`protect` in `dsh-system-prompt` — each pairing a global container with its own `Map<ScopeKey, container>` and repeating the same 10-15-line effect choreography: read the calling context's tag, get-or-create the layer, validate, mutate, yield a rollback that deletes the entry, reclaims the emptied layer, and emits the change event, then emit and return the exact cordis effect disposer.
+Agent scoping ([the agent-scope RFC](../../implemented/architecture/2026-07-08-agent-scope-contexts.md), [runtime design](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md)) made "a registry with a global layer plus per-agent layers" a recurring shape, and every occurrence is hand-written. Six registration sites exist today — `tools.register`/`tools.restrict`/`tools.guard` in `dsh-tools` and `section`/`tools`/`variable` in `dsh-system-prompt` — each repeating the same 10-15-line effect choreography around its applicable global or scoped containers: read the calling context's tag, get or create the layer, validate, mutate, yield a rollback that deletes the entry and reclaims an emptied scoped layer, emit the applicable change event, and return the exact Cordis effect disposer.
 
 Beyond the duplication, the risk concentrates in the choreography details:
 - The rollback must be collected before the change emit (so a throwing listener unwinds the insertion instead of leaking it)
-- The returned disposer must be cordis's own function (a wrapper silently breaks nested ordered teardown)
+- The returned disposer must be Cordis's own function (a wrapper silently breaks nested ordered teardown)
 - Emptied scoped layers must be reclaimed (a disposed agent must not leave residue keyed by its dead `ScopeKey`)
 
-Every new consumer has to rewrite all of that correctly, and the copies have already diverged stylistically — two private `layerFor` helpers in `dsh-tools`, four inline IIFEs in `dsh-system-prompt`.
+Every new consumer has to rewrite all of that correctly, and the copies have already diverged stylistically — two private layer helpers in `dsh-tools`, three inline IIFEs in `dsh-system-prompt`.
 
-Finally, one agent's contribution to one service is scattered across several maps that know nothing of each other — there is no object that means "what this scope contributes here" — and the consumer count keeps growing: guards and prompt protections landed recently, and per-agent `fs/*` policy, `llm/*` overrides, and per-agent compaction policy are all queued on the same pattern.
+Finally, one agent's contribution to one service is scattered across several maps that know nothing of each other — there is no object that means "what this scope contributes here" — and the consumer count keeps growing: scoped guards and per-agent prompt/tool composition landed recently, while per-agent `fs/*` policy, `llm/*` overrides, and compaction policy are plausible future users of the same pattern.
 
 ## Proposal
 
-`dsh-scope` gains a store module (a new `store.ts` under its `src/`, peer-dependent on cordis only, key-agnostic) built around one division of labor: **business logic lives in a layer class; the helper only schedules layers**. One helper instance per service; the value in its map is the aggregate of everything one scope contributes to that service.
+`dsh-scope` gains a key-agnostic `store.ts`, with Cordis as its only peer dependency. The module implements the smallest abstraction shared by the six current sites: **business state and validation stay in an explicit layer class; one helper owns layer selection, effect attachment, rollback, notification, and reclamation**. One helper instance belongs to one service, and one layer instance aggregates everything a scope contributes to that service.
 
-- **`ScopedLayers<L>`** — a concrete scheduler, never subclassed. It owns the global layer plus one `Map<ScopeKey, L>`, builds layers on demand as `new layerClass(scope, this)`, reclaims a layer when `isEmpty()`, and funnels every write through `effect(ctx, action, options?)`. The single `ctx` parameter decides both the visible layer (`scopeOf(ctx)`) and the owning fiber (`ctx.effect`), so "visible to X, disposed with Y" stays unrepresentable — the same shape argument the agent-scope RFC used against explicit scope parameters. Actions may produce one undo, an iterable of undos, a promise, or an async iterable — the four shapes of cordis `Effect` — and undos may be async. The helper seals collected undos (run in LIFO), empty-layer reclamation, and the change notification into one disposer, and hands cordis that disposer **before** the notification runs: a throwing change listener therefore makes cordis execute the already-collected rollback and rethrow, exactly like the hand-written yield-before-emit today. Reads are `global`/`peek` plus three selector primitives lifting the table views across the two layers — `merge` (named entries, scoped shadows global, global position preserved, optional admit predicate), `values` (concatenation including anonymous entries, deliberately no shadowing), `keys` (the pre-restriction name universe) — and array-returning `forEach`/`filter`/`map` over all layers.
-- **`createLayer({ name: table<V>(kind) })`** — a class factory in the `defineTool` DSL tradition. The generated base class builds every declared table in its constructor, threads the scope down, receives the sibling back-reference (`protected readonly layers: ScopedLayers<this>`, injected by the helper at construction; polymorphic `this` narrows it in subclasses), and aggregates `isEmpty()` over the declared tables. `layer.<table>` is a fully typed mapped property, so a misspelled table name is a compile error; the table names `scope`, `isEmpty`, and `layers` are reserved and throw. Business subclasses add domain methods in the class body — single-layer queries, registration validations, and cross-layer *reads* through `this.layers` (writes must still go through `effect`); a fully custom layer may instead implement the one-method `ScopeLayer` interface (`isEmpty()`).
-- **`Entries<V>`** — the canned table: named entries (`insert`, same-layer duplicates throw one standardized message pair pointing at `agent.ctx`) and anonymous entries (`append`, process-unique symbol keys, O(1) undo removal) share one insertion-ordered map; read views (`keys`/`entries`/`values`) return array snapshots.
+- **`ScopedLayers<L>`** is a concrete scheduler, not a base class. It owns the global layer plus one `Map<ScopeKey, L>`, constructs scoped layers on demand through an explicit factory, and reclaims a layer when `isEmpty()`. Its `effect(ctx, action, options?)` accepts one synchronous action that returns one synchronous undo because that is the complete shape of all six current sites. The single `ctx` decides both the visible layer (`scopeOf(ctx)`) and the owning Cordis fiber (`ctx.effect`), so "visible to X, disposed with Y" stays unrepresentable. The helper yields the undo before notifying listeners, returns Cordis's exact disposer, and reclaims a newly created empty layer if validation or mutation throws. Reads are `global`/`peek` plus `merge` (named entries with scoped shadowing and an optional global-admission predicate), `values` (global then scoped concatenation without shadowing), `keys` (the pre-restriction name universe), and `some` (cross-layer invariant checks).
+- **Explicit `ScopeLayer` classes** make each service's state visible to readers. `ToolLayer` and `PromptLayer` declare their three table properties and their `isEmpty()` aggregation directly; a small layer factory receives only the scope, while its closure may capture real constructor dependencies. Domain methods stay ordinary class methods. This costs a few repetitive declarations but avoids a mapped-type class factory, a scheduler/layer ownership cycle, reserved property names, and generated runtime structure.
+- **`NamedEntries<V>` and `AnonymousEntries<V>`** are the two shared insertion-ordered tables. Named entries expose `insert`/lookup and retain the current global/scoped duplicate wording through domain `kind` and per-agent-alternative labels; anonymous entries expose only `append`, using process-unique symbol keys for O(1) undo removal. Keeping the classes separate makes meaningless mixed named/anonymous operations unrepresentable and keeps key types sound. Their iterators borrow membership and typed contribution values; they do not clone or freeze values. `ScopedLayers` materializes only the merged arrays/maps already required by the service read paths.
 
-`dsh-tools` migrates its three tables into one `ToolLayer` (domain methods `addRestriction` — empty-filter/read-once/reserved-name/known-names validation with the reserved list passed in as data, since it reads service state — plus `admits` and `guardReason`), and `dsh-system-prompt` its four into one `PromptLayer` (`addProtection` with the global-conflict self-check via the back-reference, plus the `shadowedSections` predicate). Every facade becomes a single `effect` call carrying per-call `label`, `silent` (guards emit no change event), or `scopedOnly` (boolean, or a string carrying the domain error message) options. `assemble` stays in the facade for three hard reasons: it has no legal receiver (the subject scope's layer may not exist, and reads never create layers), shadowing forces merge-before-evaluate (per-layer rendering would evaluate shadowed providers, an observable change), and the assemble waterfall, `toolOrder`, and protection restore need service-level resources a layer must not hold.
+`dsh-tools` migrates its three tables into one `ToolLayer`: tools, compiled restrictions, and guards. The layer owns restriction admission and guard evaluation; the facade retains domain validation that needs service configuration, such as the reserved `run_code` name and the current known-global-name universe. Readonly allow/deny inputs are compiled once into internal sets. `dsh-system-prompt` likewise migrates sections, tool providers, and variables into one `PromptLayer`; its facade performs owner-final cross-layer checks through `layers.some`. Every registration facade performs its public argument validation and then makes one `effect` call with a label and, for guards, `silent: true`. A generic helper does not learn domain rules such as "restrictions require a scoped context."
 
-Migration is behavior-preserving with two declared exceptions: the three duplicate-name messages unify into one template (tests asserting the old wording update in the same change), and validations move relative to the effect boundary (restrict/protect checks move inside the action, the variable name regex moves to the facade), so the error *order* for multiply-invalid inputs can change while every single-fault path is unchanged. Two knowingly unobservable differences: an aggregate layer is reclaimed only when all its tables are empty, and read views are snapshots rather than live containers (visible only to a callback that registers during its own iteration).
+`assemble` stays in the `SystemPrompt` facade for three reasons: the subject scope's layer may not exist and reads must not create it; shadowing requires merge-before-evaluate so a hidden section provider is never called; and the assembly waterfall, `toolOrder`, and owner-final restoration use service-level resources. Sections and tool providers keep their current materialized derived views. Variable providers instead iterate the global and scoped `NamedEntries` directly, preserving today's live Map behavior when a provider registers another variable during assembly. Tool guards likewise iterate their `AnonymousEntries` directly. Owner-final remains metadata on section and tool contributions, not a second protection registry.
+
+Migration preserves public behavior and exact duplicate messages. The internal aggregate layer is reclaimed only after all three tables empty rather than when one table empties; no service API exposes layer identity. Direct live iteration retains current re-entrant variable-provider and guard behavior, while selector helpers continue to materialize the same section, tool-provider, and tool-resolution views their facades build today.
+
+`ScopeLayer`, `EntryValues`, `ScopedLayers`, `NamedEntries`, and `AnonymousEntries` are public `dsh-scope` root exports with export JSDoc. Consumers import them from `@deepseek-ai/dsh-scope`; `store.ts` is an implementation module, not a package subpath.
 
 ## API sketch
 
 ```ts ignore-check
-interface ScopeLayer {
+export interface ScopeLayer {
   isEmpty(): boolean
 }
 
-type LayerClass<L extends ScopeLayer> = new (scope: ScopeKey | undefined, layers: ScopedLayers<L>) => L
-
-declare function table<V>(kind: string): TableSpec<V>
-declare function createLayer<S extends Record<string, TableSpec<unknown>>>(
-  spec: S,
-): LayerClass<ScopeLayer & { readonly [K in keyof S]: Entries<EntryTypeOf<S[K]>> }>
-
-type Undo = () => unknown
-type LayerAction<L> = (layer: L) =>
-  | Undo
-  | Iterable<Undo, void, void>
-  | Promise<Undo>
-  | AsyncIterable<Undo, void, void>
-
-class ScopedLayers<L extends ScopeLayer> {
-  constructor(layerClass: LayerClass<L>, options: { label: string; onChange?: () => void })
+export class ScopedLayers<L extends ScopeLayer> {
+  constructor(createLayer: (scope: ScopeKey | undefined) => L, options: { onChange?: () => void })
   readonly global: L
   peek(scope: ScopeKey | undefined): L | undefined
-  merge<T>(scope: ScopeKey | undefined, pick: (layer: L) => Entries<T>, admitGlobal?: (name: string) => boolean): Map<string, T>
-  values<T>(scope: ScopeKey | undefined, pick: (layer: L) => Entries<T>): T[]
-  keys<T>(scope: ScopeKey | undefined, pick: (layer: L) => Entries<T>): string[]
-  effect(ctx: Context, action: LayerAction<L>, options?: { label?: string; silent?: boolean; scopedOnly?: boolean | string }): () => Promise<void> | void
-  forEach(fn: (layer: L, scope: ScopeKey | undefined) => void): void
-  filter(fn: (layer: L, scope: ScopeKey | undefined) => boolean): L[]
-  map<T>(fn: (layer: L, scope: ScopeKey | undefined) => T): T[]
+  merge<T>(scope: ScopeKey | undefined, pick: (layer: L) => NamedEntries<T>, admitGlobal?: (name: string) => boolean): Map<string, T>
+  values<T>(scope: ScopeKey | undefined, pick: (layer: L) => EntryValues<T>): T[]
+  keys<T>(scope: ScopeKey | undefined, pick: (layer: L) => NamedEntries<T>): string[]
+  some(fn: (layer: L, scope: ScopeKey | undefined) => boolean): boolean
+  effect(ctx: Context, action: (layer: L) => () => void, options: { label: string; silent?: boolean }): () => Promise<void> | void
 }
 
-class Entries<V> {
-  constructor(kind: string, scope: ScopeKey | undefined)
+export interface EntryValues<V> {
+  values(): IterableIterator<V>
+  isEmpty(): boolean
+}
+
+export class NamedEntries<V> implements EntryValues<V> {
+  constructor(kind: string, perAgentAlternative: string, scope: ScopeKey | undefined)
   insert(name: string, value: V): () => void
-  append(value: V): () => void
   get(name: string): V | undefined
   has(name: string): boolean
-  keys(): string[]
-  entries(): ReadonlyArray<readonly [string, V]>
-  values(): readonly V[]
+  keys(): IterableIterator<string>
+  entries(): IterableIterator<[string, V]>
+  values(): IterableIterator<V>
+  isEmpty(): boolean
+}
+
+export class AnonymousEntries<V> implements EntryValues<V> {
+  append(value: V): () => void
+  values(): IterableIterator<V>
   isEmpty(): boolean
 }
 ```
@@ -79,21 +77,26 @@ class Entries<V> {
 What a migrated consumer looks like — the heaviest current site shrinks from 30+ lines of choreography to a declaration and one-line facades:
 
 ```ts ignore-check
-class ToolLayer extends createLayer({
-  tools: table<ToolDefinition>('tool'),
-  restrictions: table<ToolRestriction>('tool restriction'),
-  guards: table<ToolGuardRegistration>('tool guard'),
-}) {
-  addRestriction(filter: ToolRestriction, reserved: readonly string[]): () => void { /* validate, snapshot, append */ }
+class ToolLayer implements ScopeLayer {
+  readonly tools = new NamedEntries<ToolDefinition>('tool', 'variant', this.scope)
+  readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
+  readonly guards = new AnonymousEntries<ToolGuardRegistration>()
+
+  constructor(
+    readonly scope: ScopeKey | undefined,
+  ) {}
+
+  isEmpty(): boolean { return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty() }
+  addRestriction(filter: ToolRestriction): () => void { /* compile to sets, append */ }
   admits(name: string): boolean { /* intersection over this.restrictions.values() */ }
   guardReason(view: Readonly<ToolExecution>): string | undefined { /* first monotonic denial */ }
 }
 
 class ToolRegistry extends Service {
-  private readonly layers = new ScopedLayers(ToolLayer, {
-    label: 'tools',
-    onChange: () => this.ctx.emit('tools/change'),
-  })
+  private readonly layers = new ScopedLayers(
+    scope => new ToolLayer(scope),
+    { onChange: () => this.ctx.emit('tools/change') },
+  )
 
   register(definition: ToolDefinition): () => Promise<void> | void {
     return this.layers.effect(this.ctx,
@@ -101,8 +104,9 @@ class ToolRegistry extends Service {
       { label: 'tools.register()' })
   }
 
-  visible(scope?: ScopeKey): ToolDefinition[] {
-    return Array.from(this.layers.merge(scope, layer => layer.tools, name => this.admits(scope, name)).values())
+  private resolveVisible(scope?: ScopeKey): ToolDefinition[] {
+    const scoped = this.layers.peek(scope)
+    return Array.from(this.layers.merge(scope, layer => layer.tools, name => scoped?.admits(name) ?? true).values())
   }
 }
 ```
@@ -115,6 +119,10 @@ class ToolRegistry extends Service {
 
 **Extracting only the data structure, leaving the choreography in services.** Removes the safe half of the duplication and keeps the dangerous half — the rollback-before-emit ordering, raw-disposer, and reclamation rules are exactly where the bugs live.
 
+**Accepting the full Cordis `Effect` union as a layer action.** None of the six sites has asynchronous setup, multiple undos, or an independent settlement boundary. Normalizing promises, iterables, async iterables, LIFO sealing, and partial failure would duplicate lifecycle machinery speculatively. The store accepts one synchronous action and one undo; a future real boundary can justify widening it.
+
+**Generating layer classes from a mapped-type table DSL.** The two consumers each declare three tables. A class factory would save a handful of lines while adding generated runtime shape, reserved names, polymorphic-`this` typing, and a second construction model. Explicit classes are easier to inspect and can still share the entry tables and `ScopedLayers`.
+
 **A fixed-container helper with built-in view semantics.** Pins container shapes and merge policy inside the helper; business gets no freedom, and every naming or single-value variation becomes a helper feature request.
 
 **One helper per table.** Reproduces today's scattered bookkeeping — that is the status quo being replaced, with N scope maps per service and no aggregate for an agent's contribution.
@@ -125,15 +133,14 @@ class ToolRegistry extends Service {
 
 ## Acceptance criteria
 
-- `store.ts` ships in `dsh-scope` (peer deps unchanged: cordis only; module-graph position unchanged) with per-file 100% coverage, including: layer bookkeeping and reclamation, all four action shapes, seal ordering, the throwing-change-listener rollback (the entry is rolled back and the duplicate check re-registers), failure reclamation of freshly created layers, `label`/`silent`/`scopedOnly` options, `createLayer` construction, reserved table names, back-reference typing, and `Entries` named/anonymous semantics.
-- `dsh-tools` and `dsh-system-prompt` each collapse to one `ScopedLayers`; all existing tests pass with only the declared duplicate-message assertion updates; every registration facade is a single `effect` call and keeps returning the exact cordis effect disposer.
-- Behavior matches the old baseline per the equivalence statement above: two declared exceptions (unified messages; error order for multiply-invalid inputs), two unobservable differences (aggregate reclamation timing; snapshot read views), nothing else.
+- `store.ts` ships in `dsh-scope` (peer dependencies unchanged: Cordis only; module-graph position unchanged) with per-file 100% coverage of layer selection and reclamation, synchronous action/undo ordering, throwing-action cleanup, throwing-change-listener rollback, exact disposer identity, `label`/`silent`, factory typing, cross-layer `some`, merge selectors, and separate named/anonymous entry semantics. Its five public symbols are re-exported from the package root and carry export JSDoc.
+- `dsh-tools` and `dsh-system-prompt` each collapse to one `ScopedLayers`; every registration facade validates its domain contract and then makes one `effect` call, and all keep returning the exact Cordis effect disposer.
+- Existing behavior, duplicate messages, validation order, live variable-provider re-entrancy, and live guard re-entrancy remain unchanged. Tests additionally pin aggregate reclamation timing and selector materialization.
 - Documentation lands in the same change: `dsh-scope`/`dsh-tools`/`dsh-system-prompt` READMEs; on implementation this RFC moves to `implemented/` and the [runtime-design RFC](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md)'s registration section is updated in place.
 
 ## Risks
 
-- The layer/facade boundary may not fit a future consumer's shape. Mitigation: the bare `ScopeLayer` interface remains the floor, and widening `LayerClass` to accept a factory (for layers with constructor dependencies) is a recorded non-breaking extension.
-- `createLayer`'s mapped-type factory is deliberate type gymnastics. Accepted: the `defineTool` schema DSL is the repo precedent, and the gymnastics stay inside `dsh-scope`.
-- The two equivalence exceptions can surprise tests that assert exact duplicate messages or multi-fault error order; they are declared here so review checks them rather than discovers them.
-- Snapshot read views hide entries registered by a callback during its own iteration — a pathological pattern, but a visible one; snapshots make it deterministic instead.
+- The layer/facade boundary may not fit a future consumer's shape. Mitigation: `ScopeLayer` requires only `isEmpty()`, while the factory closure can capture constructor dependencies without giving a layer ownership of its scheduler.
+- A future registration may genuinely need asynchronous setup or several independently owned undos. The helper deliberately does not predict that lifecycle; such a consumer must first identify its owner and settlement boundary, then widen the contract with tests.
+- Explicit layer declarations repeat three property initializers and `isEmpty()` in each consumer. Accepted: the repetition keeps runtime state and types visible and avoids a second DSL for two classes.
 - Two core registries migrate at once. Mitigated by the behavior comparison performed during design and by landing the store with equivalence-pinning tests before either migration commit.

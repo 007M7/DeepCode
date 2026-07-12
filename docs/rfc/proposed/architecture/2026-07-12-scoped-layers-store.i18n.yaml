@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-12-scoped-layers-store.md: 0673d6c63291a66c84e91f2eff8eca26798b931f
-2026-07-12-scoped-layers-store.zh.md: 6460802f3cf3163f6be2ad51f2f82319a04288bc
+2026-07-12-scoped-layers-store.md: c3a9ab8724191b5b1bc87f02a90d6995c247d944
+2026-07-12-scoped-layers-store.zh.md: e2ec72145766a95ea1c330e3a658f7c86490e263
