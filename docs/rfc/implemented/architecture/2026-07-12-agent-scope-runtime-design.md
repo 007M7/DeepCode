@@ -249,6 +249,37 @@ Two services split the public API from the implementation. `AgentRegistry`, reac
 | Publish and start | Session, agent, and lifecycle notifications appear in order | Liveness is checked between observable phases |
 | Dispose | Driver drains, registries detach, scope unwinds, IDs release | All owner paths join one completion promise |
 
+The implementation treats success, rollback, handle disposal, caller unload, and AgentLoop unload as entrances to one owned transaction rather than separate cleanup algorithms:
+
+```mermaid
+flowchart TB
+  caller["Caller context owner"] --> transaction["Owned create or resume transaction"]
+  factory["AgentLoop structural owner"] --> transaction
+
+  subgraph creation["Create or resume"]
+    transaction --> reserve["Reserve both IDs and install trackers"]
+    reserve --> prepare["Load persistence or prepare the session"]
+    prepare --> lifecycle["Install the complete caller-owned lifecycle"]
+    lifecycle --> setup["Await unpublished setup"]
+    setup --> enter["Enter session and agent registries"]
+    enter --> announce["Emit session/created, then agent/created"]
+    announce --> start["Enable driving, emit agent/session-start, start driver"]
+  end
+
+  transaction -.->|"reservation, load, or preparation failure before lifecycle handoff"| earlyRollback["Release acquired tracking and reservations"]
+  start --> live["Live handle"]
+  lifecycle -.->|"failure or owner loss before a handle escapes"| dispose["Join the lifecycle cleanup boundary"]
+  live -->|"dispose or either owner unloads"| dispose
+
+  subgraph teardown["Reverse-order teardown"]
+    dispose --> barrier["Wait for synchronous publication to unwind"]
+    barrier --> drain["Stop driver and complete final flushes"]
+    drain --> detach["Detach agent, then session"]
+    detach --> scope["Dispose agent scope to quiescence"]
+    scope --> release["Release session and agent IDs"]
+  end
+```
+
 The [public lifecycle contract](2026-07-08-agent-scope-contexts.md#creation-publishes-after-setup-disposal-revokes-after-work-stops) defines what callers observe. The following sections justify each ownership and ordering fact behind that contract.
 
 ### Reservations precede awaiting; lifecycle ownership precedes setup
@@ -428,6 +459,24 @@ Capture does not imply uniform eager callback type-checking. Agent `setup` is ca
 Before agent setup can run, the concrete agent pins its accepted ID, options, and session and binds `ctx` once. Registry detach closures likewise close over their accepted keys instead of rereading mutable public fields.
 
 `send()` and running `steer()` resolve the message source once and materialize `{ content, source }` as one detached, deeply frozen lossless-JSON record before `agent/queued` or inbox insertion. The notification and FIFO share that accepted content and source; its metadata wrapper is frozen separately, so neither retained caller references nor an earlier notification listener can rewrite what a later listener, the session log, or the model sees. Invalid content or source throws synchronously without notification, enqueue, or loop wakeup; idle `steer()` delegates to the same `send()` boundary. The later `agent/prompt-submit` waterfall can still replace a queued prompt by returning new content; ownership forbids in-place mutation, not the explicit rewrite protocol.
+
+The inbox path makes that accepted-value boundary concrete. Getter evaluation happens during materialization, so liveness is rechecked before the accepted record crosses into an inbox FIFO:
+
+```mermaid
+flowchart TB
+  callerInput["Caller-owned content and source"] --> initialCheck["Require a live, drive-enabled agent"]
+  initialCheck --> accept["Resolve source once; materialize and deep-freeze one record"]
+  accept -->|"invalid lossless JSON"| invalidReject["Throw synchronously; no inbox insertion, agent/queued, or loop wakeup"]
+  accept -->|"accepted"| liveness["Recheck disposal after caller getters"]
+  liveness -->|"disposed reentrantly"| disposedReject["Throw disposed; do not insert or announce the message"]
+  liveness -->|"still live"| inbox["Insert the record into the queued or steering FIFO"]
+  inbox -->|"same frozen content and source"| queued["Emit agent/queued with a frozen metadata wrapper"]
+  inbox -->|"if later drained, read the same owned record"| drain["Loop-owned delivery"]
+  inbox -->|"cancel before drain"| cancelled["Clear the pending record without delivery"]
+  inbox -->|"disposal wins before drain"| disposed["Stop delivery; the disposed agent may retain the pending record"]
+  drain -->|"queued prompt"| prompt["agent/prompt-submit may block or explicitly replace"]
+  drain -->|"steering consumed by an active turn"| steering["Append steering/message"]
+```
 
 A stateful getter shows why validation and ownership must use the same capture:
 

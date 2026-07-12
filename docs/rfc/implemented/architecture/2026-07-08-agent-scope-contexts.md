@@ -27,6 +27,24 @@ The contract has four parts:
 
 The scope is deliberately flat. Resolution never walks parent or sibling scopes. Parent ownership links lifetimes without importing registrations.
 
+For scope-aware registries and default listener routing, the whole mechanism can be read from left to right: the registering context chooses a layer, while the agent named by an operation chooses which one local layer joins the deployment-global layer.
+
+```mermaid
+flowchart LR
+  plain["Plain plugin context<br/>cleanup follows the plugin"] -->|"registers into"| globalLayer["Deployment-global layer"]
+  agentAContext["agentA.ctx<br/>cleanup follows Agent A"] -->|"registers into"| agentALayer["Agent A layer"]
+  agentBContext["agentB.ctx<br/>cleanup follows Agent B"] -->|"registers into"| agentBLayer["Agent B layer"]
+
+  operationA["Operation for Agent A"] -->|"selects"| agentAView["Agent A view<br/>eligible globals plus A local only"]
+  globalLayer --> agentAView
+  agentALayer --> agentAView
+  operationB["Operation for Agent B"] -->|"selects"| agentBView["Agent B view<br/>eligible globals plus B local only"]
+  globalLayer --> agentBView
+  agentBLayer --> agentBView
+```
+
+The missing cross-edges describe registry resolution and default listener routing: Agent A's registered values and ordinary scoped listeners do not enter Agent B's view, and a parent's layer does not enter a child's view merely because the parent owns the child's lifetime. For scope-filtered events, `{ global: true }` is the explicit opt-in exception; it can observe across scopes while cleanup still follows the registering agent. Registry-membership notifications are a separate unfiltered event class described below.
+
 The companion [runtime-design RFC](2026-07-12-agent-scope-runtime-design.md) explains how the implementation preserves this contract under Cordis dispatch, JavaScript mutation and reentrancy, asynchronous setup, rollback, and racing disposal.
 
 ### Registration origin selects visibility and cleanup
@@ -102,6 +120,26 @@ The returned promise resolves only after setup, ordered lifecycle notification, 
 `AgentHandle.dispose()` performs the reverse boundary. It stops and drains the loop, preserves the session and scoped listeners through final events and flushes, detaches the agent and session, unwinds the scope, and releases IDs. Repeated or racing calls join the same completion promise.
 
 The calling Cordis context and AgentLoop are structural co-owners. Unloading either disposes the agent, so creation through a short-lived plugin context intentionally gives the agent that shorter lifetime.
+
+The lifecycle keeps the local layer private until setup succeeds and keeps it alive until final work has drained:
+
+```mermaid
+flowchart TB
+  request["Create or resume"] --> reserve["Reserve agent and session IDs"]
+  reserve --> privateWorld["Load or build private session, scope, and driver"]
+  privateWorld --> setup["Await setup through agent.ctx"]
+  setup --> publish["Publish session and agent, then start the loop"]
+  publish --> live["Return the live handle"]
+
+  privateWorld -->|"load or preparation failure, or owner loss"| rollback["Rollback startup<br/>no handle escapes"]
+  setup -->|"setup failure or owner loss"| rollback
+  publish -->|"publication failure or owner loss"| rollback
+  live -->|"handle disposal, owner unload, or AgentLoop unload"| settle["Quiesce prepared or running work"]
+  rollback --> settle
+  settle --> detach["Detach any published agent, then session"]
+  detach --> revoke["Dispose any created agent scope"]
+  revoke --> release["Release acquired IDs"]
+```
 
 Contributors should put agent-local activation inside `setup` and always dispose the returned handle. Code that needs to observe a live agent waits for `create()`/`resume()` to resolve rather than polling the registries during setup.
 
