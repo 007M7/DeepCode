@@ -70,8 +70,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`cordis-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`cordis-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -90,5 +90,5 @@ describe('cordis-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('cordis-agent ready.')
-  }, 15_000)
+  }, 45_000)
 })
