@@ -17,7 +17,7 @@ The tool description and the `prompt` parameter description are DERIVED from the
 | `agentOptions` | Default per-child `{ model? }` applied to every spawned child. |
 | `persona` | Per-child persona that shadows the deployment persona; requires the provider's `persona` capability. |
 | `toolFilter` | Per-child `{ allow?, deny? }` restriction over global tools; requires the provider's `toolFilter` capability. |
-| `maxDepth` | Maximum delegation depth; requires the provider's `depthLimit` capability. |
+| `maxDepth` | Maximum delegation depth; a non-negative safe integer validated when this plugin loads. Requires the provider's `depthLimit` capability. |
 
 ## Lifecycle (synchronous collect)
 

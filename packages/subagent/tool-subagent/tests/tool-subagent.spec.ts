@@ -493,6 +493,16 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.maxDepth).toBe(2)
   })
 
+  it.each([
+    { label: 'a negative integer', value: -1 },
+    { label: 'a fractional number', value: 1.5 },
+    { label: 'negative zero', value: -0 },
+    { label: 'an unsafe integer', value: Number.MAX_SAFE_INTEGER + 1 },
+  ])('rejects maxDepth=$label when the plugin loads', async ({ value }) => {
+    await expect(setup({ provider: 'mock', maxDepth: value }))
+      .rejects.toThrow()
+  })
+
   it('a partial toolFilter (deny only) does not materialize an empty allow-list (deny-all trap)', async () => {
     let seen: { toolFilter?: { allow?: string[]; deny?: string[] } } | undefined
     const ctx = new Context()

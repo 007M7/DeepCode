@@ -893,8 +893,9 @@ export interface Config {
    * Recursion cap applied to every child this tool spawns (see
    * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
    * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Omitted ⇒ unbounded (bound it in deployments
-   * that expose this tool to children).
+   * `depthLimit` capability. Must be a non-negative safe integer and is
+   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
+   * deployments that expose this tool to children).
    */
   maxDepth?: number
 }

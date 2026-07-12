@@ -84,8 +84,9 @@ export interface Config {
    * Recursion cap applied to every child this tool spawns (see
    * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
    * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Omitted ⇒ unbounded (bound it in deployments
-   * that expose this tool to children).
+   * `depthLimit` capability. Must be a non-negative safe integer and is
+   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
+   * deployments that expose this tool to children).
    */
   maxDepth?: number
 }
@@ -115,8 +116,19 @@ export const Config: z<Config> = z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
-  maxDepth: z.number(),
+  maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
 })
+
+/** Reject a recursion cap that cannot represent an exact delegation depth. */
+function assertMaxDepth(maxDepth: number | undefined): void {
+  if (maxDepth !== undefined && (
+    !Number.isSafeInteger(maxDepth)
+    || maxDepth < 0
+    || Object.is(maxDepth, -0)
+  )) {
+    throw new Error('tool-subagent: `maxDepth` must be a non-negative safe integer')
+  }
+}
 
 /**
  * Flatten a child's final output blocks to text for the tool result. The child
@@ -188,6 +200,9 @@ export function providerWording(inherits: boolean): { description: string; promp
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Keep misconfiguration at plugin load even when a caller invokes apply()
+  // directly and bypasses Schemastery's natural/max metadata.
+  assertMaxDepth(config.maxDepth)
   // Misconfiguration fails loud AT LOAD (the check is self-contained): an
   // explicit `toolFilter: {}` would otherwise pass the capability gate and
   // kill every delegation later, in the child-setup `restrict({})` throw.
