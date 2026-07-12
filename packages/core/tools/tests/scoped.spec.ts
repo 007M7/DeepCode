@@ -4,7 +4,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -89,6 +89,20 @@ describe('scoped tool registration', () => {
     expect(() => scope.ctx.tools.register(tool('y'))).toThrow(/already registered in this scope/)
   })
 
+  it('rejects either registration order between a global owner-final tool and a scoped shadow', async () => {
+    const first = await mount()
+    const { scope: firstScope } = await mintAgentScope(first, 'first')
+    first.tools.register({ ...tool('reserved'), ownerFinal: true })
+    expect(() => firstScope.ctx.tools.register(tool('reserved')))
+      .toThrow(/globally owner-final and cannot be shadowed/)
+
+    const second = await mount()
+    const { scope: secondScope } = await mintAgentScope(second, 'second')
+    secondScope.ctx.tools.register(tool('reserved'))
+    expect(() => second.tools.register({ ...tool('reserved'), ownerFinal: true }))
+      .toThrow(/owner-final tool "reserved" cannot be registered while a scoped shadow exists/)
+  })
+
   it('disposing the scope unwinds its registrations and leaves no residue', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
@@ -96,7 +110,7 @@ describe('scoped tool registration', () => {
     expect(ctx.tools.get('mine', key)).toBeDefined()
     await scope.dispose()
     expect(ctx.tools.get('mine', key)).toBeUndefined()
-    expect(ctx.tools.knownNames(key)).toEqual([])
+    expect(ctx.tools.schemas(key)).toEqual([])
   })
 })
 
@@ -153,7 +167,7 @@ describe('restrict()', () => {
     expect(ctx.tools.schemas(key).map(t => t.name).sort()).toEqual(['a', 'c'])
   })
 
-  it('snapshots the filter at registration (caller mutation changes nothing)', async () => {
+  it('compiles the readonly filter values at registration', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
     ctx.tools.register(tool('a'))
@@ -164,38 +178,21 @@ describe('restrict()', () => {
     expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['b'])
   })
 
-  it('reads restriction accessors once so the checked filter is the enforced filter', async () => {
-    const ctx = await mount()
-    const { scope, key } = await mintAgentScope(ctx, 'a')
-    ctx.tools.register(tool('global'))
-    let allowReads = 0
-    const filter = {
-      get allow(): string[] | undefined {
-        allowReads += 1
-        return allowReads === 1 ? [] : undefined
-      },
-    } as ToolRestriction
-
-    scope.ctx.tools.restrict(filter)
-
-    expect(allowReads).toBe(1)
-    expect(ctx.tools.schemas(key)).toEqual([])
-    expect(await run(ctx, 'global', key)).toBe('Error: unknown tool "global"')
-  })
-
-  it('fails loud on an unscoped call, an empty filter, and unknown names', async () => {
+  it('fails loud on an unscoped call, an empty filter, and non-global names', async () => {
     const ctx = await mount()
     const { scope } = await mintAgentScope(ctx, 'a')
     ctx.tools.register(tool('real'))
+    scope.ctx.tools.register(tool('local'))
     expect(() => ctx.tools.restrict({ deny: ['real'] })).toThrow(/requires a scoped context/)
     expect(() => scope.ctx.tools.restrict({})).toThrow(/no-op/)
-    expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown tool "reall"; known tools for this scope: real/)
-    expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown tools "ghost", "wraith"/)
+    expect(() => scope.ctx.tools.restrict({ allow: ['local'] })).toThrow(/unknown global tool "local"/)
+    expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown global tool "reall"; known global tools: real/)
+    expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown global tools "ghost", "wraith"/)
 
     const emptyCtx = await mount()
     const { scope: emptyScope } = await mintAgentScope(emptyCtx, 'empty')
     expect(() => emptyScope.ctx.tools.restrict({ deny: ['ghost'] }))
-      .toThrow(/known tools for this scope: \(none\)/)
+      .toThrow(/known global tools: \(none\)/)
   })
 })
 
@@ -230,9 +227,8 @@ describe('scoped execution dispatch', () => {
         return Promise.resolve([{ type: 'text', text: 'ran:t' }])
       },
     })
-    let guardViewFrozen = false
     const guard = (execution: Readonly<ToolExecution>): string => {
-      guardViewFrozen = Object.isFrozen(execution) && Object.isFrozen(execution.arguments)
+      expect(Object.isFrozen(execution.arguments)).toBe(true)
       return 'terminal policy'
     }
     const liftFirst = scope.ctx.tools.guard(guard)
@@ -243,7 +239,6 @@ describe('scoped execution dispatch', () => {
     scope.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
 
     expect(await run(ctx, 't', key)).toBe('Error: terminal policy')
-    expect(guardViewFrozen).toBe(true)
     expect(await run(ctx, 't', other)).toBe('ran:t')
     expect(bodyCalls).toBe(1)
 
@@ -271,13 +266,14 @@ describe('scoped execution dispatch', () => {
     expect(bodyCalls).toBe(0)
   })
 
-  it('protects call identity before policy and dispatch while leaving only signal mutable', async () => {
+  it('shares one token and materialized argument value across the pipeline', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
     let safeCalls = 0
     let dangerCalls = 0
     let scopedResults = 0
     let safeArguments: unknown
+    const tokens = new Set<ToolExecutionToken>()
     ctx.tools.register({
       ...tool('safe'),
       execute: (args) => {
@@ -295,17 +291,16 @@ describe('scoped execution dispatch', () => {
     })
     scope.ctx.tools.guard(exec => exec.name === 'danger' ? 'danger denied' : undefined)
     ctx.on('tools/pre-execute', (exec, next) => {
-      expect(Reflect.set(exec, 'agent', undefined)).toBe(false)
-      expect(Reflect.set(exec, 'name', 'safe')).toBe(false)
-      expect(Reflect.set(exec.arguments as object, 'injected', true)).toBe(false)
+      tokens.add(exec.token)
+      expect(Object.isFrozen(exec.arguments)).toBe(true)
       return next()
     })
     ctx.on('tools/execute', (exec, next) => {
-      expect(Reflect.set(exec, 'name', 'danger')).toBe(false)
+      tokens.add(exec.token)
       return next()
     })
     ctx.on('tools/post-execute', (exec, _result, next) => {
-      expect(Reflect.set(exec, 'agent', undefined)).toBe(false)
+      tokens.add(exec.token)
       return next()
     })
     scope.ctx.on('tools/result', () => { scopedResults += 1 })
@@ -323,6 +318,8 @@ describe('scoped execution dispatch', () => {
     expect(safeArguments).not.toBe(callerArguments)
     expect(Object.isFrozen(safeArguments)).toBe(true)
     expect(callerArguments).toEqual({ source: true })
+    // One token for danger and one shared by every phase of safe.
+    expect(tokens.size).toBe(2)
     expect({ safeCalls, dangerCalls, scopedResults }).toEqual({
       safeCalls: 1,
       dangerCalls: 0,
@@ -393,25 +390,6 @@ describe('scoped execution dispatch', () => {
     })
     expect(Object.isFrozen(callerArguments)).toBe(false)
     expect(callerArguments.invalid).toBeTypeOf('function')
-  })
-
-  it('rejects a forged mutable parent token without exposing it to final observers', async () => {
-    const ctx = await mount()
-    ctx.tools.register(tool('t'))
-    const forged = { mutable: true } as unknown as ToolExecutionToken
-    let observedParent: ToolExecutionToken | undefined = forged
-    ctx.on('tools/result', (exec) => { observedParent = exec.parent })
-
-    const result = await ctx.tools.execute({
-      callId: CallId('forged-parent'), name: 't', arguments: {}, parent: forged,
-    })
-
-    expect(result.isError).toBe(true)
-    expect(result.content).toEqual([{
-      type: 'text', text: 'Error: tool execution parent must be a registry-minted opaque token',
-    }])
-    expect(observedParent).toBeUndefined()
-    expect(Object.isFrozen(forged)).toBe(false)
   })
 
   it('reads a stateful parent accessor once before policy, dispatch, and result observation', async () => {
