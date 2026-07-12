@@ -174,7 +174,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:255`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:252`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 

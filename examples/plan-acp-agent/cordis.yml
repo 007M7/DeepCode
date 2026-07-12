@@ -1,9 +1,9 @@
 # The plan-acp-agent plugin tree: the coding agent served over the Agent
 # Client Protocol WITH session modes composed — the plan-mode RFC's live
 # composition. The editor's mode picker (session/set_mode) switches the
-# session between `default` and `plan`; in plan mode the model works under the
-# read-only allowlist — bash INCLUDED, clamped to a read-only sandbox by plan
-# mode's `access` cap — and leaves through the user-reviewed exit_plan_mode
+# session between `default` and `plan`; in plan mode the model works under
+# the plan guidance section with bash clamped to a read-only sandbox by plan
+# mode's `access` cap, and leaves through the user-reviewed exit_plan_mode
 # tool (the review rides the same elicitation flow as ask_user_question).
 #
 # CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved
@@ -37,11 +37,10 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# Session modes (ctx.modes — the shipped `plan` definition, no overrides): the
-# mode/set vocabulary, the assemble filter + mode section, the pre-execute
-# gate, the exit_plan_mode tool, and plan's read-only `access` cap on the
-# sandbox stack below. The ACP bridge above reads it opportunistically and
-# advertises the picker.
+# Session modes (ctx.modes — the shipped `plan` definition, no overrides):
+# the mode/set vocabulary, the mode section, the exit_plan_mode tool, and
+# plan's read-only `access` cap on the sandbox stack below. The ACP bridge
+# above reads it opportunistically and advertises the picker.
 - id: mode
   name: '@deepseek-ai/dsh-mode'
 
@@ -75,15 +74,16 @@
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
 
-# The model-facing ask_user_question tool: ON plan mode's allowlist, so the
-# model can raise a blocking decision to the user while planning; the review
-# and the questions ride the same elicitation flow.
+# The model-facing ask_user_question tool: the plan section tells the model
+# to raise a blocking decision to the user while planning; the review and
+# the questions ride the same elicitation flow.
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 
 # Filesystem capability stack: local provider, read-before-write/edit policy
-# gate, then the model-facing read/write/edit tools — `read` is on plan mode's
-# allowlist; `write`/`edit` are what the plan-mode gate denies.
+# gate, then the model-facing read/write/edit tools. Plan mode restrains
+# these by guidance only (the section says changes belong in the plan) — the
+# enforced boundary in plan is the bash sandbox clamp above.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
   config:
@@ -95,7 +95,7 @@
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
-# The model-facing todo_write tool — allowlisted in plan mode, so the model
-# can track its plan while exploring.
+# The model-facing todo_write tool — the model tracks its plan while
+# exploring.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'

@@ -457,15 +457,14 @@ export interface ModeConfig {
 }
 
 /**
- * One mode's deployment-configured policy: the guidance section the model sees,
- * the allowlist of tool names that stay visible and executable, and an
- * optional cap on the sandbox access shell commands run under.
+ * One mode's deployment-configured policy: the guidance section the model sees
+ * and an optional cap on the sandbox access shell commands run under. There
+ * is deliberately no tool allow/deny list — which tools a mode admits is an
+ * effects question, parked until tool definitions declare their effects.
  */
 export interface ModeDefinition {
   /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
   section: string
-  /** Allowlist of tool NAMES; names may reference not-yet-registered tools (registration is dynamic). */
-  tools: string[]
   /**
    * The widest sandbox access shell commands may run under while this mode is
    * in force — a per-call CAP on the bash seam's resolved mode (a
@@ -479,7 +478,7 @@ export interface ModeDefinition {
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:115`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:118`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

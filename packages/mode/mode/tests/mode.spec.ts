@@ -75,42 +75,42 @@ function execute(ctx: Context, name: string, agent?: Agent) {
 }
 
 describe('resolveConfig', () => {
-  it('merges the built-in plan definition with the read-only allowlist', () => {
+  it('merges the built-in plan definition: guidance section + read-only access cap, no tool list', () => {
     const resolved = resolveConfig({})
     const plan = resolved.definitions.get(PLAN_MODE)
-    expect(plan?.tools).toEqual(['read', 'todo_write', 'web_search', 'web_fetch', 'ask_user_question', 'structured_output', 'bash', 'bash_output', 'bash_kill', EXIT_PLAN_MODE])
+    expect(plan).toEqual({ section: plan?.section, access: 'read-only' })
     expect(plan?.section).toContain('plan mode')
-    expect(plan?.access).toBe('read-only')
   })
 
   it('lets config override plan and add further modes', () => {
     const resolved = resolveConfig({ modes: {
-      plan: { section: 'custom plan', tools: ['read'] },
-      review: { section: 'review', tools: ['read', 'write'] },
+      plan: { section: 'custom plan' },
+      review: { section: 'review', access: 'workspace-write' },
     } })
-    expect(resolved.definitions.get(PLAN_MODE)).toEqual({ section: 'custom plan', tools: ['read'] })
-    expect(resolved.definitions.get('review')).toEqual({ section: 'review', tools: ['read', 'write'] })
+    expect(resolved.definitions.get(PLAN_MODE)).toEqual({ section: 'custom plan' })
+    expect(resolved.definitions.get('review')).toEqual({ section: 'review', access: 'workspace-write' })
   })
 
   it('rejects the reserved default key loudly', () => {
-    expect(() => resolveConfig({ modes: { default: { section: '', tools: [] } } }))
+    expect(() => resolveConfig({ modes: { default: { section: '' } } }))
       .toThrow('"default" is reserved')
   })
 
   it('rejects a malformed definition loudly', () => {
-    expect(() => resolveConfig({ modes: { bad: { section: 5, tools: [] } as unknown as { section: string; tools: string[] } } }))
+    expect(() => resolveConfig({ modes: { bad: { section: 5 } as unknown as { section: string } } }))
       .toThrow('needs a string `section`')
-    expect(() => resolveConfig({ modes: { bad: { section: '', tools: 'read' } as unknown as { section: string; tools: string[] } } }))
-      .toThrow('needs a `tools` array')
-    expect(() => resolveConfig({ modes: { bad: { section: '', tools: [7] } as unknown as { section: string; tools: string[] } } }))
-      .toThrow('needs a `tools` array')
+    // Unknown keys fail loud — a tool allow/deny list is deliberately not
+    // part of the vocabulary, and a config still carrying one must not be
+    // silently accepted as if it shaped anything.
+    expect(() => resolveConfig({ modes: { bad: { section: '', tools: ['read'] } as unknown as { section: string } } }))
+      .toThrow('unknown key(s) tools — a definition is { section, access? }')
   })
 
   it('validates access against the sandbox-mode ladder', () => {
-    expect(() => resolveConfig({ modes: { locked: { section: 's', tools: [], access: 'sealed' as never } } }))
+    expect(() => resolveConfig({ modes: { locked: { section: 's', access: 'sealed' as never } } }))
       .toThrow('unknown access "sealed" — one of: read-only, workspace-write, danger-full-access')
-    const resolved = resolveConfig({ modes: { locked: { section: 's', tools: ['bash'], access: 'workspace-write' } } })
-    expect(resolved.definitions.get('locked')).toEqual({ section: 's', tools: ['bash'], access: 'workspace-write' })
+    const resolved = resolveConfig({ modes: { locked: { section: 's', access: 'workspace-write' } } })
+    expect(resolved.definitions.get('locked')).toEqual({ section: 's', access: 'workspace-write' })
   })
 })
 
@@ -135,7 +135,7 @@ describe('foldMode', () => {
 
 describe('ctx.modes: list/get/set', () => {
   it('lists default first, then the configured definitions', async () => {
-    const ctx = await setup({ modes: { review: { section: 's', tools: [] } } })
+    const ctx = await setup({ modes: { review: { section: 's' } } })
     expect(ctx.modes.list()).toEqual([DEFAULT_MODE, PLAN_MODE, 'review'])
   })
 
@@ -318,38 +318,38 @@ describe('the soft layer', () => {
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
   })
 
-  it('filters plan-mode tools to the allowlist and renders the mode section', async () => {
+  it('keeps the full toolset in plan mode, adds the exit tool, and renders the mode section', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['read', 'write', 'todo_write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'todo_write'])
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'todo_write', 'write'])
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toContain('plan mode')
   })
 
-  it('drops exit_plan_mode outside plan mode even when a custom allowlist names it', async () => {
-    const ctx = await setup({ modes: { review: { section: 'reviewing', tools: ['read', EXIT_PLAN_MODE] } } })
+  it('drops exit_plan_mode outside plan mode (custom modes never see it)', async () => {
+    const ctx = await setup({ modes: { review: { section: 'reviewing' } } })
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'review' })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['read'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['read', 'write'])
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('reviewing')
   })
 
-  it('filters additions from an append-registered final-assembly mutator, regardless of load order', async () => {
-    // A foreign listener that post-processes await next() and was registered
-    // BEFORE dsh-mode loaded: under append ordering it would wrap OUTSIDE the
-    // filter and its re-added tool would leak into the plan-mode header. The
-    // filter registers with prepend, so it wraps outside every
-    // append-registered listener and filters their additions too.
+  it('leaves foreign post-next() additions alone in plan mode (no general tool filtering)', async () => {
+    // A foreign listener that post-processes await next(): the mode filter
+    // wraps outside it (prepend) but hides only the exit tool outside plan
+    // and the bash trio under an unhonorable cap — a foreign addition
+    // survives, because which tools a mode admits is deliberately not this
+    // plugin's decision (the effects question stays parked; module doc).
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const final = await next()
-      final.tools = [...final.tools, { name: 'smuggled', description: 'added after next()', parameters: {} }]
+      final.tools = [...final.tools, { name: 'added-later', description: 'added after next()', parameters: {} }]
       return final
     })
     await ctx.plugin(ModesService)
@@ -357,10 +357,10 @@ describe('the soft layer', () => {
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'added-later'])
   })
 
-  it('keeps run_code visible in plan mode under the registry Code Mode (transport, not capability)', async () => {
+  it('keeps run_code the only wire tool in plan mode under the registry Code Mode; the SDK gains the exit binding', async () => {
     // Minimal scriptable runtime: the SDK section resolves ctx.codeRuntime at
     // assembly time (the code-mode.spec fake's shape).
     class FakeRuntime extends CodeRuntime {
@@ -377,19 +377,16 @@ describe('the soft layer', () => {
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    // Code Mode's only wire tool survives the filter — without it the model
-    // would have NO tools at all, not even a path to the exit review.
     expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
-    // The SDK section is Code Mode's soft surface: it is re-rendered under
-    // the same visibility rule, so plan mode documents exactly the callable
-    // bindings — the allowlisted read and the exit — and never the denied write.
+    // The SDK documents the full binding set plus the exit — plan mode no
+    // longer prunes capabilities; its restraint is the section + the sandbox.
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(sdk).toContain('read(args:')
+    expect(sdk).toContain('write(args:')
     expect(sdk).toContain('exit_plan_mode(args:')
-    expect(sdk).not.toContain('write(args:')
   })
 
-  it('filters native wire schemas by the allowlist under mode both, alongside the pruned SDK', async () => {
+  it('keeps native wire schemas and the SDK in step under mode both', async () => {
     class FakeRuntime extends CodeRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
@@ -404,12 +401,13 @@ describe('the soft layer', () => {
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    // ONE visibility rule covers both surfaces: the denied write is absent
-    // from the native wire schemas AND from the SDK declaration.
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code'])
+    // ONE visibility rule covers both surfaces: in plan the exit tool is
+    // present on the wire AND in the SDK, alongside the untouched toolset.
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(sdk).toContain('read(args:')
-    expect(sdk).not.toContain('write(args:')
+    expect(sdk).toContain('write(args:')
+    expect(sdk).toContain('exit_plan_mode(args:')
   })
 
   it('default-mode Code Mode SDK is byte-identical to a no-dsh-mode deployment (exit binding hidden)', async () => {
@@ -462,66 +460,37 @@ describe('the hard layer', () => {
     expect(defaulted.isError).toBe(false)
   })
 
-  it('passes allowlisted calls and denies the rest with the plan-mode reason', async () => {
+  it('runs non-shell calls in plan mode untouched — restraint outside the shell is the section, not a gate', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
-    const allowed = await execute(ctx, 'read', agent)
-    expect(allowed.isError).toBe(false)
-    const denied = await execute(ctx, 'write', agent)
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "write" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
-    }])
+    const reading = await execute(ctx, 'read', agent)
+    expect(reading.isError).toBe(false)
+    const writing = await execute(ctx, 'write', agent)
+    expect(writing.isError).toBe(false)
   })
 
-  it('denies with the generic reason in a custom mode', async () => {
-    const ctx = await setup({ modes: { review: { section: 's', tools: ['read'] } } })
-    registerNamedTools(ctx, ['write'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: 'review' })
-    const denied = await execute(ctx, 'write', agent)
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{ type: 'text', text: 'Error: tool "write" is not available in "review" mode' }])
-  })
-
-  it('passes run_code through the gate; bridged sub-calls are judged individually', async () => {
+  it('judges by the logged mode only — a pending plan intent neither gates nor clamps', async () => {
     const ctx = await setup()
-    // Native mode here, so a stand-in run_code can register without clashing
-    // with the registry's own (Code Mode) instance; the gate exempts by name.
-    registerNamedTools(ctx, ['run_code', 'write'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const wrapper = await execute(ctx, 'run_code', agent)
-    expect(wrapper.isError).toBe(false)
-    // A sub-dispatch re-enters execute() with the same agent — the capability
-    // is what the allowlist judges, exactly like a native call.
-    const sub = await execute(ctx, 'write', agent)
-    expect(sub.isError).toBe(true)
-    expect(sub.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "write" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
-    }])
-  })
-
-  it('judges by the logged mode only — a pending intent does not gate', async () => {
-    const ctx = await setup()
+    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
     registerNamedTools(ctx, ['write'])
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
     const result = await execute(ctx, 'write', agent)
     expect(result.isError).toBe(false)
+    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
   })
 
-  it('treats a dropped folded definition as the default mode (no gate)', async () => {
+  it('treats a dropped folded definition as the default mode (no clamp, no guard)', async () => {
     const ctx = await setup()
+    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
     registerNamedTools(ctx, ['write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'retired' })
     const result = await execute(ctx, 'write', agent)
     expect(result.isError).toBe(false)
+    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
   })
 })
 
@@ -597,9 +566,9 @@ describe('exit_plan_mode', () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(false)
-    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; the full toolset returns on your next step.' }])
+    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }])
     // Boundary-applied, not a direct append: the fold stays plan until the
-    // step's end, so the gate covers any remaining call of the SAME batch.
+    // step's end, so the plan policy covers any remaining call of the SAME batch.
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE, pending: DEFAULT_MODE })
     boundary(ctx, agent.session, 'step/end')
@@ -609,22 +578,17 @@ describe('exit_plan_mode', () => {
     expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
   })
 
-  it('an approved exit cannot smuggle a same-batch call past the gate', async () => {
+  it('an approved exit keeps the plan clamp until the boundary (same-batch policy holds)', async () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
-    registerNamedTools(ctx, ['write'])
+    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
     const approved = await callExit(ctx, agent)
     expect(approved.isError).toBe(false)
-    // The next call of the SAME assistant response (no boundary between):
-    // requested under the plan-shaped header, so the gate must still deny it.
-    const smuggled = await execute(ctx, 'write', agent)
-    expect(smuggled.isError).toBe(true)
-    expect(smuggled.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "write" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
-    }])
+    // A bash call of the SAME assistant response (no boundary between) was
+    // requested under the plan-shaped header — the read-only clamp must
+    // still hold for it; the boundary flush is what widens the next step.
+    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
     boundary(ctx, agent.session, 'step/end')
-    const next = await execute(ctx, 'write', agent)
-    expect(next.isError).toBe(false)
+    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
   })
 
   it('the exit flush narrates nothing — the tool result is the narration', async () => {
@@ -640,7 +604,7 @@ describe('exit_plan_mode', () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'], custom: 'ship it small' })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(false)
-    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; the full toolset returns on your next step. User note: ship it small' }])
+    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step. User note: ship it small' }])
   })
 
   it('keep planning returns the corrective error carrying the feedback verbatim', async () => {
@@ -789,7 +753,7 @@ describe('the access cap (bash/resolve-mode clamp)', () => {
   })
 
   it('is a min, not a replace: a knob narrower than the cap stays', async () => {
-    const ctx = await sandboxSetup('danger-full-access', { modes: { locked: { section: 's', tools: ['bash'], access: 'workspace-write' } } })
+    const ctx = await sandboxSetup('danger-full-access', { modes: { locked: { section: 's', access: 'workspace-write' } } })
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'locked' })
     expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
@@ -798,7 +762,7 @@ describe('the access cap (bash/resolve-mode clamp)', () => {
   })
 
   it('a mode without access leaves the resolution alone', async () => {
-    const ctx = await sandboxSetup('read-only', { modes: { review: { section: 's', tools: ['bash'] } } })
+    const ctx = await sandboxSetup('read-only', { modes: { review: { section: 's' } } })
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'review' })
     setSandboxMode(agent.session, 'danger-full-access')
@@ -833,7 +797,7 @@ describe('the bash trio under an access cap', () => {
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['bash', 'bash_kill', 'bash_output', EXIT_PLAN_MODE, 'read'])
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['bash', 'bash_kill', 'bash_output', EXIT_PLAN_MODE, 'read', 'write'])
     for (const name of TRIO) {
       const result = await execute(ctx, name, agent)
       expect(result.isError).toBe(false)
@@ -851,7 +815,7 @@ describe('the bash trio under an access cap', () => {
     expect(denied.isError).toBe(true)
     expect(denied.content).toEqual([{
       type: 'text',
-      text: 'Error: tool "bash" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
+      text: 'Error: tool "bash" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
     }])
   })
 
@@ -867,7 +831,7 @@ describe('the bash trio under an access cap', () => {
     expect(denied.isError).toBe(true)
     expect(denied.content).toEqual([{
       type: 'text',
-      text: 'Error: tool "bash_output" is not available in plan mode; continue planning and present your plan with exit_plan_mode when ready',
+      text: 'Error: tool "bash_output" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
     }])
   })
 
@@ -899,7 +863,7 @@ describe('the bash trio under an access cap', () => {
   })
 
   it('a mode without access exposes bash regardless of the executor (explicit deployment choice)', async () => {
-    const ctx = await setup({ modes: { shell: { section: 's', tools: ['bash'] } } })
+    const ctx = await setup({ modes: { shell: { section: 's' } } })
     registerNamedTools(ctx, ['bash'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'shell' })

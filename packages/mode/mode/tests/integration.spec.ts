@@ -13,9 +13,10 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 /**
  * Full-loop integration: a scripted mock model drives the REAL mode plugin
  * through the agent loop — the pending-intent flush at the turn boundary, the
- * assembly the soft layer filters, the `request/header`/`request/header-delta`
- * trail every transition leaves, and the hard gate's deny. Only the model is
- * mocked; the loop, the session log, and the plugin are real.
+ * assembly the soft layer shapes (the exit tool + mode section), and the
+ * `request/header`/`request/header-delta` trail every transition leaves.
+ * Only the model is mocked; the loop, the session log, and the plugin are
+ * real.
  */
 async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
@@ -62,10 +63,10 @@ function findEvent<T extends SessionEvent['type']>(
 }
 
 describe('plan mode through the agent loop', () => {
-  it('seeds plan mode from AgentOptions: the FIRST header is already plan-shaped and the gate denies a write', async () => {
+  it('seeds plan mode from AgentOptions: the FIRST header is already plan-shaped, and a non-shell call is guidance-constrained only', async () => {
     const adapter = new MockAdapter([
-      toolCallResponse('call-1', 'write', {}, 'Trying to write anyway.'),
-      textResponse('Back to planning.'),
+      toolCallResponse('call-1', 'write', {}, 'Writing during plan.'),
+      textResponse('Noted in the plan.'),
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('it-plan-seed'), { model: 'mock', mode: PLAN_MODE })
@@ -78,16 +79,19 @@ describe('plan mode through the agent loop', () => {
     const header = findEvent(log, 'request/header')
     expect(modeSet.seq).toBeLessThan(header.seq)
     expect(header.data.reason).toBe('initial')
-    expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
+    expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
     expect(header.data.header.system).toContain('plan mode')
 
+    // No general tool gate: the write RUNS — plan's non-shell restraint is
+    // the section's guidance (the shell restraint is the sandbox clamp,
+    // pinned in mode.spec). The mode itself stays plan throughout.
     const result = findEvent(log, 'tool/result')
-    expect(result.data.isError).toBe(true)
+    expect(result.data.isError).toBe(false)
     expect(foldMode(log)).toBe(PLAN_MODE)
     expect(log.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('a user flip between turns lands at the boundary: one notice and the widening header delta', async () => {
+  it('a user flip between turns lands at the boundary: one notice and the plan-shaped fallback header', async () => {
     const adapter = new MockAdapter([
       textResponse('First turn, default mode.'),
       textResponse('Second turn, plan mode.'),
@@ -110,12 +114,12 @@ describe('plan mode through the agent loop', () => {
     expect(findEvent(log, 'context/message').data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
-    // The narrowing header change is logged as a FULL fallback snapshot, not a
-    // delta: adding exit_plan_mode reorders the canonical tool list (it sorts
+    // The header change is logged as a FULL fallback snapshot, not a delta:
+    // adding exit_plan_mode reorders the canonical tool list (it sorts
     // first), and a pure reordering is inexpressible in the delta encoding.
     const second = findEvent(log, 'request/header', 'last')
     expect(second.data.reason).toBe('fallback')
-    expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read'])
+    expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
     expect(second.data.header.system).toContain('plan mode')
   })
 })

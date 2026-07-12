@@ -45,16 +45,15 @@ const SCENARIOS: Scenario[] = [
   { name: 'modes-advertise', hasModelTurn: false, recorded: false },
   // The full plan-mode arc, and NECESSARILY the pinned-header scenario for
   // the 'plan' class: the first request ships the plan-shaped header (reason
-  // initial), the approved exit widens it back — a second, fallback snapshot
-  // (adding/removing exit_plan_mode resorts the canonical tool list, which
-  // the delta encoding cannot express) — so this composition's full header
-  // content, both shapes, is committed here verbatim. The arc: setMode(plan)
-  // → the model reads under the plan allowlist (it never attempts the
-  // filtered write — the deny path stays pinned at the unit tier) and
+  // initial) — the full toolset plus exit_plan_mode and the mode section —
+  // and the approved exit narrows it back by exactly that tool and section,
+  // a pure removal the delta encoding CAN express (one header-delta; the
+  // ENTERING flip's front-of-list insertion has no delta form and falls back
+  // to a snapshot, pinned at the unit tier). The arc: setMode(plan) → the
+  // model runs a real `cat` through the clamped read-only sandbox and
   // presents the plan via exit_plan_mode → the scripted elicitation approves
-  // → the very next step already runs the widened toolset and writes for
-  // real, mid-turn.
-  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderSnapshots: 2 },
+  // → the very next step already runs unclamped and edits for real, mid-turn.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderDeltas: 1 },
   // The keep-planning branch: one presentation, the scripted review answers
   // with free-text feedback (no approval), and the corrective isError carries
   // it back verbatim — the session stays in plan mode, so the log holds one
