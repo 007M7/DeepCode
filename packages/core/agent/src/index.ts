@@ -228,7 +228,7 @@ export class AgentRegistry extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  setFactory(factory: AgentFactory): () => Promise<void> | void {
+  setFactory(factory: AgentFactory): () => void {
     const dispose = this.ctx.effect(() => {
       if (this.factory !== undefined) throw new Error('an agent factory is already registered')
       // Avoid stacking two Cordis shadow layers when a caller passes a Service
@@ -242,6 +242,7 @@ export class AgentRegistry extends Service {
     // caller's composite effect can yield it for in-order teardown; the
     // loop's constructor effect returns it directly, identity-nesting the
     // registration under that effect.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -305,11 +306,12 @@ export class AgentRegistry extends Service {
    *   owner unload, unregistering the agent (and emitting `agent/disposed`)
    *   while its final turn is still draining.
    */
-  register(agent: Agent): () => Promise<void> | void {
+  register(agent: Agent): () => void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
       yield this.enter(agent)
       this.announce(agent)
     }.bind(this), 'agents.register()')
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 

@@ -742,7 +742,7 @@ describe('in-process structured output', () => {
       const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       // A backend hot-reload mid-run must not unregister the capture tool out
       // from under the live child: the registration rides the CHILD's fiber.
-      await disposeProvider()
+      disposeProvider()
       const result = await run.result
       expect(result.structured).toEqual({ answer: 4 })
       const child = ctx.agents.get(run.id)!

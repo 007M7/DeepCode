@@ -218,7 +218,7 @@ A fresh registry-assigned Symbol provides collision-free execution identity with
 
 Arguments are materialized once where model/tool JSON enters the pipeline. Pre-, around-, and post-execute listeners operate on the typed execution and decisions. Call ID correlation, approval, monotonic guards, and Code Mode nesting remain explicit relational checks.
 
-After the last post-execute listener, the registry materializes and freezes the accepted final result once. Every `tools/result` observer receives that exact committed object, and observer failures are awaited and contained individually. An outer pipeline failure is normalized into a committed error result, so observers can discard staged work against the same authoritative boundary.
+After the last post-execute listener, the registry materializes and freezes the accepted final result once. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline failure is normalized into a committed error result, so observers can discard staged work against the same authoritative boundary.
 
 ### Contribution-owned finality protects only named invariants
 

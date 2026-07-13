@@ -74,7 +74,7 @@ describe('SubagentService', () => {
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
     expect(provider.startCount).toBe(1)
 
-    await dispose()
+    dispose()
     expect(added).toEqual(['alpha'])
     expect(removed).toEqual(['alpha'])
     expect(subagents.getProvider('alpha')).toBeUndefined()
@@ -213,7 +213,7 @@ describe('SubagentService', () => {
     ctx.on('subagent/provider-removed', name => void heard.push(name))
     const dispose = subagents.registerProvider(new StubProvider('contained'))
 
-    await dispose()
+    dispose()
     await Promise.resolve()
     expect(heard).toEqual(['contained'])
     expect(warnings.some(message => message.includes('sync boom'))).toBe(true)

@@ -575,8 +575,7 @@ declare module 'cordis' {
      * returns `{ action: 'stop' }` to make this turn terminal, or `undefined`
      * to abstain. Terminal stop is monotonic: listener order and steering
      * cannot resume the turn, and pending steering is discarded rather than
-     * becoming another step or turn. A malformed non-undefined result fails
-     * the turn closed.
+     * becoming another step or turn.
      * @param agent - the agent whose composed continuation outcome may be stopped.
      * @param turn - the turn at its terminal-stop checkpoint.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
@@ -586,7 +585,7 @@ declare module 'cordis' {
      * `scopeTarget`/`agentEvents`.
      * @mode serial
      */
-    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
+    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined
 
     // ---- error notifications (emit) ----
     /**
