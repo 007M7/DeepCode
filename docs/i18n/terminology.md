@@ -22,6 +22,7 @@
 | RAG | RAG | 首次出现可写：检索增强生成（RAG） |
 | SDK | SDK | |
 | SSE | SSE | 首次出现可写：SSE（Server-Sent Events） |
+| VFS | VFS | 首次出现写：虚拟文件系统（VFS） |
 | agent | agent | 首次出现可写：agent（智能体） |
 | agent loop | agent loop | |
 | backlog | backlog | 双语翻译语境指待翻清单 |
@@ -52,6 +53,7 @@
 | block | 块 | |
 | background task | 后台任务 | |
 | backend | 后端 | |
+| build target | 构建目标 | |
 | capability | 能力 | |
 | cancel | 取消 | |
 | checkpoint | 检查点 | |
@@ -66,6 +68,7 @@
 | coverage | 覆盖率 | |
 | crash recovery | 崩溃恢复 | |
 | dispose | dispose | 首次出现可写：dispose（释放资源）；正文优先保留英文 |
+| deploy root | 部署根目录 | |
 | durability | 持久性 | |
 | enforcement frontier | 强制边界 | i18n 机制词：manifest `required` 清单所划的门禁生效范围 |
 | event log | 事件日志 | |
@@ -95,6 +98,7 @@
 | module | 模块 | |
 | orphan | 孤立 | git 官方中文同译（如「孤立分支」）；指英文源已不存在的 `.zh.md`；不要译作：孤儿 |
 | pairing | 配对 | |
+| peer dependency | 对等依赖 | 首次出现写：对等依赖（peer dependency） |
 | permission | 权限 | |
 | persistence | 持久化 | |
 | pipeline | 流水线 | |
@@ -110,6 +114,7 @@
 | runtime | 运行时 | |
 | sandbox | 沙箱 | |
 | service | 服务 | |
+| serving surface | 对外服务接口 | |
 | session | 会话 | |
 | session event | 会话事件 | |
 | smoke test | 冒烟测试 | |
@@ -133,4 +138,6 @@
 | turn | 轮次 | |
 | typecheck | 类型检查 | |
 | vocabulary | 词汇 | |
+| wheel | wheel 包 | |
 | workflow | 工作流 | |
+| wrapper | 包装层 | |

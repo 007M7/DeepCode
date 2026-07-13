@@ -17,4 +17,4 @@ import type { WorkerBootData } from './protocol.ts'
 // A worker always has a parent port; guard loudly rather than run detached.
 if (!parentPort) throw new Error('dsh-code-runtime-worker: worker entry loaded outside a worker thread')
 
-await runWorkerMain(parentPort, workerData as WorkerBootData, { stdout: process.stdout, stderr: process.stderr })
+void runWorkerMain(parentPort, workerData as WorkerBootData, { stdout: process.stdout, stderr: process.stderr })
