@@ -152,6 +152,7 @@ function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'pre-push':
       return [
+        pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
         pnpmScript('snapshot', 'test:snapshot'),
@@ -165,6 +166,7 @@ function gatesForMode(selected: Mode): Gate[] {
 
 function ciPrimaryGates(): Gate[] {
   return [
+    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
@@ -187,6 +189,7 @@ function ciPrimaryGates(): Gate[] {
 
 function ciStaticGates(): Gate[] {
   return [
+    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     demoSmokeGate(),
     ...docSyncLeafGates(),
@@ -330,7 +333,7 @@ function builtBinSmokeGate(): Gate {
     'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
     'packages/ui/acp-agent/tests/built-bin.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
-    // that lib/index.js resolves its sibling lib/worker.js under plain node
+    // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).
     'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
     'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',

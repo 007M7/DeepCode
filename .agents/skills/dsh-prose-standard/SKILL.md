@@ -1,11 +1,11 @@
 ---
-name: dsh-trim-prose
-description: Use when trimming, restoring, or auditing prose in the deepseek-harness repo, including Markdown, JSDoc, code and test comments, prompts, descriptions, diagnostics, and CLI or UI strings; especially for generated-sounding narration, duplicated explanation, or an earlier edit that may have removed contract detail.
+name: dsh-prose-standard
+description: Use when writing, reviewing, restoring, trimming, or auditing prose in the deepseek-harness repo, including deciding where documentation or comments are required across Markdown, JSDoc, code and test comments, prompts, descriptions, diagnostics, and CLI or UI strings.
 ---
 
-# Trim DeepSeek Harness Prose
+# DeepSeek Harness Prose Standard
 
-Preserve the contract while removing reasoning transcripts, repetition, and decoration. This skill owns editorial judgment; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
+Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
 
 ## Inputs and exclusions
 
@@ -33,20 +33,22 @@ Keep a complete local contract at the point of use: behavior, failure, ownership
 
 Keep non-obvious rationale when omitting it could plausibly cause misuse or an incorrect simplification. Otherwise state the consequence and link the rationale home.
 
-## Calibrate by prose surface
+## Required coverage by prose surface
 
-- **Public JSDoc:** retain caller-visible return distinctions, throws or rejections, side effects, ownership, timing, cancellation, and durability.
-- **Internal comments:** retain orientation for non-local structure and obviously complicated local structure. Delete control-flow narration and code restatement.
-- **Module comments:** retain the module's role, boundaries, and non-obvious architecture choices; link architecture choices to their owning explanation.
-- **Tests:** retain only non-obvious test design—why a fixture, assertion, platform accommodation, real entry path, or indirect observation is necessary. Delete walkthroughs and inventories.
-- **Cookbooks:** retain prerequisites, required actions, the real entry path, observable verification, and concise warnings.
-- **READMEs:** retain the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Link algorithms and design rationale.
-- **RFCs:** presume unique rationale, mechanisms, alternatives, consequences, shipped verification contracts, and named coverage gaps are load-bearing. Implemented RFCs state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
+This is not a one-way shortening pass. Add or restore prose when code, types, and structure do not communicate a required contract below. Do not add a comment when those facts are already obvious locally.
+
+- **Public JSDoc:** document caller-visible return distinctions, throws or rejections, side effects, ownership, timing, cancellation, and durability.
+- **Internal comments:** orient non-local structure and obviously complicated local structure, including invariants, race ordering, ownership, security boundaries, and surprising failure behavior. Delete control-flow narration and code restatement.
+- **Module comments:** state the module's role, boundaries, and non-obvious architecture choices; link architecture choices to their owning explanation.
+- **Tests:** explain only non-obvious test design—why a fixture, assertion, platform accommodation, real entry path, or indirect observation is necessary. Delete walkthroughs and inventories.
+- **Cookbooks:** include prerequisites, required actions, the real entry path, observable verification, and concise warnings.
+- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Link algorithms and design rationale.
+- **RFCs:** retain unique rationale, mechanisms, alternatives, consequences, shipped verification contracts, and named coverage gaps. Implemented RFCs state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
 - **Postmortems:** retain the incident sequence, evidence, causal chain, impact, and prevention. Remove repeated persuasion or implementation detail that does not establish causality.
-- **Skills and agent instructions:** preserve behavioral guardrails and explicit scope statements such as “guidance, not a script/checklist.” Keep the workflow concise and link its source of truth.
-- **Examples and configuration comments:** retain boundaries, non-obvious wiring or load order, security stance, replay behavior, exceptions, and likely misuse. Do not narrate entries that the configuration already shows.
+- **Skills and agent instructions:** state behavioral guardrails and explicit scope limitations such as “guidance, not a script/checklist.” Keep the workflow concise and link its source of truth.
+- **Examples and configuration comments:** explain boundaries, non-obvious wiring or load order, security stance, replay behavior, exceptions, and likely misuse. Do not narrate entries that the configuration already shows.
 - **Prompts and visible strings:** treat wording as behavior. Inspect generated output and run behavior validation or state why no snapshot applies.
-- **Diagnostics:** retain the failing subject or path, violated rule, and correction when it is non-obvious. Remove internal execution narration.
+- **Diagnostics:** name the failing subject or path, violated rule, and correction when it is non-obvious. Remove internal execution narration.
 
 Preserve searchable mechanism names and meaningful modal, temporal, or negative emphasis. Normalize decorative emphasis only.
 
@@ -55,7 +57,7 @@ Preserve searchable mechanism names and meaningful modal, temporal, or negative 
 1. Confirm the scope, mode, current branch or PR base, and applicable `AGENTS.md` files. Do not inspect unrelated branches.
 2. Read [the documentation standard](../../../docs/AGENTS.md) and the owning code or document before judging a passage. For calibration or unfamiliar cases, read [the distilled examples](references/examples.md).
 3. Inspect the requested scope, not only the largest files. Use searches and word counts to find candidates, then judge passages semantically.
-4. Classify each candidate as keep, trim, restore, restructure, or defer. Apply clear changes; do not manufacture edits to satisfy a deletion target.
+4. Classify each candidate as keep, add, trim, restore, restructure, or defer. Apply clear changes; do not manufacture edits to satisfy a deletion target.
 5. Update the owner before derivative artifacts. Re-check analogous passages after learning a new rule.
 6. Run the narrow relevant checks, documentation gates, `git diff --check`, and behavior tests for visible strings. Verify the final diff contains no `vendor/` path and report any accidental vendor match rather than claiming a clean exclusion history.
 7. Report the inspected scope, clear changes, deliberate keeps, deferred cases, and checks actually run.

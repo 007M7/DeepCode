@@ -17,6 +17,6 @@ Temp-cwd keyless smokes set `TSX_TSCONFIG_PATH` to the root tsconfig and pass `-
 
 Do not inventory example tests here; the `tests/` trees and root scripts are authoritative.
 
-In `cordis.yml`, comment only non-obvious wiring, load-order consequences, replay, security boundaries, and configuration scope. Do not narrate visible entries; use [dsh-trim-prose](../.agents/skills/dsh-trim-prose/SKILL.md) for example prose.
+In `cordis.yml`, comment only non-obvious wiring, load-order consequences, replay, security boundaries, and configuration scope. Do not narrate visible entries; use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for required coverage and editorial judgment.
 
 See [the root AGENTS.md](../AGENTS.md) for repo-wide conventions and [docs/architecture.md](../docs/architecture.md) for the design.

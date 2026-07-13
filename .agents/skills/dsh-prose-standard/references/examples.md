@@ -42,6 +42,16 @@ Keep the test tiers, required action, real entry path, and observable verificati
 
 The actor, ordering, ownership boundary, and completion guarantee are separate factual clauses.
 
+## Event JSDoc preserves boundary timing
+
+**Over-trimmed:** “Composes and caches the session prefix.”
+
+**Balanced:** “Composes the session prefix once before the first pre-step and request boundary. Listener appends join the current request, and pre-step pressure accounting receives the composed prefix.”
+
+**Over-detailed:** A walkthrough of the loop helpers, cache fields, and promise callbacks that implement the ordering.
+
+Event order and its current-request consequence are caller-visible behavior, not implementation narration.
+
 ## Orient complicated code without narrating it
 
 **Over-trimmed:** “Worker realm support.”

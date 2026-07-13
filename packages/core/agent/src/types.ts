@@ -224,8 +224,10 @@ declare module 'cordis' {
      * Compose request-only messages placed before derived history. The frozen
      * result is computed once per loop instance, logged on its anchoring request
      * header, and reused so the provider prefix remains stable. Interrupted
-     * composition is discarded. Changing context belongs in history; contributors
-     * should prepend to `await next()` to preserve registration order.
+     * composition is discarded. Composition precedes the first `agent/pre-step`
+     * and request boundary, so listener appends join the current request and
+     * pressure accounting sees the composed prefix. Changing context belongs in
+     * history; contributors should prepend to `await next()` to preserve registration order.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen seed; return an extended replacement.

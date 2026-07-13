@@ -29,4 +29,4 @@ Every field is validated (positive numbers) and defaulted; there are no other tu
 
 ## The worker entry, unbuilt and built
 
-`worker.ts` is deliberately erasable-only TypeScript with type-only cross-package imports: unbuilt (vitest/tsx), the host spawns `src/worker.ts` directly and Node's native type stripping loads it; built, the entry ships as the sibling bundle `lib/worker.js` (its own tsdown entry). The built path is pinned by `tests/built-lib.e2e.ts`, the real-load-path guard from [docs/testing.md](../../../docs/testing.md).
+Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. `tests/built-lib.e2e.ts` pins the real load path required by [docs/testing.md](../../../docs/testing.md).

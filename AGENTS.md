@@ -25,7 +25,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-approval and user-interaction seams, ask-user tool
+  ui/          ACP bridge, JSON-RPC SDK server, app-boot glue, stdio/ACP/SDK app bins, user-approval and user-interaction seams, ask-user tool
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
@@ -117,7 +117,7 @@ Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, 
 
 Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why a narrower type is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring seam, protocol, or class.
 
-Comments and docs preserve complete contracts and non-obvious orientation, not the author's reasoning process. Do not narrate control flow, walk through tests, preserve review history, or restate code. Keep every factual clause that affects behavior, failure, timing, ownership, or safe use; link aggressively to the owning rationale instead of duplicating it. Use [dsh-trim-prose](.agents/skills/dsh-trim-prose/SKILL.md) for editorial judgment. Encode enforceable invariants in checks, using narrow justified escape hatches rather than disabling a rule globally.
+Comments and docs preserve complete contracts and non-obvious orientation, not the author's reasoning process. Do not narrate control flow, walk through tests, preserve review history, or restate code. Keep every factual clause that affects behavior, failure, timing, ownership, or safe use; link aggressively to the owning rationale instead of duplicating it. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Encode enforceable invariants in checks, using narrow justified escape hatches rather than disabling a rule globally.
 
 Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 

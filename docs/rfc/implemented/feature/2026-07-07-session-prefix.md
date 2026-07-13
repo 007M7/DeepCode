@@ -20,6 +20,10 @@ Three properties carry the design:
 
 Because composition runs before the boundary snapshot, a composing listener's session append joins the CURRENT request's derived history. Compaction structurally cannot touch the prefix (or the system prompt): it rewrites surface nodes, and header state never enters the surface.
 
+## Testing
+
+[Interception tests](../../../../packages/core/agent-loop/tests/interception.spec.ts) pin compose-once reuse with no header deltas, prepend order, empty-prefix omission, immutability, and composition before pre-step; [cancellation tests](../../../../packages/core/agent-loop/tests/cancel.spec.ts) pin discard and recomposition. Session codec, invariant, and compaction tests cover header round trips, request reconstruction, and prefix-aware pressure accounting. Snapshot normalization preserves prefix counts, while the [pinned-header scenario](../testing/2026-07-06-pin-request-header-content-in-one-scenario.md) owns content and the default example remains prefix-free. No prefix-specific e2e is needed because the seam is deterministic and provider-independent; the with-key [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) covers its cache economics.
+
 ## Alternatives considered
 
 - **Per-request `before`/`after` slots recomputed every step** (the shape first proposed: a waterfall firing on every request, contributing frozen `before` messages ahead of the history and fresh `after` messages behind it) — rejected. A per-step `before` recompose invites silent drift — nothing anchors it to the log short of logging a header delta per step — and an `after` slot sits behind the growing history, so its tokens re-pay on every request and everything after it is uncacheable. Measured against the alternatives, every current update pattern is served cheaper by a durable append (paid once, cache-read thereafter), and the only content with no home was the session-stable opener — which wants freezing, not recomputation.

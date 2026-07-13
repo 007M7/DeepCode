@@ -26,6 +26,7 @@ const AGENT = {
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -75,6 +76,18 @@ const SCENARIOS: Scenario[] = [
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
   { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
+  // Authored counterpart to the packaged Python SDK snapshot: mount a live marker, inspect it
+  // through Code Mode, run direct and workflow children, then unmount it. The extra Code Mode and
+  // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
+  {
+    name: 'advanced-toolchain',
+    hasModelTurn: true,
+    recorded: false,
+    childSessions: 2,
+    pinsHeader: true,
+    headerClass: 'advanced',
+    configPath: ADVANCED_CONFIG,
+  },
   // Prompt-submit blocks are authored keylessly: they persist a rejected turn
   // and hook events without starting a model step, so their logs still compare.
   { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },

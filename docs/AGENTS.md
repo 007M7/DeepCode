@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file defines Markdown tiers, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for placement and validation, and [dsh-trim-prose](../.agents/skills/dsh-trim-prose/SKILL.md) for editorial judgment; the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) owns rationale.
+This file defines Markdown tiers, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for placement and validation, and [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for required coverage and editorial judgment; the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) owns rationale.
 
 ## The tier taxonomy: one home per fact
 
@@ -31,7 +31,7 @@ Placement test: bug story → postmortem; design rationale → RFC; procedure �
 - **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
-- **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, conditions, timing, modality, exceptions, consequences, and non-obvious orientation; delete implementation narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link to its owning rationale. Use [dsh-trim-prose](../.agents/skills/dsh-trim-prose/SKILL.md) for the full decision rules and examples.
+- **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, conditions, timing, modality, exceptions, consequences, and non-obvious orientation; delete implementation narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link to its owning rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for required coverage, decision rules, and examples.
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
 
 ## Wordcount Budgets
