@@ -1,14 +1,13 @@
 /**
  * Shared JSDoc parsing and completeness-check helpers for the documentation
- * gates: the cordis catalog generator (`scripts/gen-cordis-catalog.ts` — the
- * events + `ctx.<key>` service surface), the plugin config catalog generator
- * (`scripts/gen-config-catalog.ts`, which renders the parsed prose), and the
- * export-surface gate (`scripts/verify-export-jsdoc.ts` — every module-level
- * export). One home for the mechanics so "documented" means the same thing on
- * every gated surface: description prose ends at the first block tag; every
- * checkable parameter needs a non-empty `@param`; a non-void ANNOTATED return
- * needs a non-empty `@returns`; a stale `@param` naming no real parameter
- * errors.
+ * gates: the cordis and persistence catalog generators
+ * (`scripts/gen-cordis-catalog.ts` / `scripts/gen-persistence-catalog.ts`),
+ * the plugin config catalog generator (`scripts/gen-config-catalog.ts`), and
+ * the export-surface gate (`scripts/verify-export-jsdoc.ts`). One home for the
+ * mechanics so "documented" means the same thing on every gated surface:
+ * description prose ends at the first block tag; every checkable parameter
+ * needs a non-empty `@param`; a non-void ANNOTATED return needs a non-empty
+ * `@returns`; a stale `@param` naming no real parameter errors.
  */
 
 import ts from 'typescript'
@@ -39,15 +38,17 @@ export type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
  * tag lines and their continuation lines are never prose, so `@param` /
  * `@returns` blocks are invisible to the rendered catalog.
  * @param raw - the raw comment text including the JSDoc delimiters.
- * @returns the collapsed description prose plus the parsed `@mode` (or null).
+ * @returns the collapsed description prose, parsed valid `@mode` (or null),
+ *   and whether any `@mode` tag was present.
  */
-export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
+export function parseJsDoc(raw: string): { doc: string; mode: Mode | null; hasMode: boolean } {
   const inner = raw
     .replace(/^\/\*\*/, '')
     .replace(/\*\/$/, '')
     .split('\n')
     .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
   let mode: Mode | null = null
+  let hasMode = false
   let inTags = false
   const blocks: string[] = []
   let para: string[] = []
@@ -69,9 +70,11 @@ export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
     para = []
   }
   for (const line of inner) {
-    const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(line)
-    if (m) { mode = m[1] as Mode; flushPara(); inTags = true; continue }
-    if (line.startsWith('@')) { flushPara(); inTags = true; continue }
+    const tagLine = line.trimStart()
+    const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(tagLine)
+    if (m) { mode = m[1] as Mode; hasMode = true; flushPara(); inTags = true; continue }
+    if (/^@mode\b/.test(tagLine)) { hasMode = true; flushPara(); inTags = true; continue }
+    if (tagLine.startsWith('@')) { flushPara(); inTags = true; continue }
     if (inTags) continue // block-tag territory: continuations are never prose
     if (line.trim() === '') { flushPara(); continue }
     if (/^-\s+/.test(line)) {
@@ -87,7 +90,7 @@ export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
   }
   flushPara()
   const doc = blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim()
-  return { doc, mode }
+  return { doc, mode, hasMode }
 }
 
 /**
