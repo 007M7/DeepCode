@@ -6,17 +6,13 @@ Every tunable is a **parameter**: the dispose ladder takes its grace periods per
 
 ## What it exports
 
-### `SENSITIVE_ENV_PATTERN` / `buildChildEnv(extra)`
+### `buildChildEnv(extra)`
 
 The credential env scrub (same pattern as the [bash executor](../../bash/bash-local/README.md)): the child env is the ambient env minus credential-shaped vars (`/KEY|SECRET|TOKEN/i`), with `extra` layered on top AFTER the scrub. `PATH`, `HOME`, `TMPDIR`, locale, and proxy vars survive, so the child CLI runs normally; the parent's own secrets never leak implicitly, while an explicitly supplied credential (the child's OWN key in a backend's `env` config) still reaches the child.
 
 ### `spawnFailure(child)`
 
 Spawn-failure capture: a promise that resolves (never rejects) with the child's first `error` event. A spawn failure such as `ENOENT` is an event, not a thrown exception — without a listener Node crashes the parent process — so call this in the same tick as `spawn()` and race it in the run's result path; a bad command then settles as an ordinary child-level failure. For a child that spawns cleanly the promise never settles.
-
-### `waitForExit(child)` / `exitsWithin(child, ms)`
-
-Exit waits over a `ChildProcess`: resolve once the child exits by any code or signal (immediately if it is already gone), or race that against a timer (`true` = exited in time). The race cleans up after itself on both outcomes — the pending timer is `unref()`ed and cleared on exit, the exit listener removed on timeout — so repeated calls (the dispose ladder's tiers, a poll loop) never accumulate listeners on the child.
 
 ### `disposeChildProcess(child, graces)`
 
@@ -27,6 +23,8 @@ The three-tier dispose ladder. Resolves only once the child has ACTUALLY exited 
 3. `SIGKILL`, then await the now-certain exit — a child that ignores EOF and traps `SIGTERM` cannot wedge dispose forever.
 
 The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields; the EOF window is deliberately a separate — usually wider — grace than the signal tier, since a cooperative child's EOF teardown may itself await a signal-trapping grandchild plus a final flush.
+
+The exit waits are internal to this ladder. They clean up their timer and listener on either outcome, so escalation never accumulates listeners on the child.
 
 ### `createIsolatedConfigDir(prefix, pinnedPath?)`
 

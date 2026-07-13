@@ -26,7 +26,7 @@ After fulfillment, the caller owns the run. Provider-plugin unload does not revo
 
 `InProcessRunOptions` is `{ seed?: SessionEvent[] }`. Spawn omits it. Fork supplies a balanced completed-turn prefix and records its length so the result reader never mistakes a seeded parent message for child output.
 
-`depthOf(agent)` reads `AgentOptions.subagentDepth`, treating absence as top-level depth zero and rejecting malformed stored values. `SubagentDepthError` reports an attempted child depth above `maxDepth`; an unrepresentable depth above the safe-integer domain is a `RangeError`.
+Depth enforcement is internal to `startInProcessRun`: it reads `AgentOptions.subagentDepth`, treats absence as top-level depth zero, rejects malformed stored values, and reports an attempted child depth above `maxDepth`. An unrepresentable depth above the safe-integer domain is a `RangeError`.
 
 ## Structured output
 
