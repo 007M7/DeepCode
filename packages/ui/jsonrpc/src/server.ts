@@ -58,6 +58,11 @@ interface SessionRecord {
   activePrompt: boolean
 }
 
+/** Runtime-local agent identity plus optional durable fork lineage. */
+interface LocalAgentRecord {
+  parentSessionId?: SessionId
+}
+
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
  * the context's `session/event`, `session/created`, `agent/created`, and
@@ -71,7 +76,7 @@ export class HarnessSdkServer {
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
-  private readonly subagentParents = new Map<SessionId, SessionId>()
+  private readonly localAgents = new Map<SessionId, LocalAgentRecord>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -95,23 +100,24 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // Cache parent lineage on creation: by the time `subagent/end` fires the
-    // child agent may already be disposed and gone from the registry. The child
-    // session id needs no cache because it is the shared agent/session id.
+    // Cache runtime-local identity and optional lineage on creation: by the
+    // time `subagent/end` fires the child agent may already be disposed and
+    // gone from the registry. Parent lineage is not required by the provider
+    // contract, so an empty record remains a load-bearing locality marker.
     this.disposers.push(ctx.on('agent/created', (agent) => {
       const parentSessionId = agent.session.header.parentSession
-      if (parentSessionId !== undefined) this.subagentParents.set(agent.id, parentSessionId)
+      this.localAgents.set(agent.id, parentSessionId === undefined ? {} : { parentSessionId })
     }))
     this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
       const agent = this.ctx.agents.get(info.id)
-      const cachedParentSessionId = this.subagentParents.get(info.id)
-      this.subagentParents.delete(info.id)
-      // This protocol reports LOCAL child sessions, paired with the
-      // session/created-driven subagent.started notification above. A remote
-      // provider may use a real remote SessionId for its run, but that session
-      // does not exist in this harness and therefore has no paired start event.
-      if (cachedParentSessionId === undefined && agent === undefined) return
-      const parentSessionId = cachedParentSessionId ?? agent?.session.header.parentSession
+      const cachedLocalAgent = this.localAgents.get(info.id)
+      this.localAgents.delete(info.id)
+      // This protocol reports LOCAL child sessions. A lineage-bearing child
+      // has the session/created-driven start notification above; a parentless
+      // local provider still gets its terminal notification. A remote provider
+      // has neither a cached creation nor a live local agent and is ignored.
+      if (cachedLocalAgent === undefined && agent === undefined) return
+      const parentSessionId = cachedLocalAgent?.parentSessionId ?? agent?.session.header.parentSession
       this.transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
@@ -189,7 +195,7 @@ export class HarnessSdkServer {
     this.sessionCreations.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
-    this.subagentParents.clear()
+    this.localAgents.clear()
     const failures: unknown[] = []
     while (this.disposers.length > 0) {
       try {
