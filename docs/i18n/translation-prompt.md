@@ -1,6 +1,6 @@
 # Translation prompt (pipeline asset)
 
-本文件是自动翻译流水线使用的 prompt 模板，正文（自 `# Translation Prompt` 起）逐字进入模型请求，不参与双语配对（见 [README.md](README.md) 排除清单）。模板与仓库规则的关系：[terminology.md](terminology.md) 在渲染时整表填入 `{{terminology}}`；文体金标见 [style-samples.md](style-samples.md)，模板内嵌的 Examples 是其中问题类别的最小抽样，两者冲突时以 style-samples 为准。修改本文件即修改线上翻译行为，按正常 PR 评审。
+本文件是自动翻译流水线使用的 prompt 模板，正文（自 `# Translation Prompt` 起）逐字进入模型请求，不参与双语配对（见 [README.md](README.md) 排除清单）。模板正文与其内嵌 few-shot 正误例由 jingtingxiang 基于对存量译文的质量评审撰写。模板与仓库规则的关系：[terminology.md](terminology.md) 在渲染时整表填入 `{{terminology}}`；文体金标见 [style-samples.md](style-samples.md)，模板内嵌的 Examples 是其中问题类别的最小抽样，两者冲突时以 style-samples 为准。修改本文件即修改线上翻译行为，按正常 PR 评审。
 
 ## 占位符契约
 
