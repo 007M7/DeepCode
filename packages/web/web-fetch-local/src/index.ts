@@ -13,6 +13,8 @@ import type {} from '@deepseek-ai/dsh-web'
 import { LocalFetchProvider } from './provider.ts'
 import type { LocalFetchLimits } from './provider.ts'
 
+const MAX_NODE_TIMER_DELAY_MS = 2_147_483_647
+
 export {
   LOCAL_FETCH_PROVIDER_ID,
   LocalFetchProvider,
@@ -36,7 +38,7 @@ export interface Config {
   maxResponseBytes?: number
   /** Maximum decoded body length in characters. */
   maxBodyChars?: number
-  /** Default fetch timeout in milliseconds. */
+  /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
@@ -63,6 +65,14 @@ function assertPositiveFinite(name: string, value: number): void {
   }
 }
 
+/** Node coerces larger timer delays to 1 ms, so reject them at configuration time. */
+function assertTimeoutMs(value: number): void {
+  assertPositiveFinite('timeoutMs', value)
+  if (value > MAX_NODE_TIMER_DELAY_MS) {
+    throw new Error(`web-fetch-local: timeoutMs must be no greater than ${MAX_NODE_TIMER_DELAY_MS}`)
+  }
+}
+
 /** The redirect hop cap must be a non-negative integer (0 follows no redirects). */
 function assertNonNegativeInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 0) {
@@ -77,7 +87,7 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveFinite('maxUrlLength', resolved.maxUrlLength)
   assertPositiveFinite('maxResponseBytes', resolved.maxResponseBytes)
   assertPositiveFinite('maxBodyChars', resolved.maxBodyChars)
-  assertPositiveFinite('timeoutMs', resolved.timeoutMs)
+  assertTimeoutMs(resolved.timeoutMs)
   assertNonNegativeInteger('maxRedirects', resolved.maxRedirects)
   const limits: LocalFetchLimits = {
     maxUrlLength: resolved.maxUrlLength,

@@ -26,7 +26,7 @@ The provider's configured `timeoutMs` is a **resource backstop** for direct `ctx
 | `maxUrlLength` | `2048` | Maximum accepted request URL length. |
 | `maxResponseBytes` | `5_000_000` | Maximum response body size in bytes. |
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
-| `timeoutMs` | `30_000` | Fetch timeout — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
+| `timeoutMs` | `30_000` | Fetch timeout within Node's timer range — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
 | `maxRedirects` | `5` | Maximum same-origin redirect hops (`0` follows none). |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
 

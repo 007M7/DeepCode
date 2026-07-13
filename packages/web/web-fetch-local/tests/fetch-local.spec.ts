@@ -397,6 +397,13 @@ describe('web-fetch-local plugin registration', () => {
       .rejects.toThrow(/timeoutMs must be a positive finite number/)
   })
 
+  it('rejects a timeout beyond Node timer range at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { timeoutMs: 2_147_483_648 }))
+      .rejects.toThrow(/timeoutMs must be no greater than 2147483647/)
+  })
+
   it('rejects a fractional redirect cap at construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
