@@ -26,17 +26,15 @@ export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
 })
 
-/** Register the session-prefix skill catalog and the model-facing skill loader. */
+/**
+ * Register the model-facing skill loader and its visibility-matched
+ * session-prefix catalog. The catalog is emitted only when the calling agent
+ * resolves this plugin's exact tool registration; a restriction or scoped
+ * same-name shadow therefore removes both the schema and its call guidance.
+ */
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
-
-  ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
-    const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
-    const rest = await next()
-    if (skills.length === 0) return rest
-    return [renderCatalogMessage(skills, catalogDescriptionMaxLength), ...rest]
-  })
 
   const skillTool = defineTool({
     name: 'skill',
@@ -62,6 +60,23 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   })
   ctx.tools.register(skillTool)
+  const registeredSkillTool = ctx.tools.get(skillTool.name)
+  /* v8 ignore next 3 -- register() publishes synchronously or throws; this guards future registry drift. */
+  if (registeredSkillTool === undefined) {
+    throw new Error('dsh-tool-skill: registered skill tool is not visible in the global registry')
+  }
+
+  // Register after the tool so reverse-order fiber teardown removes this
+  // guidance listener before its referenced tool. Exact definition identity is
+  // the shared truth for restrictions and scoped shadows: another tool merely
+  // named `skill` must not inherit this plugin's catalog or instructions.
+  ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
+    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) return await next()
+    const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
+    const rest = await next()
+    if (skills.length === 0) return rest
+    return [renderCatalogMessage(skills, catalogDescriptionMaxLength), ...rest]
+  })
 }
 
 function renderSkillContent(skill: SkillDefinition): string {

@@ -5,6 +5,13 @@ import type { Session, SessionEvent, SessionHeader, SessionId as SessionIdType }
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, { type SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
 
+type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeader[K] }
+
+/** Test-only mutable view used to verify detached returned metadata. */
+function mutableHeader(value: SessionHeader): MutableSessionHeader {
+  return value
+}
+
 function header(id: string, createdAt = 1, extra: Partial<SessionHeader> = {}): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt, ...extra }
 }
@@ -134,10 +141,10 @@ describe('session lineage tracing', () => {
     expect(trace.descendants[1]?.descendants.map(node => node.session.header.id))
       .toEqual([SessionId('grandchild')])
 
-    trace.target.header.createdAt = 99
-    trace.ancestors[0]!.header.createdAt = 99
-    trace.root.header.createdAt = 99
-    trace.descendants[0]!.session.header.createdAt = 99
+    mutableHeader(trace.target.header).createdAt = 99
+    mutableHeader(trace.ancestors[0]!.header).createdAt = 99
+    mutableHeader(trace.root.header).createdAt = 99
+    mutableHeader(trace.descendants[0]!.session.header).createdAt = 99
     const repeated = await ctx.sessionQuery.traceSession(target.id)
     expect(repeated.target.header.createdAt).toBe(2)
     expect(repeated.ancestors[0]?.header.createdAt).toBe(1)
@@ -315,7 +322,7 @@ describe('session event tracing', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     TracePersistence.loadFailure = undefined
     TracePersistence.afterList = () => {
-      TracePersistence.entries.get(durable.id)!.meta.cwd = '/changed'
+      mutableHeader(TracePersistence.entries.get(durable.id)!.meta).cwd = '/changed'
     }
     await expect(failedCtx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))

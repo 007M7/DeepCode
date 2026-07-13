@@ -1,49 +1,80 @@
 # @deepseek-ai/dsh-workflow-workerthread
 
-The [`WorkflowService`](../workflow/README.md) implementation, on **`node:worker_threads`**: each run gets its OWN worker thread (one run = one worker, no pooling — a run is heavyweight, so the ~tens-of-ms thread spin-up is noise), the script executes in a vm context INSIDE that worker with the workflow hooks injected, and every `agent()` call bridges back over the message port to [`ctx.subagents`](../../subagent/README.md) on the host. Child agents are I/O-bound LLM loops and stay on the host event loop; the thread isolates the SCRIPT, the only part that can spin synchronously.
+This package implements `WorkflowService` with one Node worker thread per run. The worker executes the orchestration script; child agents remain on the host and are reached through `ctx.subagents` over a typed host/worker protocol.
 
-## Trust premise: what the thread buys (and what it does not)
+The split has one primary purpose: a synchronous script loop cannot block the harness event loop, and a script that ignores cancellation can be terminated with its worker. It is not a security sandbox.
 
-Workflow scripts are **model-written** — the same trust level as the model's existing bash access — so this engine defends against **buggy** scripts, never hostile ones. A worker thread is NOT a security boundary: the vm context inside it is escapable by construction (`node:vm` shares object machinery with its surrounding realm, so a script can reach the `Function` constructor via `globalThis.constructor.constructor` and from it `process` and every Node builtin), and an escapee holds the same process privileges as the host — Node's permission model is process-wide. The absent globals are API surface that keeps honest scripts portable, not walls. What the thread concretely buys:
+## Trust and isolation boundary
 
-- **The host never blocks**: `start()` returns without running any script code on the host; a synchronous spin anywhere in the script occupies the worker's loop, not the harness's.
-- **Termination is real**: a script that outlives its post-cancel grace is `worker.terminate()`d — nothing of it survives `dispose()`, where an in-process engine could only abandon the spin on its own loop.
-- **No ambient credentials**: the worker spawns with an EMPTY environment (`env: {}` plus hermetic `execArgv`, the same stance as `dsh-code-runtime-worker`; the unbuilt dev shape forwards exactly one loader variable, `TSX_TSCONFIG_PATH` — path plumbing, not a secret), so an escapee reading `process.env` finds no harness secrets — ambient-channel hardening only; the process-wide privileges above (fs and the rest) remain, so a genuine sandbox is still the engine swap.
-- **Serialization by construction**: everything crossing the thread is structured-clone data, and plain JSON before that — the `materializeFromRealm` walk rejects loud what JSON cannot carry, which is also what makes every postMessage hop total.
+Workflow scripts are model-written and have the same trust premise as the model's existing bash access. `node:vm` inside a worker is an API-shaping mechanism, not a security boundary: an escaped script can recover Node capabilities with the host process's privileges.
 
-What the seam guarantees regardless, because benign scripts hit these constantly: `result` never rejects, a dropped hook promise never becomes an unhandled rejection, values JSON cannot carry are rejected **loud** instead of silently mangled, and hook misuse is fatal instead of dissolving into a per-item `null`. Genuine sandboxing (containing what an escaped script may touch) remains an isolated-vm/separate-process engine swap behind the seam, still deferred.
+The worker still provides useful containment:
 
-## The script contract it executes
+- Script CPU work and synchronous spins stay off the host event loop.
+- `worker.terminate()` gives disposal a real final stop.
+- The worker starts with an empty environment, except unbuilt loader plumbing, so ambient credentials do not cross through `process.env`.
+- Host/worker messages use structured-clone data, with plain-JSON validation at the script boundary.
 
-- **Meta as DATA** (`validateMeta`, host-side): the workflow's identity arrives on the start request as plain JSON (the tool carries it as its schema-validated `meta` parameter — never as script text) and is shape-validated loud, every violation named (`name`/`description` required; unknown fields rejected). The engine deliberately evaluates NO script text to obtain meta: an evaluated meta literal could smuggle getters that run on the host outside any vm timeout — the exact spin the worker thread exists to isolate. A body that still opens with a Claude Code-style `export const meta` statement is rejected with a pointed `SCRIPT_PARSE` message.
-- **Hooks**: `agent(prompt, {label, phase, schema, model})` (schema = the [structured-output subset](../../core/tools/README.md), forwarded as `outputSchema`; result = validated object, or final text without a schema; a failed child resolves `null`), `parallel(thunks)`, `pipeline(items, ...stages)` with NO cross-stage barrier and `(prev, item, index)` stage callbacks, `phase(title)`, `log(message)`, and the `args` global. Anything else — `effort`/`isolation`/`agentType`, unknown options, malformed arguments, schemas outside the subset — throws a FATAL `WorkflowError` that `parallel`/`pipeline` re-throw rather than nulling (see the seam README's failure discipline).
-- **No ambient APIs**: no timers, filesystem, or Node APIs are injected into the context (absence is API surface, not containment — see the trust premise).
+A genuinely untrusted-script sandbox would require a different engine behind the same workflow seam.
 
-## How a run executes
+## Script contract
 
-`start()` shape-validates the meta DATA host-side and parse-checks the body with the identical wrapper the worker compiles (`new vm.Script`, discarded), preserving the seam's synchronous `META_INVALID`/`SCRIPT_PARSE` throws; one redundant parse per run is the deliberate price. It then spawns the worker (`src/worker.ts` unbuilt via an explicit tsx `execArgv`; the sibling `lib/worker.js` bundle when built) with the meta, body, `args`, and worker-side limits as `workerData`.
+The workflow's `meta` is host-provided data, not evaluated script text. The engine validates its required `name` and `description`, rejects unknown fields, and parse-checks the body before returning a run.
 
-Inside the worker, `runWorkerSession` builds the execution core (hooks, combinators, concurrency semaphore, caps, fatal-error discipline) over a **child port**: `agent()` sends `child-start` and the host starts the child on `ctx.subagents` (parent attribution, the shared per-run abort signal, `outputSchema`/`model` pass-through), replying with the child id, its settlement (a JSON projection; an infrastructure REJECTION crosses as `child-failed` and stays the fatal `AGENT_RESULT`), and dispose acks. Observer narration (`phase`/`log`/`agent-start`/`agent-end`) crosses as messages and re-emits as the seam's `workflow/*` events. A **ready→go handshake** gates the body: a cancellation racing worker boot arrives before `go`, so a run cancelled before start never executes the body at all.
+Inside the worker, the script receives `args` and these hooks:
 
-## The value boundary
+- `agent(prompt, { label, phase, schema, model })` starts one host-side subagent. With a schema it returns the structured value; otherwise it returns final text. An ordinary failed child yields `null`.
+- `parallel(thunks)` runs thunks under the configured concurrency limit.
+- `pipeline(items, ...stages)` passes `(previous, item, index)` without a cross-stage barrier.
+- `phase(title)` and `log(message)` emit observer narration.
 
-Values LEAVING the script (hook options/schemas, the script's return) are materialized by `materializeFromRealm`: a plain recursive walk that rejects loud everything JSON cannot carry (exotic prototypes, functions, symbols, cycles, sparse arrays, non-finite numbers, nested `undefined`), copying into plain containers via `defineProperty` so a `"__proto__"` key becomes a data property, never a prototype mutation. Getters are read ordinarily — the RESULT is what crosses; a read that throws fails loud; both run in the WORKER, never on the host. Values ENTERING the realm (`args`, `agent()` results, hook promises and their failures, combinator arrays) are handed over directly as worker-realm values — the script is trusted, so outer prototypes are not a leak; `args` is cloned once at start so a script scribbling on it cannot mutate the caller's object. One script-visible consequence: an error thrown by a hook is built OUTSIDE the script's vm context, so `e instanceof Error` inside the script is `false` — branch on `e.name`/`e.code` instead (the combinators recognize fatality by `instanceof` against their own realm's class, which a script-built object can never pass, so fatal-vs-null cannot be forged or dissolved).
+Unknown options, malformed arguments, unsupported schemas, tripped caps, provider-start failures, and infrastructure result failures are fatal workflow errors. No timers, filesystem API, or Node globals are intentionally injected, though the trust caveat above still applies.
 
-## Cancellation, death, disposal
+## Run sequence
 
-Per-run limits: a concurrency semaphore (`maxConcurrentAgents`), a total-`agent()` cap (`maxTotalAgents`), and a per-call item cap (`maxItemsPerCall`), all config. `cancel()` posts the cancel to the worker (its hooks start throwing `CANCELLED`; the script dies at its next await) and cancels every host-side child NOW on **both seam channels** — the shared request signal aborts AND each registered child's explicit `cancel()` is called host-side, because the seam leaves a provider free to honor either channel and a worker wedged in a synchronous spin could not relay its own per-child cancel RPCs (those later land as idempotent no-ops). The grace then arms: a run still unsettled `disposeGraceMs` later force-settles `cancelled` and the worker is **terminated**. A cancellation that lands before the body runs (the ready→go handshake) reports `cancelled` without executing anything; a worker `result` racing an in-flight host cancellation reports `cancelled` too (first-wins settlement — the seam-visible result had not settled when cancellation was requested); post-cancel `phase`/`log` narration is suppressed host-side, while cancelled children still deliver their paired `agent-end`.
+`start()` validates meta and parses the body, creates the worker, and returns a holder-owned `WorkflowRun`. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
 
-A worker that dies unexpectedly (an OOM, a script reaching `process.exit` through the documented vm escape) settles the run `stopReason: 'error'` with the exit diagnostics — or `'cancelled'` when a cancel was in flight — and the host-side child registry is what winds every surviving child down. `dispose()` = cancel + immediate host-driven disposal of every registered child (a wedged worker can relay no dispose RPC, so child teardown overlaps the grace instead of starting after it; the worker's own dispose RPCs join the same per-child disposal) + bounded wait (result, then child-registry quiescence, capped by the grace) + unconditional `worker.terminate()`: the thread never outlives its run. Once a run settles, stray children a script fired without awaiting are cancelled too, and `dispose()` waits for their disposal (bounded by the grace) before returning. `agent-start`/`agent-end` pairing is host-guaranteed the same way: forwarded starts live in a ledger, worker-reported ends pair them on the graceful paths, and the termination paths (grace force-settle, worker death) synthesize the missing ends (outcome `cancelled`) before the run settles — a start still in flight across the force-settle can surface after `workflow/end`, immediately paired the same way.
+For each `agent()` call:
 
-**Engine-specific limitations**: worker startup is paid per run; on a termination path `agentsStarted` reports the HOST-observed count (accepted `child-start`s — calls still queued worker-side for a concurrency slot are unknowable then); and a returned promise or thenable resolves per JavaScript semantics BEFORE materialization — that is what makes an un-awaited `return agent('x')` work — with the value-boundary guard applying to the resolution.
+1. The worker sends `child-start` with a plain-data prompt and options.
+2. The host calls the configured provider through async `SubagentService.start`, passing the workflow's parent and one canonical per-run abort signal.
+3. If start rejects, the host sends `child-start-error`; provider startup has already reached quiescence and no child lifecycle event is emitted.
+4. If start fulfills while the workflow still admits work, the host records the run, observes `result`, then sends `child-started`. Even an already-settled result is forwarded afterward, preserving start-before-result order.
+5. The worker emits paired `workflow/agent-start` and `workflow/agent-end` narration and requests child disposal after collection.
+
+Provider starts are tracked separately from published children. If cancellation, worker death, or normal workflow settlement closes admission while a start is pending, the shared signal aborts it. A provider that nevertheless fulfills after closure is disposed by the host and never announced to the worker.
+
+## Value boundary
+
+Values leaving the script pass through `materializeFromRealm`, which accepts plain, lossless JSON data and rejects exotic prototypes, functions, symbols, cycles, sparse arrays, non-finite numbers, and nested `undefined`. The walk runs in the worker, and defines object keys as data properties so `__proto__` cannot mutate a prototype.
+
+Child results are projected and snapshotted before crossing from the host to the worker. This is a real process-like serialization boundary; it is deliberately different from trusted same-process workflow and subagent event payloads, which are borrowed immutable values.
+
+## Cancellation and disposal
+
+`WorkflowRun.cancel()` records the first reason, tells the worker to cancel, aborts the one signal shared by every pending and published child, and arms the `disposeGraceMs` timer. Worker hooks then throw `CANCELLED` at their next await. If the run remains unsettled at the deadline, the host resolves it as cancelled, pairs stranded child lifecycle events, and terminates the worker.
+
+The subagent seam has one cancellation channel: the request signal. There is no separate child-cancel RPC. Published child teardown uses `run.dispose()`; pending provider starts remain provider-owned until their promise rejects or fulfills.
+
+Normal settlement also aborts pending starts and begins disposing any published fire-and-forget children before the result becomes externally settled. The host's quiescence condition includes both pending starts and published child disposals, so cleanup does not forget an async startup transaction.
+
+`dispose()` is idempotent. It cancels the run, starts host-driven disposal immediately, waits for result plus child quiescence up to the same grace, terminates the worker unconditionally, and performs a final survivor sweep. Per-child disposal is memoized so worker RPC, host cancellation, death cleanup, and public disposal all join one operation.
+
+## Outcome and event guarantees
+
+Terminal outcome is first-wins at host claim points. An accepted external cancellation overrides a later non-cancelled worker result; a result or worker death that claims first cannot be rewritten by reentrant cleanup callbacks.
+
+Worker error, message failure, or premature exit closes message admission before cleanup, then resolves `error` unless cancellation already owns the run. Late queued messages cannot create children or narrate after that logical boundary.
+
+The host keeps a ledger of forwarded child starts. A graceful worker supplies their ends; death or force termination synthesizes any missing end as cancelled. Every forwarded `workflow/agent-start` is therefore paired exactly once, although cleanup after an already-arrived workflow result may complete afterward.
 
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
-| `provider` | `spawn` | The `ctx.subagents` provider children run on (host-side). |
-| `maxConcurrentAgents` | `0` (auto) | Concurrent `agent()` ceiling; `0` resolves to `min(16, max(1, cores - 2))`. |
-| `maxTotalAgents` | `1000` | Total `agent()` calls one run may start (runaway-loop backstop). |
-| `maxItemsPerCall` | `4096` | Items accepted by one `parallel()`/`pipeline()` call. |
-| `syncTimeoutMs` | `5000` | vm timeout for the script's initial synchronous slice (in the worker). |
-| `disposeGraceMs` | `5000` | How long a cancelled run may stay unsettled before force-settle + terminate; also bounds `dispose()`. |
+| `provider` | `spawn` | Host-side subagent provider used by `agent()`. |
+| `maxConcurrentAgents` | `0` | Concurrent `agent()` ceiling; `0` resolves from available CPU parallelism. |
+| `maxTotalAgents` | `1000` | Total `agent()` calls in one run. |
+| `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
+| `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice. |
+| `disposeGraceMs` | `5000` | Bound before force-settlement/termination and for public disposal. |

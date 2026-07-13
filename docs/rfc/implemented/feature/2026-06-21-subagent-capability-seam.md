@@ -35,18 +35,18 @@ A new package group `packages/subagent/`:
 | `@deepseek-ai/dsh-subagent-mock` | support: a scripted provider for testing the seam through the real load path |
 | `@deepseek-ai/dsh-tool-subagent` | consumer: the model-facing `subagent` tool over `ctx.subagents` |
 
-### The primitive: `start → SubagentRun`
+### The primitive: async `start → SubagentRun`
 
-A provider exposes `start(request) → SubagentRun`. The run carries a `result` promise (the terminal `SubagentResult`), `cancel()`, and `dispose()`. The transport-neutral verb is **`start`**; "spawn" is reserved for the in-process `dsh-subagent-spawn` backend's identity, not the service verb. The service's `start(name, request)` resolves the named provider, validates capabilities, delegates, and emits `subagent/start` / `subagent/end` around the run.
+A provider exposes `start(request) → Promise<SubagentRun>`. Promise fulfillment is the publication/readiness and provider-to-caller ownership boundary: for an in-process backend the child is already published in `ctx.agents`, and for ACP the remote session already exists. `SubagentStartRequest.signal` is the single cancellation channel before and after readiness; `SubagentRun` carries the terminal `result` and a `dispose()` method that cancels remaining work and awaits quiescence. The transport-neutral verb is **`start`**; "spawn" is reserved for the in-process `dsh-subagent-spawn` backend's identity, not the service verb. A rejected start cleans provider-owned partial resources and emits neither subagent lifecycle event.
 
 ### Two kinds of optional capability, discovered two ways
 
-- **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`) ride on a static `provider.capabilities` descriptor. The service checks every requested one BEFORE delegating and **rejects loud** (`SubagentError('UNSUPPORTED_CAPABILITY')`) if the provider lacks it — never accepted-then-ignored. They must be checked before a run exists, which is why they cannot be runtime methods.
+- **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`, `persona`) ride on a static `provider.capabilities` descriptor. The service checks every requested one BEFORE delegating and **rejects loud** (`SubagentError('UNSUPPORTED_CAPABILITY')`) if the provider lacks it — never accepted-then-ignored. They must be checked before a run exists, which is why they cannot be runtime methods.
 - **Runtime features** (steering via `sendMessage`, follow-up via `resume`) are **optional methods** on `SubagentRun`. The method's presence IS the capability, and TypeScript narrowing is the discovery mechanism: a consumer cannot call an absent method without narrowing first, so there is no silent-degradation path and no separate flags object to keep in sync.
 
 ### Fork vs. fresh are separate backends, not a flag
 
-Rather than a `context: 'fresh' | 'fork'` request field, the distinction is the provider's identity: `dsh-subagent-spawn` (fresh, isolated, own system prompt) and `dsh-subagent-fork` (seeded from the parent's log) are two registered providers. You pick behavior by picking a provider — consistent with the registry being the selection mechanism. The fork backend seeds only a **balanced, completed-turn prefix** of the parent log: at tool-execute time the parent's turn is open (it holds the `assistant/message` and the dangling spawn `tool/call` with no `tool/result`), and seeding that raw prefix would give the child an unbalanced turn the [invariants](../../../../packages/support/invariants/src/index.ts) freeze-check rejects.
+Rather than a `context: 'fresh' | 'fork'` request field, the distinction is the provider's identity: `dsh-subagent-spawn` (fresh, isolated, own system prompt) and `dsh-subagent-fork` (seeded from the parent's log) are two registered providers. You pick behavior by picking a provider — consistent with the registry being the selection mechanism. The fork backend seeds only a **balanced, completed-turn prefix** of the parent log: at tool-execute time the parent's turn is open (it holds the `assistant/message` and the dangling spawn `tool/call` with no `tool/result`), and seeding that raw prefix would give the child an unbalanced turn that the [invariants](../../../../packages/support/invariants/src/index.ts) trace replay rejects.
 
 ### Child isolation and the parent log
 
@@ -54,7 +54,7 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 ### Synchronous collect (first cut)
 
-The `dsh-tool-subagent` consumer awaits `run.result` and returns the child's final output as the tool result, blocking the parent's turn until the child finishes. It does so inside a `try/finally` that always `dispose()`s the run (no leaked idle child/session on any path), bridges `exec.signal` to `run.cancel()`, and maps a non-`completed` stop reason to an `isError` result rather than returning partial output as success. Steering (`sendMessage`) is part of the contract but **intentionally unused** this cut.
+The `dsh-tool-subagent` consumer passes its execution signal into the start request, awaits the ready run's `result`, and returns the child's final output as the tool result, blocking the parent's turn until the child finishes. A `try/finally` always `dispose()`s the run, so no success, failure, or cancellation path leaks an idle child/session. A non-`completed` stop reason maps to an `isError` result rather than returning partial output as success. Steering (`sendMessage`) is part of the contract but intentionally unused in this consumer.
 
 ### Provider selection is config, not model-facing
 
@@ -66,7 +66,7 @@ The seam is tested through the real cordis Loader / export path, not a hand-buil
 
 ## Consequences
 
-- **Recursion.** Without a guard, an in-process child inherits the spawn tool and can spawn unboundedly. Depth-limit is an optional capability (the in-process backends enforce it; ACP advertises it off and rejects a `maxDepth` request); tool-filtering is likewise optional. Tool-filtering, when implemented, needs a `tools/pre-execute` deny in the child context — schema filtering alone is insufficient because a model can hallucinate a denied tool name.
+- **Recursion.** Without a bound, an in-process child can see the delegation tool and recurse. The in-process backends implement the optional absolute depth limit and scoped live-global `toolFilter`; ACP advertises both capabilities off and rejects such a request. The [subagent composition-controls RFC](2026-07-12-subagent-persona-tool-filter-and-depth.md) owns their exact semantics and security limits.
 - **Blocking the parent turn.** Synchronous collect holds the parent's `runStep` open for the child's full duration. This is acceptable for the first cut; **background / poll / spill semantics are deferred to a future redesign that unifies long-running-tool handling across subagents AND bash** (a sub-agent and a long `bash` background task pose the same "the model started something slow, how does it collect later" problem, and should share one mechanism rather than each inventing its own).
 - **Live progress.** This cut surfaces only lifecycle + final result; a per-chunk child→parent update stream is deferred with the background redesign.
 - **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the first cut advertises neither, so the child self-serves in its own process.

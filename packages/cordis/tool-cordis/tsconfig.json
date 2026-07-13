@@ -21,6 +21,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../core/scope"
+    },
+    {
       "path": "../../core/tools"
     }
   ]

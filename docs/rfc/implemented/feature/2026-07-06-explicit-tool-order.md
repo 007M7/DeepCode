@@ -17,7 +17,7 @@ The system-prompt assembly owns the canonical model-facing tool order, exactly w
 - The list must contain the rest entry exactly once and no duplicate names.
 - When `toolOrder` is unset, the canonical order is plain lexicographic name order (code-unit comparison, locale-independent), so determinism requires no configuration.
 
-The policy is applied where the list is born: `assemble()`, before the `system-prompt/assemble` waterfall. The assembly canonicalizes the tools it collects from providers the same way it sorts sections by their `order` field — on the initial assembly, killing the registration-order entropy at its source. Everything downstream inherits the order untouched: the waterfall, the loop's `EpochHeader`, the `request/header` event, the deep-frozen request, and the dev invariant's cross-check all see one deterministic list, with no new loop change.
+The policy is applied where the list is born: `assemble()`, before the `system-prompt/assemble` waterfall. The assembly canonicalizes the tools it collects from providers the same way it sorts sections by their `order` field — on the initial assembly, killing the registration-order entropy at its source. The waterfall therefore starts from one deterministic list; when a listener leaves that order intact, the loop's `EpochHeader`, the `request/header` event, the deep-frozen request, and the dev invariant's cross-check inherit it with no new loop change.
 
 Scope is deliberately narrow: this fixes the REGISTRATION-ORDER race, not plugin behavior. A `system-prompt/assemble` listener may still add, remove, or rearrange tools — same as it may edit sections after their sort — and owns the determinism of what it emits; the waterfall contract already demands deterministic listeners (the reconstructability invariant would catch a listener that diverges between build and replay).
 
@@ -36,8 +36,8 @@ Config plumbing follows the `persona` precedent, and `toolOrder` sits beside it:
 
 ## Consequences
 
-- Every assembly — and therefore every `request/header` event and model request — has a deterministic tool order on every host; the CI-vs-local golden flip is structurally gone. The default order is lexicographic, no longer registration order.
-- `PromptAssembly.tools` itself is canonical, so every assembly consumer (the loop, waterfall listeners, any future prompt inspector) sees the model-facing order; provider registration order is observable nowhere downstream of the registry.
+- Every registry-built assembly starts with a deterministic tool order on every host; absent an expert listener that deliberately changes it, every `request/header` event and model request inherits that order. The CI-vs-local registration-order flip is structurally gone, and the default is lexicographic.
+- The initial `PromptAssembly.tools` is canonical, so waterfall listeners start from the model-facing order; provider registration order is observable nowhere before that cooperative seam.
 - The snapshot suite's single pinned request-header fixture (`text-turn`) carries the new canonical tool order; every other ACP snapshot keeps the header bulk scrubbed as `{{system}}`/`{{tools}}`, per the pinned-header design.
 - A pure tool reordering between steps is representable only as a `request/header` `'fallback'` snapshot (the name-keyed `ToolsDelta` cannot express it); with a stable canonical order such reorders no longer occur in practice, so the fallback path stays a safety valve.
 - The `toolOrder` key rides the app → `agent-core` → `SystemPrompt` forwarding chain, so deployments set it next to `persona` in the app config; `dsh-llm` and the agent loop are untouched.

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+import { Context, Service, symbols } from 'cordis'
+import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId, agentEvents } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
   const id = AgentId(rawId)
@@ -10,6 +12,7 @@ function stubAgent(rawId: string): Agent {
     options: {},
     session: new Session(SessionId(`${id}-session`)),
     status: 'idle',
+    ctx: new Context(),
     send() {},
     steer() {},
     inject() {},
@@ -19,120 +22,211 @@ function stubAgent(rawId: string): Agent {
 }
 
 describe('AgentRegistry', () => {
-  it('registers agents and emits created/disposed events', async () => {
+  it('keeps terminal stop decisions synchronous', () => {
+    type TurnStopListener = Events['agent/turn-stop']
+    type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
+
+    expectTypeOf<AsyncTurnStopListener>().not.toExtend<TurnStopListener>()
+    expectTypeOf<ReturnType<TurnStopListener>>().toEqualTypeOf<ContinuationStop | undefined>()
+  })
+
+  it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-
-    const created: string[] = []
-    const disposed: string[] = []
-    ctx.on('agent/created', agent => void created.push(agent.id))
-    ctx.on('agent/disposed', agent => void disposed.push(agent.id))
+    const lifecycle: string[] = []
+    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
 
     const agent = stubAgent('a1')
     const dispose = ctx.agents.register(agent)
-    expect(created).toEqual(['a1'])
-    expect(ctx.agents.get(AgentId('a1'))).toBe(agent)
+    expect(ctx.agents.get(agent.id)).toBe(agent)
     expect(ctx.agents.list()).toEqual([agent])
+    expect(() => ctx.agents.register(stubAgent('a1'))).toThrow(/already registered/)
 
     dispose()
-    expect(disposed).toEqual(['a1'])
-    expect(ctx.agents.get(AgentId('a1'))).toBeUndefined()
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+    expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
   })
 
-  it('rejects duplicate ids and unregisters on fiber dispose (HMR safety)', async () => {
+  it('rolls an entry back and pairs a partially delivered creation when a listener throws', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    ctx.agents.register(stubAgent('main'))
-    expect(() => ctx.agents.register(stubAgent('main'))).toThrow('already registered')
+    const lifecycle: string[] = []
+    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/created', () => { throw new Error('creation veto') })
+    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
 
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.agents.register(stubAgent('scoped'))
-    }, { inject: ['agents'] }))
-    expect(ctx.agents.list().map(a => a.id)).toEqual(['main', 'scoped'])
-
-    await fiber.dispose()
-    expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
+    expect(() => ctx.agents.register(stubAgent('vetoed'))).toThrow('creation veto')
+    expect(ctx.agents.get(AgentId('vetoed'))).toBeUndefined()
+    expect(lifecycle).toEqual(['created:vetoed', 'disposed:vetoed'])
   })
 
-  it('rolls back the agent entry when an agent/created listener throws (P1-1)', async () => {
+  it('contains asynchronous creation rejection and every disposal-listener failure', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    const warnings: string[] = []
+    const heard: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    ctx.on('agent/created', () => Promise.reject(new Error('created async')) as never)
+    ctx.on('agent/disposed', () => { throw new Error('disposed sync') })
+    ctx.on('agent/disposed', () => Promise.reject(new Error('disposed async')) as never)
+    ctx.on('agent/disposed', agent => void heard.push(agent.id))
 
-    let threw = false
+    const dispose = ctx.agents.register(stubAgent('contained'))
+    await Promise.resolve()
+    dispose()
+    await Promise.resolve()
+
+    expect(heard).toEqual(['contained'])
+    expect(warnings).toEqual([
+      'agent "contained": agent/created listener rejected: Error: created async',
+      'agent "contained": agent/disposed listener threw: Error: disposed sync',
+      'agent "contained": agent/disposed listener rejected: Error: disposed async',
+    ])
+  })
+
+  it('separates entry from announcement and stale/idempotent detach cannot remove a replacement', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const lifecycle: string[] = []
+    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
+
+    const first = stubAgent('split')
+    const detachFirst = ctx.agents.enter(first)
+    expect(lifecycle).toEqual([])
+    ctx.agents.announce(first)
+    expect(() => { ctx.agents.announce(first) }).toThrow(/already announced/)
+    detachFirst()
+    detachFirst()
+
+    const replacement = stubAgent('split')
+    const detachReplacement = ctx.agents.enter(replacement)
+    detachFirst()
+    expect(ctx.agents.get(replacement.id)).toBe(replacement)
+    expect(() => { ctx.agents.announce(first) }).toThrow(/not live/)
+    detachReplacement()
+    expect(lifecycle).toEqual(['created:split', 'disposed:split'])
+  })
+
+  it('defers detach requested by a creation listener until that dispatch unwinds', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const order: string[] = []
+    const agent = stubAgent('reentrant')
     ctx.on('agent/created', () => {
-      if (!threw) { threw = true; throw new Error('boom created listener') }
+      order.push(`first:${ctx.agents.get(agent.id) === agent}`)
+      detach()
+      order.push(`after-detach:${ctx.agents.get(agent.id) === agent}`)
     })
+    ctx.on('agent/created', () => void order.push(`second:${ctx.agents.get(agent.id) === agent}`))
+    ctx.on('agent/disposed', () => void order.push('disposed'))
+    const detach = ctx.agents.enter(agent)
+    ctx.agents.announce(agent)
+    expect(order).toEqual(['first:true', 'after-detach:true', 'second:true', 'disposed'])
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+  })
+})
 
-    // The throwing emit must roll the entry back, not leak it.
-    expect(() => ctx.agents.register(stubAgent('main'))).toThrow('boom created listener')
-    expect(ctx.agents.get(AgentId('main'))).toBeUndefined() // rolled back, not leaked
+describe('agentEvents()', () => {
+  it('contains each synchronous throw and returned-promise rejection', async () => {
+    const ctx = new Context()
+    const warnings: string[] = []
+    const heard: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const agent = stubAgent('event')
+    ctx.on('agent/status', () => { throw new Error('sync listener') })
+    ctx.on('agent/status', () => Promise.reject(new Error('async listener')) as never)
+    ctx.on('agent/status', (_agent, status) => void heard.push(status))
 
-    // A subsequent listener-free register of the SAME id succeeds and is
-    // tracked exactly once (the duplicate-id check is not wedged).
-    const dispose = ctx.agents.register(stubAgent('main'))
-    expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
-    dispose()
-    expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
+    agentEvents(ctx, agent).emit('agent/status', 'running')
+    await Promise.resolve()
+    expect(heard).toEqual(['running'])
+    expect(warnings).toEqual([
+      'agent event "agent/status" listener threw: Error: sync listener',
+      'agent event "agent/status" listener rejected: Error: async listener',
+    ])
   })
 })
 
 describe('AgentRegistry factory seam', () => {
-  /** A stub AgentFactory that records calls and returns a stub agent. */
   function stubFactory() {
-    const calls: { create: unknown[]; resume: unknown[] } = { create: [], resume: [] }
-    const factory: import('@deepseek-ai/dsh-agent').AgentFactory = {
-      createAgent(options) {
-        calls.create.push(options)
+    const calls: {
+      create: Array<{ ownerCtx: Context; options: CreateAgentOptions }>
+      resume: Array<{ ownerCtx: Context; options: ResumeAgentOptions }>
+    } = { create: [], resume: [] }
+    const factory: AgentFactory = {
+      async createAgent(ownerCtx, options) {
+        calls.create.push({ ownerCtx, options })
         return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
       },
-      resume(options) {
-        calls.resume.push(options)
-        return Promise.resolve({ agent: stubAgent(options.agentId), dispose: () => Promise.resolve() })
+      async resume(ownerCtx, options) {
+        calls.resume.push({ ownerCtx, options })
+        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
       },
     }
     return { factory, calls }
   }
 
-  it('create()/resume() throw when no factory is registered', async () => {
+  it('requires a factory and delegates through the calling context', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).toThrow(/no agent factory/)
-    await expect(ctx.agents.resume({ agentId: AgentId('a'), resumeSessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
-  })
-
-  it('setFactory registers a factory; create/resume delegate to it', async () => {
-    const ctx = new Context()
-    await ctx.plugin(AgentRegistry)
+    await expect(ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
     const { factory, calls } = stubFactory()
     ctx.agents.setFactory(factory)
 
-    const created = ctx.agents.create({ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } })
-    expect(created.agent.id).toBe('c1')
-    expect(calls.create).toEqual([{ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } }])
-
-    const resumed = await ctx.agents.resume({ agentId: AgentId('r1'), resumeSessionId: SessionId('old-sess') })
-    expect(resumed.agent.id).toBe('r1')
-    expect(calls.resume).toEqual([{ agentId: AgentId('r1'), resumeSessionId: SessionId('old-sess') }])
-  })
-
-  it('setFactory rejects a second factory', async () => {
-    const ctx = new Context()
-    await ctx.plugin(AgentRegistry)
-    ctx.agents.setFactory(stubFactory().factory)
-    expect(() => ctx.agents.setFactory(stubFactory().factory)).toThrow(/already registered/)
-  })
-
-  it('disposing the setFactory fiber clears the factory (HMR safety)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(AgentRegistry)
-    let dispose!: () => void
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      dispose = inner.agents.setFactory(stubFactory().factory)
+    let callerFiber: Context['fiber'] | undefined
+    await ctx.plugin(Object.assign(async (inner: Context) => {
+      callerFiber = inner.fiber
+      await inner.agents.create({ agentId: AgentId('create'), sessionId: SessionId('create-s') })
+      await inner.agents.resume({ agentId: AgentId('resume'), resumeSessionId: SessionId('resume-s') })
     }, { inject: ['agents'] }))
-    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).not.toThrow()
-    void dispose
-    await fiber.dispose()
-    // factory slot cleared → create throws again
-    expect(() => ctx.agents.create({ agentId: AgentId('a2'), sessionId: SessionId('s2') })).toThrow(/no agent factory/)
+    expect(calls.create[0]?.ownerCtx.fiber).toBe(callerFiber)
+    expect(calls.resume[0]?.ownerCtx.fiber).toBe(callerFiber)
+  })
+
+  it('rejects a second factory and clears the slot with its owner (HMR)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.agents.setFactory(stubFactory().factory)
+      expect(() => inner.agents.setFactory(stubFactory().factory)).toThrow(/already registered/)
+    }, { inject: ['agents'] }))
+    await expect(ctx.agents.create({ agentId: AgentId('before'), sessionId: SessionId('before-s') })).resolves.toBeDefined()
+    await owner.dispose()
+    await expect(ctx.agents.create({ agentId: AgentId('after'), sessionId: SessionId('after-s') })).rejects.toThrow(/no agent factory/)
+  })
+
+  it('canonicalizes an already traced Service before tracing it for the caller', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const states = new WeakMap<object, string[]>()
+    class TracedFactory extends Service implements AgentFactory {
+      constructor(inner: Context) {
+        super(inner, 'tracedFactory')
+        states.set(this, [])
+      }
+      private calls(): string[] {
+        const original = (this as unknown as { [symbols.original]?: TracedFactory })[symbols.original] ?? this
+        const calls = states.get(original)
+        if (calls === undefined) throw new Error('factory receiver was not canonicalized')
+        return calls
+      }
+      async createAgent(_ownerCtx: Context, options: CreateAgentOptions) {
+        this.calls().push('create')
+        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+      }
+      async resume(_ownerCtx: Context, options: ResumeAgentOptions) {
+        this.calls().push('resume')
+        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+      }
+    }
+    await ctx.plugin(TracedFactory)
+    const traced = (ctx as Context & { tracedFactory: TracedFactory }).tracedFactory
+    ctx.agents.setFactory(traced)
+    await ctx.agents.create({ agentId: AgentId('create'), sessionId: SessionId('create-s') })
+    await ctx.agents.resume({ agentId: AgentId('resume'), resumeSessionId: SessionId('resume-s') })
+    const raw = (traced as unknown as { [symbols.original]?: TracedFactory })[symbols.original]
+    expect(states.get(raw!)).toEqual(['create', 'resume'])
   })
 })

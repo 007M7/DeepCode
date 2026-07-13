@@ -1,6 +1,6 @@
 # Tools
 
-The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the waterfall execution shapes, and the UI-presentation vocabulary.
+The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the guarded execution shapes, and the UI-presentation vocabulary.
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
@@ -81,20 +81,58 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 `defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
 
-## Execution: the `tools/pre-execute` / `tools/post-execute` pipeline shapes
+Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
-`ctx.tools.execute()` runs each call through a two-waterfall pipeline — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hook, and plan-mode plugins gate or transform a call. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
+## `ToolRestriction` — one scope's live global filter
+
+`ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
 
 ```ts type-equiv
-interface ToolExecution {
-  callId: CallId
-  name: string
+interface ToolRestriction {
+  readonly allow?: readonly string[]
+  readonly deny?: readonly string[]
+}
+```
+
+## Execution: extensible waterfalls plus monotonic policy
+
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
+
+```ts type-equiv
+type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
+```
+
+```ts type-equiv
+interface ToolExecutionInput {
+  readonly callId: CallId
+  readonly name: string
   /** Parsed JSON arguments (unknown — tools validate their own input). */
-  arguments: unknown
+  readonly arguments: unknown
   /** The agent on whose behalf the call runs (set by the agent loop). */
-  agent?: Agent
+  readonly agent?: Agent
+  /**
+   * Opaque token of the enclosing transport execution, when one exists. Code
+   * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
+   * the outer `run_code` outcome without receiving its live mutable execution.
+   */
+  readonly parent?: ToolExecutionToken
   signal?: AbortSignal
 }
+```
+
+```ts type-equiv
+interface ToolExecution extends ToolExecutionInput {
+  /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
+  readonly token: ToolExecutionToken
+}
+```
+
+`ToolExecutionToken` is a compile-time opaque fresh `Symbol` at runtime; identity comparison is its only operation. Before policy runs, `ctx.tools.execute()` materializes `arguments` as detached lossless JSON, assigns the token, and deep-freezes the accepted arguments. A non-JSON value is normalized to an error before policy. `token`, `callId`, `name`, `arguments`, `agent`, and the optional `parent` token are readonly throughout the waterfalls, while an around-dispatch wrapper may add, replace, or remove only optional `signal`. After the complete pipeline the registry freezes the execution and exposes its stable identity to `tools/result` observers.
+
+A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
+
+```ts type-equiv
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 ```
 
 ```ts type-equiv
@@ -129,7 +167,9 @@ interface ToolExecutionResult {
 }
 ```
 
-Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
+The registry materializes and freezes the final accepted result immediately before `tools/result`. Its content, structured error, additional context, and presentation metadata must round-trip losslessly through JSON; an invalid outcome becomes a JSON-safe `isError` result, so the observed live outcome is safe for the later durable `tool/result` append.
+
+Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 
 ```ts type-equiv
 type PreToolDecision =
@@ -144,7 +184,7 @@ type PostToolDecision =
   | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
 ```
 
-Call `next()` to delegate to the default (allow / accept-unchanged), or return a decision to short-circuit. A `pre-execute` `deny` (or `ask`, which degrades to deny until the permission system lands) skips dispatch and yields an `isError` result; input rewrite is deliberately NOT offered on `PreToolDecision` (it would desync the pre-execution audit/history/UI from what ran — its own proposed RFC). A `post-execute` `accept` may replace the model-facing `content` (clean, because `tool/result` is logged after `execute()` returns); a `block` turns the call into an `isError` whose content is the corrective `feedback`. Core dispatch sits between the waterfalls as plain code; the tool body keeps its own try/catch so a thrown tool still reaches `post-execute` as an `isError`. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
+Call `next()` to delegate to the default (allow / dispatch / accept-unchanged), or return a decision/result to short-circuit. A `pre-execute` `deny` skips dispatch and yields an `isError` result. An `ask` resolves through the optional approval seam: only `allowed-once` proceeds, while every non-grant, missing channel/service, or agent-less request becomes a normalized denial. A registered `ToolGuard` then runs and can still impose a final denial. Input rewrite is deliberately NOT offered on `PreToolDecision` because it would desync the pre-execution audit/history/UI from what ran. A `post-execute` `accept` may replace the model-facing `content`; a `block` turns the call into an `isError` whose content is the corrective `feedback`. The synchronous `tools/result` notification then receives the frozen execution identity and a deep-frozen result snapshot after every wrapper, post decision, and outer error catch; observers cannot transform the outcome or race each other through payload mutation, and one observer failure neither changes the result nor starves peers. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
 
 ## The structured-output schema subset
 
