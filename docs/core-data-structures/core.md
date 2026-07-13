@@ -368,7 +368,7 @@ interface Agent {
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its optional `envelope` selects the canonical context tag or caller-owned raw framing, while JSON `meta` persists plugin state without exposing it to the model. Prompt submission carries at most one `additionalContext`; post-tool decisions and results carry `additionalContexts[]` so nested dispatches preserve each entry's provenance and metadata.
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its optional `envelope` selects the canonical context tag or caller-owned raw framing, while JSON `meta` persists plugin state without exposing it to the model. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, framing, and metadata. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -381,20 +381,20 @@ interface HookContext {
 }
 ```
 
-`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContext` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContexts` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
 
 ```ts type-equiv
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern):
+`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context envelope or metadata — the typed `/goal` pattern):
 
 ```ts type-equiv
 type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
@@ -409,7 +409,7 @@ type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 
-`agent/session-prefix` composes the session prefix — a plain `Message[]`, no dedicated payload type. Fired ONCE per loop instance, lazily on its first request: the composed list is deep-frozen, recorded as the header's `messagePrefix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and placed in front of the ENTIRE derived history on every request the instance sends — the home for session-stable openers like a skills catalog or an AGENTS.md digest, never returned by `deriveMessages()`. Reuse is structural, so the prefix cannot drift mid-session (resume = a new instance = a recompose); content that changes mid-session goes through the append-only history channels instead (`agent.inject()`, tool `additionalContexts`, prompt-submit `additionalContext`). Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself.
+`agent/session-prefix` composes the session prefix — a plain `Message[]`, no dedicated payload type. Fired ONCE per loop instance, lazily on its first request: the composed list is deep-frozen, recorded as the header's `messagePrefix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and placed in front of the ENTIRE derived history on every request the instance sends — the home for session-stable openers like a skills catalog or an AGENTS.md digest, never returned by `deriveMessages()`. Reuse is structural, so the prefix cannot drift mid-session (resume = a new instance = a recompose); content that changes mid-session goes through the append-only history channels instead (`agent.inject()` and tool/prompt-submit `additionalContexts`). Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself.
 
 ## `ToolDefinition`
 

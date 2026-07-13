@@ -95,7 +95,10 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args, caps.limit)
       const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      const target = await ctx.fs.resolve(input.filePath, {
+        ...cwd !== undefined ? { cwd } : {},
+        ...exec.signal !== undefined ? { signal: exec.signal } : {},
+      })
 
       // One stat: type check + size routing + the version recorded as observed.
       // A writer racing between this stat and the read can at worst make a LATER

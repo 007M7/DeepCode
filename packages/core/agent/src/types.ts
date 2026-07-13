@@ -121,8 +121,8 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 /**
  * Model-facing context an interception listener wants the agent to SEE on the
  * next request — the canonical shape behind every "inject extra context"
- * decision ({@link PromptDecision}, {@link PostToolDecision},
- * {@link ContinuationDecision}). It is `agent.inject()`ed as a
+ * decision ({@link PromptDecision}, {@link PostToolDecision}). It is
+ * `agent.inject()`ed as a
  * `context/message`, so it carries a REQUIRED {@link MessageSource}: `inject()`
  * defaults a missing source to `{kind:'user'}`, which would MISLABEL plugin
  * context as a user prompt and corrupt derived history. A bridge sets
@@ -144,8 +144,8 @@ export interface HookContext {
  * the Claude Code `UserPromptSubmit` hook's allow/block + `additionalContext`.
  *
  * - `allow` proceeds with the prompt; optional `content` REPLACES the prompt
- *   bytes (a rewrite), and optional `additionalContext` is `inject()`ed as a
- *   separate `context/message` the next request also sees.
+ *   bytes (a rewrite), and optional `additionalContexts` are each `inject()`ed
+ *   as separate `context/message` events the next request also sees.
  * - `block` drops the prompt (it never becomes a `user/message`); `reason` is
  *   the durable record of why. The loop appends a `prompt/blocked` session event
  *   (carrying the original content, source, and `reason`) in place of the
@@ -156,7 +156,7 @@ export interface HookContext {
  *   hook").
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 
 /**
@@ -165,14 +165,16 @@ export type PromptDecision =
  * calls or steering was injected, else `stop`); listeners override it to
  * force-continue (`/goal`, `/loop`) or force-stop (budget guards).
  *
- * A `continue` may carry a `reason`: model-facing context recorded as next-STEP
+ * A `continue` may carry a `reason`: model-facing content recorded as next-STEP
  * steering within the SAME turn (the loop enqueues it through the steering
- * channel, so the continued turn's next step sees it). This is the typed twin of
- * the existing "steer from a step/end listener" `/goal` pattern.
+ * channel, so the continued turn's next step sees it). Steering is not a
+ * `context/message`, so raw context envelopes and durable context metadata are
+ * deliberately absent. This is the typed twin of the existing "steer from a
+ * step/end listener" `/goal` pattern.
  */
 export type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 
 /**
  * The terminal subset of {@link ContinuationDecision}. A listener on
@@ -453,7 +455,7 @@ declare module 'cordis' {
     /**
      * Waterfall: decide what happens to ONE drained queued message before it
      * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
-     * attaching `additionalContext`) or block it. Fires inside the already-open
+     * attaching `additionalContexts`) or block it. Fires inside the already-open
      * turn, per drained message. Maps onto Claude Code's `UserPromptSubmit` hook.
      * Call `next()` to delegate to the default (allow unchanged), or return a
      * {@link PromptDecision} without calling `next()` to short-circuit.
@@ -475,7 +477,7 @@ declare module 'cordis' {
      * ALL a listener shapes here: every request is a pure function of the
      * session log (the reconstructability RFC), so model-visible content
      * flows through the log channels — `inject()`, steering, prompt-submit
-     * `additionalContext`, prompt sections via `system-prompt/assemble`, or
+     * `additionalContexts`, prompt sections via `system-prompt/assemble`, or
      * the header-logged session prefix via {@link agent/session-prefix}
      * — never through request mutation, and the loop records whatever config
      * the request actually uses as a `request/header*` event before dispatch.
@@ -525,7 +527,7 @@ declare module 'cordis' {
      * record, so the request stays reconstructable from the log. Content
      * that CHANGES mid-session belongs in the append-only history channels
      * instead — `agent.inject()`, a `tools/post-execute` decision's
-     * `additionalContext`, prompt-submit `additionalContext` — each a
+     * `additionalContexts`, prompt-submit `additionalContexts` — each a
      * durable `context/message` paid once and prefix-cached thereafter.
      *
      * The seed is a frozen empty list; a contributing listener returns a NEW

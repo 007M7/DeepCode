@@ -14,7 +14,7 @@ The lifecycle has two distinct classes of content. The initial applicable chain 
 
 The implementation lives in `packages/prompt/workspace-context` as `@deepseek-ai/dsh-workspace-context`. It is a prompt/context extension, not a core service or a filesystem backend. `@deepseek-ai/dsh-agent-core` mounts it for both product front doors and forwards its config. The plugin consumes `agent/session-prefix`, `tools/post-execute`, and the optional `ctx.fs` capability.
 
-The plugin does not statically inject `fs`. Providerless product trees therefore boot normally and the plugin no-ops until a filesystem provider exists. All production reads go through that provider. Candidate probes call `lstat` before `resolve`, so a repository-owned final-component symlink is rejected rather than followed outside the workspace. A provider exception or disagreement after `lstat` is classified as unavailable and never interpreted as a deletion.
+The plugin does not statically inject `fs`. Providerless product trees therefore boot normally and the plugin no-ops until a filesystem provider exists. All production reads go through that provider. Candidate probes call `lstat` before `resolve`, so a repository-owned final-component symlink is rejected rather than followed outside the workspace. The session-prefix signal and dynamic tool execution signal propagate through resolution, metadata probes, and streaming reads, so cancellation does not wait for an unrelated filesystem scan. A provider exception or disagreement after `lstat` is classified as unavailable and never interpreted as a deletion.
 
 ### File Names And Precedence
 
@@ -48,7 +48,7 @@ Shell commands are not discovery triggers. Local bash calls start fresh shells, 
 
 Every dynamic workspace context event stores versioned metadata with `{ action, scope, path, previousPath?, digest? }`, where `digest` is SHA-1 over the loaded content. The model-facing prompt has no HTML comments, hidden markers, or headings that are parsed back into state.
 
-At reconciliation time the plugin scans plugin-owned `context/message` events and derives the latest state for each visible scope. A short per-session pending map covers the interval after `tools/post-execute` returns an `additionalContexts` entry but before the loop appends that context to the log. Once an equal event appears at or after the pending sequence boundary, the pending entry is removed.
+At reconciliation time the plugin scans plugin-owned `context/message` events and derives the latest state for each visible scope. A short per-session pending map begins only after the immutable top-level `tools/result` proves an `additionalContexts` entry survived every post-execute listener, then covers the interval before the loop appends that context to the log. A nested Code Mode result stages its changes under the parent's opaque execution token so repeated sub-dispatches in one run do not duplicate them; the parent result rolls that provisional state back and commits only contexts retained by outer policy. Once an equal event appears at or after the pending sequence boundary, the pending entry is removed.
 
 An unchanged path and digest is suppressed. A logged removal is a tombstone, so a reappearing candidate becomes a new `set`. Resume works from persisted metadata. If compaction removes an instruction event from the visible surface, that state no longer suppresses a later load, matching the fact that the model can no longer see it. Only changes actually included under the byte budget enter metadata or pending state, so an omitted file remains eligible on a later touch.
 
@@ -56,11 +56,11 @@ The frozen baseline keeps an in-memory path/digest map for comparison. A later s
 
 There is intentionally no watcher. Detection occurs at the next successful structured filesystem touch or resumed prefix composition. A provider failure produces no removal; absence is only accepted when all configured candidates in that scope were probed successfully.
 
-### Byte Budget And Cache
+### Byte Budget And Bounded Reads
 
-`maxBytes` is required and applies separately to a rendered baseline or one dynamic reconciliation batch; there is no implicit or unbounded budget. Non-positive and non-finite values disable loading. When content exceeds the budget, broader files are omitted before the most-specific file is truncated. A visible `Workspace instruction budget ...` notice names omitted and truncated paths and byte counts, and output never exceeds the configured bytes.
+`maxBytes` is required and applies separately to a rendered baseline or one dynamic reconciliation batch; there is no implicit or unbounded render budget. Non-positive and non-finite values disable loading. When content exceeds the budget, broader files are omitted before the most-specific file is truncated. A visible `Workspace instruction budget ...` notice names omitted and truncated paths and byte counts, and output never exceeds the configured bytes.
 
-Each discovered candidate is read and identified by normalized absolute path, the provider's opaque version, and a SHA-1 content digest. Hashing the read content prevents same-version, same-size rewrites from staying stale. Discovery carries the provider version into the read pass so one pass does not stat the same instruction twice. Visible structured metadata remains the source of duplicate-suppression state.
+`maxSourceBytes` is a positive per-file cap with a 1 MiB default. The loader checks reported size before reading and still consumes content through `streamText()` with a running UTF-8 byte count, so missing/stale metadata cannot force an unbounded allocation. An oversized winning candidate is unavailable rather than a reason to fall through to another same-directory name. The plugin deliberately keeps no process-wide content cache: every reconciliation observes the current bounded text, then computes the SHA-1 used by visible structured duplicate-suppression state.
 
 ## Alternatives considered
 
@@ -76,7 +76,7 @@ Each discovered candidate is read and identified by normalized absolute path, th
 
 ## Consequences
 
-Workspace guidance is isolated per session and shared by both product front doors and every tool presentation mode. Initial instructions benefit from stable prefix caching, while nested and changed content remains durable and replayable. The generic session/agent context contract includes optional raw framing and JSON metadata, both propagated through prompt-submit `additionalContext` and post-tool `additionalContexts` paths.
+Workspace guidance is isolated per session and shared by both product front doors and every tool presentation mode. Initial instructions benefit from stable prefix caching, while nested and changed content remains durable and replayable. The generic session/agent context contract includes optional raw framing and JSON metadata, both propagated through prompt-submit and post-tool `additionalContexts` arrays without flattening entries.
 
 Repository text remains untrusted input. Lower-authority user-role framing, explicit precedence language, delimiter escaping, and symlink rejection reduce risk but do not eliminate prompt injection. Permission and sandbox layers treat workspace files as data rather than authority.
 

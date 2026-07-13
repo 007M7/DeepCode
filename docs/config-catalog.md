@@ -1150,12 +1150,14 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
+  /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
+  maxSourceBytes?: number
   /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
   instructionFileCandidates?: string[]
 }
 ```
 
-Source: [`packages/prompt/workspace-context/src/config.ts:15`](../packages/prompt/workspace-context/src/config.ts)
+Source: [`packages/prompt/workspace-context/src/config.ts:16`](../packages/prompt/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 

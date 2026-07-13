@@ -17,7 +17,6 @@ import {
   findProjectRoot,
   loadScopeInstruction,
   relativeDisplay,
-  type InstructionContentCache,
   type LoadedInstructionFile,
 } from './files.ts'
 import {
@@ -157,6 +156,56 @@ function pendingChangesFor(
   return pending
 }
 
+/**
+ * Commit only workspace contexts that survived the complete tool pipeline.
+ * The observe-only `tools/result` notification calls this before the loop can
+ * append the returned contexts, closing that short pending window without
+ * trusting an intermediate post-execute decision.
+ * @param agent - session that will receive the final result contexts.
+ * @param contexts - immutable contexts on the authoritative top-level result.
+ * @param pendingBySession - per-session pending transition maps.
+ * @returns transitions committed into the short pending window.
+ */
+export function commitPendingInstructionContexts(
+  agent: Agent,
+  contexts: readonly HookContext[] | undefined,
+  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
+): WorkspaceInstructionChange[] {
+  const committed: WorkspaceInstructionChange[] = []
+  for (const context of contexts ?? []) {
+    if (!isWorkspaceContextSource(context.source)) continue
+    const changes = workspaceInstructionChanges(context.meta)
+    if (changes.length === 0) continue
+    const pending = pendingChangesFor(agent.session, pendingBySession)
+    for (const change of changes) {
+      pending.set(change.scope, { change, afterSeq: agent.session.seq })
+      committed.push(change)
+    }
+  }
+  return committed
+}
+
+/**
+ * Roll back parent-token state when an enclosing tool result discards deferred
+ * contexts. A newer transition for the same scope is left intact.
+ * @param agent - session whose pending state was staged.
+ * @param changes - exact staged transitions to remove when still current.
+ * @param pendingBySession - per-session pending transition maps.
+ */
+export function rollbackPendingInstructionChanges(
+  agent: Agent,
+  changes: readonly WorkspaceInstructionChange[],
+  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
+): void {
+  const pending = pendingBySession.get(agent.session)
+  if (pending === undefined) return
+  for (const change of changes) {
+    const current = pending.get(change.scope)
+    if (current !== undefined && sameInstructionChange(current.change, change)) pending.delete(change.scope)
+  }
+  if (pending.size === 0) pendingBySession.delete(agent.session)
+}
+
 function relativeScope(projectRoot: string, dir: string): string {
   const scope = relativeDisplay(projectRoot, dir)
   return scope.length === 0 ? '.' : scope
@@ -166,7 +215,6 @@ function relativeScope(projectRoot: string, dir: string): string {
  * Compare visible/pending state with provider-visible files and render transitions.
  * @param agent - session owner whose visible surface supplies durable state.
  * @param resolved - normalized plugin configuration.
- * @param cache - shared provider-version and content-digest cache.
  * @param pendingBySession - short pending window before returned context is logged.
  * @param baselineBySession - frozen baseline comparison state per session.
  * @param fileSystem - provider used for current file probes.
@@ -176,11 +224,10 @@ function relativeScope(projectRoot: string, dir: string): string {
 export async function reconcileInstructionContext(
   agent: Agent,
   resolved: ResolvedConfig,
-  cache: InstructionContentCache,
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
   baselineBySession: WeakMap<object, Map<string, WorkspaceInstructionChange>>,
   fileSystem: FileSystem,
-  options: { touchedPath?: string; includeBaselineScopes: boolean },
+  options: { touchedPath?: string; includeBaselineScopes: boolean; signal?: AbortSignal },
 ): Promise<WorkspaceHookContext | undefined> {
   const session = agent.session
   const pending = pendingChangesFor(session, pendingBySession)
@@ -189,7 +236,7 @@ export async function reconcileInstructionContext(
   for (const [scope, change] of visible) effective.set(scope, change)
   /* v8 ignore next -- normal agents carry an absolute session cwd. */
   const cwd = session.header.cwd ?? process.cwd()
-  const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem)
+  const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
   if (options.includeBaselineScopes) {
     scopes.add('user-global')
@@ -204,7 +251,7 @@ export async function reconcileInstructionContext(
   const unavailable = new Set<string>()
   const seenAbsolutePaths = new Set<string>()
   for (const scope of scopes) {
-    const probe = await loadScopeInstruction(scope, projectRoot, resolved, cache, fileSystem)
+    const probe = await loadScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
     if (probe.kind === 'unavailable') {
       unavailable.add(scope)
       continue
@@ -250,7 +297,6 @@ export async function reconcileInstructionContext(
   if (items.length === 0) return undefined
   const rendered = renderInstructionChanges(items, resolved.maxBytes)
   if (rendered.text.length === 0 || rendered.changes.length === 0) return undefined
-  for (const change of rendered.changes) pending.set(change.scope, { change, afterSeq: session.seq })
   return workspaceContextHook(rendered.text, rendered.changes)
 }
 
@@ -260,7 +306,6 @@ export async function reconcileInstructionContext(
  * @param exec - completed tool execution descriptor.
  * @param result - original tool result before post-execute decisions.
  * @param resolved - normalized plugin configuration.
- * @param cache - shared provider-version and content-digest cache.
  * @param pendingNestedChanges - per-session pending transition maps.
  * @param baselineInstructionStates - retained baseline comparison state.
  * @param fileSystem - provider used for current file probes.
@@ -271,7 +316,6 @@ export async function dynamicInstructionContext(
   exec: ToolExecution,
   result: ToolExecutionResult,
   resolved: ResolvedConfig,
-  cache: InstructionContentCache,
   pendingNestedChanges: WeakMap<object, Map<string, PendingInstructionChange>>,
   baselineInstructionStates: WeakMap<object, Map<string, WorkspaceInstructionChange>>,
   fileSystem: FileSystem,
@@ -280,7 +324,11 @@ export async function dynamicInstructionContext(
   const touchedPath = filePathFromExecution(exec)
   if (touchedPath === undefined) return undefined
   return reconcileInstructionContext(
-    agent, resolved, cache, pendingNestedChanges, baselineInstructionStates, fileSystem,
-    { touchedPath, includeBaselineScopes: baselineInstructionStates.has(agent.session) },
+    agent, resolved, pendingNestedChanges, baselineInstructionStates, fileSystem,
+    {
+      touchedPath,
+      includeBaselineScopes: baselineInstructionStates.has(agent.session),
+      ...exec.signal === undefined ? {} : { signal: exec.signal },
+    },
   )
 }

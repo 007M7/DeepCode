@@ -12,17 +12,16 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
-import {
-  loadBaselineInstructionSet,
-  type InstructionContentCache,
-} from './files.ts'
+import { loadBaselineInstructionSet } from './files.ts'
 import {
   baselineInstructionChanges,
+  commitPendingInstructionContexts,
   dynamicInstructionContext,
   name,
   reconcileInstructionContext,
+  rollbackPendingInstructionChanges,
   workspaceContextMessage,
   type PendingInstructionChange,
 } from './state.ts'
@@ -34,7 +33,6 @@ export {
   loadBaselineInstructions,
 } from './files.ts'
 export type {
-  InstructionContentCache,
   InstructionFile,
   LoadedInstructionFile,
 } from './files.ts'
@@ -43,11 +41,11 @@ export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts
 
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
-  const cache: InstructionContentCache = new Map()
   const pendingNestedChanges = new WeakMap<object, Map<string, PendingInstructionChange>>()
   const baselineInstructionStates = new WeakMap<object, Map<string, WorkspaceInstructionChange>>()
+  const pendingByParent = new Map<ToolExecutionToken, { agent: Agent; changes: WorkspaceInstructionChange[] }>()
 
-  ctx.on('agent/session-prefix', async (agent: Agent, _prefix, _signal, next): Promise<Message[]> => {
+  ctx.on('agent/session-prefix', async (agent: Agent, _prefix, signal, next): Promise<Message[]> => {
     const rest = await next()
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) return rest
     const fileSystem = ctx.get('fs')
@@ -59,19 +57,19 @@ export function apply(ctx: Context, config: Config): void {
       dshHome: resolved.dshHome,
       projectRootMarkers: resolved.projectRootMarkers,
       maxBytes: resolved.maxBytes,
+      maxSourceBytes: resolved.maxSourceBytes,
       instructionFileCandidates: resolved.instructionFileCandidates,
-      cache,
+      signal,
     }, fileSystem)
     baselineInstructionStates.set(agent.session, baselineInstructionChanges(instructions?.included ?? []))
 
     const update = await reconcileInstructionContext(
       agent,
       resolved,
-      cache,
       pendingNestedChanges,
       baselineInstructionStates,
       fileSystem,
-      { includeBaselineScopes: false },
+      { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
       agent.inject(update.content, {
@@ -104,7 +102,6 @@ export function apply(ctx: Context, config: Config): void {
       exec,
       result,
       resolved,
-      cache,
       pendingNestedChanges,
       baselineInstructionStates,
       fileSystem,
@@ -115,5 +112,29 @@ export function apply(ctx: Context, config: Config): void {
       ...downstream.content !== undefined ? { content: downstream.content } : {},
       additionalContexts: [context, ...downstream.additionalContexts ?? []],
     }
+  })
+
+  ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
+    if (exec.parent !== undefined) {
+      if (exec.agent === undefined) return
+      // Child contexts participate in duplicate suppression within one composite
+      // run, but remain provisional until the parent reaches its final policy.
+      const changes = commitPendingInstructionContexts(exec.agent, result.additionalContexts, pendingNestedChanges)
+      if (changes.length === 0) return
+      const staged = pendingByParent.get(exec.parent)
+      if (staged === undefined) pendingByParent.set(exec.parent, { agent: exec.agent, changes })
+      else staged.changes.push(...changes)
+      return
+    }
+
+    // The parent result is authoritative: remove every provisional child change,
+    // then commit only contexts that survived outer post-execute policy.
+    const staged = pendingByParent.get(exec.token)
+    if (staged !== undefined) {
+      pendingByParent.delete(exec.token)
+      rollbackPendingInstructionChanges(staged.agent, staged.changes, pendingNestedChanges)
+    }
+    if (exec.agent === undefined) return
+    commitPendingInstructionContexts(exec.agent, result.additionalContexts, pendingNestedChanges)
   })
 }

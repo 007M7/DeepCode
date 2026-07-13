@@ -107,8 +107,10 @@ export class LocalFileSystem extends FileSystem {
     }
   }
 
-  override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
+  override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 

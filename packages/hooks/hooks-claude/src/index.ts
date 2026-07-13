@@ -221,22 +221,7 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
-  /**
-   * Concatenate this bridge's prompt {@link HookContext} with a downstream
-   * prompt listener's optional one, so folding additionalContext drops neither.
-   * The merged block
-   * carries a single `source` — this bridge's — because a `HookContext` holds one
-   * `MessageSource` and the seam cannot represent mixed provenance; the rendered
-   * `context/message` only distinguishes by `source.kind` ('plugin'), so a
-   * downstream plugin's text is still correctly framed as plugin context, not a
-   * user prompt.
-   */
-  function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
-    if (!theirs) return ours
-    return { content: [...ours.content, ...theirs.content], source: ours.source }
-  }
-
-  /** Prepend one post-tool context without flattening downstream provenance. */
+  /** Prepend one context without flattening downstream provenance or metadata. */
   function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
     return [ours, ...theirs ?? []]
   }
@@ -279,7 +264,7 @@ export function apply(ctx: Context, config: Config): void {
     return {
       kind: 'allow',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(ours, downstream.additionalContext),
+      additionalContexts: prependContext(ours, downstream.additionalContexts),
     }
   })
 

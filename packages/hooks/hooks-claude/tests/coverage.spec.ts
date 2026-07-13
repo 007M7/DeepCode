@@ -479,9 +479,9 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
   })
 
-  it('folds the bridge additionalContext WITH a downstream listener that also adds context', async () => {
+  it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
     // Both the bridge hook and a later prompt-submit listener attach context; the
-    // request must see BOTH (concatContext keeps the downstream one too).
+    // request must see both as separately sourced durable events.
     const d = dir()
     const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n')
     const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
@@ -490,7 +490,12 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     ctx.on('agent/prompt-submit', async () => ({
       kind: 'allow' as const,
       content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-      additionalContext: { content: [{ type: 'text' as const, text: 'from-downstream' }], source: { kind: 'plugin' as const, plugin: 'policy' } },
+      additionalContexts: [{
+        content: [{ type: 'text' as const, text: 'from-downstream' }],
+        source: { kind: 'plugin' as const, plugin: 'policy' },
+        envelope: 'raw' as const,
+        meta: { owner: 'policy' },
+      }],
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
@@ -502,6 +507,13 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     // the original prompt was replaced by the downstream rewrite
     const userMsg = events(agent).find(e => e.type === 'user/message')
     expect(userMsg?.type === 'user/message' && userMsg.data.content.some(b => b.type === 'text' && b.text === 'rewritten-prompt')).toBe(true)
+    const contexts = events(agent).filter(event => event.type === 'context/message')
+    expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'hooks-claude' },
+      { kind: 'plugin', plugin: 'policy' },
+    ])
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
   })
 
   it('folds the bridge PostToolUse context onto a downstream ACCEPT that replaces content', async () => {

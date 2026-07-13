@@ -155,7 +155,7 @@ export interface LoopHandle {
  *   wait for queued messages (idle)
  *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
  *     'turn/start'; each queued msg: waterfall agent/prompt-submit    ⟵ durable turn boundary (no agent/* mirror)
- *       allow → session('user/message'…) (+ inject additionalContext) | block → drop
+ *       allow → session('user/message'…) (+ inject additionalContexts) | block → drop
  *     every prompt blocked → 'turn/end'(rejected), 0 steps
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
@@ -406,13 +406,14 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = decision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
-      // `allow.additionalContext` is a SEPARATE context/message the next request
-      // also sees. The turn is open, so inject() appends it into THIS turn.
-      if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, {
-          source: decision.additionalContext.source,
-          ...decision.additionalContext.envelope !== undefined ? { envelope: decision.additionalContext.envelope } : {},
-          ...decision.additionalContext.meta !== undefined ? { meta: decision.additionalContext.meta } : {},
+      // Every `allow.additionalContexts` entry is a separate context/message the
+      // next request also sees. The turn is open, so inject() appends each one
+      // into THIS turn without flattening provenance, framing, or metadata.
+      for (const context of decision.additionalContexts ?? []) {
+        agent.inject(context.content, {
+          source: context.source,
+          ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+          ...context.meta !== undefined ? { meta: context.meta } : {},
         })
       }
     }

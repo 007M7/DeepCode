@@ -73,6 +73,18 @@ describe('resolve', () => {
     const target = await fs.resolve(join(dir, 'abs.txt'), { cwd: '/nonexistent-base' })
     expect(await fs.readText(target)).toBe('absolute')
   })
+
+  it('honors a pre-aborted signal', async () => {
+    await expect(fs.resolve('a.txt', { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('honors a signal aborted while resolution is in flight', async () => {
+    const controller = new AbortController()
+    const pending = fs.resolve('a.txt', { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
 })
 
 describe('stat', () => {

@@ -33,6 +33,8 @@ The lifecycle edges have two important local caveats. `agent/created` runs after
 
 Most interception points are cooperative waterfalls returning seam-specific decisions. `agent/pre-step` is a serial surface-mutation checkpoint, while `agent/turn-stop` is the terminal serial fold: it runs after ordinary continuation and steering folding, and a returned stop remains in force through turn close and flush so later steering cannot create an extra step or turn. Ordinary queued prompts remain intact. The full rationale is in the [agent-scope runtime-design RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way).
 
+`PromptDecision.additionalContexts` is an array so every injected context keeps its own source, envelope, and metadata. A `ContinuationDecision` reason is narrower: it becomes a `steering/message`, not a `context/message`, and therefore carries only content and source.
+
 Turn and step boundaries and the model token stream are durable `session/event` facts rather than mirrored `agent/*` notifications. Consumers read `turn/*`, `step/*`, and `assistant/chunk` from the session feed; tool policy and outcome observation belong to the complete pipeline documented by [`dsh-tools`](../tools/README.md).
 
 ### Agent interface (`types.ts`)

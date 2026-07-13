@@ -68,7 +68,10 @@ export function applyWriteTool(ctx: Context): void {
     async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseWriteArgs(args)
       const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      const target = await ctx.fs.resolve(input.filePath, {
+        ...cwd !== undefined ? { cwd } : {},
+        ...exec.signal !== undefined ? { signal: exec.signal } : {},
+      })
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)

@@ -1,5 +1,5 @@
 /**
- * Content identity for workspace instruction caching and duplicate suppression.
+ * Content identity for workspace instruction duplicate suppression.
  *
  * @module @deepseek-ai/dsh-workspace-context/digest
  */

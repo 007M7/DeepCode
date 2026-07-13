@@ -116,7 +116,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'fs',
     summary: 'Abstract filesystem provider service.',
     methods: [
-      'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
+      'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
       'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
       'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
@@ -265,7 +265,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    summary: 'Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it.',
+    summary: 'Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContexts`) or block it.',
   },
   {
     name: 'agent/queued',

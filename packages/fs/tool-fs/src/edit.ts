@@ -83,7 +83,10 @@ export function applyEditTool(ctx: Context): void {
     async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseEditArgs(args)
       const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      const target = await ctx.fs.resolve(input.filePath, {
+        ...cwd !== undefined ? { cwd } : {},
+        ...exec.signal !== undefined ? { signal: exec.signal } : {},
+      })
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.

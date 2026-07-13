@@ -1,15 +1,15 @@
 /**
- * Instruction-file discovery, provider reads, and content-aware caching.
+ * Instruction-file discovery and bounded, abort-aware provider reads.
  *
  * @module @deepseek-ai/dsh-workspace-context/files
  */
 
-import { lstat, readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { lstat, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { FileSystem, FsInfo, FsPathInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
-import { instructionContentSha1 } from './digest.ts'
 import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
@@ -23,33 +23,22 @@ export interface LoadedInstructionFile extends InstructionFile {
   content: string
 }
 
-interface FileSignature {
-  version: string
-}
-
-interface CachedContent extends FileSignature {
-  sha1: string
-  content: string
-}
-
 interface DiscoveredInstructionFile extends InstructionFile {
-  signature: FileSignature
   target?: FsTarget
+  size?: number
 }
-
-/** Provider-version and SHA-1 keyed content cache shared across plugin hooks. */
-export type InstructionContentCache = Map<string, CachedContent>
 
 interface DiscoverOptions {
   cwd: string
   dshHome?: string
   projectRootMarkers?: string[]
   instructionFileCandidates?: string[]
+  signal?: AbortSignal
 }
 
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
-  cache?: InstructionContentCache
+  maxSourceBytes?: number
 }
 
 /** Rendered baseline plus the files that survived byte budgeting. */
@@ -64,12 +53,19 @@ export type ScopeInstructionProbe =
   | { kind: 'absent' }
   | { kind: 'unavailable' }
 
-async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
+function signalOptions(signal?: AbortSignal): { signal: AbortSignal } | undefined {
+  return signal === undefined ? undefined : { signal }
+}
+
+async function nodeStatFile(path: string, signal?: AbortSignal): Promise<{ size: number } | undefined> {
   try {
+    signal?.throwIfAborted()
     const info = await lstat(path)
+    signal?.throwIfAborted()
     if (!info.isFile()) return undefined
-    return { version: String(info.mtimeMs) }
+    return { size: info.size }
   } catch {
+    signal?.throwIfAborted()
     // Candidates can disappear while discovery is in progress.
     return undefined
   }
@@ -78,15 +74,17 @@ async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
 async function fsStatFile(
   path: string,
   fileSystem: FileSystem,
-): Promise<DiscoveredInstructionFile['signature'] & { target: FsTarget } | undefined> {
+  signal?: AbortSignal,
+): Promise<{ target: FsTarget; size?: number } | undefined> {
   try {
-    const pathInfo = await fileSystem.lstat(path)
+    const pathInfo = await fileSystem.lstat(path, undefined, signal)
     if (pathInfo?.type !== 'file') return undefined
-    const target = await fileSystem.resolve(path)
-    const info = await fileSystem.stat(target)
+    const target = await fileSystem.resolve(path, signalOptions(signal))
+    const info = await fileSystem.stat(target, signal)
     if (info?.type !== 'file') return undefined
-    return { version: info.version, target }
+    return { target, ...info.size === undefined ? {} : { size: info.size } }
   } catch {
+    signal?.throwIfAborted()
     // Provider absence and discovery races are both non-fatal.
     return undefined
   }
@@ -95,23 +93,28 @@ async function fsStatFile(
 async function statFile(
   path: string,
   fileSystem?: FileSystem,
-): Promise<(DiscoveredInstructionFile['signature'] & { target?: FsTarget }) | undefined> {
-  return fileSystem === undefined ? nodeStatFile(path) : fsStatFile(path, fileSystem)
+  signal?: AbortSignal,
+): Promise<{ target?: FsTarget; size?: number } | undefined> {
+  return fileSystem === undefined ? nodeStatFile(path, signal) : fsStatFile(path, fileSystem, signal)
 }
 
-async function existsAsMarker(path: string, fileSystem?: FileSystem): Promise<boolean> {
+async function existsAsMarker(path: string, fileSystem?: FileSystem, signal?: AbortSignal): Promise<boolean> {
   if (fileSystem !== undefined) {
     try {
-      const target = await fileSystem.resolve(path)
-      return await fileSystem.stat(target) !== undefined
+      const target = await fileSystem.resolve(path, signalOptions(signal))
+      return await fileSystem.stat(target, signal) !== undefined
     } catch {
+      signal?.throwIfAborted()
       return false
     }
   }
   try {
+    signal?.throwIfAborted()
     await stat(path)
+    signal?.throwIfAborted()
     return true
   } catch {
+    signal?.throwIfAborted()
     return false
   }
 }
@@ -121,17 +124,19 @@ async function existsAsMarker(path: string, fileSystem?: FileSystem): Promise<bo
  * @param cwd - absolute session working directory where the walk begins.
  * @param markers - child names that identify a project root.
  * @param fileSystem - optional provider used instead of host filesystem probes.
+ * @param signal - cancellation for provider and host probes.
  * @returns the discovered project root, or `cwd` when no marker exists.
  */
 export async function findProjectRoot(
   cwd: string,
   markers: readonly string[],
   fileSystem?: FileSystem,
+  signal?: AbortSignal,
 ): Promise<string> {
   let current = resolve(cwd)
   for (;;) {
     for (const marker of markers) {
-      if (await existsAsMarker(join(current, marker), fileSystem)) return current
+      if (await existsAsMarker(join(current, marker), fileSystem, signal)) return current
     }
     const parent = dirname(current)
     if (parent === current) return resolve(cwd)
@@ -190,17 +195,16 @@ async function firstExistingInstructionFile(
   root: string,
   instructionFileCandidates: readonly string[],
   fileSystem?: FileSystem,
+  signal?: AbortSignal,
 ): Promise<DiscoveredInstructionFile | undefined> {
   for (const candidate of instructionFileCandidates) {
     const path = join(dir, candidate)
-    const fileSignature = await statFile(path, fileSystem)
-    if (fileSignature !== undefined) {
-      const { target, ...signature } = fileSignature
+    const fileInfo = await statFile(path, fileSystem, signal)
+    if (fileInfo !== undefined) {
       return {
         absolutePath: path,
         displayPath: relativeDisplay(root, path),
-        signature,
-        ...target === undefined ? {} : { target },
+        ...fileInfo,
       }
     }
   }
@@ -221,21 +225,19 @@ async function discoverInstructionFiles(
   }
 
   const userGlobal = join(config.dshHome, 'AGENTS.md')
-  const userGlobalSignature = await statFile(userGlobal, fileSystem)
-  if (userGlobalSignature !== undefined) {
-    const { target, ...signature } = userGlobalSignature
+  const userGlobalInfo = await statFile(userGlobal, fileSystem, options.signal)
+  if (userGlobalInfo !== undefined) {
     addFile({
       absolutePath: userGlobal,
       displayPath: userGlobalDisplayPath(config.dshHome),
-      signature,
-      ...target === undefined ? {} : { target },
+      ...userGlobalInfo,
     })
   }
 
   const cwd = resolve(options.cwd)
-  const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem)
+  const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem, options.signal)
   for (const dir of ancestorChain(projectRoot, cwd)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem)
+    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem, options.signal)
     if (file !== undefined) addFile(file)
   }
   return files
@@ -250,23 +252,35 @@ export async function discoverBaselineInstructionFiles(options: DiscoverOptions)
   return (await discoverInstructionFiles(options)).map(({ absolutePath, displayPath }) => ({ absolutePath, displayPath }))
 }
 
-async function readCached(
+async function* nodeTextChunks(path: string, signal?: AbortSignal): AsyncIterable<string> {
+  const stream = createReadStream(path, { encoding: 'utf8', signal })
+  for await (const chunk of stream) yield String(chunk)
+}
+
+async function readBounded(
   file: DiscoveredInstructionFile,
-  cache: InstructionContentCache,
+  maxSourceBytes: number,
   fileSystem?: FileSystem,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
-  const path = file.absolutePath
-  const { signature } = file
+  signal?.throwIfAborted()
+  if (file.size !== undefined && file.size > maxSourceBytes) return undefined
   try {
-    const content = fileSystem === undefined || file.target === undefined
-      ? await readFile(path, 'utf8')
-      : await fileSystem.readText(file.target)
-    const sha1 = instructionContentSha1(content)
-    const cached = cache.get(path)
-    if (cached !== undefined && cached.version === signature.version && cached.sha1 === sha1) return cached.content
-    cache.set(path, { ...signature, sha1, content })
-    return content
+    const chunks = fileSystem === undefined || file.target === undefined
+      ? nodeTextChunks(file.absolutePath, signal)
+      : await fileSystem.streamText(file.target, signal)
+    const parts: string[] = []
+    let bytes = 0
+    for await (const chunk of chunks) {
+      signal?.throwIfAborted()
+      bytes += Buffer.byteLength(chunk, 'utf8')
+      if (bytes > maxSourceBytes) return undefined
+      parts.push(chunk)
+    }
+    signal?.throwIfAborted()
+    return parts.join('')
   } catch {
+    signal?.throwIfAborted()
     // A file may disappear or become unreadable after its metadata probe.
     return undefined
   }
@@ -274,7 +288,7 @@ async function readCached(
 
 /**
  * Discover, read, and render the baseline instruction chain.
- * @param options - discovery, byte-budget, and optional cache configuration.
+ * @param options - discovery, source-size, byte-budget, and cancellation configuration.
  * @param fileSystem - optional provider used instead of host filesystem reads.
  * @returns rendered baseline context, or undefined when nothing can be loaded.
  */
@@ -287,7 +301,7 @@ export async function loadBaselineInstructions(
 
 /**
  * Load a baseline together with the files retained after rendering.
- * @param options - discovery, byte-budget, and optional cache configuration.
+ * @param options - discovery, source-size, byte-budget, and cancellation configuration.
  * @param fileSystem - optional provider used instead of host filesystem reads.
  * @returns rendered context and retained files, or undefined when empty or disabled.
  */
@@ -297,11 +311,11 @@ export async function loadBaselineInstructionSet(
 ): Promise<RenderedInstructionSet | undefined> {
   const config = resolveConfig(options)
   if (config.maxBytes <= 0 || !Number.isFinite(config.maxBytes)) return undefined
-  const cache = options.cache ?? new Map<string, CachedContent>()
+  if (config.maxSourceBytes <= 0 || !Number.isFinite(config.maxSourceBytes)) return undefined
   const discovered = await discoverInstructionFiles(options, fileSystem)
   const loaded: LoadedInstructionFile[] = []
   for (const file of discovered) {
-    const content = await readCached(file, cache, fileSystem)
+    const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
     if (content !== undefined) loaded.push({ absolutePath: file.absolutePath, displayPath: file.displayPath, content })
   }
   if (loaded.length === 0) return undefined
@@ -315,16 +329,16 @@ export async function loadBaselineInstructionSet(
  * @param scope - `user-global`, `.`, or a project-relative directory.
  * @param projectRoot - project root used to resolve and display project scopes.
  * @param resolved - normalized plugin configuration.
- * @param cache - shared content cache.
  * @param fileSystem - provider used for no-follow probing and reading.
+ * @param signal - cancellation for provider probes and streaming.
  * @returns present content, confirmed absence, or temporary unavailability.
  */
 export async function loadScopeInstruction(
   scope: string,
   projectRoot: string,
   resolved: ResolvedConfig,
-  cache: InstructionContentCache,
   fileSystem: FileSystem,
+  signal?: AbortSignal,
 ): Promise<ScopeInstructionProbe> {
   const dir = scope === 'user-global'
     ? resolved.dshHome
@@ -334,27 +348,29 @@ export async function loadScopeInstruction(
     const absolutePath = join(dir, candidate)
     let pathInfo: FsPathInfo | undefined
     try {
-      pathInfo = await fileSystem.lstat(absolutePath)
+      pathInfo = await fileSystem.lstat(absolutePath, undefined, signal)
     } catch {
+      signal?.throwIfAborted()
       return { kind: 'unavailable' }
     }
     if (pathInfo === undefined || pathInfo.type !== 'file') continue
     let target: FsTarget
     let info: FsInfo | undefined
     try {
-      target = await fileSystem.resolve(absolutePath)
-      info = await fileSystem.stat(target)
+      target = await fileSystem.resolve(absolutePath, signalOptions(signal))
+      info = await fileSystem.stat(target, signal)
     } catch {
+      signal?.throwIfAborted()
       return { kind: 'unavailable' }
     }
     if (info?.type !== 'file') return { kind: 'unavailable' }
     const discovered: DiscoveredInstructionFile = {
       absolutePath,
       displayPath: scope === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
-      signature: { version: info.version },
       target,
+      ...info.size === undefined ? {} : { size: info.size },
     }
-    const content = await readCached(discovered, cache, fileSystem)
+    const content = await readBounded(discovered, resolved.maxSourceBytes, fileSystem, signal)
     if (content === undefined) return { kind: 'unavailable' }
     return { kind: 'present', file: { absolutePath, displayPath: discovered.displayPath, content } }
   }

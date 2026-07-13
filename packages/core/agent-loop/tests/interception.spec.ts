@@ -17,7 +17,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
  * The interception seams introduced by the hooks taxonomy: `agent/prompt-submit`,
  * `agent/session-start`, the reshaped `agent/turn-continuation`
  * ({@link ContinuationDecision}), and the `tools/pre-execute` / `tools/post-execute`
- * split with `additionalContext` buffering. These verify the canonical event
+ * split with `additionalContexts` buffering. These verify the canonical event
  * surface a hook bridge (or a native plugin) programs against, WITHOUT any
  * external protocol — a native plugin uses the typed decisions directly.
  */
@@ -91,7 +91,7 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('original')
   })
 
-  it('allow with additionalContext injects a separate context/message into the turn', async () => {
+  it('allow with additionalContexts injects separate context/message events into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -100,12 +100,12 @@ describe('agent/prompt-submit', () => {
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContext: {
+        additionalContexts: [{
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
           envelope: 'raw',
           meta,
-        },
+        }],
       }))
 
     send(agent, 'go')
@@ -124,7 +124,7 @@ describe('agent/prompt-submit', () => {
     expect(sent).toContain('extra ctx')
   })
 
-  it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
+  it('a prompt-submit rewrite + additionalContexts is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
     // The merge of the interception seams with master's compaction seam pins one
     // ordering: `agent/prompt-submit` runs (rewriting the prompt and injecting
     // context) BEFORE the step loop, and `agent/pre-step` fires INSIDE the step
@@ -141,7 +141,7 @@ describe('agent/prompt-submit', () => {
       ({
         kind: 'allow',
         content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
     // The pre-step seam (where compaction lives) derives the surface it would act
