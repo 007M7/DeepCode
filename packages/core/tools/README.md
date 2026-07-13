@@ -140,23 +140,35 @@ The wire collapse is the registry's own contribution (`systemPrompt.tools()` is 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Normal tool schemas | In normal mode the model sees each visible definition's exact name, description, and JSON schema. Agent-scoped restrictions and shadows change that agent's end-tool set. | Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent. |
-| Code Mode schema and SDK | Code Mode exposes `run_code` with the exact [tool description](#run_code-tool-description), parameter description `The program: the body of an async TypeScript function.`, and [SDK instructions](#code-mode-sdk-instructions) followed by the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface. | Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction. |
-| Tool-call history and results | The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result. | Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them. |
+### Normal tool schemas
+
+**What the model sees**: In normal mode the model sees each visible definition's exact name, description, and JSON schema. Agent-scoped restrictions and shadows change that agent's end-tool set.
+
+**Token effect**: Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+
+### Code Mode schema and SDK
+
+**What the model sees**: Code Mode exposes `run_code` with the exact [tool description](#run_code-tool-description), parameter description `The program: the body of an async TypeScript function.`, and [SDK instructions](#code-mode-sdk-instructions) followed by the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface.
+
+**Token effect**: Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+
+### Tool-call history and results
+
+**What the model sees**: The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result.
+
+**Token effect**: Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them.
 
 ### Verbatim model-visible text
 
 #### `run_code` tool description
 
-```text
+```markdown
 Execute a TypeScript program against the available tools. Write the BODY of an async function (erasable syntax only; top-level `await` and `return` work) and call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return comes back — curate it.
 ```
 
 #### Code Mode SDK instructions
 
-```text
+```markdown
 ## Writing code for run_code
 
 Pass `run_code` the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:

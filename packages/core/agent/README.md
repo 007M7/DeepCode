@@ -54,10 +54,17 @@ The handle every plugin programs against:
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| User, steering, and injected messages | `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself. | Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent. |
-| Agent-scoped request composition | Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup. | The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal. |
+### User, steering, and injected messages
+
+**What the model sees**: `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself.
+
+**Token effect**: Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent.
+
+### Agent-scoped request composition
+
+**What the model sees**: Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup.
+
+**Token effect**: The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal.
 
 ## Known Limitations and Deferred Work
 

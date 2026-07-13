@@ -110,10 +110,17 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Complete conversation request | For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose. | System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence. |
-| Retained message history | Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded. | Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step. |
+### Complete conversation request
+
+**What the model sees**: For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose.
+
+**Token effect**: System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence.
+
+### Retained message history
+
+**What the model sees**: Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+
+**Token effect**: Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
 
 ## Known Limitations and Deferred Work
 

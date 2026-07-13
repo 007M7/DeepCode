@@ -14,10 +14,17 @@ Answerers today: the ACP bridge ([`@deepseek-ai/dsh-acp`](../../ui/acp/)) forwar
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt and policy notice | Under `ask`, every agent request carries exactly `<!-- dsh-user-approval-policy:ask -->`. Under `never`, it carries exactly ``Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).`` followed by a newline and `<!-- dsh-user-approval-policy:never -->`. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step. | Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history. |
-| Tool outcome | `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context. | Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result. |
+### System prompt and policy notice
+
+**What the model sees**: Under `ask`, every agent request carries exactly `<!-- dsh-user-approval-policy:ask -->`. Under `never`, it carries exactly ``Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).`` followed by a newline and `<!-- dsh-user-approval-policy:never -->`. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
+
+**Token effect**: Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
+
+### Tool outcome
+
+**What the model sees**: `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context.
+
+**Token effect**: Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result.
 
 ## Known Limitations and Deferred Work
 

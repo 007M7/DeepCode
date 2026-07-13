@@ -45,9 +45,11 @@ The failure branches throw `WebError`, whose structured code (plus message detai
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Search or fetch result, indirectly | Through `dsh-tool-web`, the model sees bounded normalized provider data. Selection failures become exactly `Error: configured web provider "<id>" is not registered`, `Error: configured web provider "<id>" is registered but unavailable`, `Error: no usable web provider is registered`, or `Error: multiple usable web providers are registered (<ids>); configure one explicitly`; provider failures use the same `Error: <message>` wrapper. | This seam adds no prompt or schema. Only a call result or error adds retained tokens; source caps bound search output. |
+### Search or fetch result, indirectly
+
+**What the model sees**: Through `dsh-tool-web`, the model sees bounded normalized provider data. Selection failures become exactly `Error: configured web provider "<id>" is not registered`, `Error: configured web provider "<id>" is registered but unavailable`, `Error: no usable web provider is registered`, or `Error: multiple usable web providers are registered (<ids>); configure one explicitly`; provider failures use the same `Error: <message>` wrapper.
+
+**Token effect**: This seam adds no prompt or schema. Only a call result or error adds retained tokens; source caps bound search output.
 
 ## Known Limitations and Deferred Work
 

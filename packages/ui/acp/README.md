@@ -102,11 +102,23 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| User messages | Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted. | Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts. |
-| Human answers and permissions | When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only. | Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. |
-| Loaded sessions | `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message. | Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none. |
+### User messages
+
+**What the model sees**: Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted.
+
+**Token effect**: Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts.
+
+### Human answers and permissions
+
+**What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
+
+**Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+
+### Loaded sessions
+
+**What the model sees**: `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message.
+
+**Token effect**: Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none.
 
 ## Known Limitations and Deferred Work
 

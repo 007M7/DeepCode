@@ -49,9 +49,11 @@ Because the plugin influences the world only through events, removing it does no
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Filesystem tool outcome | This plugin adds no prompt or schema. Through `dsh-tool-fs`, an edit without a prior read becomes exactly `Error: edit requires reading "<path>" first` with code `FS_NOT_OBSERVED`; guarded mutations whose observed version is stale receive the backend's exact `Error: cannot <write-or-edit> "<path>": file changed since it was read` with code `FS_STALE_VERSION`. Observation state itself is never shown. | Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload. |
+### Filesystem tool outcome
+
+**What the model sees**: This plugin adds no prompt or schema. Through `dsh-tool-fs`, an edit without a prior read becomes exactly `Error: edit requires reading "<path>" first` with code `FS_NOT_OBSERVED`; guarded mutations whose observed version is stale receive the backend's exact `Error: cannot <write-or-edit> "<path>": file changed since it was read` with code `FS_STALE_VERSION`. Observation state itself is never shown.
+
+**Token effect**: Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
 
 ## Known Limitations and Deferred Work
 

@@ -14,7 +14,7 @@ packages/<group>/<pkg>/
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
-                   # + the gated Model Experience table or short sentence
+                   # + gated Model Experience context blocks or short sentence
                    # + the gated "Known Limitations and Deferred Work" section
                    # (or a whitelist entry in scripts/verify-readme-limitations.ts)
 ```
@@ -47,15 +47,17 @@ Keep package-specific service API, config, events, extension points, and design 
 ````markdown
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Request surface and condition | Short verbatim text, an exact data-dependent shape, or a link to the long literal below | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
+### Request surface and condition
+
+**What the model sees**: Short verbatim text, an exact data-dependent shape, or a link to the long literal below.
+
+**Token effect**: Fixed, conditional, retained, replaced, capped, or zero-direct token effect.
 
 ### Verbatim model-visible text
 
-#### Descriptive title matching the table row
+#### Descriptive title matching the context surface
 
-```text
+```markdown
 Long stable prompt or schema description, copied exactly from source.
 ```
 
@@ -64,9 +66,9 @@ Long stable prompt or schema description, copied exactly from source.
 - **Consumer-visible gap** — exact boundary or deliberately deferred work.
 ````
 
-Fill Model Experience from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Quote short stable model-visible source literals verbatim in inline code, using named placeholders such as `<mode>` only for interpolated values. Put a long stable prompt or schema description under the optional exact `### Verbatim model-visible text` heading: give each literal an H4 title and its own `text` fence, then link it from the table instead of putting long prose in a cell. Summarize only data-dependent payloads, provider-owned text, or schemas too large to reproduce, and identify their exact shape and renderer. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
+Fill Model Experience from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use one H3 block per context surface; each block has the exact bold-led `What the model sees` and `Token effect` fields shown above. Quote short stable model-visible source literals verbatim in inline code, using named placeholders such as `<mode>` only for interpolated values. Put a long stable prompt or schema description under the optional exact `### Verbatim model-visible text` heading: give each literal an H4 title and its own `markdown` fence, then link it from the relevant context surface. Summarize only data-dependent payloads, provider-owned text, or schemas too large to reproduce, and identify their exact shape and renderer. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
 
-An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table; the verifier also gates the optional verbatim appendix's heading, H4-plus-`text`-fence shape, and placement after the table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
+An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the structured blocks with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist keeps one or more context-surface blocks; the verifier gates their H3 headings, field labels, spacing, and the optional verbatim appendix's H4-plus-`markdown`-fence shape. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
 
 ## 5. Verify
 

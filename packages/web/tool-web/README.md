@@ -36,25 +36,47 @@ The tool never calls a provider's `status()` and never enumerates providers — 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| System prompt | Search and fetch contribute the exact [web-search](#web-search-guidance) and [web-fetch](#web-fetch-guidance) guidance. A scoped tool restriction does not remove these independently registered sections. | Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema. |
-| Tool schemas | `web_search` has exact description `Search the web for current information. Returns an optional summary answer and a list of source URLs.` and query description `The search query.` `web_fetch` has exact description `Fetch the content of a specific HTTP(S) URL and return it decoded to text.` and URL description `The HTTP(S) URL to fetch.` Result-count and timeout budgets are deployment settings, not model arguments. | Fixed schema cost per request; config disablement removes both schema and guidance, while a scoped restriction removes only the schema. |
-| Search result | The optional provider-owned answer is followed by `Sources:` and data-dependent lines shaped exactly `- [<title-or-url>](<url>)`, optionally suffixed ` — <snippet> (<publishedAt>)`. With neither answer nor sources the result says `No results found.` A capped list adds `(Showing the first <count> sources. Refine the query for more.)`; every result ends `Cite the relevant URLs above as markdown links in your answer.` | Data-dependent results are resent until compaction and sources are capped by `searchMaxResults`. |
-| Fetch result | A successful fetch is exactly `Fetched <finalUrl> (HTTP <statusCode>)`, a blank line, and the provider-owned decoded body. Truncation adds a blank line and `(Content truncated. Fetch a more specific URL or section for the full text.)`; failures become `Error: <message>`. Queries and URLs remain in call history. | Provider caps bound body size; retained call arguments and results are resent until compaction, and timeout policy can replace a late result with a short error. |
-| Argument errors | Blank inputs become exactly `Error: query must be a non-empty string` or `Error: url must be a non-empty string`. | Only the failing call adds these retained tokens. |
+### System prompt
+
+**What the model sees**: Search and fetch contribute the exact [web-search](#web-search-guidance) and [web-fetch](#web-fetch-guidance) guidance. A scoped tool restriction does not remove these independently registered sections.
+
+**Token effect**: Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema.
+
+### Tool schemas
+
+**What the model sees**: `web_search` has exact description `Search the web for current information. Returns an optional summary answer and a list of source URLs.` and query description `The search query.` `web_fetch` has exact description `Fetch the content of a specific HTTP(S) URL and return it decoded to text.` and URL description `The HTTP(S) URL to fetch.` Result-count and timeout budgets are deployment settings, not model arguments.
+
+**Token effect**: Fixed schema cost per request; config disablement removes both schema and guidance, while a scoped restriction removes only the schema.
+
+### Search result
+
+**What the model sees**: The optional provider-owned answer is followed by `Sources:` and data-dependent lines shaped exactly `- [<title-or-url>](<url>)`, optionally suffixed ` — <snippet> (<publishedAt>)`. With neither answer nor sources the result says `No results found.` A capped list adds `(Showing the first <count> sources. Refine the query for more.)`; every result ends `Cite the relevant URLs above as markdown links in your answer.`
+
+**Token effect**: Data-dependent results are resent until compaction and sources are capped by `searchMaxResults`.
+
+### Fetch result
+
+**What the model sees**: A successful fetch is exactly `Fetched <finalUrl> (HTTP <statusCode>)`, a blank line, and the provider-owned decoded body. Truncation adds a blank line and `(Content truncated. Fetch a more specific URL or section for the full text.)`; failures become `Error: <message>`. Queries and URLs remain in call history.
+
+**Token effect**: Provider caps bound body size; retained call arguments and results are resent until compaction, and timeout policy can replace a late result with a short error.
+
+### Argument errors
+
+**What the model sees**: Blank inputs become exactly `Error: query must be a non-empty string` or `Error: url must be a non-empty string`.
+
+**Token effect**: Only the failing call adds these retained tokens.
 
 ### Verbatim model-visible text
 
 #### Web search guidance
 
-```text
+```markdown
 Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
 ```
 
 #### Web fetch guidance
 
-```text
+```markdown
 Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for example a result from web_search). It returns the page content decoded to text. Cite the URL as a markdown link when you use its content.
 ```
 

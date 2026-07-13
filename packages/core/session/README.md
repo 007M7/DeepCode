@@ -80,11 +80,23 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Derived message history | The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface nodes verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message. | Appended surface nodes are resent on later steps. A `replace` surface operation removes the shadowed nodes from future inputs without deleting their raw log records. |
-| Crash-repair result | If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.` | Zero tokens in an intact session. Each repaired call adds this retained error text on resume. |
-| Logged request header | The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`. | Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost. |
+### Derived message history
+
+**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface nodes verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+
+**Token effect**: Appended surface nodes are resent on later steps. A `replace` surface operation removes the shadowed nodes from future inputs without deleting their raw log records.
+
+### Crash-repair result
+
+**What the model sees**: If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.`
+
+**Token effect**: Zero tokens in an intact session. Each repaired call adds this retained error text on resume.
+
+### Logged request header
+
+**What the model sees**: The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`.
+
+**Token effect**: Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost.
 
 ## Known Limitations and Deferred Work
 

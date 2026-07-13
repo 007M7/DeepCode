@@ -68,10 +68,17 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Composed terminal agent request | Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the `ask_user_question` schema. Each readline submission becomes a user message. | Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens. |
-| Human-answer result | Through `dsh-tool-ask-user`, successful terminal answers use that package's exact compact JSON shape. Interruption becomes exactly `Error: ask_user_question was interrupted before the user answered`; a closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`. | Only a completed or failed tool call adds retained result tokens; prompts printed while waiting are terminal-only. |
+### Composed terminal agent request
+
+**What the model sees**: Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the `ask_user_question` schema. Each readline submission becomes a user message.
+
+**Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens.
+
+### Human-answer result
+
+**What the model sees**: Through `dsh-tool-ask-user`, successful terminal answers use that package's exact compact JSON shape. Interruption becomes exactly `Error: ask_user_question was interrupted before the user answered`; a closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`.
+
+**Token effect**: Only a completed or failed tool call adds retained result tokens; prompts printed while waiting are terminal-only.
 
 ## Known Limitations and Deferred Work
 

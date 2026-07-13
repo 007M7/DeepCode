@@ -51,10 +51,17 @@ A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Composed system prompt and session prefix | Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist. | The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles. |
-| Composed tool surface | The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both. | Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history. |
+### Composed system prompt and session prefix
+
+**What the model sees**: Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist.
+
+**Token effect**: The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles.
+
+### Composed tool surface
+
+**What the model sees**: The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both.
+
+**Token effect**: Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history.
 
 ## Known Limitations and Deferred Work
 

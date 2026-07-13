@@ -12,9 +12,11 @@ Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Sandbox result, indirectly | Through `dsh-bash-sandbox` and `dsh-tool-bash`, enforcement facts may become that consumer's exact denial marker. `SandboxUnavailableError` becomes exactly `Error: sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS) — Windows has no confinement backend yet — or switch the consumer to danger-full-access.`, optionally followed by ` Runner failure: <detail>`. | This package adds no prompt or schema. Only a denial or failed confinement adds retained result tokens. |
+### Sandbox result, indirectly
+
+**What the model sees**: Through `dsh-bash-sandbox` and `dsh-tool-bash`, enforcement facts may become that consumer's exact denial marker. `SandboxUnavailableError` becomes exactly `Error: sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS) — Windows has no confinement backend yet — or switch the consumer to danger-full-access.`, optionally followed by ` Runner failure: <detail>`.
+
+**Token effect**: This package adds no prompt or schema. Only a denial or failed confinement adds retained result tokens.
 
 ## Known Limitations and Deferred Work
 

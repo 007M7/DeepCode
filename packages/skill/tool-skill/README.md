@@ -22,18 +22,35 @@ The tool does not call `agent.inject()` in v1. Its result is already recorded as
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Session prefix | If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the exact [catalog template](#skill-catalog-template), with one data-dependent entry per sorted skill. The catalog is a frozen user-role session prefix. | Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed. |
-| Tool schema | The model sees `skill(name)` with exact description `Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.` and parameter description `The exact skill name from the available skills list.` | Fixed schema cost per request where the tool is visible. |
-| Tool result | A successful call uses the exact [result template](#skill-result-template) with the exact [provider-managed](#provider-managed-resource-guidance), [directory](#directory-resource-guidance), [URL](#url-resource-guidance), or [opaque](#opaque-resource-guidance) resource guidance. | Loaded instructions are data-dependent tool-result tokens, resent on later steps until compaction; no duplicate `agent.inject()` copy is made. |
-| Tool errors | Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper. | Only a failing call adds these retained tokens. |
+### Session prefix
+
+**What the model sees**: If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the exact [catalog template](#skill-catalog-template), with one data-dependent entry per sorted skill. The catalog is a frozen user-role session prefix.
+
+**Token effect**: Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed.
+
+### Tool schema
+
+**What the model sees**: The model sees `skill(name)` with exact description `Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.` and parameter description `The exact skill name from the available skills list.`
+
+**Token effect**: Fixed schema cost per request where the tool is visible.
+
+### Tool result
+
+**What the model sees**: A successful call uses the exact [result template](#skill-result-template) with the exact [provider-managed](#provider-managed-resource-guidance), [directory](#directory-resource-guidance), [URL](#url-resource-guidance), or [opaque](#opaque-resource-guidance) resource guidance.
+
+**Token effect**: Loaded instructions are data-dependent tool-result tokens, resent on later steps until compaction; no duplicate `agent.inject()` copy is made.
+
+### Tool errors
+
+**What the model sees**: Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
+
+**Token effect**: Only a failing call adds these retained tokens.
 
 ### Verbatim model-visible text
 
 #### Skill catalog template
 
-```text
+```markdown
 <system-reminder>
 A skill is a reusable set of task-specific instructions. The following skills are available in this session:
 
@@ -47,7 +64,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### Skill result template
 
-```text
+```markdown
 <skill_content name="<escaped-name>">
 <skill_resources>
 <resource-guidance>
@@ -61,28 +78,28 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### Provider-managed resource guidance
 
-```text
+```markdown
 Resources for this skill are managed by provider "<provider>".
 Load referenced resources only as needed.
 ```
 
 #### Directory resource guidance
 
-```text
+```markdown
 Base directory for this skill: <path>
 Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.
 ```
 
 #### URL resource guidance
 
-```text
+```markdown
 Base URL for this skill: <url>
 Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.
 ```
 
 #### Opaque resource guidance
 
-```text
+```markdown
 Resources for this skill: <description>
 Load referenced resources only as needed.
 ```

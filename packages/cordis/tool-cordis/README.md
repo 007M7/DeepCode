@@ -34,11 +34,23 @@ Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no defau
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Tool schemas | The conversation model sees `cordis_inspect`, `cordis_mount`, and `cordis_unmount` whenever this plugin is visible. | Fixed schema cost on every request in that tool view. |
-| Tool-call history and results | Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history. | Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small. |
-| Later requests after a mount | A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence. | Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime. |
+### Tool schemas
+
+**What the model sees**: The conversation model sees `cordis_inspect`, `cordis_mount`, and `cordis_unmount` whenever this plugin is visible.
+
+**Token effect**: Fixed schema cost on every request in that tool view.
+
+### Tool-call history and results
+
+**What the model sees**: Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history.
+
+**Token effect**: Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small.
+
+### Later requests after a mount
+
+**What the model sees**: A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence.
+
+**Token effect**: Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime.
 
 ## Known Limitations and Deferred Work
 

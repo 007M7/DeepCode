@@ -1,8 +1,9 @@
 /**
  * Doc-sync gate: require every workspace package README to explain its exact
  * model-visible context surface and token behavior. Most packages require the
- * canonical table plus an optional linked long-literal appendix; an audited
- * allowlist requires one concise zero-effect or indirect-only sentence instead.
+ * canonical context-surface blocks plus an optional linked long-literal
+ * appendix; an audited allowlist requires one concise zero-effect or
+ * indirect-only sentence instead.
  *
  * Run: `tsx scripts/verify-package-readme-model-experience.ts`.
  */
@@ -13,9 +14,9 @@ import { relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
-const TABLE_HEADER = '| Context surface | What the model sees | Token effect |'
-const TABLE_DIVIDER = '|---|---|---|'
 const VERBATIM_HEADING = '### Verbatim model-visible text'
+const MODEL_VIEW_LABEL = '**What the model sees**'
+const TOKEN_EFFECT_LABEL = '**Token effect**'
 const H2_HEADING = /^## .+$/
 
 type SentenceKind = 'none' | 'indirect'
@@ -27,8 +28,8 @@ interface SentenceContract {
 
 /**
  * Packages whose Model Experience is simple enough for one gated sentence.
- * Every other package must carry the canonical table. A package moves on or
- * off this list in the same change that changes its context behavior.
+ * Every other package must carry canonical context-surface blocks. A package
+ * moves on or off this list with the change to its context behavior.
  */
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/bash/bash': { kind: 'indirect', reason: 'The service interface delegates all model rendering to dsh-tool-bash.' },
@@ -75,36 +76,13 @@ function proseLines(text: string): Line[] {
   return kept
 }
 
-/** Split a canonical table row without treating escaped pipes as delimiters. */
-function tableCells(raw: string): string[] | undefined {
-  const last = raw.length - 1
-  if (!raw.startsWith('|') || !raw.endsWith('|') || isEscaped(raw, last)) return undefined
-
-  const cells: string[] = []
-  let start = 1
-  for (let index = 1; index < last; index += 1) {
-    if (raw[index] !== '|' || isEscaped(raw, index)) continue
-    cells.push(raw.slice(start, index).trim())
-    start = index + 1
-  }
-  cells.push(raw.slice(start, last).trim())
-  return cells
-}
-
-/** Whether the character at `index` follows an odd-length backslash run. */
-function isEscaped(text: string, index: number): boolean {
-  let backslashes = 0
-  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) backslashes += 1
-  return backslashes % 2 === 1
-}
-
-/** Validate the optional long-form literal appendix after a Model Experience table. */
+/** Validate the optional long-form literal appendix after the context blocks. */
 function validateVerbatimTail(raw: readonly string[]): { blocks: number; titles: string[]; error?: string } {
   let cursor = 0
   while (raw[cursor]?.trim().length === 0) cursor += 1
   if (cursor === raw.length) return { blocks: 0, titles: [] }
   if (raw[cursor] !== VERBATIM_HEADING) {
-    return { blocks: 0, titles: [], error: `non-table content must begin with ${VERBATIM_HEADING}` }
+    return { blocks: 0, titles: [], error: `content after the context surfaces must begin with ${VERBATIM_HEADING}` }
   }
   cursor += 1
 
@@ -125,14 +103,14 @@ function validateVerbatimTail(raw: readonly string[]): { blocks: number; titles:
     titles.push(title)
     cursor += 1
     while (raw[cursor]?.trim().length === 0) cursor += 1
-    if (raw[cursor] !== '```text') {
-      return { blocks, titles, error: 'each verbatim entry requires an exact ```text fence' }
+    if (raw[cursor] !== '```markdown') {
+      return { blocks, titles, error: 'each verbatim entry requires an exact ```markdown fence' }
     }
     cursor += 1
     const contentStart = cursor
     while (cursor < raw.length && raw[cursor] !== '```') cursor += 1
-    if (cursor === raw.length) return { blocks, titles, error: 'unterminated verbatim ```text fence' }
-    if (cursor === contentStart) return { blocks, titles, error: 'verbatim ```text fence must not be empty' }
+    if (cursor === raw.length) return { blocks, titles, error: 'unterminated verbatim ```markdown fence' }
+    if (cursor === contentStart) return { blocks, titles, error: 'verbatim ```markdown fence must not be empty' }
     cursor += 1
     blocks += 1
   }
@@ -147,7 +125,8 @@ function headingFragment(title: string): string {
 const failures: Failure[] = []
 const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
-let tableCount = 0
+let structuredCount = 0
+let contextSurfaceCount = 0
 let noneCount = 0
 let indirectCount = 0
 let verbatimBlockCount = 0
@@ -157,7 +136,7 @@ for (const [pkg, contract] of Object.entries(SENTENCE_MODEL_EXPERIENCE)) {
     failures.push({ path: `${pkg}/README.md`, message: 'sentence allowlist entry does not name a scanned package' })
   }
   if (contract.reason.trim().length === 0) {
-    failures.push({ path: `${pkg}/README.md`, message: 'sentence allowlist entry must justify why a table is unnecessary' })
+    failures.push({ path: `${pkg}/README.md`, message: 'sentence allowlist entry must justify why structured context surfaces are unnecessary' })
   }
 }
 
@@ -225,59 +204,81 @@ for (const packageJson of packageJsons) {
     continue
   }
 
-  const headers = section.filter(line => line.raw === TABLE_HEADER)
-  const header = headers[0]
-  const headerIndex = header === undefined ? -1 : section.indexOf(header)
-  if (header === undefined || headers.length !== 1 || headerIndex < 0 || section[headerIndex + 1]?.raw !== TABLE_DIVIDER) {
-    failures.push({ path: readme, message: `must contain the exact table header ${TABLE_HEADER}` })
+  const appendixIndex = content.findIndex(line => line.raw === VERBATIM_HEADING)
+  const surfaceContent = appendixIndex < 0 ? content : content.slice(0, appendixIndex)
+  if (surfaceContent.length === 0 || surfaceContent.length % 3 !== 0) {
+    failures.push({ path: readme, message: 'must contain one or more complete context-surface blocks' })
     continue
   }
 
-  const rows: Line[] = []
-  for (const line of section.slice(headerIndex + 2)) {
-    if (!line.raw.startsWith('|')) break
-    rows.push(line)
-  }
-  if (rows.length === 0) {
-    failures.push({ path: readme, message: 'Model Experience table must contain at least one data row' })
-    continue
-  }
-  for (const row of rows) {
-    const cells = tableCells(row.raw)
-    if (cells === undefined || cells.length !== 3 || cells.some(cell => cell.length === 0)) {
-      failures.push({ path: readme, message: `line ${row.index}: invalid three-column Model Experience row: ${row.raw}` })
+  const surfaces: Array<{ heading: Line; modelView: Line; tokenEffect: Line }> = []
+  const surfaceFragments = new Set<string>()
+  let previousTokenEffect: Line | undefined
+  let surfaceError = false
+  for (let index = 0; index < surfaceContent.length; index += 3) {
+    const heading = surfaceContent[index] as Line
+    const modelView = surfaceContent[index + 1] as Line
+    const tokenEffect = surfaceContent[index + 2] as Line
+    const fragment = /^### \S/.test(heading.raw) && heading.raw !== VERBATIM_HEADING
+      ? headingFragment(heading.raw.slice('### '.length))
+      : ''
+    if (fragment.length === 0) {
+      failures.push({ path: readme, message: `line ${heading.index}: each context surface requires a non-empty H3 heading` })
+      surfaceError = true
+      break
     }
+    if (surfaceFragments.has(fragment)) {
+      failures.push({ path: readme, message: `line ${heading.index}: duplicate context-surface link fragment ${JSON.stringify(fragment)}` })
+      surfaceError = true
+      break
+    }
+    if (!modelView.raw.startsWith(`${MODEL_VIEW_LABEL}: `) || modelView.raw.slice(`${MODEL_VIEW_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${modelView.index}: context surface requires non-empty ${MODEL_VIEW_LABEL}: text` })
+      surfaceError = true
+      break
+    }
+    if (!tokenEffect.raw.startsWith(`${TOKEN_EFFECT_LABEL}: `) || tokenEffect.raw.slice(`${TOKEN_EFFECT_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${tokenEffect.index}: context surface requires non-empty ${TOKEN_EFFECT_LABEL}: text` })
+      surfaceError = true
+      break
+    }
+    const expectedHeadingLine = previousTokenEffect?.index === undefined ? modelHeading.index + 2 : previousTokenEffect.index + 2
+    if (heading.index !== expectedHeadingLine || modelView.index !== heading.index + 2 || tokenEffect.index !== modelView.index + 2) {
+      failures.push({ path: readme, message: `line ${heading.index}: context-surface heading and fields require one blank line between each element` })
+      surfaceError = true
+      break
+    }
+    surfaceFragments.add(fragment)
+    surfaces.push({ heading, modelView, tokenEffect })
+    previousTokenEffect = tokenEffect
   }
-  if (content[0] !== header) {
-    failures.push({ path: readme, message: 'Model Experience table must be the first nonblank content in the section' })
+  if (surfaceError) continue
+
+  const lastSurface = surfaces.at(-1) as { heading: Line; modelView: Line; tokenEffect: Line }
+  if (appendixIndex >= 0 && (content[appendixIndex] as Line).index !== lastSurface.tokenEffect.index + 2) {
+    failures.push({ path: readme, message: `${VERBATIM_HEADING} must follow the final context surface after one blank line` })
     continue
   }
-  const tableLines = new Set([header, section[headerIndex + 1], ...rows])
-  const extra = content.filter(line => !tableLines.has(line))
-  if (extra.length > 0 && (extra[0]?.raw !== VERBATIM_HEADING || extra.slice(1).some(line => !/^#### \S/.test(line.raw)))) {
-    const first = extra[0] as Line
-    failures.push({ path: readme, message: `line ${first.index}: invalid content after Model Experience table: ${first.raw}` })
-    continue
-  }
-  const lastRow = rows.at(-1) as Line
-  const rawTail = rawLines.slice(lastRow.index, nextH2Line - 1)
+
+  const rawTail = rawLines.slice(lastSurface.tokenEffect.index, nextH2Line - 1)
   const verbatim = validateVerbatimTail(rawTail)
   if (verbatim.error !== undefined) {
     failures.push({ path: readme, message: verbatim.error })
     continue
   }
-  const tableText = rows.map(row => row.raw).join('\n')
-  const unlinked = verbatim.titles.find(title => !tableText.includes(`](#${headingFragment(title)})`))
+  const modelViewText = surfaces.map(surface => surface.modelView.raw).join('\n')
+  const unlinked = verbatim.titles.find(title => !modelViewText.includes(`](#${headingFragment(title)})`))
   if (unlinked !== undefined) {
-    failures.push({ path: readme, message: `verbatim entry ${JSON.stringify(unlinked)} must be linked from a Model Experience table row` })
+    failures.push({ path: readme, message: `verbatim entry ${JSON.stringify(unlinked)} must be linked from a context surface's ${MODEL_VIEW_LABEL} field` })
     continue
   }
   verbatimBlockCount += verbatim.blocks
-  tableCount += 1
+  contextSurfaceCount += surfaces.length
+  structuredCount += 1
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${tableCount} tables, ${noneCount} none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${noneCount} none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 

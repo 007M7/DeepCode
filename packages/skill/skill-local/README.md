@@ -38,9 +38,11 @@ Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdow
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Skill catalog and loaded body, indirectly | When `dsh-tool-skill` is visible, discovered model-invocable skill names and descriptions enter its session-prefix catalog; a `skill` call returns the selected instructions and resource-base guidance. Paths, provider ranks, and disabled skills stay out of the catalog. | Zero direct tokens from this provider. Catalog cost scales with discovered entries under the consumer's per-description cap; a full body is added only after selection and remains in tool history. |
+### Skill catalog and loaded body, indirectly
+
+**What the model sees**: When `dsh-tool-skill` is visible, discovered model-invocable skill names and descriptions enter its session-prefix catalog; a `skill` call returns the selected instructions and resource-base guidance. Paths, provider ranks, and disabled skills stay out of the catalog.
+
+**Token effect**: Zero direct tokens from this provider. Catalog cost scales with discovered entries under the consumer's per-description cap; a full body is added only after selection and remains in tool history.
 
 ## Known Limitations and Deferred Work
 

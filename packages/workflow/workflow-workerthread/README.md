@@ -81,10 +81,17 @@ The host keeps a ledger of forwarded child starts. A graceful worker supplies th
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Child-agent requests | Every script `agent()` call sends its prompt verbatim and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events. | Potentially many independent child contexts are paid, bounded by `maxConcurrentAgents`, `maxTotalAgents`, and `maxItemsPerCall`; they never join the parent history directly. |
-| Parent tool result, indirectly | Through `dsh-tool-workflow`, success exposes only the materialized final JSON value and child count in that consumer's exact wrapper. An engine failure becomes exactly `Error: workflow run failed: <engine-error>`; stable engine-error shapes include `workflow script does not parse: <error>`, `invalid meta: <violations>`, `agent() requires a non-empty prompt string`, `agent() could not start a child: <error>`, `child agent run failed: <error>`, and the exact `parallel()`, `pipeline()`, `phase()`, option, schema, and JSON-boundary validation messages from this package. Intermediate child outputs are available to the script but not the parent model. | Zero direct parent tokens from this engine. Final result size is capped by the tool consumer and retained until compaction. |
+### Child-agent requests
+
+**What the model sees**: Every script `agent()` call sends its prompt verbatim and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
+
+**Token effect**: Potentially many independent child contexts are paid, bounded by `maxConcurrentAgents`, `maxTotalAgents`, and `maxItemsPerCall`; they never join the parent history directly.
+
+### Parent tool result, indirectly
+
+**What the model sees**: Through `dsh-tool-workflow`, success exposes only the materialized final JSON value and child count in that consumer's exact wrapper. An engine failure becomes exactly `Error: workflow run failed: <engine-error>`; stable engine-error shapes include `workflow script does not parse: <error>`, `invalid meta: <violations>`, `agent() requires a non-empty prompt string`, `agent() could not start a child: <error>`, `child agent run failed: <error>`, and the exact `parallel()`, `pipeline()`, `phase()`, option, schema, and JSON-boundary validation messages from this package. Intermediate child outputs are available to the script but not the parent model.
+
+**Token effect**: Zero direct parent tokens from this engine. Final result size is capped by the tool consumer and retained until compaction.
 
 ## Known Limitations and Deferred Work
 

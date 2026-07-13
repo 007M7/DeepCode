@@ -46,9 +46,11 @@ Named `name` / `inject` / `Config` / `apply`, with **no default export**: the co
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Keyless test stream | The real loop still assembles its normal system prompt, tools, prefix, and history, but no provider model receives them. Recorded assistant chunks are replayed as the response and then enter later history exactly like live output. | Zero billed or tokenizer-evaluated model tokens. Fixture output creates deterministic retained test context for later replay steps. |
+### Keyless test stream
+
+**What the model sees**: The real loop still assembles its normal system prompt, tools, prefix, and history, but no provider model receives them. Recorded assistant chunks are replayed as the response and then enter later history exactly like live output.
+
+**Token effect**: Zero billed or tokenizer-evaluated model tokens. Fixture output creates deterministic retained test context for later replay steps.
 
 ## Known Limitations and Deferred Work
 

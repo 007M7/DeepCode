@@ -21,9 +21,11 @@ Aborting the required request signal or disposing before `result` settles flips 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Deterministic test result | No child model runs. When exercised through `dsh-tool-subagent`, the parent sees the mock provider's configured reply or stop-reason error, and structured tests receive the configured object. | Zero child-model tokens. Only the scripted final result is added to the parent test history. |
+### Deterministic test result
+
+**What the model sees**: No child model runs. When exercised through `dsh-tool-subagent`, the parent sees the mock provider's configured reply or stop-reason error, and structured tests receive the configured object.
+
+**Token effect**: Zero child-model tokens. Only the scripted final result is added to the parent test history.
 
 ## Known Limitations and Deferred Work
 

@@ -59,23 +59,35 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| Conversation history | Before a step whose estimated envelope and history exceed the threshold, the conversation model receives the exact [checkpoint preamble](#conversation-checkpoint-preamble), a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. This one checkpoint replaces the selected older range and is followed by the retained recent units. | The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget. |
-| Auxiliary summarizer user message | The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored. | This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once. |
-| Auxiliary summarizer system prompt | The summarization model receives the exact [checkpoint-writing instruction](#auxiliary-summarizer-system-prompt). | Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt. |
+### Conversation history
+
+**What the model sees**: Before a step whose estimated envelope and history exceed the threshold, the conversation model receives the exact [checkpoint preamble](#conversation-checkpoint-preamble), a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. This one checkpoint replaces the selected older range and is followed by the retained recent units.
+
+**Token effect**: The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
+
+### Auxiliary summarizer user message
+
+**What the model sees**: The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+
+**Token effect**: This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
+
+### Auxiliary summarizer system prompt
+
+**What the model sees**: The summarization model receives the exact [checkpoint-writing instruction](#auxiliary-summarizer-system-prompt).
+
+**Token effect**: Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
 
 ### Verbatim model-visible text
 
 #### Conversation checkpoint preamble
 
-```text
+```markdown
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
 #### Auxiliary summarizer system prompt
 
-```text
+```markdown
 You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
 Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
