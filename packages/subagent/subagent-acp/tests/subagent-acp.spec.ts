@@ -121,16 +121,22 @@ describe('buildChildEnv', () => {
 })
 
 describe('dsh-subagent-acp', () => {
-  it('drives a child process to completion and returns its streamed output', async () => {
+  it('drives child processes with parent-unique run ids and returns streamed output', async () => {
     const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn', MOCK_SESSION_ID: 'acp-child-session' })
     const run = await ctx.subagents.start('acp', request('do X'))
-    expect(run.id).toBe('acp-child-session')
+    expect(run.id).not.toBe('acp-child-session')
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('hello from acp child')
     const disposal = run.dispose()
     expect(run.dispose()).toBe(disposal)
     await disposal
+
+    const nextRun = await ctx.subagents.start('acp', request('do X again'))
+    expect(nextRun.id).not.toBe(run.id)
+    expect(nextRun.id).not.toBe('acp-child-session')
+    await nextRun.result
+    await nextRun.dispose()
   })
 
   it('maps a max_tokens stop reason', async () => {
