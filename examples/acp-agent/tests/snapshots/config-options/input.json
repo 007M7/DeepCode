@@ -9,12 +9,12 @@
     {
       "op": "setConfigOption",
       "configId": "permission",
-      "value": "yolo"
+      "value": "workspace-write"
     },
     {
       "op": "setConfigOption",
       "configId": "permission",
-      "value": "request"
+      "value": "danger-full-access"
     },
     {
       "op": "setConfigOptionExpectError",

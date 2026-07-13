@@ -855,7 +855,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        // Both advertised options are selects, so the boolean-shaped variant of
+        // The advertised option is a select, so the boolean-shaped variant of
         // the request is a protocol misuse regardless of configId.
         if (typeof params.value !== 'string') {
           throw invalidParams(`config option ${params.configId} is a select; boolean values are not accepted`)

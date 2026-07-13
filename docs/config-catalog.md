@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -452,9 +452,9 @@ Requires: `bash` · `approval`
 /** The {@link PermissionService} config: the deployment's preset table. */
 export interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `request`
-   * (workspace-write + ask) and `yolo` (danger-full-access + never). The
-   * name `custom` is reserved for the derived not-a-preset state.
+   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
+   * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
 }

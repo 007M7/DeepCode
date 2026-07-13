@@ -28,10 +28,6 @@ const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 
-// The sandbox variant (its own composition, not an include patch: sandboxed
-// bash executor + the approval seam over the same app spine).
-const SANDBOX_CONFIG = fileURLToPath(new URL('../sandbox.cordis.yml', import.meta.url))
-
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
     case undefined:
@@ -141,41 +137,15 @@ const SCENARIOS: Scenario[] = [
   // therefore pins its own class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The SANDBOX variant (sandbox.cordis.yml: sandboxed bash + approval seam).
-  // Replay swaps only the MODEL for the recorded transcript — every bash call
-  // re-executes for real under the host's actual runner (Seatbelt on macOS,
-  // bwrap on Linux CI), so these recordings double as cross-backend
-  // confinement regression; their commands are limited to `cat`/`printf`
-  // shapes whose bytes are identical across those backends and across
-  // GNU/BSD userlands. Deliberately ABSENT: a scenario whose transcript
-  // carries a real sandbox DENIAL — the denied command's own stderr is the
-  // backend's dialect (EROFS/EACCES/EPERM phrasing), so such a fixture
-  // replays only on the platform that recorded it; the denial→marker path
-  // stays on dsh-tool-bash's unit tests and the real-kernel sandbox e2e legs,
-  // and the escalation scenarios sidestep it by having the USER assert the
-  // prior denial. config-options: the session config-option surface this
-  // composition adds (both advertised selects, the refreshed state every
-  // set_config_option answers with, both rejection shapes) — protocol-only,
-  // replays on runner-less hosts. permission-switching: the runtime
-  // preset-switch arc (request → yolo: one permission/preset event written
-  // through to both knobs) and NECESSARILY this class's pinned-header
-  // scenario (yolo's approval=never rewrites the prompt section; the
-  // resulting request/header-delta is legal only in the pinning scenario) —
-  // the pin commits the full sandbox header (persona, tool schemas WITH the
-  // escalation fields) plus the approval delta and its "changed by the user"
-  // notice; the sandbox half of the bundle stays deliberately silent (the
-  // visibility asymmetry) and is pinned as its stamped knob event.
-  // escalation-approved/rejected: the approval wire end-to-end under the
-  // default request preset (workspace-write/ask) — the escalating call
-  // (danger-full-access for a user-asserted outside-workspace denial)
-  // streams, session/request_permission attaches to it, and the scripted
-  // answer drives each branch (approved runs under the granted mode and
-  // self-cleans its /tmp target; rejected executes nothing, failing with
-  // the deterministic text).
-  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
-  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
-  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox', configPath: SANDBOX_CONFIG },
+  // The default tree owns the single Permissions select. Snapshot mode starts
+  // in danger-full-access so established fixtures stay runner-independent;
+  // these policy scenarios switch to workspace-write in their input scripts.
+  // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
+  // packages' e2e suites.
+  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({

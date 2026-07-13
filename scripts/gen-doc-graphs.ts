@@ -195,7 +195,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     implementations: [],
     consumers: ['acp'],
-    note: 'User-facing preset table (request/yolo) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
     key: 'codeRuntime',

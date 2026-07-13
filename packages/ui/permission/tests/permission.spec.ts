@@ -28,26 +28,26 @@ describe('effectivePermissionPreset', () => {
   it('folds to the last event, or undefined without one', () => {
     const session = freshSession('sess-fold')
     expect(effectivePermissionPreset(session.events)).toBeUndefined()
-    session.append('permission/preset', { preset: 'yolo' })
-    session.append('permission/preset', { preset: 'request' })
-    expect(effectivePermissionPreset(session.events)).toBe('request')
+    session.append('permission/preset', { preset: 'danger-full-access' })
+    session.append('permission/preset', { preset: 'workspace-write' })
+    expect(effectivePermissionPreset(session.events)).toBe('workspace-write')
   })
 })
 
 describe('PermissionService', () => {
   it('advertises the preset table in declaration order and resolves bundles', async () => {
     const ctx = await mounted()
-    expect(ctx.permission.names).toEqual(['request', 'yolo'])
-    expect(ctx.permission.resolve('yolo')).toMatchObject({ sandbox: 'danger-full-access', approval: 'never' })
+    expect(ctx.permission.names).toEqual(['workspace-write', 'danger-full-access'])
+    expect(ctx.permission.resolve('danger-full-access')).toMatchObject({ sandbox: 'danger-full-access', approval: 'never' })
     expect(() => ctx.permission.resolve('plan')).toThrow(/unknown preset "plan"/)
   })
 
-  it('current() derives from the effective knobs: composition defaults hit request, a switch hits its preset', async () => {
+  it('current() derives from the effective knobs: composition defaults hit workspace-write, a switch hits its preset', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-current')
-    expect(ctx.permission.current(session.events)).toBe('request')
-    ctx.permission.set(session, 'yolo')
-    expect(ctx.permission.current(session.events)).toBe('yolo')
+    expect(ctx.permission.current(session.events)).toBe('workspace-write')
+    ctx.permission.set(session, 'danger-full-access')
+    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
   })
 
   it('a knob state matching no table entry derives custom — a state, not an error', async () => {
@@ -57,8 +57,8 @@ describe('PermissionService', () => {
     expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
     // Switching FROM custom is an ordinary write-through; custom itself is
     // never a target.
-    ctx.permission.set(session, 'yolo')
-    expect(ctx.permission.current(session.events)).toBe('yolo')
+    ctx.permission.set(session, 'danger-full-access')
+    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
     expect(() => ctx.permission.resolve(CUSTOM_PRESET)).toThrow(/unknown preset/)
   })
 
@@ -70,26 +70,26 @@ describe('PermissionService', () => {
 
   it('the fold breaks bundle ties; a stale fold no longer matching falls back to table order', async () => {
     const ctx = await mounted({ config: { presets: {
-      request: { sandbox: 'workspace-write', approval: 'ask' },
+      'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
       agentish: { sandbox: 'workspace-write', approval: 'ask' },
-      yolo: { sandbox: 'danger-full-access', approval: 'never' },
+      'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
     } } })
     const session = freshSession('sess-tie')
-    // Same bundle as request, chosen explicitly: the fold names it.
+    // Same bundle as workspace-write, chosen explicitly: the fold names it.
     ctx.permission.set(session, 'agentish')
     expect(ctx.permission.current(session.events)).toBe('agentish')
     // A knob drifts: the fold's bundle no longer matches → reverse map wins.
     session.append('approval/policy', { policy: 'never' })
     session.append('bash/sandbox-mode', { mode: 'danger-full-access' })
-    expect(ctx.permission.current(session.events)).toBe('yolo')
+    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
   })
 
   it('set() writes through: one preset event plus both knob events', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-set')
-    ctx.permission.set(session, 'yolo')
+    ctx.permission.set(session, 'danger-full-access')
     expect(session.events.map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'yolo' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
       ['bash/sandbox-mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
     ])
@@ -98,22 +98,22 @@ describe('PermissionService', () => {
   it('set() to the current preset is a no-op when the knobs already match (clicks are not switches)', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-noop')
-    ctx.permission.set(session, 'request')
+    ctx.permission.set(session, 'workspace-write')
     expect(session.events).toHaveLength(0)
   })
 
   it('re-asserting a preset from a drifted (custom) state re-records the choice and repairs the knob', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-drift')
-    ctx.permission.set(session, 'yolo')
+    ctx.permission.set(session, 'danger-full-access')
     // A knob drifts out from under the preset (a direct setter call, a test
     // scenario): the session derives custom, and re-asserting the preset is
     // a real switch again — choice re-recorded, only the drifted knob moves.
     session.append('bash/sandbox-mode', { mode: 'read-only' })
-    ctx.permission.set(session, 'yolo')
+    ctx.permission.set(session, 'danger-full-access')
     const tail = session.events.slice(4)
     expect(tail.map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'yolo' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
       ['bash/sandbox-mode', { mode: 'danger-full-access' }],
     ])
   })
@@ -125,7 +125,7 @@ describe('PermissionService', () => {
 
   it('optionOf() presents shipped labels/descriptions, falls back to the raw key, and fixes custom', async () => {
     const ctx = await mounted()
-    expect(ctx.permission.optionOf('yolo')).toEqual({ value: 'yolo', name: 'YOLO', description: 'Full file access, no approval prompts.' })
+    expect(ctx.permission.optionOf('danger-full-access')).toEqual({ value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access, no approval prompts.' })
     expect(ctx.permission.optionOf('custom')).toEqual({ value: 'custom', name: 'Custom', description: 'A hand-set knob combination outside the preset table.' })
     const bare = await mounted({ config: { presets: { plain: { sandbox: 'workspace-write', approval: 'ask' } } } })
     expect(bare.permission.optionOf('plain')).toEqual({ value: 'plain', name: 'plain' })
@@ -140,8 +140,8 @@ describe('PermissionService', () => {
   it('reads a schema-less approval stand-in as the ask default', async () => {
     const ctx = await mounted({ approvalDefault: undefined })
     const session = freshSession('sess-standin')
-    ctx.permission.set(session, 'request')
+    ctx.permission.set(session, 'workspace-write')
     expect(session.events).toHaveLength(0)
-    expect(ctx.permission.current(session.events)).toBe('request')
+    expect(ctx.permission.current(session.events)).toBe('workspace-write')
   })
 })

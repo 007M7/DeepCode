@@ -15,4 +15,4 @@ Every rung has its keyless world-proof (`tests/bwrap.e2e.ts`, `tests/landlock.e2
   name: '@deepseek-ai/dsh-sandbox-local'
 ```
 
-Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the acp-agent example's sandbox variant (`sandbox.cordis.yml`)](../../../examples/acp-agent/) for the runnable composition.
+Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the acp-agent example](../../../examples/acp-agent/) for the runnable default composition.

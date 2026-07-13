@@ -2,8 +2,8 @@
  * User-facing PERMISSION PRESETS: one product-level knob over the two
  * mechanism knobs. A preset names a bundle — its sandbox mode
  * (`bash/sandbox-mode`) and its approval policy (`approval/policy`) — so a
- * user picks `request` or `yolo` where the mechanism tiers stay orthogonal
- * capabilities. Switching a preset WRITES THROUGH: one `permission/preset` event
+ * user picks `workspace-write` or `danger-full-access` while the mechanism
+ * tiers stay orthogonal capabilities. Switching a preset WRITES THROUGH: one `permission/preset` event
  * records the chosen bundle (the audit fact reverse-mapping cannot recover —
  * two presets may share knob values and differ only in composed policy, the
  * planned `agent` preset being the standing example), then each knob event
@@ -96,9 +96,9 @@ export function effectivePermissionPreset(events: readonly SessionEvent[]): stri
 /** The {@link PermissionService} config: the deployment's preset table. */
 export interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `request`
-   * (workspace-write + ask) and `yolo` (danger-full-access + never). The
-   * name `custom` is reserved for the derived not-a-preset state.
+   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
+   * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
 }
@@ -121,13 +121,14 @@ export class PermissionService extends Service {
       name: z.string(),
       description: z.string(),
     })).default({
-      request: {
+      // Keep the user-facing preset names explicit about filesystem reach.
+      'workspace-write': {
         sandbox: 'workspace-write', approval: 'ask',
-        name: 'Request', description: 'Write inside the workspace; anything wider asks for your approval.',
+        name: 'workspace-write', description: 'Write inside the workspace; anything wider asks for your approval.',
       },
-      yolo: {
+      'danger-full-access': {
         sandbox: 'danger-full-access', approval: 'never',
-        name: 'YOLO', description: 'Full file access, no approval prompts.',
+        name: 'danger-full-access', description: 'Full file access, no approval prompts.',
       },
     }),
   })

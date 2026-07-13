@@ -17,9 +17,9 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * The sandbox variant (`sandbox.cordis.yml`) end to end.
+ * The default ACP composition (`cordis.yml`) end to end.
  *
- * Keyless smoke: boot the REAL `sandbox.cordis.yml` through the `dsh-acp-agent` bin as
+ * Keyless smoke: boot the REAL `cordis.yml` through the `dsh-acp-agent` bin as
  * an ACP subprocess and drive initialize + session/new — the real-Loader-path
  * guard (postmortem 0001) for THIS tree's export shapes, which now include the
  * sandbox executor AND the approval service. No prompt is sent, so neither the
@@ -36,7 +36,7 @@ import {
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../sandbox.cordis.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The subprocess runs from a temp cwd OUTSIDE the repo; point tsx at the repo
 // tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
@@ -65,10 +65,10 @@ interface Spawned {
 }
 
 /** Boot the example as an ACP subprocess; the scripted client answers every permission prompt with `answer`. */
-function spawnSandboxAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
+function spawnAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
+    ['--import', tsxLoader, binScript, '--config', configPath],
     {
       cwd,
       // A dummy key lets the deepseek adapter boot keyless (presence-checked at
@@ -116,10 +116,10 @@ afterEach(async () => {
   workdir = undefined
 })
 
-describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)', () => {
+describe('default sandbox composition keyless smoke (real cordis.yml via the Loader)', () => {
   it('boots the tree — sandbox executor + approval service + bridge — and opens a session', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-smoke-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = spawnAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     // A dummy key boots the adapter; no prompt is ever sent, so no model call
     // and no sandbox runner probe happen. This drives the fiber tree the same
@@ -132,7 +132,7 @@ describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)
 
   it('advertises the Permissions select and honors a switch end to end (no key, no model)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = spawnAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     // This tree composes the permission presets over bash-sandbox + approval →
@@ -140,19 +140,19 @@ describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)
     const created = await client.newSession({ cwd: workdir, mcpServers: [] })
     const advertised = created.configOptions ?? []
     expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'request']])
+      .toEqual([['permission', 'workspace-write']])
     // A switch responds with the COMPLETE refreshed state (the spec contract),
     // and the new current survives in the response of a second switch.
-    const afterYolo = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'permission', value: 'yolo',
+    const afterFullAccess = await client.setSessionConfigOption({
+      sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
     })
-    expect(afterYolo.configOptions?.find(option => option.id === 'permission'))
-      .toMatchObject({ currentValue: 'yolo' })
+    expect(afterFullAccess.configOptions?.find(option => option.id === 'permission'))
+      .toMatchObject({ currentValue: 'danger-full-access' })
     const again = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'permission', value: 'yolo',
+      sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
     })
     expect((again.configOptions ?? []).map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'yolo']])
+      .toEqual([['permission', 'danger-full-access']])
     // An out-of-vocabulary value is a protocol error, never a silent default.
     await expect(client.setSessionConfigOption({
       sessionId: created.sessionId, configId: 'permission', value: 'plan',
@@ -160,10 +160,10 @@ describe('sandbox variant keyless smoke (real sandbox.cordis.yml via the Loader)
   }, 30_000)
 })
 
-describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox variant e2e: the live approval loop', () => {
+describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox composition e2e: the live approval loop', () => {
   it('denial → model escalation → editor prompt → allow-once → the retried write lands on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'allow-once')
+    spawned = spawnAcpAgent(workdir, 'allow-once')
     const { client, permissionRequests } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -192,7 +192,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox variant e2
 
   it('a rejected escalation stays denied: no write lands, the turn still ends', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = spawnAcpAgent(workdir, 'reject-once')
     const { client, permissionRequests } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

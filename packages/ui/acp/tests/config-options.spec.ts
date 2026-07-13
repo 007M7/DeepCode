@@ -24,7 +24,7 @@ import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.t
  * the documented capability override point (`dsh-bash-sandbox` overrides it
  * the same way), so the bridge sees exactly what a sandboxing composition
  * advertises without this suite dragging in a kernel sandbox stack. It
- * reports `workspace-write`: the shipped `request` preset's bundle, which
+ * reports `workspace-write`: the shipped preset's bundle, which
  * the permission service validates the composition defaults against.
  */
 class SandboxedLocalExecutor extends LocalBashExecutor {
@@ -43,8 +43,8 @@ function permissionOption(currentValue: string): object {
     type: 'select',
     currentValue,
     options: [
-      { value: 'request', name: 'Request', description: 'Write inside the workspace; anything wider asks for your approval.' },
-      { value: 'yolo', name: 'YOLO', description: 'Full file access, no approval prompts.' },
+      { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace; anything wider asks for your approval.' },
+      { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access, no approval prompts.' },
     ],
   }
 }
@@ -87,15 +87,15 @@ describe('acp bridge — session config options', () => {
   it('advertises the Permissions select with the default preset current', async () => {
     h = await presetStack()
     const res = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([permissionOption('request')])
+    expect(res.configOptions).toEqual([permissionOption('workspace-write')])
   })
 
   it('an idle switch is pending (overlaid, not yet logged), then anchors INSIDE the next turn', async () => {
     h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
 
-    const after = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    expect(after.configOptions).toEqual([permissionOption('yolo')])
+    const after = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(after.configOptions).toEqual([permissionOption('danger-full-access')])
 
     // Idle: nothing in the log yet — turn-enclosure forbids a bare append.
     const session = h.ctx.agents.list()[0]?.session
@@ -103,7 +103,7 @@ describe('acp bridge — session config options', () => {
 
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = session?.events ?? []
-    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'yolo' }])
+    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'danger-full-access' }])
     expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'danger-full-access' }])
     expect(events.filter(e => e.type === 'approval/policy').map(e => e.data)).toEqual([{ policy: 'never' }])
     const turnStart = events.findIndex(e => e.type === 'turn/start')
@@ -115,24 +115,24 @@ describe('acp bridge — session config options', () => {
   it('an idle flip-flop anchors as ONE switch (last write wins)', async () => {
     h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    const again = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    expect(again.configOptions).toEqual([permissionOption('yolo')])
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const again = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(again.configOptions).toEqual([permissionOption('danger-full-access')])
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
     expect(events.filter(e => e.type === 'permission/preset')).toHaveLength(1)
     // Between turns (a closed turn in the log) a switch still pends — the
     // enclosure fold walks past the turn/end — and anchors with the NEXT turn.
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'request' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
     expect(h.ctx.agents.list()[0]?.session.events.filter(e => e.type === 'permission/preset')).toHaveLength(1)
   })
 
   it('a net-zero idle flip-flop anchors NOTHING (switches are recorded, select clicks are not)', async () => {
     h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    const back = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'request' })
-    expect(back.configOptions).toEqual([permissionOption('request')])
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const back = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(back.configOptions).toEqual([permissionOption('workspace-write')])
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
     expect(events.some(e => e.type === 'permission/preset' || e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
@@ -141,14 +141,14 @@ describe('acp bridge — session config options', () => {
   it('a no-op switch (the value already shown) records nothing and keeps a live pending', async () => {
     h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'request' })
-    expect(echo.configOptions).toEqual([permissionOption('request')])
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    const repeat = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
-    expect(repeat.configOptions).toEqual([permissionOption('yolo')])
+    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(echo.configOptions).toEqual([permissionOption('workspace-write')])
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const repeat = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(repeat.configOptions).toEqual([permissionOption('danger-full-access')])
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'yolo' }])
+    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'danger-full-access' }])
   })
 
   it('a mid-turn switch anchors immediately (the open turn encloses it)', async () => {
@@ -157,7 +157,7 @@ describe('acp bridge — session config options', () => {
     const hung = h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
     // Give the loop a tick to open the turn (the turns.spec hang idiom).
     await new Promise(resolve => setTimeout(resolve, 30))
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
     const turnStart = events.findIndex(e => e.type === 'turn/start')
     const anchored = events.findIndex(e => e.type === 'permission/preset')
@@ -178,7 +178,7 @@ describe('acp bridge — session config options', () => {
     await expect(h.client.setSessionConfigOption({ sessionId, configId: 'reasoning-effort', value: 'max' }))
       .rejects.toThrow(/unknown config option/)
     // `permission` exists as a concept but THIS composition never advertised it.
-    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' }))
+    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' }))
       .rejects.toThrow(/unknown permission value/)
     await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', type: 'boolean', value: true }))
       .rejects.toThrow(/select; boolean values are not accepted/)
@@ -195,13 +195,13 @@ describe('acp bridge — session config options', () => {
     h = await presetStack()
     const a = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const b = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'yolo' })
+    await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'danger-full-access' })
     // B sees the composition default, not A's pending switch...
-    const bAfter = await h.client.setSessionConfigOption({ sessionId: b.sessionId, configId: 'permission', value: 'request' })
-    expect(bAfter.configOptions).toEqual([permissionOption('request')])
+    const bAfter = await h.client.setSessionConfigOption({ sessionId: b.sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(bAfter.configOptions).toEqual([permissionOption('workspace-write')])
     // ...and A keeps its own state, untouched by B's.
-    const aAfter = await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'yolo' })
-    expect(aAfter.configOptions).toEqual([permissionOption('yolo')])
+    const aAfter = await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(aAfter.configOptions).toEqual([permissionOption('danger-full-access')])
   })
 
   it('a knob drifted outside the table derives a visible-but-untargetable custom current', async () => {
@@ -220,14 +220,14 @@ describe('acp bridge — session config options', () => {
     const option = echo.configOptions?.[0]
     expect(option).toMatchObject({ currentValue: 'custom' })
     if (option === undefined || !('options' in option)) throw new Error('expected a select option')
-    expect(option.options.map(o => 'value' in o ? o.value : o)).toEqual(['request', 'yolo', 'custom'])
+    expect(option.options.map(o => 'value' in o ? o.value : o)).toEqual(['workspace-write', 'danger-full-access', 'custom'])
     // …while custom as a TARGET from a real preset stays rejected: switching
     // away is ordinary, and the custom entry disappears from the options.
-    const away = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
+    const away = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
     const afterOption = away.configOptions?.[0]
-    expect(afterOption).toMatchObject({ currentValue: 'yolo' })
+    expect(afterOption).toMatchObject({ currentValue: 'danger-full-access' })
     if (afterOption === undefined || !('options' in afterOption)) throw new Error('expected a select option')
-    expect(afterOption.options.map(o => 'value' in o ? o.value : o)).toEqual(['request', 'yolo'])
+    expect(afterOption.options.map(o => 'value' in o ? o.value : o)).toEqual(['workspace-write', 'danger-full-access'])
     await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'custom' }))
       .rejects.toThrow(/unknown permission value/)
   })
@@ -235,7 +235,7 @@ describe('acp bridge — session config options', () => {
   it('session/load reports a resumed session\'s preset from its own log', async () => {
     h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'yolo' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
     // One turn checkpoints the log (the switch events flush with it).
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'persist me' }] })
     await h.dispose()
@@ -243,6 +243,6 @@ describe('acp bridge — session config options', () => {
 
     loader = await presetStack()
     const res = await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([permissionOption('yolo')])
+    expect(res.configOptions).toEqual([permissionOption('danger-full-access')])
   })
 })
