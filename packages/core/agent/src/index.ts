@@ -202,6 +202,8 @@ interface FactorySlot {
  */
 export class AgentRegistry extends Service {
   private store = new Map<AgentId, AgentEntry>()
+  // TODO(agent-entry-mirror): derive exact-object checks from store.get(agent.id)
+  // plus entry.agent identity; this WeakMap mirrors the authoritative id map.
   private entries = new WeakMap<Agent, AgentEntry>()
   private factory: FactorySlot | undefined
 
