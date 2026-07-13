@@ -3,9 +3,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { AddressInfo } from 'node:net'
 import { Context } from 'cordis'
 import WebService from '@deepseek-ai/dsh-web'
-import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID, classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '@deepseek-ai/dsh-web-fetch-local'
+import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-local'
 import type { LocalFetchLimits } from '@deepseek-ai/dsh-web-fetch-local'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-local'
+import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
 
 const limits: LocalFetchLimits = {
   maxUrlLength: 2048,
