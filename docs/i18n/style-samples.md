@@ -54,7 +54,7 @@
 
 > Blob hashes, not commit hashes, so the record is computable for files edited in the same PR (`git hash-object foo.md`) and consistency is a pure content comparison. The recorded hash also recovers the exact last-confirmed text of either side (`git cat-file -p <hash>`), so an out-of-sync pair is updated by diffing the edited side against its last-confirmed state and patching the counterpart minimally — never by re-translating whole files.
 
-系统采用文件 blob 哈希而非提交哈希记录状态。同一 PR 内修改文件时，可通过 `git hash-object foo.md` 直接算出对应哈希，仅对比文件内容即可判断双语文档是否同步。通过记录的哈希值，可使用 `git cat-file -p <hash>` 还原上次确认对齐时两侧的原文。当双语文档不一致时，只需对比修改版本与上次确认版本的差异，最小幅度同步修改另一侧译文，无需全文重新翻译。
+系统采用文件 blob hash 而非 commit hash 记录状态。同一 PR 内修改文件时，可通过 `git hash-object foo.md` 直接算出对应 blob hash，仅对比文件内容即可判断双语文档是否同步。通过记录的 blob hash，可使用 `git cat-file -p <hash>` 还原上次确认对齐时两侧的原文。当双语文档不一致时，只需对比修改版本与上次确认版本的差异，最小幅度同步修改另一侧译文，无需全文重新翻译。
 
 ## ⑤ 政策声明
 

@@ -14,6 +14,18 @@
 
 历史模板的 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 占位符与 `%%` 分段协议已废弃：本模板按整文档翻译（非分段），输出协议为下方三段 XML。
 
+## Few-shot 金标
+
+流水线的 few-shot 是**整文档级**的中英对照，不是模板内嵌的句子级正误例（那是最小抽样）。few-shot 集取自以下 5 组人工定稿的配对文档，以仓库当前版本为准、随仓库更新：
+
+- `README.md` ↔ `README.zh.md`
+- `docs/development.md` ↔ `docs/development.zh.md`
+- `docs/i18n/README.md` ↔ `docs/i18n/README.zh.md`
+- `docs/i18n/translation-rules.md` ↔ `docs/i18n/translation-rules.zh.md`
+- `docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md` ↔ 对应 `.zh.md`
+
+注入方式：在系统消息（本模板）之后、待译文档之前，每组作为一轮示例对话——user 消息为源文档全文，assistant 消息为定稿译文全文（不带三段 XML 包装；只有真实请求要求三段输出）。上下文紧张时按上列顺序从后往前裁剪组数。这 5 组也是评审校准锚点（见 [style-samples.md](style-samples.md)），改动任何一组即改变流水线行为。
+
 ## 模板正文
 
 ````text
