@@ -39,5 +39,6 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 - **Raw `node:sqlite`, pending a cordis database service** — the backend holds a `DatabaseSync` directly; if a `cordis/db` / `@cordisjs` SQL driver is adopted, the storage driver routes through it (the `SessionPersistence` contract would not change) — a marked TODO.
 - **`DatabaseSync` is synchronous** — every append transaction blocks the event loop for its duration; acceptable for local stores, a throughput ceiling for busy multi-session servers.
-- **Only the current `SCHEMA_VERSION` opens** — a database written by any other build is rejected rather than migrated (unreleased software; no persisted user data to preserve).
+- **Write contention has no wait or retry policy** — the backend sets no busy timeout and retries no locked-database error, so another connection holding a write transaction makes the operation reject immediately.
+- **Only the current `SCHEMA_VERSION` opens** — a database with any other schema version is rejected rather than migrated (unreleased software; no persisted user data to preserve).
 - **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).
