@@ -195,6 +195,27 @@ describe('session lineage tracing', () => {
     await expect(ctx.sessionQuery.traceSession(durable.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
   })
+
+  it('constructs deeply nested descendants without consuming the JavaScript call stack', async () => {
+    const ctx = await queryContext()
+    const root = ctx.sessions.create(SessionId('deep-0'), { meta: { createdAt: 0 } })
+    let parent = root
+    for (let depth = 1; depth < 3_000; depth += 1) {
+      parent = ctx.sessions.create(SessionId(`deep-${depth}`), {
+        meta: { createdAt: depth, parentSession: parent.id },
+      })
+    }
+
+    const trace = await ctx.sessionQuery.traceSession(root.id)
+    expect(trace.complete).toBe(true)
+    let node = trace.descendants[0]
+    for (let depth = 1; depth < 3_000; depth += 1) {
+      if (node === undefined) throw new Error(`lineage ended before depth ${depth}`)
+      if (depth === 2_999) expect(node.session.header.id).toBe(SessionId('deep-2999'))
+      node = node.descendants[0]
+    }
+    expect(node).toBeUndefined()
+  })
 })
 
 describe('session event tracing', () => {
