@@ -1,0 +1,14 @@
+{
+  "minTokens": 100,
+  "minLines": 10,
+  "mode": "mild",
+  "format": ["typescript"],
+  "pattern": "**/src/**/*.ts",
+  "ignorePattern": [
+    "(?s)/\\* jscpd:ignore-start \\*/.*?/\\* jscpd:ignore-end \\*/"
+  ],
+  "reporters": ["console"],
+  "exitCode": 1,
+  "noColors": true,
+  "noTips": true
+}

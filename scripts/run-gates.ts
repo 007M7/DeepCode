@@ -129,6 +129,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'ci-lint':
       return [
         lintGate(),
+        pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
       return [
@@ -152,6 +153,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'pre-push':
       return [
         pnpmScript('test', 'test'),
+        pnpmScript('duplication', 'duplication'),
         pnpmScript('snapshot', 'test:snapshot'),
         pnpmScript('build', 'build'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
@@ -166,6 +168,7 @@ function ciPrimaryGates(): Gate[] {
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
+    pnpmScript('duplication', 'duplication'),
     coverageGate(),
     pnpmScript('snapshot', 'test:snapshot'),
     demoSmokeGate({ needs: ['lint'] }),

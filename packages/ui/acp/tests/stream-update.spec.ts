@@ -30,6 +30,21 @@ function registryOf(...tools: ToolDefinition[]): Pick<ToolRegistryType, 'get'> {
   return { get: name => map.get(name) }
 }
 
+function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
+  const out: SessionNotification['update'][] = []
+  for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
+  return out
+}
+
+async function fsCtx(): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(FsLocal)
+  await ctx.plugin(ToolFs)
+  return ctx
+}
+
 function evt<T extends SessionEvent['type']>(type: T, data: Extract<SessionEvent, { type: T }>['data']): SessionEvent {
   return { type, seq: 0, time: 0, data } as SessionEvent
 }
@@ -179,12 +194,6 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       card: 'generic',
       content: [{ type: 'text', text: `wrapped:${result.content.length}` }],
     }),
-  }
-
-  function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
-    const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
-    return out
   }
 
   it('tool/call uses the tool: description→title, command→rawInput, tool kind', () => {
@@ -624,21 +633,6 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   // call-time snippet, then the tool/result carries the tool's computed applied-hunk `meta`,
   // which presentResult narrows into a `diff` result card the bridge forwards as `{ type:
   // 'diff' }` content blocks. The real tool is required because its result metadata is the contract.
-  async function fsCtx(): Promise<Context> {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(FsLocal)
-    await ctx.plugin(ToolFs)
-    return ctx
-  }
-
-  function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
-    const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
-    return out
-  }
-
   it('forwards the applied-hunk meta onto the wire as tool_call_update diff content', async () => {
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
@@ -730,14 +724,6 @@ describe('relative-path display titles (bridge relativizes the title against the
   // The bridge relativizes a file card's TITLE against the session workspace cwd (mirroring the
   // reference adapter's `toDisplayPath`), while leaving location/diff paths raw. Use real fs tools
   // and the absolute paths an editor supplies; presentation itself is args-only and lacks cwd.
-  async function fsCtx(): Promise<Context> {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(FsLocal)
-    await ctx.plugin(ToolFs)
-    return ctx
-  }
   function callUpdate(ctx: Context, sessionCwd: string | undefined, name: string, args: unknown): SessionNotification['update'] {
     const presenter = new ToolPresenter(ctx.tools)
     const out: SessionNotification['update'][] = []
