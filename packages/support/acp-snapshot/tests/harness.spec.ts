@@ -91,6 +91,27 @@ describe('runScenario', () => {
     expect(exited).toBe(true)
   })
 
+  it('waits for inherited stdio and buffered ACP parsing after the parent exits', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ lateInheritedOutput: true })
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      env: { DSH_SNAPSHOT_FILE: fixtureFile },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    const lateUpdate = launched.waitForUpdate(update =>
+      update.sessionUpdate === 'agent_message_chunk'
+      && update.content.type === 'text'
+      && update.content.text === 'late inherited stdout')
+
+    await launched.close()
+
+    await expect(lateUpdate).resolves.toMatchObject({ sessionUpdate: 'agent_message_chunk' })
+    expect(launched.rawStdout()).toContain('late inherited stdout')
+    expect(launched.stderr()).toContain('late inherited stderr')
+  })
+
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,
