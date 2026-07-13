@@ -21,7 +21,7 @@ export { isJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceFoldReplacement, SurfaceFoldResult, SurfaceNode } from './surface.ts'
-export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export { foldSurface, isSurfaceEvent, isSurfaceEligibleType, validateSurfaceProvenance } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
 export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 

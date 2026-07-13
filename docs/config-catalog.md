@@ -359,7 +359,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/invariants/src/index.ts:45`](../packages/support/invariants/src/index.ts)
+Source: [`packages/support/invariants/src/index.ts:52`](../packages/support/invariants/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 

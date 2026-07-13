@@ -81,6 +81,51 @@ export interface SurfaceFoldResult {
   replacements: SurfaceFoldReplacement[]
 }
 
+/**
+ * Validate one event's logged provenance against the preceding log and the
+ * surface nodes it actually shadows.
+ * @param event - event whose optional `sourceEventSeqs` is being checked.
+ * @param knownSeqs - seqs preceding `event` in the same log.
+ * @param shadowedSeqs - surface nodes directly removed by this event.
+ * @returns the first contract violation, or `undefined` when provenance is valid.
+ */
+export function validateSurfaceProvenance(
+  event: SessionEvent,
+  knownSeqs: ReadonlySet<number>,
+  shadowedSeqs: readonly number[] = [],
+): string | undefined {
+  const sources = (event as SessionEvent & { sourceEventSeqs?: unknown }).sourceEventSeqs
+  if (sources !== undefined && !isSurfaceEligibleType(event.type)) {
+    return `${event.type} cannot carry sourceEventSeqs (non-surface event)`
+  }
+  if (sources !== undefined && !Array.isArray(sources)) {
+    return `sourceEventSeqs on event at seq ${event.seq} must be an array when present`
+  }
+  if (Array.isArray(sources) && sources.length === 0) {
+    return 'sourceEventSeqs must not be empty when present'
+  }
+
+  const unique = new Set<unknown>()
+  for (const source of sources ?? []) {
+    if (unique.has(source)) return 'sourceEventSeqs must not contain duplicates'
+    unique.add(source)
+    if (typeof source !== 'number' || !Number.isInteger(source) || source < 0) {
+      return `sourceEventSeqs contains invalid seq ${String(source)}`
+    }
+    if (source >= event.seq) {
+      return `sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`
+    }
+    if (!knownSeqs.has(source)) return `sourceEventSeqs references unknown seq ${source}`
+  }
+
+  const sourceSet = new Set(sources ?? [])
+  const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
+  if (missing.length > 0) {
+    return `surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`
+  }
+  return undefined
+}
+
 /** Mutable state shared by the incremental manager and the full-log fold. */
 interface SurfaceFoldState {
   nodes: SurfaceNode[]

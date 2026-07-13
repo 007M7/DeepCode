@@ -31,6 +31,7 @@ await ctx.plugin(Invariants, { freeze: false })  // assert contract, don't freez
 Session log (per session):
 
 - **`seq` strictly increases** — the spine of replay equivalence.
+- **surface provenance is valid** — `sourceEventSeqs` uses the shared `dsh-session` checker for type eligibility, nonempty unique earlier references, and complete replacement coverage.
 - **turns pair and nest** — `turn/start` opens a turn, `turn/end` closes the matching one; no overlapping turns.
 - **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
 - **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.

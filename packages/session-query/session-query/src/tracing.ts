@@ -1,6 +1,6 @@
 /** One-shot session-lineage and event-relationship tracing helpers. */
 
-import { foldSurface, isSurfaceEligibleType } from '@deepseek-ai/dsh-session'
+import { foldSurface, validateSurfaceProvenance } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from './config.ts'
 import type {
@@ -51,7 +51,21 @@ export function traceEventLog(
   }
 
   const analysis = analyzeEventLog(sessionId, events)
-  validateProvenance(events, analysis.replacedEventSeqs)
+  const knownSeqs = new Set<number>()
+  for (const event of events) {
+    const violation = validateSurfaceProvenance(
+      event,
+      knownSeqs,
+      analysis.replacedEventSeqs.get(event.seq),
+    )
+    if (violation !== undefined) {
+      throw new SessionQueryError(
+        `invalid session provenance: ${violation}`,
+        'SESSION_QUERY_INVALID_PROVENANCE',
+      )
+    }
+    knownSeqs.add(event.seq)
+  }
 
   const replacementChain: number[] = []
   let replacement = analysis.replacedBy.get(seq)
@@ -186,73 +200,6 @@ function analyzeEventLog(
     })),
     replacedBy,
     replacedEventSeqs,
-  }
-}
-
-function validateProvenance(
-  events: readonly SessionEvent[],
-  replacedEventSeqs: ReadonlyMap<number, readonly number[]>,
-): void {
-  for (const event of events) {
-    const sources = rawEventSources(event)
-    if (sources === undefined) continue
-    if (!isSurfaceEligibleType(event.type)) {
-      throw new SessionQueryError(
-        `invalid session provenance: non-surface event at seq ${event.seq} carries sourceEventSeqs`,
-        'SESSION_QUERY_INVALID_PROVENANCE',
-      )
-    }
-    if (!Array.isArray(sources) || sources.length === 0) {
-      throw new SessionQueryError(
-        `invalid session provenance: event at seq ${event.seq} has an empty or invalid sourceEventSeqs`,
-        'SESSION_QUERY_INVALID_PROVENANCE',
-      )
-    }
-    const unique = new Set<unknown>()
-    for (const source of sources as unknown[]) {
-      if (unique.has(source)) {
-        throw new SessionQueryError(
-          `invalid session provenance: event at seq ${event.seq} repeats source seq ${String(source)}`,
-          'SESSION_QUERY_INVALID_PROVENANCE',
-        )
-      }
-      unique.add(source)
-      if (
-        typeof source !== 'number'
-        || !Number.isInteger(source)
-        || source < 0
-        || source >= event.seq
-        || events[source]?.seq !== source
-      ) {
-        throw new SessionQueryError(
-          `invalid session provenance: event at seq ${event.seq} references unknown or non-earlier source seq ${String(source)}`,
-          'SESSION_QUERY_INVALID_PROVENANCE',
-        )
-      }
-    }
-  }
-
-  for (const [replacementSeq, removedSeqs] of replacedEventSeqs) {
-    // Canonical logs guarantee events[i].seq === i, and the fold reports only
-    // replacement events from this input log.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const replacement = events[replacementSeq]!
-    const sources = rawEventSources(replacement)
-    if (!Array.isArray(sources)) {
-      throw new SessionQueryError(
-        `invalid session provenance: replacement at seq ${replacementSeq} omits its shadowed surface sources`,
-        'SESSION_QUERY_INVALID_PROVENANCE',
-      )
-    }
-    const sourceSet = new Set(sources as unknown[])
-    for (const removedSeq of removedSeqs) {
-      if (!sourceSet.has(removedSeq)) {
-        throw new SessionQueryError(
-          `invalid session provenance: replacement at seq ${replacementSeq} omits shadowed surface seq ${removedSeq}`,
-          'SESSION_QUERY_INVALID_PROVENANCE',
-        )
-      }
-    }
   }
 }
 

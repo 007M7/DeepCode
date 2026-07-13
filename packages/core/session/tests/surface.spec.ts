@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId, foldSurface, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import {
+  Session,
+  SessionId,
+  foldSurface,
+  isSurfaceEligibleType,
+  isSurfaceEvent,
+  validateSurfaceProvenance,
+} from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -12,6 +19,59 @@ function surfaceSession(): Session {
   s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return s
 }
+
+function provenanceEvent(seq: number, sourceEventSeqs: unknown): SessionEvent {
+  return {
+    type: 'user/message',
+    seq,
+    time: seq,
+    data: { content: [], source: { kind: 'user' } },
+    surfaceOp: 'append',
+    sourceEventSeqs,
+  } as unknown as SessionEvent
+}
+
+describe('validateSurfaceProvenance', () => {
+  it('accepts absent or valid provenance and complete replacement coverage', () => {
+    expect(validateSurfaceProvenance(provenanceEvent(0, undefined), new Set()))
+      .toBeUndefined()
+    expect(validateSurfaceProvenance(provenanceEvent(2, [0, 1]), new Set([0, 1]), [1]))
+      .toBeUndefined()
+  })
+
+  it('rejects provenance on a non-surface event', () => {
+    const event = {
+      type: 'turn/start',
+      seq: 1,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      sourceEventSeqs: [0],
+    } as unknown as SessionEvent
+    expect(validateSurfaceProvenance(event, new Set([0])))
+      .toMatch(/cannot carry sourceEventSeqs/)
+  })
+
+  it.each([
+    ['a non-array', 1, 'invalid', new Set([0]), [], /must be an array/],
+    ['an empty array', 1, [], new Set([0]), [], /must not be empty/],
+    ['duplicates', 1, [0, 0], new Set([0]), [], /must not contain duplicates/],
+    ['a non-number', 1, ['0'], new Set([0]), [], /invalid seq 0/],
+    ['a fractional number', 1, [0.5], new Set([0]), [], /invalid seq 0\.5/],
+    ['a negative number', 1, [-1], new Set([0]), [], /invalid seq -1/],
+    ['a self reference', 1, [1], new Set([0]), [], /must reference earlier events/],
+    ['an unknown earlier seq', 2, [1], new Set([0]), [], /references unknown seq 1/],
+    ['incomplete replacement coverage', 2, [0], new Set([0, 1]), [0, 1], /missing 1/],
+  ] as const)(
+    'returns the first violation for %s',
+    (_name, seq, sources, knownSeqs, shadowedSeqs, expected) => {
+      expect(validateSurfaceProvenance(
+        provenanceEvent(seq, sources),
+        knownSeqs,
+        shadowedSeqs,
+      )).toMatch(expected)
+    },
+  )
+})
 
 describe('SurfaceManager', () => {
   it('shares exact nodes and nested replacement ranges with foldSurface', () => {

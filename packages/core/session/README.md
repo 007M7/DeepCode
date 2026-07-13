@@ -48,6 +48,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
 - `SurfaceNode` — `{ seq: number; prev: number | null; next: number | null }`, one node in the surface linked list.
 - `foldSurface(events)` — replay the canonical surface transitions into detached current nodes and actual replacement ranges, rejecting surface-eligible events that lack their mandatory marker. `SurfaceManager` shares the same transitions while retaining its incremental cache.
+- `validateSurfaceProvenance(event, knownSeqs, shadowedSeqs?)` — pure provenance-contract check shared by incremental invariant listeners and exact readers. It returns the first violation instead of choosing a caller's error taxonomy.
 - `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully-formed surface node (type is surface-eligible AND `surfaceOp` present); the second is the type-only check (is this one of the five `SurfaceEventType` values?), used to detect a surface-eligible event MISSING its marker — e.g. when validating a seed/load log.
 
 ### Request-header reconstruction (`request-header.ts`)
