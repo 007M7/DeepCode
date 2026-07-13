@@ -34,6 +34,7 @@
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { markdownProseLines } from './markdown.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -60,32 +61,7 @@ function isLimitationsLike(headingText: string): boolean {
   )
 }
 
-interface Line {
-  index: number
-  raw: string
-}
-
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+/
-
-/** Split a README into prose lines (fenced code dropped), keeping 1-based line numbers. */
-function proseLines(text: string): Line[] {
-  let fence: { marker: '`' | '~'; length: number } | undefined
-  const kept: Line[] = []
-  text.split('\n').forEach((raw, i) => {
-    const token = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1]
-    if (token !== undefined) {
-      const marker = token[0] as '`' | '~'
-      if (fence === undefined) {
-        fence = { marker, length: token.length }
-      } else if (marker === fence.marker && token.length >= fence.length) {
-        fence = undefined
-      }
-      return
-    }
-    if (fence === undefined) kept.push({ index: i + 1, raw })
-  })
-  return kept
-}
 
 const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
@@ -106,7 +82,7 @@ for (const pkg of scannedPackages) {
     failures.push(`${readme}: package manifest has no sibling README with the \`${CANONICAL}\` section`)
     continue
   }
-  const lines = proseLines(readFileSync(resolve(root, readme), 'utf8'))
+  const lines = markdownProseLines(readFileSync(resolve(root, readme), 'utf8'))
   const headings = lines.filter(line => ATX_HEADING.test(line.raw))
   const limitations = headings.filter(line => isLimitationsLike(line.raw.replace(ATX_HEADING, '')))
 

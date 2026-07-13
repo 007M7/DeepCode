@@ -11,6 +11,7 @@
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
+import { markdownProseLines, type MarkdownProseLine } from './markdown.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
@@ -69,10 +70,7 @@ interface Failure {
   message: string
 }
 
-interface Line {
-  index: number
-  raw: string
-}
+type Line = MarkdownProseLine
 
 interface ContextSurface {
   heading: Line
@@ -80,26 +78,6 @@ interface ContextSurface {
   tokenEffect: Line
   title: string
   verbatimBlocks: number
-}
-
-/** Split Markdown into prose lines, excluding fenced code that may quote the contract. */
-function proseLines(text: string): Line[] {
-  let fence: { marker: '`' | '~'; length: number } | undefined
-  const kept: Line[] = []
-  text.split('\n').forEach((raw, i) => {
-    const token = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1]
-    if (token !== undefined) {
-      const marker = token[0] as '`' | '~'
-      if (fence === undefined) {
-        fence = { marker, length: token.length }
-      } else if (marker === fence.marker && token.length >= fence.length) {
-        fence = undefined
-      }
-      return
-    }
-    if (fence === undefined) kept.push({ index: i + 1, raw })
-  })
-  return kept
 }
 
 /** Validate H4-plus-markdown literals nested after one context surface's fields. */
@@ -192,7 +170,7 @@ for (const packageJson of packageJsons) {
 
   const text = readFileSync(abs, 'utf8')
   const rawLines = text.split('\n')
-  const lines = proseLines(text)
+  const lines = markdownProseLines(text)
   const h2Headings = lines.filter(line => H2_HEADING.test(line.raw))
   const modelHeadings = h2Headings.filter(line => line.raw === HEADING)
   if (modelHeadings.length !== 1) {
