@@ -25,7 +25,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-approval and user-interaction seams, ask-user tool
+  ui/          ACP bridge, JSON-RPC SDK server, app-boot glue, stdio/ACP/SDK app bins, user-approval and user-interaction seams, ask-user tool
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)

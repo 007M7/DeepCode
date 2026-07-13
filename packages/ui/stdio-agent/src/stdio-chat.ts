@@ -36,6 +36,8 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
+  // TODO(fixed-stdio-agent): this app-internal plugin is mounted only for the
+  // precreated `main` agent; remove configurability and its config-only test.
   /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
   agent?: string
 }
