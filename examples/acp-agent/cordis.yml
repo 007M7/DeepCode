@@ -44,11 +44,9 @@
     # loop resolves per session (every ACP session carries the client's cwd,
     # so the persona can state the workspace).
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working
-      directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
-      Verify your work by running the code or tests. Keep answers brief and
-      factual.
+      Verify your work by running the code or tests. Keep answers brief and factual.
 
 # The subagent seam + both in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh
@@ -81,10 +79,30 @@
     provider: fork
     toolName: subagent_fork
 
+
+# Dynamic workflows: the worker-thread engine (ctx.workflows) over the spawn
+# subagent backend above, plus the model-facing `workflow` tool. The model
+# writes a JavaScript orchestration script (meta + body); the engine runs it
+# in its own worker thread and fans agent() calls out as spawn children.
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
 # The model-facing todo_write tool: whole-list task tracking written to the
 # session log (todo/write), surfaced to the ACP client as a `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+
+# The repeat-tool-call guard: advisory reminders (injected context, never a
+# block) when the model re-issues the same tool call with identical arguments;
+# defaults [3, 5, 8]. Loaded here so the snapshot tier exercises the reminder
+# transcript (the repeat-tool-guard scenario) — no other scenario repeats a
+# call three times, so it is inert everywhere else.
+- id: repeat-tool-guard
+  name: '@deepseek-ai/dsh-repeat-tool-guard'
 
 # Filesystem capability stack: local provider, read-before-write/edit policy
 # gate, then the model-facing read/write/edit tools. Relative filesystem paths

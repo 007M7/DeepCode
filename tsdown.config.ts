@@ -12,7 +12,8 @@ import { defineConfig } from 'tsdown'
 export default defineConfig({
   // Explicit globs: `workspace: true` would also discover examples (any
   // package.json), but only vendor and the packages hierarchy are pnpm
-  // workspaces.
+  // workspaces. The Landlock launcher platform packages ship a prebuilt
+  // native binary and no JavaScript — nothing to bundle.
   workspace: ['vendor/*', 'packages/*/*'],
   entry: ['lib/types/index.js'],
   outDir: 'lib',

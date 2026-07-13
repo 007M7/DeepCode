@@ -70,11 +70,14 @@ const GROUP_ORDER = [
   'llm',
   'core',
   'bash',
+  'sandbox',
   'fs',
+  'skill',
   'compact',
   'subagent',
   'web',
   'todo',
+  'cordis',
   'hooks',
   'session-persistence',
   'support',
@@ -119,10 +122,28 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'tools',
     pkg: 'tools',
-    title: 'Tool registry and execution waterfall',
+    title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-bash', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
-    note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
+  },
+  {
+    key: 'userInteraction',
+    pkg: 'user-interaction',
+    title: 'Human question/answer seam',
+    mode: 'seam',
+    implementations: ['stdio-agent', 'acp'],
+    consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
+    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'skills',
+    pkg: 'skill',
+    title: 'Skill provider registry',
+    mode: 'seam',
+    implementations: ['skill-local'],
+    consumers: ['tool-skill'],
+    note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
   {
     key: 'agents',
@@ -145,18 +166,36 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'bash',
     title: 'Bash executor seam',
     mode: 'seam',
-    implementations: ['bash-local'],
+    implementations: ['bash-local', 'bash-sandbox'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
-    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
+  },
+  {
+    key: 'sandbox',
+    pkg: 'sandbox',
+    title: 'Process-sandbox seam',
+    mode: 'seam',
+    implementations: ['sandbox-local'],
+    consumers: ['bash-sandbox'],
+    note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
+  },
+  {
+    key: 'approval',
+    pkg: 'approval',
+    title: 'Approval seam',
+    mode: 'seam',
+    implementations: ['acp'],
+    consumers: ['tools', 'tool-bash'],
+    note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
   },
   {
     key: 'codeRuntime',
     pkg: 'code-runtime',
     title: 'Code-execution seam',
     mode: 'seam',
-    implementations: [],
-    consumers: [],
-    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the Code Mode RFC specifies the worker-thread backend and the tool-registry consumer).',
+    implementations: ['code-runtime-worker'],
+    consumers: ['tools'],
+    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the tool registry consumes it for Code Mode).',
   },
   {
     key: 'fs',
@@ -195,14 +234,60 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-web'],
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
   },
+  {
+    key: 'workflows',
+    pkg: 'workflow',
+    title: 'Workflow script engine',
+    mode: 'seam',
+    implementations: ['workflow-workerthread'],
+    consumers: ['tool-workflow'],
+    note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
+  },
 ]
 
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
+  // Creation notifications preserve synchronous veto/rollback but observe
+  // returned promises explicitly so async listener rejection is not unhandled.
+  { event: 'agent/created', pkg: 'agent', method: 'events.dispatch' },
+  // Registry disposal reuses the stable carrier captured before entry commit
+  // and contains each listener directly rather than rebuilding via agentEvents.
+  { event: 'agent/disposed', pkg: 'agent', method: 'events.dispatch' },
+  { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
+  // Session event callbacks are likewise resolved before the log push, then
+  // invoked individually after commit so observer failures are contained.
+  { event: 'session/event', pkg: 'session', method: 'events.dispatch' },
+  // Flush resolves the scoped callback set directly so internal instrumentation
+  // cannot substitute the accepted session before parallel invocation.
+  { event: 'session/flush', pkg: 'session', method: 'events.dispatch' },
+  // Session disposal uses direct callback resolution so teardown contains each
+  // synchronous throw and returned-promise rejection independently.
+  { event: 'session/disposed', pkg: 'session', method: 'events.dispatch' },
+  // tools/result uses ctx.events.dispatch directly so the registry can invoke
+  // every synchronous observer while containing each callback independently.
+  { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },
   // Subagent lifecycle events intentionally bypass ctx.emit and call
   // ctx.events.dispatch directly so one throwing listener cannot starve later
   // listeners or strand an already-started child run.
   { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
   { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
+  // provider-removed fires inside the provider registration's DISPOSER and
+  // routes through the same contained dispatch (see emitLifecycle in
+  // dsh-subagent), so the AST scan cannot attribute it either.
+  { event: 'subagent/provider-removed', pkg: 'subagent', method: 'events.dispatch' },
+  // The workflow/* lifecycle events dispatch the same way, for the same
+  // per-listener-containment reason (WorkflowService.emitWorkflowEvent).
+  { event: 'workflow/start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/phase', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/log', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
+]
+
+const DYNAMIC_EVENT_LISTENERS: Array<{ event: string; pkg: string }> = [
+  // The invariants oracle marks the session started from its global
+  // internal/dispatch listener before product session-start callbacks run.
+  { event: 'agent/session-start', pkg: 'invariants' },
 ]
 
 function generatedHeader(title: string): string[] {
@@ -410,6 +495,14 @@ const APP_EXAMPLES = [
     summary: 'The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
   },
   {
+    id: 'cordis',
+    rel: 'examples/cordis-agent/composition.md',
+    title: 'Cordis Agent App Composition',
+    label: 'examples/cordis-agent',
+    config: 'examples/cordis-agent/cordis.yml',
+    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its own runtime and mount/unmount plugins into it.',
+  },
+  {
     id: 'acp',
     rel: 'examples/acp-agent/composition.md',
     title: 'ACP Agent App Composition',
@@ -515,12 +608,28 @@ function collectEventRelations(): Map<string, EventRelation> {
     methods.add(entry.method)
     relation.dispatchers.set(entry.pkg, methods)
   }
+  for (const entry of DYNAMIC_EVENT_LISTENERS) {
+    ensure(entry.event).listeners.add(entry.pkg)
+  }
   return out
 }
 
 function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
+  // The chained fused-dispatch spelling: `agentEvents(ctx, agent).emit(…)` —
+  // the receiver is a call expression, not an identifier.
+  if (ts.isCallExpression(expr.expression) && expr.expression.expression.getText(sf) === 'agentEvents') {
+    return true
+  }
   const target = expr.expression.getText(sf)
-  return target === 'ctx' || target === 'this.ctx'
+  if (target === 'ctx' || target === 'this.ctx') return true
+  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
+  // dispatcher (`events` from `agentEvents(ctx, agent)`), an agent's setup
+  // context (`childCtx`), the agent's own context handle (`this.loopCtx`), and
+  // the session store's captured dispatch context (`emitCtx`). Conventional
+  // receiver names, pinned by the fused-dispatch convention; a rename here
+  // must update this list (the producer/consumer matrix silently losing a
+  // dispatcher or listener is the failure mode this list exists to prevent).
+  return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
 function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {
@@ -529,7 +638,12 @@ function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | u
     return arg?.text
   }
   const first = args[0]
-  return first && ts.isStringLiteralLike(first) ? first.text : undefined
+  if (first && ts.isStringLiteralLike(first)) return first.text
+  // Scope-carrier dispatch: `emit(carrier, 'event/name', …)` puts the event
+  // name second. Accept a string literal in position 1 when position 0 is a
+  // non-literal expression (the carrier).
+  const second = args[1]
+  return second && ts.isStringLiteralLike(second) ? second.text : undefined
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
@@ -560,6 +674,24 @@ function renderEventRelations(pkgs: Pkg[]): string {
   for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+  }
+  // Completeness guard: every DECLARED event must have at least one dispatcher
+  // edge — a zero-dispatcher row is either dead vocabulary or (the observed
+  // failure mode) a dispatch spelling the AST scan does not recognize, silently
+  // dropping the producer from the matrix. Fail the generation loud instead:
+  // teach the scan the new spelling, add a DYNAMIC_EVENT_DISPATCHERS override,
+  // or remove the dead event. Zero LISTENERS is deliberately legal — an event
+  // dispatched for out-of-repo plugins is an ordinary extension point.
+  const undispatched = [...events]
+    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
+    .map(event => event.name)
+    .sort()
+  if (undispatched.length > 0) {
+    throw new Error(
+      `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch spelling the scan misses `
+      + '(teach scripts/gen-doc-graphs.ts the spelling or add a DYNAMIC_EVENT_DISPATCHERS override)',
+    )
   }
   const declared = new Set(events.map(event => event.name))
   const extra = [...relations.keys()].filter(event => !declared.has(event)).sort()
@@ -615,6 +747,7 @@ function renderLifecycle(): string {
     '  Tools-->>Session: tool-owned events when applicable',
     `  Driver->>Session: ${mermaidCode('tool/result')} and ${mermaidCode('step/end')}`,
     `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
@@ -630,7 +763,7 @@ function renderToolPipeline(): string {
   const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
   return [
     ...generatedHeader('Tool Execution Pipeline'),
-    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.',
     '',
     '```mermaid',
     'flowchart TD',
@@ -638,30 +771,44 @@ function renderToolPipeline(): string {
     `  toolCall["Session event: ${mermaidCode('tool/call')}<br/>logged before execution"]`,
     '  presentCall["UI pending card<br/>presentCall(args)"]',
     `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
-    '  denied["deny or ask<br/>tool body skipped"]',
+    '  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]',
+    '  denied["denied or approval refused<br/>tool body skipped"]',
+    `  approval["${mermaidCode('ctx.approval')} one-shot prompt<br/>absent or unanswerable: deny"]`,
+    `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
     '  toolBody["Registered tool execute() body"]',
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
-    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}"]`,
+    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
+    `  final["${mermaidCode('tools/result')} synchronous notification<br/>frozen authoritative outcome"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
+    '  allResults["All calls in the step settled<br/>and tool/result events recorded"]',
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
     '  model --> toolCall',
     '  toolCall --> presentCall',
     '  toolCall --> pre',
-    '  pre -->|allow| toolBody',
-    '  pre -->|deny or ask| denied',
+    '  pre -->|allow| guards',
+    '  guards -->|allow| around',
+    '  guards -->|deny| denied',
+    '  around --> toolBody',
+    '  pre -->|deny| denied',
+    '  pre -->|ask| approval',
+    '  approval -->|allowed-once| guards',
+    '  approval -->|rejected, cancelled, unavailable| denied',
     '  denied --> post',
     '  toolBody --> fsGate',
     '  fsGate --> toolBody',
     '  toolBody --> owned',
-    '  toolBody --> post',
-    '  post --> context',
-    '  post --> toolResult',
+    '  toolBody --> around',
+    '  around --> post',
+    '  post --> final',
+    '  final --> toolResult',
     '  toolResult --> presentResult',
+    '  toolResult --> allResults',
+    '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The synchronous `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -715,6 +862,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/echo-agent/composition.md': 'echo-agent app composition',
     'examples/coding-agent/composition.md': 'coding-agent app composition',
+    'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
@@ -725,6 +873,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/echo-agent/composition.md': 'hybrid generated',
     'examples/coding-agent/composition.md': 'hybrid generated',
+    'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',

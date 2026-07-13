@@ -11,6 +11,40 @@ The on-disk envelope around every payload is `SessionEvent` — `type`, monotoni
 
 ## Events
 
+### `approval/*`
+
+#### `approval/asked` — log-only
+
+An approval question was put to the answerer chain — log-only audit (like `hook/*`; NOT a surface event, carries no `surfaceOp`). `id` pairs it with the `approval/decided` that always follows; `toolName` is the tool the question is about, `callId` the exact tool call when the asker had one, `reason` the asker's human-readable explanation (e.g. a hook's permission-decision reason).
+
+```ts persistence-catalog
+'approval/asked': { id: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
+```
+
+Types: [CallId](core-data-structures/core.md)
+
+Source: [`packages/ui/user-approval/src/index.ts:84`](../packages/ui/user-approval/src/index.ts)
+
+#### `approval/decided` — log-only
+
+The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly one per ask, appended when the outcome is known: a decision, a cancellation, or the fail-closed `'unavailable'`.
+
+```ts persistence-catalog
+'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:95`](../packages/ui/user-approval/src/index.ts)
+
+#### `approval/policy` — log-only
+
+The session's approval policy was switched — log-only, durable, replayable, never in the model transcript (the model learns the policy from the prompt section and the narrator's notices). The LAST such event is the session's override (effectiveApprovalPolicy); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user).
+
+```ts persistence-catalog
+'approval/policy': { policy: ApprovalPolicy }
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:107`](../packages/ui/user-approval/src/index.ts)
+
 ### `assistant/*`
 
 #### `assistant/chunk` — log-only
@@ -23,7 +57,7 @@ Raw stream chunk — token-level replay fidelity.
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:322`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -35,7 +69,19 @@ Assembled assistant message for one step (derived history uses this). Carries th
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:311`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
+
+### `bash/*`
+
+#### `bash/sandbox-mode` — log-only
+
+The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
+
+```ts persistence-catalog
+'bash/sandbox-mode': { mode: SandboxMode }
+```
+
+Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 
@@ -83,7 +129,7 @@ In-session context injection (file-change notices, subdir AGENTS.md, skill conte
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:302`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -119,7 +165,7 @@ A queued prompt an `agent/prompt-submit` listener VETOED — the durable record 
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:296`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:314`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -131,17 +177,17 @@ Full snapshot of the EpochHeader the NEXT request is built under, with the Reque
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:356`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:374`](../packages/core/session/src/types.ts)
 
 #### `request/header-delta` — log-only
 
-Amendment to the folded EpochHeader: at least one of a SystemDelta, a ToolsDelta, or a whole replacement LlmCallConfig (four scalars — not worth diffing). Appended by the loop inside the step, before dispatch, when the header for this request differs from the fold of the log so far; the writer verifies `applyHeaderDelta(previous, delta)` reproduces the new header exactly and falls back to a `'fallback'` `request/header` snapshot when it cannot, so a logged delta ALWAYS round-trips. NOT a SurfaceEventType.
+Amendment to the folded EpochHeader: at least one of a SystemDelta, a ToolsDelta, a whole replacement LlmCallConfig (four scalars — not worth diffing), or a whole replacement session prefix (`messagePrefix` — small advisory content, replaced whole; an EMPTY array encodes the transition to "none", mirroring the canonical form's absent field — the loop never produces one in practice: the prefix is composed once per instance and anchored by that instance's snapshot, so this arm exists for codec totality). Appended by the loop inside the step, before dispatch, when the header for this request differs from the fold of the log so far; the writer verifies `applyHeaderDelta(previous, delta)` reproduces the new header exactly and falls back to a `'fallback'` `request/header` snapshot when it cannot, so a logged delta ALWAYS round-trips. NOT a SurfaceEventType.
 
 ```ts persistence-catalog
-'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
+'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 ```
 
-Source: [`packages/core/session/src/types.ts:367`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:391`](../packages/core/session/src/types.ts)
 
 ### `steering/*`
 
@@ -155,7 +201,7 @@ Steering content injected between steps of a running turn.
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:347`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -167,7 +213,7 @@ Closes step `step` of turn `turn`.
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:301`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -177,7 +223,7 @@ Opens step `step` of turn `turn` — one model call plus the tool executions it 
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:281`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -193,7 +239,7 @@ NOT a SurfaceEventType: it produces no LLM message and never reaches `deriveMess
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:361`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -207,7 +253,19 @@ The model requested one tool invocation: `name` with the raw `arguments` JSON st
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:335`](../packages/core/session/src/types.ts)
+
+#### `tool/code-dispatch` — log-only
+
+One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized BEFORE dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text. Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter model context; persistence and UIs get every call. Appended inside the parent `run_code`'s execution (the bridge drains its queue before returning), so the turn-enclosure invariant holds by construction.
+
+```ts persistence-catalog
+'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
+```
+
+Types: [CallId](core-data-structures/core.md)
+
+Source: [`packages/core/tools/src/code-mode.ts:38`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 
@@ -219,7 +277,7 @@ A completed tool call's model-facing result, plus an optional tool-private `meta
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:327`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:345`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -233,7 +291,7 @@ Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awai
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:297`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -245,7 +303,7 @@ Opens turn `turn`. `trigger` records what started it — a drained message batch
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -259,4 +317,4 @@ A user-visible prompt (queued message drained at turn start).
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)

@@ -1,10 +1,11 @@
 /**
  * Integration: the real fetch backend (`dsh-web-fetch-local`) + a real search
  * provider (`dsh-web-search-exa`) + the real seam (`dsh-web`) + the model tool
- * (`dsh-tool-web`), exercised through `ctx.tools.execute()` — nothing bypasses
- * the tool registry. Fetch hits a real loopback HTTP server (verifying the
- * WORLD); search runs the real Exa provider over a stubbed global `fetch` (the
- * network is the one boundary we mock).
+ * (`dsh-tool-web`) + the tool-call timeout policy (`dsh-timeout-policy`),
+ * exercised through `ctx.tools.execute()` — nothing bypasses the tool registry.
+ * Fetch hits a real loopback HTTP server (verifying the WORLD); search runs the
+ * real Exa provider over a stubbed global `fetch` (the network is the one
+ * boundary we mock).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +19,7 @@ import WebService from '@deepseek-ai/dsh-web'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
@@ -39,6 +41,11 @@ beforeEach(async () => {
   await ctx.plugin(WebService, { searchProvider: WebSearchExa.EXA_PROVIDER_ID, fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
   await ctx.plugin(WebFetchLocal, {})
   await ctx.plugin(WebSearchExa, { apiKey: 'exa-key', baseURL: 'https://api.exa.test' })
+  // The shipped deployment shape: the tool-call budget is declared by tool-web
+  // config (default 30s, attached as ToolDefinition.timeoutMs) and enforced by
+  // the zero-config timeout-policy plugin, set above the provider backstop so the
+  // policy normally wins.
+  await ctx.plugin(TimeoutPolicy)
   fiber = await ctx.plugin(ToolWeb)
 })
 
@@ -94,5 +101,72 @@ describe('web_search integration over the real Exa provider', () => {
     const out = await call('web_search', { query: 'deepseek' })
     expect(out.isError).toBe(false)
     expect(out.content.map(b => b.text).join('')).toContain('[Result](https://result.test)')
+  })
+})
+
+describe('tool-call timeout policy over the migrated web tools', () => {
+  it('neither model schema exposes a timeout parameter after the migration', () => {
+    const byName = new Map(ctx.tools.schemas().map(s => [s.name, s]))
+    const fetchParams = byName.get('web_fetch')!.parameters as { properties: Record<string, unknown> }
+    const searchParams = byName.get('web_search')!.parameters as { properties: Record<string, unknown> }
+    expect(Object.keys(fetchParams.properties)).toEqual(['url'])
+    expect('timeout_ms' in fetchParams.properties).toBe(false)
+    expect(Object.keys(searchParams.properties)).toEqual(['query'])
+  })
+})
+
+describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetch)', () => {
+  let slowServer: Server
+  let slowBase: string
+  let openSockets: ServerResponse[]
+  let tctx: Context
+  let tfiber: Awaited<ReturnType<Context['plugin']>>
+
+  beforeEach(async () => {
+    // A server that never responds: it holds the connection open until the
+    // client aborts. The cooperative deadline (via exec.signal → the fetch
+    // provider → undici) is what ends the call.
+    openSockets = []
+    slowServer = createServer((_req, res) => { openSockets.push(res) })
+    await new Promise<void>(resolve => slowServer.listen(0, '127.0.0.1', resolve))
+    slowBase = `http://127.0.0.1:${(slowServer.address() as AddressInfo).port}`
+
+    tctx = new Context()
+    await tctx.plugin(SystemPrompt)
+    await tctx.plugin(ToolRegistry)
+    await tctx.plugin(WebService, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
+    // Provider backstop well ABOVE the tool-call budget, so the policy wins.
+    await tctx.plugin(WebFetchLocal, { timeoutMs: 30_000, maxTimeoutMs: 60_000 })
+    await tctx.plugin(TimeoutPolicy)
+    // The tool-call budget is declared by tool-web config, enforced by the policy.
+    tfiber = await tctx.plugin(ToolWeb, { fetchTimeoutMs: 50 })
+  })
+
+  afterEach(async () => {
+    for (const res of openSockets) res.destroy()
+    await tfiber.dispose()
+    await new Promise<void>(resolve => slowServer.close(() => { resolve() }))
+  })
+
+  it('returns a structured TOOL_TIMEOUT (not the provider WEB_FETCH_TIMEOUT) when the tool-call budget wins', async () => {
+    const out = await tctx.tools.execute({ callId: CallId('slow-1'), name: 'web_fetch', arguments: { url: slowBase } })
+    expect(out.isError).toBe(true)
+    // The outer tool-call deadline won: TOOL_TIMEOUT, owned by dsh-timeout-policy,
+    // NOT the provider's own WEB_FETCH_TIMEOUT (its 30s backstop never fired).
+    expect(out.error?.code).toBe('TOOL_TIMEOUT')
+    const text = out.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+    expect(text).toContain('timed out after 50ms')
+  })
+
+  it('the provider backstop still protects a DIRECT ctx.web.fetch() call (no tool-call policy in that path)', async () => {
+    // A direct seam caller does not go through tools/execute, so the tool-call
+    // policy never applies; the provider's OWN timeout is the only budget. A
+    // short per-request hint proves the provider backstop is intact and classifies
+    // as WEB_FETCH_TIMEOUT (the provider-owned code), never TOOL_TIMEOUT.
+    const err = await tctx.web.fetch({ url: slowBase, timeoutMs: 50 }).then(
+      () => undefined,
+      (e: unknown) => e as { code?: string },
+    )
+    expect(err?.code).toBe('WEB_FETCH_TIMEOUT')
   })
 })

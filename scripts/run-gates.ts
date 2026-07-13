@@ -143,6 +143,11 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'node-compat':
       return [
         pnpmScript('typecheck', 'typecheck'),
+        pnpmExec('source-worker-smoke', [
+          'vitest',
+          'run',
+          'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
+        ], { label: 'source worker smoke' }),
       ]
     case 'pre-push':
       return [
@@ -262,6 +267,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
+    pnpmScript('scoped-dispatch', 'verify-scoped-dispatch', { label: 'scoped dispatch' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
@@ -286,18 +292,28 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
     ...dependencyOptions,
     verify: async (result) => {
       const output = result.stdout + result.stderr
-      if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
-        throw new Error('demo smoke did not show the echo tool call.')
+      const sessionsRoot = join(root, '.sessions')
+      try {
+        if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
+          throw new Error('demo smoke did not show the echo tool call.')
+        }
+        if (!output.includes('[tool result] ECHO: CI SMOKE')) {
+          throw new Error('demo smoke did not show the echo tool result.')
+        }
+        const buckets = await readdir(sessionsRoot, { withFileTypes: true })
+        let found = false
+        for (const bucket of buckets) {
+          if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
+          const entries = await readdir(join(sessionsRoot, bucket.name))
+          if (entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
+            found = true
+            break
+          }
+        }
+        if (!found) throw new Error('demo smoke did not create a main-session JSONL log in a cwd bucket.')
+      } finally {
+        await rm(sessionsRoot, { recursive: true, force: true })
       }
-      if (!output.includes('[tool result] ECHO: CI SMOKE')) {
-        throw new Error('demo smoke did not show the echo tool result.')
-      }
-      const sessionDir = join(root, '.sessions', '_no-cwd')
-      const entries = await readdir(sessionDir)
-      if (!entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
-        throw new Error('demo smoke did not create a main-session JSONL log.')
-      }
-      await rm(join(root, '.sessions'), { recursive: true, force: true })
     },
   }
 }
@@ -310,6 +326,11 @@ function builtBinSmokeGate(): Gate {
     'vitest.e2e.config.ts',
     'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
     'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    // The worker-entry packages' built bundles: the only automated proof
+    // that lib/index.js resolves its sibling lib/worker.js under plain node
+    // (the e2e lane runs unbuilt, so these files self-skip there).
+    'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
+    'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs: ['build'],

@@ -287,14 +287,21 @@ export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
 /** Options for {@link defineTool}. */
 export interface DefineToolOptions<S extends SchemaSpec> {
   /** Tool name (must be unique). */
-  name: string
+  readonly name: string
   /** Human-readable description sent to the model. */
-  description: string
+  readonly description: string
   /**
    * Parameter schema using the per-property-required DSL. Converted to
    * standard JSON Schema at runtime.
    */
-  parameters: S
+  readonly parameters: S
+  /**
+   * Optional cooperative tool-call timeout budget in milliseconds. When given it
+   * must be a positive finite number; it is attached to the produced
+   * {@link ToolDefinition} for `@deepseek-ai/dsh-timeout-policy` to enforce and
+   * is never sent to the model.
+   */
+  readonly timeoutMs?: number
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
@@ -346,6 +353,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
  * by `ToolRegistry.register()` directly — `defineTool` is sugar for
  * first-party plugin authors.
+ *
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
@@ -362,10 +370,14 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
+  }
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an

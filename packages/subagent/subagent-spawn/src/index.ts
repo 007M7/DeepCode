@@ -9,10 +9,10 @@
  * ({@link startInProcessRun}); this backend just passes NO seed (a fresh
  * child). The fork backend is an independent peer over the same driver.
  *
- * Structured output (`outputSchema`) is supported via the driver's shared
- * structured runtime: the backend acquires it for its plugin lifetime (so the
- * capture tool and request-shaping listeners exist before any run), and each
- * structured run holds its own acquisition until it settles.
+ * Structured output (`outputSchema`) is supported through the driver's
+ * per-child scoped runtime: the child registers its real-schema capture tool,
+ * prompt instruction, and enforcement listeners inside the creation setup
+ * window, and its scope owns their lifetime.
  *
  * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default.
  *
@@ -25,12 +25,11 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
-// `tools` is deliberately NOT injected: the shared driver's structured runtime
-// (acquired per structured RUN, not at apply) gates its own capture-tool
-// registration on `tools` availability, so this backend's apply timing — and
-// with it the provider-mirroring delegation tool's position in the
-// model-visible tool list — stays what it was before structured output existed.
-export const inject = ['subagents', 'agents']
+// `tools` is deliberately NOT injected: the shared driver registers structured
+// output through the child's creation context, whose factory already requires
+// the tool service. Keeping it out of this backend's inject list preserves the
+// provider's independent apply timing.
+export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */
 export interface Config {
@@ -43,26 +42,27 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * The spawn provider. Supports `depthLimit` (it constructs the child, so it can
- * enforce a recursion cap) and `outputSchema` (via the shared in-process
- * structured runtime); NOT `toolFilter` in this cut — a request that needs it
- * is rejected by the service before `start` runs.
+ * The spawn provider. Supports every start-time capability: `depthLimit` (it
+ * constructs the child, so it can enforce a recursion cap), `outputSchema`
+ * (the scoped structured runtime), and `toolFilter`/`persona` (scoped
+ * `restrict()` and a scoped shadowing persona section, applied in the child's
+ * creation window).
  */
 class SpawnProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
   // Context contract: a spawned child starts fresh — it never sees the parent conversation.
   readonly inheritsParentContext = false
 
-  constructor(readonly name: string, private readonly ctx: Context) {}
+  constructor(readonly name: string) {}
 
   start(request: SubagentStartRequest) {
     // Fresh child: no seed. The shared driver mints ids, stamps cwd/lineage/
     // depth, drives the one-shot (including the structured capture when the
     // request carries an outputSchema), and maps the result.
-    return startInProcessRun(this.ctx, request, { providerName: this.name })
+    return startInProcessRun(request, {})
   }
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new SpawnProvider(config.providerName, ctx))
+  ctx.subagents.registerProvider(new SpawnProvider(config.providerName))
 }

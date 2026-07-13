@@ -63,7 +63,16 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
   const child = spawn(
     process.execPath,
     ['--import', tsxLoader, binScript, configPath],
-    { cwd, env: { ...env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+    {
+      cwd,
+      env: {
+        ...env,
+        TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -80,8 +89,9 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // Permission gate is deferred (TODO(rfc010-permission-gate)); the bridge
-      // never requests permission yet, so just allow if it ever does.
+      // This example composes no ask-producing policy (no hooks), so the
+      // bridge never prompts here; answer cancelled (fail closed) if it ever
+      // does — an unexpected prompt must not grant anything.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })
@@ -150,7 +160,13 @@ describe('acp-agent over real stdio (no key required)', () => {
     // which this purity test never triggers). So this runs WITHOUT real creds.
     const child = spawn(process.execPath, ['--import', tsxLoader, binScript, configPath], {
       cwd: workdir,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
+      env: {
+        ...process.env,
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_HOME: join(workdir, '.dsh'),
+        DSH_AGENTS_HOME: join(workdir, '.agents'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []

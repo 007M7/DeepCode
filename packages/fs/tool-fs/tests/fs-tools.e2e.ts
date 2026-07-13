@@ -64,7 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     const sessionDir = await mkdtemp(join(tmpdir(), 'dsh-fs-e2e-session-'))
     try {
       ctx = await fsHarness(configDir, SYSTEM)
-      const handle = ctx.agents.create({
+      const handle = await ctx.agents.create({
         agentId: AgentId('fs-e2e-cwd'),
         sessionId: SessionId(`fs-e2e-cwd-${Date.now()}`),
         meta: { cwd: sessionDir },

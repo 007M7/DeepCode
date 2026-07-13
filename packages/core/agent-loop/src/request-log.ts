@@ -12,11 +12,20 @@
 
 import { diffHeader, headerEquals, applyHeaderDelta } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
+import type { Message } from '@deepseek-ai/dsh-llm'
 
 /** Per-loop-instance bookkeeping: whether THIS instance has logged a header yet. */
 export interface TransmissionLog {
   /** True once this loop instance appended its anchoring `request/header` snapshot. */
   loggedHeader: boolean
+  /**
+   * The instance's composed session prefix (the `agent/session-prefix`
+   * waterfall's deep-frozen product), cached on the instance's first
+   * request-building step and reused verbatim for every request it sends —
+   * the structural guarantee that the prefix never changes mid-session.
+   * `undefined` until composed.
+   */
+  sessionPrefix?: Message[]
 }
 
 /**
@@ -61,7 +70,7 @@ export function recordRequestHeader(session: Session, state: TransmissionLog, he
   const baseline = session.requestHeader()!
   if (headerEquals(baseline, header)) return
   const delta = diffHeader(baseline, header)
-  /* v8 ignore next -- headerEquals false ⟹ diffHeader defined: both compare the same three parts */
+  /* v8 ignore next -- headerEquals false ⟹ diffHeader defined: both compare the same four parts */
   if (delta === undefined) return
   if (headerEquals(applyHeaderDelta(baseline, delta), header)) {
     session.append('request/header-delta', delta)

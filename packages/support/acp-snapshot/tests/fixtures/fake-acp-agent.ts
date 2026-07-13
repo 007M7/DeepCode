@@ -58,6 +58,13 @@ interface Behavior {
   strayBucketFile?: boolean
   /** Delete the sessions root entirely (harvest must yield no logs). */
   deleteSessionsRoot?: boolean
+  /**
+   * Vocabulary for `session/set_config_option`: allowed values per config id.
+   * A set naming an unknown id or an out-of-vocabulary value rejects (the
+   * real bridge's rule); a valid set answers with the complete refreshed
+   * option state, `currentValue` updated. Absent: every set rejects.
+   */
+  configOptions?: Record<string, string[]>
 }
 
 const sessionsRoot = process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? ''
@@ -81,6 +88,8 @@ let sessionCwd = ''
 let parkedPromptId: number | string | null = null
 /** Resolvers for permission-probe responses, keyed by outbound request id. */
 const pendingPermission = new Map<number, (outcome: unknown) => void>()
+/** Per-run `session/set_config_option` state: config id → current value (first vocabulary entry until set). */
+const currentConfig: Record<string, string> = {}
 
 function send(frame: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
@@ -195,6 +204,32 @@ function handleFrame(frame: Record<string, unknown>): void {
     case 'session/prompt':
       void handlePrompt(id as number | string)
       return
+    case 'session/set_config_option': {
+      const vocabulary = behavior.configOptions
+      const configId = params.configId as string
+      const value = params.value as string
+      const values = vocabulary?.[configId]
+      if (values === undefined) {
+        respondError(id as number | string, `unknown config option ${configId}`)
+        return
+      }
+      if (!values.includes(value)) {
+        respondError(id as number | string, `unknown ${configId} value ${value}`)
+        return
+      }
+      currentConfig[configId] = value
+      // The real bridge's contract: every set answers with the COMPLETE
+      // refreshed option state, not just the changed entry.
+      respond(id as number | string, {
+        configOptions: Object.entries(vocabulary as Record<string, string[]>).map(([cid, vs]) => ({
+          id: cid,
+          type: 'select',
+          currentValue: currentConfig[cid] ?? vs[0],
+          options: vs.map(v => ({ value: v, name: v })),
+        })),
+      })
+      return
+    }
     case 'session/cancel':
       if (parkedPromptId !== null) {
         const parked = parkedPromptId
