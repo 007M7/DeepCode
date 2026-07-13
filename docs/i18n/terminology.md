@@ -90,7 +90,7 @@
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | durability | 持久性 | | | |
-| enforcement frontier | 强制边界 | | | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围 |
+| enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
 | event stream | 事件流 | | | |
@@ -118,7 +118,7 @@
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
 | module | 模块 | | | |
-| orphan | 孤立 | | 孤儿 | 指英文源已不存在的 `.zh.md` |
+| orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
 | pairing | 配对 | | | |
 | permission | 权限 | | | |
