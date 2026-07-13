@@ -17,7 +17,7 @@ This is the package to read to see **the whole shared plugin tree at once**: the
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
-@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-invariants       runtime event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
