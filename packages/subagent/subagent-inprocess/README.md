@@ -34,7 +34,7 @@ After fulfillment, the caller owns the run. Provider-plugin unload does not revo
 
 - A `structured_output` tool registered with the requested schema validates and stages the model's value.
 - An order-190 system-prompt section tells the child that the tool call is the terminal answer.
-- Both contributions use `ownerFinal: true`, so their owners control their final presence after prompt/tool assembly while unrelated contributions remain extensible.
+- Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
 - A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
 
