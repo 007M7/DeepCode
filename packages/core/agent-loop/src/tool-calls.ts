@@ -144,6 +144,13 @@ function groupByMode(ctx: Context, planned: PlannedCall[]): PlannedCall[][] {
   return groups
 }
 
+/** Validate the live per-agent cap at the point it controls dispatch. */
+function assertMaxParallelToolCalls(maxParallel: number): void {
+  if (!Number.isInteger(maxParallel) || maxParallel < 1) {
+    throw new Error('maxParallelToolCalls must be a positive integer')
+  }
+}
+
 /**
  * The exclusive single-call path keeps the public one-call pipeline sequential:
  * abort-check, `tool/call`, pre/dispatch/post via `ctx.tools.execute`,
@@ -196,6 +203,7 @@ async function runParallelGroup(
 ): Promise<void> {
   /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
   if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+  assertMaxParallelToolCalls(maxParallel)
 
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // callSeqs[i] is the `tool/call` event seq for started slot i (its provenance

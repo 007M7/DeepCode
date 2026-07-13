@@ -971,7 +971,8 @@ export class ToolRegistry extends Service {
     const tool = this.get(exec.name, exec.agent)
     if (!tool?.isConcurrencySafe) return { kind: 'exclusive' }
     try {
-      return tool.isConcurrencySafe(exec.arguments) ? { kind: 'parallel' } : { kind: 'exclusive' }
+      const concurrencySafe: unknown = tool.isConcurrencySafe(exec.arguments)
+      return concurrencySafe === true ? { kind: 'parallel' } : { kind: 'exclusive' }
     } catch {
       return { kind: 'exclusive' }
     }

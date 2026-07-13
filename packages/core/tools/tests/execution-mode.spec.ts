@@ -99,6 +99,19 @@ describe('ToolRegistry.executionMode', () => {
     expect(ctx.tools.executionMode(exec('thrower', {}))).toEqual({ kind: 'exclusive' })
   })
 
+  it('a truthy non-boolean classifier result fails closed to exclusive (raw definition)', async () => {
+    const ctx = await setup()
+    const raw = {
+      name: 'truthy',
+      description: 'classifier returns a truthy string',
+      parameters: { type: 'object', properties: {} },
+      isConcurrencySafe() { return 'yes' },
+      async execute() { return [] },
+    } as unknown as ToolDefinition
+    ctx.tools.register(raw)
+    expect(ctx.tools.executionMode(exec('truthy', {}))).toEqual({ kind: 'exclusive' })
+  })
+
   it('a raw definition (no defineTool) receives the raw parsed value', async () => {
     const ctx = await setup()
     let seen: unknown

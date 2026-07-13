@@ -202,6 +202,27 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     })).rejects.toThrow('maxParallelToolCalls must be a positive integer')
   })
 
+  it('fails loud if maxParallelToolCalls is mutated invalid after agent creation', async () => {
+    const adapter = new MockAdapter([
+      multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
+      textResponse('must not run after unanswered tool calls'),
+    ])
+    const ctx = await harness(adapter)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 2 })
+    ;(agent.options as { maxParallelToolCalls: number }).maxParallelToolCalls = 0
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    expect(gated.started).toEqual([])
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).filter(e => e.type === 'tool/call' || e.type === 'tool/result')).toEqual([])
+    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+  })
+
   it('starts at most the cap, replenishing as calls settle', async () => {
     const adapter = new MockAdapter([
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
