@@ -147,7 +147,7 @@ export interface SubagentResult {
  * presence of the method IS the capability — narrow before calling.
  */
 export interface SubagentRun {
-  /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
+  /** Parent-scoped run id. Local runs use the published child session id; remote providers mint an id unique in the parent namespace. */
   readonly id: SessionId
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
