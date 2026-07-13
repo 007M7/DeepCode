@@ -214,6 +214,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       },
     })
     const active = launched
+    await active.spawned
     const { client } = active
 
     for (const step of input.steps) {
