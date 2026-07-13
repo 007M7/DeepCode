@@ -327,6 +327,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   }
   // The startup transaction validates the returned id before it can fulfill.
   // This assertion carries that cross-closure invariant into TypeScript.
+  /* v8 ignore next */
   if (sessionId === undefined) throw new Error('unreachable: ACP startup fulfilled without a session id')
   const remoteSessionId = sessionId
 
