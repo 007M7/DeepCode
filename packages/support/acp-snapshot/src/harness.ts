@@ -163,7 +163,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let launched: LaunchedAcpTestAgent | undefined
   let sessionId: string | undefined
   let sessionLogs: HarvestedLog[] = []
-  try {
+  const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
     // Copied into the temp cwd so the agent's bash tools see it; the goldens
     // normalize the cwd, so the seeded paths stay stable across runs.
@@ -231,22 +231,36 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Harvest EVERY persisted log (parent + any subagent children) while the
     // temp dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
-  } finally {
-    // Failure-safe teardown: kill a still-running child and drop the temp dirs
-    // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
-    // process or dir. `launched` is undefined only if launch itself threw.
-    await launched?.close('SIGKILL')
-    await rm(cwd, { recursive: true, force: true })
-    await rm(sessionsRoot, { recursive: true, force: true })
-  }
+    return {
+      rawStdout: launched.rawStdout(),
+      stderr: launched.stderr(),
+      cwd,
+      ...sessionId !== undefined ? { sessionId } : {},
+      sessionLogs,
+    }
+  })().then(
+    value => ({ status: 'fulfilled', value } as const),
+    (error: unknown) => ({ status: 'rejected', error } as const),
+  )
 
-  return {
-    rawStdout: launched.rawStdout(),
-    stderr: launched.stderr(),
-    cwd,
-    ...sessionId !== undefined ? { sessionId } : {},
-    sessionLogs,
+  // Failure-safe teardown: wait for a still-running child, then attempt BOTH
+  // directory removals even when an earlier cleanup rejects. The main outcome
+  // wins over teardown noise so a step/harvest failure is never replaced; on a
+  // successful run, the first cleanup failure remains visible to the caller.
+  const cleanupResults: PromiseSettledResult<unknown>[] = []
+  const cleanup = async (action: () => Promise<unknown>): Promise<void> => {
+    cleanupResults.push(...await Promise.allSettled([action()]))
   }
+  /* v8 ignore next 1 -- launch itself can only throw on a defensive synchronous spawn API failure */
+  await cleanup(() => launched?.close('SIGKILL') ?? Promise.resolve())
+  await cleanup(() => rm(cwd, { recursive: true, force: true }))
+  await cleanup(() => rm(sessionsRoot, { recursive: true, force: true }))
+
+  if (outcome.status === 'rejected') throw outcome.error
+  const cleanupFailure = cleanupResults.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  /* v8 ignore next 1 -- defensive OS cleanup failure after an otherwise successful real subprocess run */
+  if (cleanupFailure !== undefined) throw cleanupFailure.reason
+  return outcome.value
 }
 
 /** Drive one input step over the client connection. */
