@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-acp-snapshot",
-  "description": "ACP snapshot suite kit: real-subprocess scenario harness, golden normalizers, and the suite factory behind the keyless snapshot tier",
+  "description": "ACP test kit: shared subprocess launcher, snapshot scenario harness, golden normalizers, and suite factory",
   "version": "0.0.1",
   "private": true,
   "type": "module",

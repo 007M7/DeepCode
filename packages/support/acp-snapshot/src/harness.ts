@@ -16,54 +16,20 @@
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { Readable, Writable } from 'node:stream'
 import {
   ClientSideConnection,
-  ndJsonStream,
   PROTOCOL_VERSION,
-  type Agent as AcpAgent,
-  type Client,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } from './launcher.ts'
 
-// Resolve tsx's ESM loader to an ABSOLUTE path once: the child runs with its
-// cwd in a temp dir OUTSIDE the repo, where a bare `--import tsx` would not
-// resolve from node_modules. import.meta.resolve gives this package's tsx
-// regardless of the child cwd.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-
-/**
- * The agent composition a scenario runs against: which bin to boot and which
- * leaf config it loads. All paths are ABSOLUTE — the subprocess cwd is a temp
- * dir outside the repo, so relative resolution would miss; a suite resolves
- * them from its own `import.meta.url`.
- */
-export interface AgentUnderTest {
-  /** The agent bin entry (e.g. `packages/ui/acp-agent/src/bin.ts`), run unbuilt via tsx. */
-  binScript: string
-  /**
-   * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
-   * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
-   * one path serves both modes.
-   */
-  configPath: string
-  /**
-   * The repo-root tsconfig whose `paths` map resolves the unbuilt workspace
-   * imports. Passed to the child as `TSX_TSCONFIG_PATH`: tsx finds a tsconfig
-   * by searching UP from the child's cwd — a temp dir outside the repo — so
-   * without the explicit pin the dsh-* imports fail before the bin writes a
-   * byte.
-   */
-  tsconfigPath: string
-}
+export type { AgentUnderTest } from './launcher.ts'
 
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
@@ -194,11 +160,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   // Everything past the temp-dir creation runs under a try/finally that always
   // removes both dirs — so a failure in workspace seeding, spawn, or any step
   // never leaks them (the "e2e tests own their resources" rule).
-  let child: ChildProcessWithoutNullStreams | undefined
+  let launched: LaunchedAcpTestAgent | undefined
   let sessionId: string | undefined
   let sessionLogs: HarvestedLog[] = []
-  const rawBuffers: Buffer[] = []
-  const stderrChunks: string[] = []
   try {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
     // Copied into the temp cwd so the agent's bash tools see it; the goldens
@@ -207,50 +171,14 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      TSX_TSCONFIG_PATH: opts.agent.tsconfigPath,
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
-      DSH_HOME: join(cwd, '.dsh'),
-      DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
         : {},
     }
-
-    child = spawn(
-      process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, opts.configPath ?? opts.agent.configPath],
-      { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
-    )
-
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (c: string) => stderrChunks.push(c))
-
-    // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO
-    // feed the same bytes to the SDK client through a passthrough. Buffer the raw
-    // bytes (not per-chunk utf8 strings) and decode once at the end, so a
-    // multibyte sequence split across two 'data' events can't corrupt the golden.
-    const passthrough = new Readable({ read() {} })
-    child.stdout.on('data', (buf: Buffer) => {
-      rawBuffers.push(buf)
-      passthrough.push(buf)
-    })
-    child.stdout.on('end', () => passthrough.push(null))
-
-    const stream = ndJsonStream(
-      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
-    )
-    // Watcher so a step can block until the client OBSERVES a particular
-    // session/update — used by promptAndCancel to pin frame order (send cancel
-    // only after the streamed agent_message_chunk has arrived, so those frames
-    // deterministically precede the cancelled prompt response).
-    const updateWaiters: { match: (u: SessionNotification['update']) => boolean; resolve: () => void }[] = []
-    const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
-      new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
 
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
@@ -263,22 +191,11 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // callback answers `cancelled` (a well-defined path for the agent),
     // captures the error here, and the step loop fails the run on it.
     let scriptError: Error | undefined
-    const makeClient = (_agent: AcpAgent): Client => ({
-      sessionUpdate(params: SessionNotification): Promise<void> {
-        for (let i = updateWaiters.length - 1; i >= 0; i--) {
-          const waiter = updateWaiters[i]
-          // The index is always in-bounds (i only decreases; splice removes at
-          // i, so lower entries stay valid); the guard satisfies
-          // noUncheckedIndexedAccess.
-          /* v8 ignore next 1 -- unreachable in-bounds guard, see above */
-          if (waiter === undefined) continue
-          if (waiter.match(params.update)) {
-            updateWaiters.splice(i, 1)
-            waiter.resolve()
-          }
-        }
-        return Promise.resolve()
-      },
+    launched = launchAcpTestAgent({
+      agent: opts.agent,
+      cwd,
+      ...opts.configPath !== undefined ? { configPath: opts.configPath } : {},
+      env,
       requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
         const answer = permissionQueue.shift()
         if (answer === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
@@ -296,10 +213,11 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
     })
-    const client = new ClientSideConnection(makeClient, stream)
+    const active = launched
+    const { client } = active
 
     for (const step of input.steps) {
-      await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
+      await runStep(client, step, cwd, match => active.waitForUpdate(match), () => sessionId, (id) => { sessionId = id })
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
       // fail the run HERE, as a harness error, rather than hoping the agent's
@@ -308,26 +226,22 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     // Done driving: close stdin so the server disposes gracefully (flushing
     // persistence) and exits. Then await exit so the harvested log is complete.
-    child.stdin.end()
-    await waitForExit(child)
+    await active.close()
     // Harvest EVERY persisted log (parent + any subagent children) while the
     // temp dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
   } finally {
     // Failure-safe teardown: kill a still-running child and drop the temp dirs
     // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
-    // process or dir. `child` is undefined only if spawn itself threw.
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL')
-      await waitForExit(child)
-    }
+    // process or dir. `launched` is undefined only if launch itself threw.
+    await launched?.close('SIGKILL')
     await rm(cwd, { recursive: true, force: true })
     await rm(sessionsRoot, { recursive: true, force: true })
   }
 
   return {
-    rawStdout: Buffer.concat(rawBuffers).toString('utf8'),
-    stderr: stderrChunks.join(''),
+    rawStdout: launched.rawStdout(),
+    stderr: launched.stderr(),
     cwd,
     ...sessionId !== undefined ? { sessionId } : {},
     sessionLogs,
@@ -339,7 +253,7 @@ async function runStep(
   client: ClientSideConnection,
   step: InputStep,
   cwd: string,
-  waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<void>,
+  waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
 ): Promise<void> {
@@ -431,16 +345,6 @@ async function runStep(
     default:
       throw new Error(`snapshot-harness: unknown input op ${JSON.stringify(step)}`)
   }
-}
-
-/** Resolve once the child process exits (any code/signal). */
-function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
-  // Race guard: both call sites run within one synchronous frame of
-  // stdin.end()/kill(), so the exit event cannot have been delivered yet;
-  // kept for any future caller that awaits in between.
-  /* v8 ignore next 1 -- unreachable race guard, see above */
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
 
 /**

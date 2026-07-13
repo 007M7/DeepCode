@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
+import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
+import { launchAcpTestAgent } from '../src/launcher.ts'
 
 /**
  * Unit tests for the subprocess harness, driven through the REAL spawn path
@@ -38,6 +40,37 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
 describe('runScenario', () => {
+  it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
+    const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
+    tempDirs.push(sessionsRoot)
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      configPath: AGENT.configPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: fixtureFile,
+        DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    const nextChunk = launched.waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk')
+    await launched.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect((await nextChunk).sessionUpdate).toBe('agent_message_chunk')
+    expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
+    expect(launched.stderr()).toContain('launcher stderr')
+    await launched.close()
+    await launched.close('SIGKILL')
+
+    // The minimal shape needs no environment or config override.
+    const minimal = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await minimal.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await minimal.close()
+  })
+
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,

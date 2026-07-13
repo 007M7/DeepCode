@@ -1,20 +1,14 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { Readable, Writable } from 'node:stream'
 import { mkdtemp, rm, writeFile, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  type Agent as AcpAgent,
-  type Client,
-  type RequestPermissionRequest,
-  type RequestPermissionResponse,
-  type SessionNotification,
-} from '@agentclientprotocol/sdk'
+  launchAcpTestAgent,
+  type AgentUnderTest,
+  type LaunchedAcpTestAgent,
+} from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * With-key e2e: the Claude Code hook bridge running against the REAL acp-agent
@@ -34,54 +28,18 @@ import {
  * only a real model deciding to call bash exercises the PreToolUse seam live.
  */
 
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-
-interface Spawned {
-  child: ChildProcessWithoutNullStreams
-  client: ClientSideConnection
-  updates: SessionNotification['update'][]
-  stderr: string[]
+const AGENT: AgentUnderTest = {
+  binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 
-function spawnAcpAgent(cwd: string): Spawned {
-  const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
-    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
-  )
-  const stderr: string[] = []
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => stderr.push(chunk))
-
-  const updates: SessionNotification['update'][] = []
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
-  )
-  const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(params: SessionNotification): Promise<void> {
-      updates.push(params.update)
-      return Promise.resolve()
-    },
-    requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
-    },
-  })
-  const client = new ClientSideConnection(makeClient, stream)
-  return { child, client, updates, stderr }
-}
-
-let spawned: Spawned | undefined
+let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  if (spawned) {
-    spawned.child.kill('SIGKILL')
-    spawned = undefined
-  }
+  await spawned?.close('SIGKILL')
+  spawned = undefined
   if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
   workdir = undefined
 })
@@ -96,7 +54,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo "bash blocked by policy" >&2; exit 2' }] }] },
     }))
 
-    spawned = spawnAcpAgent(workdir)
+    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir })
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

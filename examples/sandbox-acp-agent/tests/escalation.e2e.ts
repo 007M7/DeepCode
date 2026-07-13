@@ -1,20 +1,18 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { Readable, Writable } from 'node:stream'
+import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ClientSideConnection,
-  ndJsonStream,
   PROTOCOL_VERSION,
-  type Agent as AcpAgent,
-  type Client,
   type RequestPermissionRequest,
-  type RequestPermissionResponse,
-  type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import {
+  launchAcpTestAgent,
+  type AgentUnderTest,
+  type LaunchedAcpTestAgent,
+} from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * examples/sandbox-acp-agent end to end.
@@ -35,12 +33,11 @@ import {
  * escalation target the model picks can land the write.
  */
 
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// The subprocess runs from a temp cwd OUTSIDE the repo; point tsx at the repo
-// tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+const AGENT: AgentUnderTest = {
+  binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
+}
 
 // A usable confining runner, probed the same way the executor suites do:
 // bwrap on Linux, Seatbelt's sandbox-exec on macOS. Without one the strict
@@ -56,44 +53,19 @@ const hasSeatbelt = process.platform === 'darwin' && spawnSync('sandbox-exec', [
 }).status === 0
 const hasRunner = hasBwrap || hasSeatbelt
 
-interface Spawned {
-  child: ChildProcessWithoutNullStreams
-  client: ClientSideConnection
-  updates: SessionNotification['update'][]
+interface Spawned extends LaunchedAcpTestAgent {
   permissionRequests: RequestPermissionRequest[]
-  stderr: string[]
 }
 
 /** Boot the example as an ACP subprocess; the scripted client answers every permission prompt with `answer`. */
-function spawnSandboxAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
-  const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
-    {
-      cwd,
-      // A dummy key lets the deepseek adapter boot keyless (presence-checked at
-      // apply, used only on a real model call); the with-key tests carry the
-      // real key, so the fallback is inert there.
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  )
-  const stderr: string[] = []
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => stderr.push(chunk))
-
-  const updates: SessionNotification['update'][] = []
+function launchSandboxAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
   const permissionRequests: RequestPermissionRequest[] = []
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
-  )
-  const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(params: SessionNotification): Promise<void> {
-      updates.push(params.update)
-      return Promise.resolve()
-    },
-    requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+  const launched = launchAcpTestAgent({
+    agent: AGENT,
+    cwd,
+    // A dummy key lets the adapter boot keylessly; live tests carry the real key.
+    env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+    requestPermission(params) {
       permissionRequests.push(params)
       const option = params.options.find(o => o.optionId === answer)
       // The scripted human: pick the requested option when the prompt offers
@@ -102,15 +74,14 @@ function spawnSandboxAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once')
       return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
     },
   })
-  const client = new ClientSideConnection(makeClient, stream)
-  return { child, client, updates, permissionRequests, stderr }
+  return Object.assign(launched, { permissionRequests })
 }
 
 let spawned: Spawned | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  if (spawned !== undefined && spawned.child.exitCode === null) spawned.child.kill('SIGKILL')
+  await spawned?.close('SIGKILL')
   spawned = undefined
   if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
   workdir = undefined
@@ -119,7 +90,7 @@ afterEach(async () => {
 describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () => {
   it('boots the tree — sandbox executor + approval service + bridge — and opens a session', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-smoke-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = launchSandboxAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     // A dummy key boots the adapter; no prompt is ever sent, so no model call
     // and no sandbox runner probe happen. This drives the fiber tree the same
@@ -132,7 +103,7 @@ describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () 
 
   it('advertises both session config options and honors a switch end to end (no key, no model)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = launchSandboxAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     // This tree composes bash-sandbox (mode: read-only) + approval → both
@@ -164,7 +135,7 @@ describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox-acp-agent e2e: the live approval loop', () => {
   it('denial → model escalation → editor prompt → allow-once → the retried write lands on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'allow-once')
+    spawned = launchSandboxAcpAgent(workdir, 'allow-once')
     const { client, permissionRequests } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -193,7 +164,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('sandbox-acp-agent 
 
   it('a rejected escalation stays denied: no write lands, the turn still ends', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = spawnSandboxAcpAgent(workdir, 'reject-once')
+    spawned = launchSandboxAcpAgent(workdir, 'reject-once')
     const { client, permissionRequests } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
