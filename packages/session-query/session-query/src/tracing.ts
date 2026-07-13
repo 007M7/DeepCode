@@ -206,9 +206,10 @@ function validateProvenance(
   }
 
   for (const [replacementSeq, removedSeqs] of replacedEventSeqs) {
-    // The fold reports only replacement events from the input log.
+    // Canonical logs guarantee events[i].seq === i, and the fold reports only
+    // replacement events from this input log.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const replacement = events.find(event => event.seq === replacementSeq)!
+    const replacement = events[replacementSeq]!
     const sources = rawEventSources(replacement)
     if (!Array.isArray(sources)) {
       invalidProvenance(`replacement at seq ${replacementSeq} omits its shadowed surface sources`)
