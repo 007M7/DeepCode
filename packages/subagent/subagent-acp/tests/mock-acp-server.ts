@@ -19,6 +19,8 @@
  *                        handler is in flight (it has streamed its chunk). A test
  *                        polls for this file to cancel on a CONDITION rather than
  *                        an arbitrary timeout (subprocess cold-start is variable).
+ * - `MOCK_MISSING_SESSION_ID` — if `1`, return a malformed empty `session/new`
+ *                        response to exercise startup rollback.
  * - `MOCK_FLUSH_ON_EOF` — if set, on stdin EOF the agent takes an async beat
  *                         (MOCK_FLUSH_DELAY_MS, default 150) simulating the real
  *                         acp-agent's EOF-driven quiesce+flush, then touches this
@@ -99,6 +101,7 @@ function makeAgent(conn: AgentSideConnection): Agent {
         writeFileSync(NEWSESSION_GATE.ready, 'at-newSession')
         while (!existsSync(NEWSESSION_GATE.go)) await new Promise(r => setTimeout(r, 10))
       }
+      if (process.env.MOCK_MISSING_SESSION_ID === '1') return {} as NewSessionResponse
       return { sessionId: process.env.MOCK_SESSION_ID ?? randomUUID() }
     },
     authenticate(_params: AuthenticateRequest): Promise<void> {

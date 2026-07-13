@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -209,7 +209,8 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const ctx = await harness(path, new MockAdapter([]))
     // Register a fake child agent under the id the event carries.
     const injected: string[] = []
-    const child = { id: SessionId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+    const childId = SessionId('child-x')
+    const child = { id: childId, inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: new Session(childId) } as unknown as Parameters<typeof ctx.agents.register>[0]
     ctx.agents.register(child)
     ctx.emit('subagent/start', { provider: 'p', id: SessionId('child-x') })
     await waitFor(() => injected.includes('child guidance'))
@@ -225,7 +226,8 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
     const ctx = await harness(path, new MockAdapter([]))
     const warn = vi.fn(); ctx.logger.warn = warn as never
-    const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: { header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+    const childId = SessionId('child-y')
+    const child = { id: childId, inject: () => { throw new Error('inject boom') }, session: new Session(childId) } as unknown as Parameters<typeof ctx.agents.register>[0]
     ctx.agents.register(child)
     ctx.emit('subagent/start', { provider: 'p', id: SessionId('child-y') })
     await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))
