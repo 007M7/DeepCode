@@ -48,7 +48,12 @@ describe('dsh-workflow-workerthread over the real in-process stack', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { verdict: 'real', confidence: 0.9 }),
     ])
     const childIds: string[] = []
-    ctx.on('workflow/agent-start', (_info, agent) => { childIds.push(agent.childId) })
+    ctx.on('workflow/agent-start', (_info, agent) => {
+      // The workflow bridge must await asynchronous provider start: an observer
+      // sees the real spawn child already published, never a reserved id.
+      expect(ctx.agents.get(agent.childId)).toBeDefined()
+      childIds.push(agent.childId)
+    })
     const run = ctx.workflows.start({
       meta: { name: 'integration', description: 'plain + structured children' },
       script: `phase('Read')

@@ -26,39 +26,39 @@ describe('SystemPrompt tool order', () => {
 
   it('assembles tools in lexicographic name order when no toolOrder is configured', async () => {
     const ctx = await mount()
-    ctx.systemPrompt.tools(() => [tool('charlie'), tool('alpha')])
-    ctx.systemPrompt.tools(() => [tool('bravo')])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('charlie'), tool('alpha')] }))
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('bravo')] }))
     expect(names(await ctx.systemPrompt.assemble())).toEqual(['alpha', 'bravo', 'charlie'])
   })
 
   it('assembles the same order regardless of provider registration order', async () => {
     const forward = await mount()
-    forward.systemPrompt.tools(() => [tool('alpha')])
-    forward.systemPrompt.tools(() => [tool('zulu')])
+    forward.systemPrompt.tools(() => ({ schemas: [tool('alpha')] }))
+    forward.systemPrompt.tools(() => ({ schemas: [tool('zulu')] }))
     const backward = await mount()
-    backward.systemPrompt.tools(() => [tool('zulu')])
-    backward.systemPrompt.tools(() => [tool('alpha')])
+    backward.systemPrompt.tools(() => ({ schemas: [tool('zulu')] }))
+    backward.systemPrompt.tools(() => ({ schemas: [tool('alpha')] }))
     expect(names(await forward.systemPrompt.assemble())).toEqual(['alpha', 'zulu'])
     expect(names(await backward.systemPrompt.assemble())).toEqual(['alpha', 'zulu'])
   })
 
   it('applies a configured toolOrder: listed positions, rest at the rest entry lexicographically', async () => {
     const ctx = await mount({ toolOrder: ['todo_write', TOOL_ORDER_REST, 'bash'] })
-    ctx.systemPrompt.tools(() => [tool('bash'), tool('echo_b'), tool('todo_write'), tool('echo_a')])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('bash'), tool('echo_b'), tool('todo_write'), tool('echo_a')] }))
     expect(names(await ctx.systemPrompt.assemble())).toEqual(['todo_write', 'echo_a', 'echo_b', 'bash'])
   })
 
   it('rejects the assembly when toolOrder names a tool that is not registered (misconfiguration blocks work)', async () => {
     const ctx = await mount({ toolOrder: ['todo_write', 'ghost', TOOL_ORDER_REST, 'wraith'] })
-    ctx.systemPrompt.tools(() => [tool('bash'), tool('todo_write')])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('bash'), tool('todo_write')] }))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
-      'toolOrder lists unregistered tools "ghost", "wraith"; registered tools: bash, todo_write')
+      'toolOrder lists unregistered tools "ghost", "wraith"; known tools: bash, todo_write')
   })
 
   it('names the single unregistered tool when no tools are registered at all', async () => {
     const ctx = await mount({ toolOrder: ['ghost', TOOL_ORDER_REST] })
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
-      'toolOrder lists unregistered tool "ghost"; registered tools: (none)')
+      'toolOrder lists unregistered tool "ghost"; known tools: (none)')
   })
 
   it.each([
@@ -66,21 +66,21 @@ describe('SystemPrompt tool order', () => {
     ['with only the rest entry configured', [TOOL_ORDER_REST]],
   ])('rejects a provider tool named like the reserved rest entry %s', async (_case, toolOrder) => {
     const ctx = await mount(toolOrder === undefined ? {} : { toolOrder })
-    ctx.systemPrompt.tools(() => [tool(TOOL_ORDER_REST)])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool(TOOL_ORDER_REST)] }))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
       `tool provider returned reserved tool name "${TOOL_ORDER_REST}"`)
   })
 
   it('keeps collection order between tools that share a name (stable sort)', async () => {
     const ctx = await mount()
-    ctx.systemPrompt.tools(() => [tool('dup', 'first'), tool('anchor'), tool('dup', 'second')])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('dup', 'first'), tool('anchor'), tool('dup', 'second')] }))
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.tools.map(t => t.description)).toEqual(['anchor', 'first', 'second'])
   })
 
   it('canonicalizes BEFORE the assemble waterfall: listeners see the ordered list and own their own edits', async () => {
     const ctx = await mount()
-    ctx.systemPrompt.tools(() => [tool('zulu'), tool('alpha')])
+    ctx.systemPrompt.tools(() => ({ schemas: [tool('zulu'), tool('alpha')] }))
     let seen: string[] | undefined
     ctx.on('system-prompt/assemble', function (assembly, _context, next) {
       seen = assembly.tools.map(t => t.name)
