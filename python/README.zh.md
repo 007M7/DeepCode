@@ -49,19 +49,25 @@ print(DeepSeekHarness().run("say hi").final_response)   # auto-resolution picks 
 
 ## 分发 Python 包
 
-每个包各构建一个 wheel；runtime wheel 会内嵌构建时 `runtime/` 下存在的全部可执行文件（以及始终包含的默认 `cordis.yml`），并排除 `runtime/node/`：
+Python 发布只使用 `python-vX.Y.Z` 形式的稳定 tag。统一暂存脚本从 tag 推导两个分发物的版本，在 SDK 元数据中钉死 `deepseek-harness-runtime-bin==X.Y.Z`，并拒绝其他 tag 形式。纯 SDK wheel 只构建一次，runtime wheel 则在每个原生平台各构建一个：
 
 ```sh
-(cd python/sdk-runtime && uv build)   # or: hatch build
-(cd python/sdk && uv build)
-pip install dist/deepseek_harness_runtime_bin-*.whl dist/deepseek_harness-*.whl
+python scripts/build-python-release.py --package sdk --tag python-v0.1.0 --output-dir dist-python
+python scripts/build-python-release.py --package runtime --tag python-v0.1.0 --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
+pip install --find-links dist-python deepseek-harness==0.1.0
 ```
 
-二进制就位（构建或下载）后，安装这两个 wheel（或直接 `pip install ./python/sdk-runtime ./python/sdk` 从目录安装），就得到零配置可用的 `DeepSeekHarness()`。两个 pre-release 注意事项：runtime wheel 目前的标签是 `py3-none-any`，内容却是平台相关的二进制——构建时只放匹配平台的 exe（每平台一个 wheel），或把三个 exe 全部放入做成通用胖 wheel（约 500 MB）；版本与发布策略（`0.0.0-dev`、无 registry）刻意留待首个 tagged release 再定。
+runtime 分发物只提供 wheel，并拒绝 sdist 构建、缺失可执行文件以及混合平台载荷。三个 wheel tag 分别是 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；SDK 保持 `py3-none-any`。tag 流水线统一构建并发布这 4 个互不冲突的文件，因此常规的 `pip install deepseek-harness==X.Y.Z` 会选中匹配平台的 runtime wheel，`import deepseek_harness` 不需要 `runtime_bin`。
 
 ## 零配置语义
 
 运行时二进制本身始终要求显式配置（`$DSH_CORDIS_CONFIG`，或作为首个 argv 参数的配置路径），没有内置兜底，也只启动配置里列出的东西。零配置是 SDK 包装层的行为：调用方没有走任何显式通道时，客户端把 runtime 包检入的默认配置（[runtime/cordis.yml](sdk-runtime/src/deepseek_harness_runtime/runtime/cordis.yml)）注入 `DSH_CORDIS_CONFIG`；任一显式通道存在即胜出并禁用注入。注入条件的完整定义见 [sdk README](sdk/README.md)，默认配置的内容与硬语义见 [sdk-runtime README](sdk-runtime/README.md)。
+
+可执行文件也支持直接调用；在 NDJSON JSON-RPC 交互期间保持 stdin 打开，并显式提供配置：
+
+```sh
+DSH_CORDIS_CONFIG=/absolute/path/cordis.yml ./dsh-jsonrpc-agent-pkg-macos-arm64
+```
 
 ## 测试布局
 

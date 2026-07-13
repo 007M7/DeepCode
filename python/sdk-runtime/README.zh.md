@@ -8,12 +8,14 @@ Python SDK 的运行时载体包（dist 名 `deepseek-harness-runtime-bin`，模
 
 两种载体并存于 `src/deepseek_harness_runtime/runtime/` 之下，均由仓库的 `scripts/build-exe-for-python-sdk.ts` 构建注入，且均被 gitignore：
 
-- **exe（生产）**——单文件可执行程序 `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`）。目标机器无需安装 Node。这是唯一进入 wheel/sdist 分发物的载体。
+- **exe（生产）**——单文件可执行程序 `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`）。目标机器无需安装 Node。这是唯一进入 wheel 分发物的载体；本包不发布 sdist。
 - **node（仅限开发）**——`runtime/node/` 下的完整 deploy 闭包（`package.json` + `node_modules/`），在系统 Node >= 22.19 上以 `node runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js` 执行。它是当前检出的源码构建，仅用于仓库本地的开发与验证；不会被自动选中，也不进入分发物。
 
 两种载体承载相同的内容，且只定义一次：本包根目录的 [package.json](package.json) 是 single-exe 流水线的 deploy root——一份零代码的纯依赖 manifest，其依赖闭包既是编译进 exe 的插件集，也是物化到 `runtime/node/` 的文件树。往分发物里加插件，就是在那里加一行依赖再重新构建。
 
 载体缺失时抛出 `FileNotFoundError` 并写明获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或下载 `build-exe-for-python-sdk` CI 工作流的对应平台产物（tar.gz——tar 保留可执行位）并解包到 runtime 目录。获取策略与查找接口刻意分离，之后可以换成按需下载而不动任何调用方。
+
+每个 wheel 只包含一个可执行文件。固定 tag 为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、可执行文件缺失或重复以及不支持的平台 tag。稳定的 `python-vX.Y.Z` 发布为本包和 SDK 使用同一个 `X.Y.Z`。
 
 ## 解析 API
 

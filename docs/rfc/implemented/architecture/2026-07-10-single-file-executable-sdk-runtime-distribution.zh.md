@@ -36,17 +36,19 @@ exe 用 [@yao-pkg/pkg](https://github.com/yao-pkg/pkg)（vercel/pkg 归档后的
 
 exe 的 VFS 内是**构建产物形态的真实包树**（各包 `lib/` + 真实 `node_modules`），Loader 解析插件名走标准动态 `import()`：裸包名从 VFS 内 Loader 位置沿 `node_modules` 向上解析，天然落在 VFS 内。封闭集不需要白名单代码——集合就是 VFS 里装了什么，引用集合外的名字 import 失败。
 
-deploy root 是 [`python/sdk-runtime/package.json`](../../../../python/sdk-runtime/package.json)（`dsh-jsonrpc-agent-pkg`，pnpm workspace 成员、零代码纯依赖清单）——「exe 装什么插件」与「Python runtime 分发什么」的合一事实源。往 exe 加插件 = 清单加一行依赖再重打包。两条实测得来的闭包完整性规则：闭包成员以 peerDependency 引用的仓库内纯库（`dsh-brand`、`dsh-timeout`、`dsh-invariants`、`@cordisjs/plugin-timer`）必须显式列进清单 `dependencies`；deploy 按各包 `files` 打包，tsdown 拆出的共享 chunk 必须被 `files` 覆盖。
+deploy root 是 [`python/sdk-runtime/package.json`](../../../../python/sdk-runtime/package.json)（`dsh-jsonrpc-agent-pkg`，pnpm workspace 成员、零代码纯依赖清单）——「exe 装什么插件」与「Python runtime 分发什么」的合一事实源。往 exe 加插件 = 清单加一行依赖再重打包。[`scripts/verify-runtime-closure.ts`](../../../../scripts/verify-runtime-closure.ts) 遍历该清单覆盖的全部 workspace 包，要求每个非 optional workspace peer 显式列在 runtime root，并报告「引用包 → 缺失 peer」的完整链路；CI static、pre-push 与 single-exe 构建都会在打包前运行该门禁。deploy 还会按各包 `files` 打包，因此 tsdown 拆出的共享 chunk 必须被 `files` 覆盖。
 
 ### 构建管线与产物
 
-[`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：`pnpm run build` →（清空后）`pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **直落** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`→ 注入 pkg 配置（`bin` 指闭包内 `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，`assets` 全量 glob——动态 import 对 pkg 静态分析不可见，必须显式全量打入）→ 每 target 一次 `pkg --sea` → 产物 `dsh-jsonrpc-agent-pkg-<platform>-<arch>` 落 `dist-exe/`（CI artifact）并拷回 runtime 目录。deploy 四 flag 均有实测依据：`--legacy` 是未开 inject-workspace-packages 时的必选路径；hoisted 产出零符号链接文件树（pkg VFS 最稳、物理保证 cordis 单实例）；关 peer 自动安装避免未发布包名触发 registry 解析；link-workspace-packages 让闭包指向 workspace/vendor 源。
+[`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：runtime 闭包校验 → `pnpm run build` →（清空后）`pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **直落** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`→ 注入 pkg 配置（`bin` 指闭包内 `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，`assets` 全量 glob——动态 import 对 pkg 静态分析不可见，必须显式全量打入）→ 每 target 一次 `pkg --sea` → 产物 `dsh-jsonrpc-agent-pkg-<platform>-<arch>` 落 `dist-exe/`（CI artifact）并拷回 runtime 目录。deploy 四 flag 均有实测依据：`--legacy` 是未开 inject-workspace-packages 时的必选路径；hoisted 产出零符号链接文件树（pkg VFS 最稳、物理保证 cordis 单实例）；关 peer 自动安装避免未发布包名触发 registry 解析；link-workspace-packages 让闭包指向 workspace/vendor 源。
 
-CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅显式触发——`workflow_dispatch` 手动派发，或给 PR 打 `build-exe` 标签；linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，`~/.pkg-cache` 缓存，artifact 按平台上传；macOS ad-hoc 签名由 pkg 处理。Windows 是非目标。
+CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅显式触发——`workflow_dispatch` 手动派发，或给 PR 打 `build-exe` 标签；linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，`~/.pkg-cache` 缓存，artifact 按平台上传；macOS ad-hoc 签名由 pkg 处理。每个平台都以 mock SSE 模型分别通过默认配置和自定义 `cordis.yml` 驱动 SDK，再以 NDJSON JSON-RPC 直接驱动 exe，校验 JSONL 与最终响应，最后把 release 形态的 wheel 安装到干净 venv 中并在不传 `runtime_bin` 的情况下运行；Linux 还检查 GLIBC 依赖并在 manylinux 2.28 容器中运行。[`.gitlab-ci.yml`](../../../../.gitlab-ci.yml) 只接受 `python-vX.Y.Z` tag 流水线，构建一个 SDK wheel 与 3 个原生 runtime wheel，再由单个串行 job 校验并发布这 4 个文件到项目 PyPI 注册表。Windows 是非目标。
 
 ### Python SDK 分发：双载体，exe 为生产、node 为开发
 
-Python SDK 位于 [`python/`](../../../../python/README.md)：`python/sdk`（客户端）+ `python/sdk-runtime`（运行时载体包）。runtime 包数据目录三类内容：检入的默认 `runtime/cordis.yml`、构建注入的平台 exe、构建注入的 `runtime/node/` 闭包树。`resolve_bundled_launch_args()` 自动解析**只找 exe**；node 载体仅显式 `DSH_RUNTIME_MODE=node` 启用（跑 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，需系统 node ≥22.19），定位是本仓库成员的开发验证通道，不进 wheel/sdist 分发物。
+Python SDK 位于 [`python/`](../../../../python/README.md)：`python/sdk`（客户端）+ `python/sdk-runtime`（运行时载体包）。runtime 包数据目录三类内容：检入的默认 `runtime/cordis.yml`、构建注入的平台 exe、构建注入的 `runtime/node/` 闭包树。`resolve_bundled_launch_args()` 自动解析**只找 exe**；node 载体仅显式 `DSH_RUNTIME_MODE=node` 启用（跑 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，需系统 node ≥22.19），定位是本仓库成员的开发验证通道，不进 wheel 分发物。
+
+[`scripts/build-python-release.py`](../../../../scripts/build-python-release.py) 只接受稳定的 `python-vX.Y.Z` tag，并以 `X.Y.Z` 暂存两个包，同时让 SDK 精确依赖 `deepseek-harness-runtime-bin==X.Y.Z`。SDK 是 `py3-none-any` wheel；只提供 wheel 的 runtime 包恰好包含一个 exe，tag 为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 或 `py3-none-macosx_11_0_arm64`。其 Hatch 钩子拒绝 sdist、通用 tag、混合可执行载荷以及不支持的平台。
 
 exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢复：调用方没给 `cordis`、没显式指定 runtime、环境无 `DSH_CORDIS_CONFIG` 时，客户端把检入的默认 `cordis.yml`（agent-core + 预载 llm-deepseek + JSONL 持久化 + bash-local + `dsh-jsonrpc` serving 条目，`!!js` 环境变量兜底）显式注入 `DSH_CORDIS_CONFIG`。
 
@@ -60,7 +62,7 @@ exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢�
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：`python/sdk/tests` 的 28 例 pytest 覆盖客户端协议（18 例，keyless、假运行时对端）、双载体启动（6 例，产物缺失时独立 skip）与载体解析规则（4 例）。端到端层：验收物料（keyless 五项：env 通道启动、缺配置 fail-loud、坏插件名 fail-loud、配置通道、mock 端点完整回合 + JSONL 落盘；带 key 两项：真实回合、bash 工具写 marker 文件的世界校验 + 干净退出）由真实 Python SDK 客户端驱动 exe。当前欠账：上述套件对当前产物的运行与 built-exe e2e。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的 keyless pytest 套件以假运行时对端覆盖客户端协议、子进程清理、绝对 cwd 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台产物都通过默认 SDK 路径、自定义配置和直接二进制协议对着 mock 端点完成一个轮次，并校验最终文本与 JSONL；随后把平台 wheel 安装进干净 venv，在不传 `runtime_bin` 的情况下运行。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
 
 手工驱动注意：bin 视 stdin EOF 为「客户端已走」并立即 dispose，短命管道会中止在飞回合——管道驱动必须保持 stdin 打开到回合结束。
 
@@ -80,4 +82,4 @@ exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢�
 
 **买到的**：目标平台零依赖单文件分发；插件语义与源码运行严格一致（同一棵真实包树，无转译无注册表）；serving 面、插件集、配置三者全部收敛到 `cordis.yml` + 一份依赖清单两个事实源；exe 与 node 双载体同树同语义，开发验证不必等打包；官方 Node 二进制消除了补丁二进制供应链顾虑。
 
-**付出的**：产物 174MB 级且源码原样进 blob（无字节码混淆，闭源分发诉求需另行评估）；pkg 的 VFS/模块钩子层仍是社区维护（构建脚本钉死 `@yao-pkg/pkg@6.21.0`，升级走显式改动）；`--sea` 单 target 单次调用（与 CI 每平台一腿匹配，本地多平台构建串行）；worker 类插件在 exe 内行为未定义；验收与覆盖率存在补跑欠账（见「测试」）。
+**付出的**：产物 174MB 级且源码原样进 blob（无字节码混淆，闭源分发诉求需另行评估）；pkg 的 VFS/模块钩子层仍是社区维护（构建脚本钉死 `@yao-pkg/pkg@6.21.0`，升级走显式改动）；`--sea` 单 target 单次调用（与 CI 每平台一腿匹配，本地多平台构建串行）；worker 类插件在 exe 内行为未定义。

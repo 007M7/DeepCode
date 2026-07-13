@@ -49,19 +49,25 @@ Two flavors, both for repo members:
 
 ## Distributing the Python packages
 
-Build one wheel per package; the runtime wheel embeds whatever executables are present under `runtime/` at build time (and always the default `cordis.yml`), and excludes `runtime/node/`:
+Python releases use stable tags of the form `python-vX.Y.Z`. The common staging script derives both distribution versions from the tag, pins `deepseek-harness-runtime-bin==X.Y.Z` in the SDK metadata, and rejects any other tag form. Build the pure SDK wheel once and one runtime wheel on each native platform:
 
 ```sh
-(cd python/sdk-runtime && uv build)   # or: hatch build
-(cd python/sdk && uv build)
-pip install dist/deepseek_harness_runtime_bin-*.whl dist/deepseek_harness-*.whl
+python scripts/build-python-release.py --package sdk --tag python-v0.1.0 --output-dir dist-python
+python scripts/build-python-release.py --package runtime --tag python-v0.1.0 --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
+pip install --find-links dist-python deepseek-harness==0.1.0
 ```
 
-Once the binaries are in place (built or downloaded), installing the two wheels (or `pip install ./python/sdk-runtime ./python/sdk` straight from the directories) gives a working zero-config `DeepSeekHarness()`. Two pre-release caveats: the runtime wheel is currently tagged `py3-none-any` while embedding platform-specific binaries — build it with only the matching platform's exe in place (one wheel per platform), or drop all three exes in for a fat universal wheel (~500 MB); and versioning/publishing policy (`0.0.0-dev`, no registry) is deliberately unset until the first tagged release.
+The runtime distribution is wheel-only and rejects sdist builds, missing executables, and mixed-platform payloads. Its three wheel tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_11_0_arm64`; the SDK remains `py3-none-any`. A tag pipeline builds these four non-conflicting files and publishes them together, so a normal `pip install deepseek-harness==X.Y.Z` selects the matching runtime wheel and `import deepseek_harness` needs no `runtime_bin`.
 
 ## Zero-config semantics
 
 The runtime binary itself always requires an explicit config (`$DSH_CORDIS_CONFIG`, or a config path as the first argv argument), has no built-in fallback, and boots only what the config lists. Zero-config is SDK wrapper behavior: when the caller uses no explicit channel, the client injects the runtime package's checked-in default configuration ([runtime/cordis.yml](sdk-runtime/src/deepseek_harness_runtime/runtime/cordis.yml)) via `DSH_CORDIS_CONFIG`; any explicit channel wins and disables the injection. The full injection conditions live in the [sdk README](sdk/README.md); the default config's contents and the hard semantic in the [sdk-runtime README](sdk-runtime/README.md).
+
+The executable is also a supported direct interface; keep stdin open for the NDJSON JSON-RPC exchange and supply a config explicitly:
+
+```sh
+DSH_CORDIS_CONFIG=/absolute/path/cordis.yml ./dsh-jsonrpc-agent-pkg-macos-arm64
+```
 
 ## Test layout
 
