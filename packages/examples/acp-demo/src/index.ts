@@ -18,6 +18,7 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
+const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
 /**
  * App config: the swappable per-deployment values. `model` configures the
@@ -54,9 +55,7 @@ export const Config: z<Config> = z.object({
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
-  // TODO(single-default-literal): share this schema default and the defensive
-  // apply() fallback through one named constant while retaining both boundaries.
-  persistenceRoot: z.string().default('./.sessions'),
+  persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   skills: agentCore.SkillConfigSchema,
 })
 /* jscpd:ignore-end */
@@ -76,6 +75,6 @@ export function apply(ctx: Context, config: Config): void {
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(acp, { model: config.model })
 }
