@@ -79,9 +79,9 @@ export class DeepSeekAdapter extends LlmAdapter {
         const parsed = await response.json() as WireError
         if (parsed.error?.message) message = parsed.error.message
       } catch {
-        // Paranoid by design: `code` and the HTTP status are ALREADY captured
-        // above (and passed to LlmError below), so the only thing this `try`
-        // can add is a richer provider-supplied message. A malformed, empty,
+        // Paranoid by design: the stable `code` and status-line message are
+        // already captured above, so the only thing this `try` can add is a
+        // richer provider-supplied message. A malformed, empty,
         // or non-JSON error body is a normal thing for gateways/proxies to
         // return on a 5xx/429 — swallowing the parse failure keeps the usable
         // status-line message instead of letting a JSON.parse throw mask the
@@ -89,7 +89,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         // is the sole statement, and any non-parse failure (e.g. body already
         // consumed) is equally non-actionable here.
       }
-      throw new LlmError(message, code, response.status)
+      throw new LlmError(message, code)
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')

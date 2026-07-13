@@ -30,7 +30,7 @@ The replay seam is the provider-agnostic `llm/stream` waterfall ([packages/llm/l
 
 ```
 { kind: 'chunks', chunks: StreamChunk[] }
-| { kind: 'throw', chunks: StreamChunk[], message: string, code: string, status?: number }
+| { kind: 'throw', chunks: StreamChunk[], message: string, code: string }
 | { kind: 'hang' }
 ```
 

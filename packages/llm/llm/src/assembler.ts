@@ -38,12 +38,10 @@ export class BlockAssembler {
   private _finish: FinishReason | undefined
 
   /**
-   * Feed one chunk. Returns the completed block when the chunk closes one
-   * (an explicit `block-end`), otherwise undefined.
+   * Feed one chunk into the assembly state.
    * @param chunk - the next raw chunk, in stream order.
-   * @returns the authoritative block from the first `block-end` at its index; undefined for every other chunk.
    */
-  push(chunk: StreamChunk): ContentBlock | undefined {
+  push(chunk: StreamChunk): void {
     switch (chunk.type) {
       case 'block-start': {
         if (!this.partials.has(chunk.index)) {
@@ -79,7 +77,7 @@ export class BlockAssembler {
         // re-close could rewrite a block already flushed downstream.
         if (partial.block) return
         partial.block = chunk.block
-        return chunk.block
+        return
       }
       case 'usage': {
         this._usage = chunk.usage
