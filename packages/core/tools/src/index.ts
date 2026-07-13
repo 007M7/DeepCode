@@ -200,12 +200,6 @@ export interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
-   * Whether this tool name's canonical wire presence or absence survives the
-   * complete system-prompt assembly waterfall. Reserved for protocol tools
-   * whose owner must retain the final definition.
-   */
-  readonly ownerFinal?: boolean
-  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
@@ -457,8 +451,6 @@ interface ToolView {
   readonly knownNames: ReadonlySet<string>
   /** Current global names that a scoped restriction may name. */
   readonly restrictableNames: ReadonlySet<string>
-  /** Canonical names whose wire presence or absence is owner-final. */
-  readonly ownerFinalNames: ReadonlySet<string>
 }
 
 /**
@@ -491,11 +483,12 @@ interface ToolGuardRegistration {
  * that agent alone, disposed with the scope, and SHADOWING a global tool of
  * the same name for that agent (most-specific-wins; within one layer a
  * duplicate name still throws). {@link restrict} masks the global layer per
- * scope. One private visibility resolver feeds prompt assembly,
- * {@link get}, and {@link execute} — and, under a non-native mode, the SDK
- * section and `run_code`'s bindings — so what the model is shown, what a
- * presenter renders, what a program can call, and what dispatches can never
- * disagree.
+ * scope. One private visibility resolver feeds the registry's prompt
+ * contribution, {@link get}, and {@link execute} — and, under a non-native
+ * mode, the SDK section and `run_code`'s bindings — so those registry-owned
+ * presentation and dispatch paths agree. An expert `system-prompt/assemble`
+ * listener may deliberately replace the final wire composition and owns any
+ * resulting divergence.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
@@ -533,7 +526,6 @@ export class ToolRegistry extends Service {
       ctx.systemPrompt.section({
         name: 'tools:sdk',
         order: SDK_SECTION_ORDER,
-        ownerFinal: true,
         // A lazy thunk over the live registry, per assembly CONTEXT:
         // regenerated at each assembly over the CALLING SCOPE's visible set
         // (scoped tools join, restricted globals vanish — the SDK declares
@@ -570,19 +562,17 @@ export class ToolRegistry extends Service {
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
     const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
-    const ownerFinalNames = [...view.ownerFinalNames]
     if (this.mode === 'native') {
-      return { schemas, knownNames: [...view.knownNames], ownerFinalNames }
+      return { schemas, knownNames: [...view.knownNames] }
     }
     this.requireCodeRuntime()
     if (this.mode === 'code') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
         knownNames: [RUN_CODE_NAME],
-        ownerFinalNames,
       }
     }
-    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME], ownerFinalNames }
+    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME] }
   }
 
   /**
@@ -633,15 +623,6 @@ export class ToolRegistry extends Service {
     }
     if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
-    }
-    if (scope !== undefined && this.global.get(name)?.ownerFinal === true) {
-      throw new Error(`tool "${name}" is globally owner-final and cannot be shadowed in an agent scope`)
-    }
-    if (scope === undefined && definition.ownerFinal === true) {
-      const hasScopedShadow = [...this.scoped.values()].some(layer => layer.has(name))
-      if (hasScopedShadow) {
-        throw new Error(`owner-final tool "${name}" cannot be registered while a scoped shadow exists`)
-      }
     }
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       const layer = scope === undefined ? this.global : this.layerFor(scope)
@@ -818,7 +799,7 @@ export class ToolRegistry extends Service {
    * Resolve every registry fact one scope needs in one layer traversal. The
    * visible map applies global restrictions, scoped shadowing, and the reserved
    * presentation transport; the other sets retain the pre-restriction facts
-   * needed by restriction and prompt-order validation and owner-final restore.
+   * needed by restriction and prompt-order validation.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the complete derived view for that scope.
    */
@@ -827,29 +808,24 @@ export class ToolRegistry extends Service {
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    const ownerFinalNames = new Set<string>()
     for (const [name, definition] of this.global) {
       knownNames.add(name)
       restrictableNames.add(name)
-      if (definition.ownerFinal === true) ownerFinalNames.add(name)
       if (this.admits(scope, name)) visible.set(name, definition)
     }
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
     // and scope-local registrations are never part of the global filter above.
     for (const [name, definition] of layer ?? []) {
       knownNames.add(name)
-      if (definition.ownerFinal === true) ownerFinalNames.add(name)
       visible.set(name, definition)
     }
     // Presentation infrastructure is resolved last and outside capability
-    // filtering. Registration rejects this reserved name, so this set is an
-    // invariant assertion as well as protection against future layer changes.
+    // filtering. Registration rejects this reserved name, so the insertion is
+    // an invariant assertion as well as protection against future layer changes.
     if (this.codeTransport !== undefined) {
       visible.set(RUN_CODE_NAME, this.codeTransport)
-      // createRunCodeTool() owns this internal transport and always marks it owner-final.
-      ownerFinalNames.add(RUN_CODE_NAME)
     }
-    return { visible, knownNames, restrictableNames, ownerFinalNames }
+    return { visible, knownNames, restrictableNames }
   }
 
   /**
@@ -867,8 +843,9 @@ export class ToolRegistry extends Service {
 
   /**
    * The model-facing schemas of everything `scope` can see — exactly the
-   * fields (`name`, `description`, `parameters`) sent to the model via the
-   * system-prompt assembly. Constructed EXPLICITLY rather than by stripping
+   * fields (`name`, `description`, `parameters`) this registry contributes to
+   * system-prompt assembly before its expert transformation waterfall.
+   * Constructed EXPLICITLY rather than by stripping
    * known non-schema members: a `ToolDefinition` also carries `execute` and the
    * optional `presentCall`/`presentResult` UI callbacks, and those (especially
    * the functions) must never leak into a model request. An allowlist can't

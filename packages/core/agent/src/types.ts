@@ -82,9 +82,9 @@ declare module '@deepseek-ai/dsh-system-prompt' {
 }
 
 /**
- * Options an agent is created with. The persona is NOT here — it is the
- * deployment's `persona` config on the dsh-system-prompt plugin, shared by
- * every agent in the context.
+ * Options an agent is created with. The persona is NOT here: the
+ * dsh-system-prompt config supplies the global default, and a scoped
+ * `deployment:persona` section may override it for one agent.
  * Merge-extensible: plugins declare extra fields via declaration merging.
  */
 export interface AgentOptions {

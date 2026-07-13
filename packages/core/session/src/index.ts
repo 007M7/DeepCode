@@ -363,8 +363,7 @@ export class Session {
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
-   * @throws if `type` is not a string, or if `data` or surface metadata is not
-   *   losslessly JSON-serializable
+   * @throws if `data` or surface metadata is not losslessly JSON-serializable
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
    *   Map/Set/Date/class instance). One recursive pass reads, validates, and

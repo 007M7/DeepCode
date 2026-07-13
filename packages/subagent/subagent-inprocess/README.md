@@ -34,7 +34,7 @@ After fulfillment, the caller owns the run. Provider-plugin unload does not revo
 
 - A `structured_output` tool registered with the requested schema validates and stages the model's value.
 - An order-190 system-prompt section tells the child that the tool call is the terminal answer.
-- Both contributions use `ownerFinal: true`, so their owners control their final presence after prompt/tool assembly while unrelated contributions remain extensible.
+- Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
 - A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
 
@@ -44,7 +44,7 @@ A clean turn that never commits the required structured value reports `error`; t
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Child-agent request | The shared driver sends the task as the child's user message and, when requested, composes persona and global-tool restrictions in the unpublished child's fresh scope; parent restrictions are not inherited. Structured runs add an owner-final scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. Optional persona, filtering, and structured-output changes affect only that child; structured output adds fixed instruction and capability tokens for the run. |
+| Child-agent request | The shared driver sends the task as the child's user message and, when requested, composes persona and global-tool restrictions in the unpublished child's fresh scope; parent restrictions are not inherited. Structured runs add a scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. Optional persona, filtering, and structured-output changes affect only that child; structured output adds fixed instruction and capability tokens for the run. |
 | Parent result, indirectly | The driver extracts only the child's own last assistant output or captured structured value; seeded parent messages and intermediate child work do not become the result. | The parent receives one data-dependent result through the consumer; all other child tokens stay in the child session. |
 
 ## Known Limitations and Deferred Work

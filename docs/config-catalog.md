@@ -777,7 +777,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:257`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:225`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -958,7 +958,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:407`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:401`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

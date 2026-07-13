@@ -40,7 +40,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 
@@ -63,7 +63,8 @@ forever:
     if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
-      assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
+      assembly = await systemPrompt.assemble(assembleContextFor(agent))
+                                                ⟵ renderPrompt(assembly) IS the full prompt
       prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
                                                 session prefix; on the header, never history
       await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
@@ -111,7 +112,7 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Complete conversation request | For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose. | System text, schemas, and prefix are paid again on every step. Per-agent scoping can substitute or remove ordinary contributions; owner-final protocol contributions retain their canonical state. |
+| Complete conversation request | For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose. | System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence. |
 | Retained message history | Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded. | Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step. |
 
 ## Known Limitations and Deferred Work

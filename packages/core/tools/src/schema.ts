@@ -302,8 +302,6 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * is never sent to the model.
    */
   readonly timeoutMs?: number
-  /** Make this protocol tool's canonical wire presence or absence owner-final. */
-  readonly ownerFinal?: boolean
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
@@ -380,7 +378,6 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    ...(options.ownerFinal === true ? { ownerFinal: true } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an

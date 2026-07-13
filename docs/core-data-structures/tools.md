@@ -20,12 +20,6 @@ interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
-   * Whether this tool name's canonical wire presence or absence survives the
-   * complete system-prompt assembly waterfall. Reserved for protocol tools
-   * whose owner must retain the final definition.
-   */
-  readonly ownerFinal?: boolean
-  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
