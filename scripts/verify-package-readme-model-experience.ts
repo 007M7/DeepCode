@@ -78,6 +78,29 @@ function proseLines(text: string): Line[] {
   return kept
 }
 
+/** Split a canonical table row without treating escaped pipes as delimiters. */
+function tableCells(raw: string): string[] | undefined {
+  const last = raw.length - 1
+  if (!raw.startsWith('|') || !raw.endsWith('|') || isEscaped(raw, last)) return undefined
+
+  const cells: string[] = []
+  let start = 1
+  for (let index = 1; index < last; index += 1) {
+    if (raw[index] !== '|' || isEscaped(raw, index)) continue
+    cells.push(raw.slice(start, index).trim())
+    start = index + 1
+  }
+  cells.push(raw.slice(start, last).trim())
+  return cells
+}
+
+/** Whether the character at `index` follows an odd-length backslash run. */
+function isEscaped(text: string, index: number): boolean {
+  let backslashes = 0
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) backslashes += 1
+  return backslashes % 2 === 1
+}
+
 const failures: Failure[] = []
 const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
@@ -171,8 +194,8 @@ for (const packageJson of packageJsons) {
     continue
   }
   for (const row of rows) {
-    const cells = row.raw.split('|').slice(1, -1).map(cell => cell.trim())
-    if (cells.length !== 3 || cells.some(cell => cell.length === 0)) {
+    const cells = tableCells(row.raw)
+    if (cells === undefined || cells.length !== 3 || cells.some(cell => cell.length === 0)) {
       failures.push({ path: readme, message: `line ${row.index}: invalid three-column Model Experience row: ${row.raw}` })
     }
   }

@@ -49,16 +49,16 @@ Keep package-specific service API, config, events, extension points, and design 
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Request surface and condition | Exact context visible to the model | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
+| Request surface and condition | Verbatim stable text, or the exact data-dependent shape visible to the model | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
 
 ## Known Limitations and Deferred Work
 
 - **Consumer-visible gap** — exact boundary or deliberately deferred work.
 ```
 
-Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
+Fill Model Experience from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Quote stable model-visible source literals verbatim in inline code, using named placeholders such as `<mode>` only for interpolated values. Summarize only data-dependent payloads, provider-owned text, or schemas too large to reproduce, and identify their exact shape and renderer. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
 
-An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
+An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
 
 ## 5. Verify
 

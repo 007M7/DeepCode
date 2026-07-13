@@ -14,5 +14,5 @@ Naming notes:
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; prose accuracy stays on the author ([the documentation standard](../docs/AGENTS.md)).
-- Package READMEs document model/token effects in [Model Experience](../docs/AGENTS.md#package-model-experience).
+- Package READMEs document model/token effects using the [canonical Model Experience format](../docs/cookbook/adding-a-package.md#4-write-the-package-readme).
 - Package READMEs carry `## Known Limitations and Deferred Work` or a justified [allowlist entry](../scripts/verify-readme-limitations.ts) ([rationale](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md)).

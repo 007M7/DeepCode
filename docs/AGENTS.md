@@ -15,7 +15,7 @@ Each fact has one owning tier; other tiers link to it. Restated rules drift, whi
 | [rfc/](rfc/README.md) | Decision records: the why and the what-was-given-up; `implemented/` RFCs describe shipped reality in present tense | Migration plans, test checklists, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
-| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](#package-model-experience) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
+| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](cookbook/adding-a-package.md#4-write-the-package-readme) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
 | [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
@@ -28,19 +28,9 @@ Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; t
 - **A decision worth re-litigating gets an RFC in the same PR.** The test: would a maintainer six months out ask "why was it done this way?" and find no answer in the code? If yes, write one ([when to write one](rfc/README.md)); mechanical or self-evident changes need none.
 - **One physical line per paragraph** (`verify-md-wrap`): the editor soft-wraps; hard breaks make a one-word edit re-diff the whole paragraph. Prose only — code blocks, tables, and list structure stay; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
-- **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
-
-## Package Model Experience
-
-Every package README ends with `## Model Experience` immediately before `## Known Limitations and Deferred Work`; [allowlisted no-limitations packages](../scripts/verify-readme-limitations.ts) end after Model Experience. Packages with direct, multi-surface, conditional, capped, or lifetime effects use this table:
-
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-
-Rows state what reaches which model and classify token cost or lifetime; prompt text and tool schemas stay separate when visibility differs. Packages explicitly classified in [`SENTENCE_MODEL_EXPERIENCE`](../scripts/verify-package-readme-model-experience.ts) instead carry one sentence beginning `None, as ` or `Indirectly, through ` and ending with a period. The verifier gates the sentence allowlist, table shape, and section order; review owns factual accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
 
 ## Wordcount Budgets
 
