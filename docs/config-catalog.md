@@ -212,7 +212,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:29`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:30`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -327,6 +327,42 @@ export interface Config {
 ```
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
+
+## `@deepseek-ai/dsh-jsonrpc`
+
+Requires: `agents`
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a runtime-only test seam — none is part of the
+ * schemastery {@link Config}, so nothing here is settable from a `cordis.yml`
+ * (production always serves the process stdio and exits via `process.exit`).
+ */
+export interface JsonRpcConfig {
+  /**
+   * Transport input override. Production omits this (the plugin reads
+   * `process.stdin`); tests inject an in-memory `Readable` to drive the server
+   * without a subprocess.
+   */
+  input?: Readable
+  /**
+   * Transport output override. Production omits this (the plugin writes
+   * `process.stdout` — the protocol channel); tests inject an in-memory
+   * `Writable` to capture frames.
+   */
+  output?: Writable
+  /**
+   * Process-exit override for the `shutdown` request path. Production omits
+   * this (`process.exit`); tests inject a recorder so a driven shutdown does
+   * not kill the test process.
+   */
+  exit?: (code: number) => void
+}
+```
+
+Depends on: `Readable` (`node:stream`) · `Writable` (`node:stream`)
+
+Source: [`packages/ui/jsonrpc/src/index.ts:55`](../packages/ui/jsonrpc/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -1168,6 +1204,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
+- `@deepseek-ai/dsh-jsonrpc-agent` ([`packages/ui/jsonrpc-agent/src/index.ts`](../packages/ui/jsonrpc-agent/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))
