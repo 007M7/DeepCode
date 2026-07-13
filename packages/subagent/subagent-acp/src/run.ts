@@ -311,7 +311,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
           clientCapabilities: {},
         })
         const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-        sessionId = session.sessionId
+        const returnedSessionId: unknown = Reflect.get(session, 'sessionId')
+        if (typeof returnedSessionId !== 'string') throw new Error('ACP child published without a session id')
+        sessionId = returnedSessionId
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
       spawnFailed.then((err): never => { throw err }),
@@ -323,10 +325,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     if (flags.cancelled) throw new Error('subagent request was aborted before the ACP child started')
     throw toError(error)
   }
-  // The startup race can fulfill only after newSession assigned the id; this
-  // guard keeps that cross-closure invariant explicit for TypeScript.
-  /* v8 ignore next */
-  if (sessionId === undefined) throw new Error('ACP child published without a session id')
+  // The startup transaction validates the returned id before it can fulfill.
+  // This assertion carries that cross-closure invariant into TypeScript.
+  if (sessionId === undefined) throw new Error('unreachable: ACP startup fulfilled without a session id')
   const remoteSessionId = sessionId
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
