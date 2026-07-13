@@ -53,6 +53,8 @@ export interface AcpTestLaunchOptions {
 export interface LaunchedAcpTestAgent {
   /** The child process, exposed for process-level assertions. */
   child: ChildProcessWithoutNullStreams
+  /** Resolve when the OS spawns the child; reject with its asynchronous spawn failure. */
+  spawned: Promise<void>
   /** The SDK connection backed by the child's stdio. */
   client: ClientSideConnection
   /** Session updates in receive order. */
@@ -90,6 +92,18 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   )
+  // A spawn-level failure is an asynchronous `error` event. Observe it in the
+  // same tick as spawn so a missing cwd or OS rejection cannot crash the test
+  // runner, then make startup and shutdown surface the original error.
+  const childFailure = new Promise<Error>(resolve => child.once('error', resolve))
+  const spawned = Promise.race([
+    new Promise<void>(resolve => child.once('spawn', resolve)),
+    childFailure.then((error): never => { throw error }),
+  ])
+  // `spawned` is public and close() also awaits it, but a caller may ignore both.
+  // Keep that misuse from turning the already-observed child error into an
+  // unhandled promise rejection.
+  void spawned.catch(() => undefined)
 
   const stderrChunks: string[] = []
   child.stderr.setEncoding('utf8')
@@ -141,16 +155,22 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
 
   return {
     child,
+    spawned,
     client,
     updates,
     rawStdout: () => Buffer.concat(rawBuffers).toString('utf8'),
     stderr: () => stderrChunks.join(''),
     waitForUpdate: match => new Promise((resolve, reject) => updateWaiters.push({ match, resolve, reject })),
     async close(signal?: NodeJS.Signals): Promise<void> {
+      await spawned
       if (child.exitCode !== null || child.signalCode !== null) return
       if (signal === undefined) child.stdin.end()
       else child.kill(signal)
-      await waitForExit(child)
+      const failure = await Promise.race([
+        waitForExit(child).then((): undefined => undefined),
+        childFailure,
+      ])
+      if (failure !== undefined) throw failure
     },
   }
 }
