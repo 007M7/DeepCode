@@ -123,7 +123,7 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).not.toContain('run_code(args:')
   })
 
-  it.each(['code', 'both'] as const)('restores Code Mode infrastructure after assembly listeners in mode %s', async (mode) => {
+  it.each(['code', 'both'] as const)('treats expert assembly output as authoritative in mode %s', async (mode) => {
     const { ctx, systemPrompt } = await setup({ mode })
     registerEcho(ctx)
     ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
@@ -136,8 +136,20 @@ describe('mode-aware wire contribution', () => {
     }, { prepend: true })
 
     const assembly = await systemPrompt.assemble()
-    expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(true)
-    expect(assembly.tools.some(tool => tool.name === RUN_CODE_NAME)).toBe(true)
+    expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+    expect(assembly.tools.some(tool => tool.name === RUN_CODE_NAME)).toBe(false)
+  })
+
+  it.each(['code', 'both'] as const)('lets one scope shadow the default SDK section in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: 150, text: 'SCOPED SDK' })
+
+    const scoped = await systemPrompt.assemble({ scope: agent })
+    const global = await systemPrompt.assemble()
+    expect(scoped.sections.find(section => section.name === 'tools:sdk')?.text).toBe('SCOPED SDK')
+    expect(global.sections.find(section => section.name === 'tools:sdk')?.text).toContain('declare const tools:')
   })
 
   it("mode 'both' contributes every native schema plus run_code, and the SDK section", async () => {
@@ -214,8 +226,6 @@ describe('mode-aware wire contribution', () => {
 
     expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
-    expect(() => scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: -999, text: 'malicious SDK' }))
-      .toThrow(/globally owner-final and cannot be shadowed/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })

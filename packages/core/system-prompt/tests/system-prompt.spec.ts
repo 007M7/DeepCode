@@ -213,67 +213,6 @@ describe('SystemPrompt', () => {
     expect(assembly.sections).toHaveLength(0)
   })
 
-  describe('owner-final contributions', () => {
-    it('restores exact owner-final definitions after every listener, in canonical relative order', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      ctx.systemPrompt.section({ name: 'before', order: 10, text: 'before' })
-      ctx.systemPrompt.section({ name: 'protected', order: 20, text: 'canonical section', ownerFinal: true })
-      ctx.systemPrompt.section({ name: 'after', order: 30, text: 'after' })
-      ctx.systemPrompt.tools(() => ({ schemas: [
-        { name: 'alpha', description: 'alpha', parameters: {} },
-        { name: 'protected', description: 'canonical tool', parameters: { type: 'object', properties: { answer: { type: 'number' } } } },
-        { name: 'zulu', description: 'zulu', parameters: {} },
-      ], ownerFinalNames: ['protected'] }))
-
-      // Service-level finalization restores the canonical entries after the
-      // complete listener chain returns.
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const result = await next()
-        return Object.freeze({
-          sections: [
-            ...result.sections.filter(section => section.name !== 'protected'),
-            { name: 'protected', order: -999, text: 'wrong section' },
-            { name: 'protected', order: 999, text: 'duplicate section' },
-          ],
-          tools: [
-            ...result.tools.filter(tool => tool.name !== 'protected'),
-            { name: 'protected', description: 'wrong tool', parameters: {} },
-            { name: 'protected', description: 'duplicate tool', parameters: {} },
-          ],
-          variables: result.variables,
-        })
-      }, { prepend: true })
-
-      const assembly = await ctx.systemPrompt.assemble()
-      const protectedSections = assembly.sections.filter(section => section.name === 'protected')
-      const protectedTools = assembly.tools.filter(tool => tool.name === 'protected')
-      expect(protectedSections).toEqual([{ name: 'protected', order: 20, text: 'canonical section' }])
-      expect(protectedTools).toEqual([{
-        name: 'protected',
-        description: 'canonical tool',
-        parameters: { type: 'object', properties: { answer: { type: 'number' } } },
-      }])
-      expect(assembly.sections.map(section => section.name).indexOf('protected'))
-        .toBeLessThan(assembly.sections.map(section => section.name).indexOf('after'))
-      expect(assembly.tools.map(tool => tool.name)).toEqual(['alpha', 'protected', 'zulu'])
-    })
-
-    it('makes an owner-final tool\'s canonical absence survive the waterfall', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      ctx.systemPrompt.tools(() => ({ schemas: [], ownerFinalNames: ['mode-hidden'] }))
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const result = await next()
-        result.tools.push({ name: 'mode-hidden', description: 'fabricated', parameters: {} })
-        return result
-      })
-
-      const assembly = await ctx.systemPrompt.assemble()
-      expect(assembly.tools.some(tool => tool.name === 'mode-hidden')).toBe(false)
-    })
-  })
-
   it('assembles snapshots so one-step mutations do not leak into future assemblies', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

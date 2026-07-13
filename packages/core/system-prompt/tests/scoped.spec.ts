@@ -63,17 +63,6 @@ describe('scoped sections', () => {
     expect(() => scope.ctx.systemPrompt.section({ name: 'y', order: 1, text: 'b' })).toThrow(/already registered in this scope/)
   })
 
-  it('rejects a global owner-final section added after a scoped shadow', async () => {
-    const ctx = await mount()
-    const scope = await mintScope(ctx, 'child')
-    scope.ctx.systemPrompt.section({ name: 'reserved', order: 1, text: 'scoped reserved' })
-
-    expect(() => ctx.systemPrompt.section({
-      name: 'reserved', order: 1, text: 'global reserved', ownerFinal: true,
-    })).toThrow('owner-final prompt section "reserved"')
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
-      .toContain('scoped reserved')
-  })
 })
 
 describe('scoped variables', () => {
@@ -161,35 +150,4 @@ describe('scoped assemble dispatch', () => {
     expect(shaped).toHaveLength(1)
   })
 
-  it('scoped owner-final contributions finalize only their assemblies and disappear with the scope', async () => {
-    const ctx = await mount()
-    const scope = await mintScope(ctx, 'child')
-    const key = scopeKeyOf(scope)
-    ctx.systemPrompt.section({ name: 'required', order: 10, text: 'required' })
-    ctx.systemPrompt.tools(() => ({ schemas: [schema('required')] }))
-    scope.ctx.systemPrompt.section({
-      name: 'required', order: 10, text: 'scoped required', ownerFinal: true,
-    })
-    scope.ctx.systemPrompt.tools(() => ({
-      schemas: [schema('required')], ownerFinalNames: ['required'],
-    }))
-    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const result = await next()
-      result.sections = result.sections.filter(section => section.name !== 'required')
-      result.tools = result.tools.filter(tool => tool.name !== 'required')
-      return result
-    }, { prepend: true })
-
-    const scoped = await ctx.systemPrompt.assemble({ scope: key })
-    const global = await ctx.systemPrompt.assemble()
-    expect(scoped.sections.some(section => section.name === 'required')).toBe(true)
-    expect(scoped.tools.some(tool => tool.name === 'required')).toBe(true)
-    expect(global.sections.some(section => section.name === 'required')).toBe(false)
-    expect(global.tools.some(tool => tool.name === 'required')).toBe(false)
-
-    await scope.dispose()
-    const disposed = await ctx.systemPrompt.assemble({ scope: key })
-    expect(disposed.sections.some(section => section.name === 'required')).toBe(false)
-    expect(disposed.tools.some(tool => tool.name === 'required')).toBe(false)
-  })
 })
