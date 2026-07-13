@@ -285,28 +285,6 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 
 Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
 
-## `skill/*`
-
-### `skill/provider-added` — emit
-
-A skill provider became resolvable in the `ctx.skills` registry. Consumers can observe this instead of depending on Cordis plugin load order, which is concurrent for sibling plugins.
-
-```ts cordis-catalog
-'skill/provider-added'(provider: SkillProvider): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:131`](../../packages/skill/skill/src/index.ts)
-
-### `skill/provider-removed` — emit
-
-A skill provider left the registry because its plugin fiber was disposed.
-
-```ts cordis-catalog
-'skill/provider-removed'(name: string): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:137`](../../packages/skill/skill/src/index.ts)
-
 ## `subagent/*`
 
 ### `subagent/end` — emit
