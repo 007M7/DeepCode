@@ -6,7 +6,7 @@
  * `dsh-fs-policy`, so it is not exercised here.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -137,6 +137,61 @@ describe('lstat', () => {
       await expect(fs.lstat('   ')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
     } finally {
       await rm(other, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('metadata cancellation', () => {
+  it('rejects stat and lstat when their signals abort while the metadata probes are in flight', async () => {
+    await writeFile(join(dir, 'slow.txt'), 'hello')
+    const statStarted = Promise.withResolvers<undefined>()
+    const statRelease = Promise.withResolvers<undefined>()
+    const lstatStarted = Promise.withResolvers<undefined>()
+    const lstatRelease = Promise.withResolvers<undefined>()
+    let isolatedCtx: Context | undefined
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async stat(path: string) {
+          statStarted.resolve(undefined)
+          await statRelease.promise
+          return actual.stat(path, { bigint: true })
+        },
+        async lstat(path: string) {
+          lstatStarted.resolve(undefined)
+          await lstatRelease.promise
+          return actual.lstat(path, { bigint: true })
+        },
+      }
+    })
+
+    try {
+      const { LocalFileSystem: IsolatedLocalFileSystem } = await import('../src/index.ts')
+      isolatedCtx = new Context()
+      await isolatedCtx.plugin(IsolatedLocalFileSystem, { cwd: dir })
+      const isolatedFs = isolatedCtx.fs as InstanceType<typeof IsolatedLocalFileSystem>
+      const target = await isolatedFs.resolve('slow.txt')
+      const statController = new AbortController()
+      const lstatController = new AbortController()
+      const pendingStat = isolatedFs.stat(target, statController.signal)
+      const pendingLstat = isolatedFs.lstat('slow.txt', undefined, lstatController.signal)
+
+      await Promise.all([statStarted.promise, lstatStarted.promise])
+      statController.abort()
+      lstatController.abort()
+      statRelease.resolve(undefined)
+      lstatRelease.resolve(undefined)
+
+      await expect(pendingStat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      await expect(pendingLstat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    } finally {
+      statRelease.resolve(undefined)
+      lstatRelease.resolve(undefined)
+      await isolatedCtx?.fiber.dispose()
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
     }
   })
 })

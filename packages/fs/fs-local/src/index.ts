@@ -117,6 +117,7 @@ export class LocalFileSystem extends FileSystem {
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     const info = await probe(target.targetKey)
+    if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     if (!info) return undefined
     return { version: info.version, type: info.type, size: info.size }
   }
@@ -125,6 +126,7 @@ export class LocalFileSystem extends FileSystem {
     if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
     if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
     const info = await probeNoFollow(resolve(opts?.cwd ?? this.config.cwd, path))
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
     if (!info) return undefined
     return { version: info.version, type: info.type, size: info.size }
   }

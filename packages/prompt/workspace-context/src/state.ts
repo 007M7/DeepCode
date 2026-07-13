@@ -6,7 +6,7 @@
 
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
@@ -36,6 +36,7 @@ const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
 export interface PendingInstructionChange {
   change: WorkspaceInstructionChange
   afterSeq: number
+  step?: { turn: number; step: number }
 }
 
 /** Per-scope metadata cache; instruction prose is deliberately not retained. */
@@ -235,6 +236,71 @@ function pendingChangesFor(
   return pending
 }
 
+function openStep(session: Session): { turn: number; step: number } | undefined {
+  const boundary = session.events.findLast(event => event.type === 'step/start' || event.type === 'step/end')
+  return boundary?.type === 'step/start' ? boundary.data : undefined
+}
+
+function invalidateInstructionVersions(
+  session: Session,
+  scopes: readonly string[],
+  cache: InstructionVersionCache,
+): void {
+  const states = cache.get(session)
+  if (states === undefined) return
+  for (const scope of scopes) states.delete(scope)
+  if (states.size === 0) cache.delete(session)
+}
+
+/**
+ * Settle provisional tool-result state against durable session events.
+ * A matching context event confirms the transition. If its owning step closes
+ * first, the loop discarded its context buffer, so both duplicate suppression
+ * and the metadata fast path must be re-armed for the next successful touch.
+ * @param session - session whose append-only log emitted `event`.
+ * @param event - newly committed session event.
+ * @param pendingBySession - provisional transitions awaiting log confirmation.
+ * @param versionCache - metadata fast path coupled to those transitions.
+ */
+export function observeInstructionSessionEvent(
+  session: Session,
+  event: SessionEvent,
+  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
+  versionCache: InstructionVersionCache,
+): void {
+  const pending = pendingBySession.get(session)
+  if (pending === undefined) return
+
+  switch (event.type) {
+    case 'context/message': {
+      if (!isWorkspaceContextSource(event.data.source)) return
+      for (const change of workspaceInstructionChanges(event.data.meta)) {
+        const waiting = pending.get(change.scope)
+        if (waiting !== undefined && event.seq >= waiting.afterSeq && sameInstructionChange(waiting.change, change)) {
+          pending.delete(change.scope)
+        }
+      }
+      if (pending.size === 0) pendingBySession.delete(session)
+      return
+    }
+    case 'step/end': {
+      const discardedScopes: string[] = []
+      for (const [scope, waiting] of pending) {
+        const step = waiting.step
+        if (step === undefined || step.turn !== event.data.turn || step.step !== event.data.step) continue
+        pending.delete(scope)
+        discardedScopes.push(scope)
+      }
+      if (pending.size === 0) pendingBySession.delete(session)
+      invalidateInstructionVersions(session, discardedScopes, versionCache)
+      return
+    }
+    default:
+      // SessionEventMap is merge-extensible; unrelated events do not settle workspace state.
+      return
+  }
+}
+
 /**
  * Commit only workspace contexts that survived the complete tool pipeline.
  * The observe-only `tools/result` notification calls this before the loop can
@@ -251,13 +317,18 @@ export function commitPendingInstructionContexts(
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
 ): WorkspaceInstructionChange[] {
   const committed: WorkspaceInstructionChange[] = []
+  const step = openStep(agent.session)
   for (const context of contexts ?? []) {
     if (!isWorkspaceContextSource(context.source)) continue
     const changes = workspaceInstructionChanges(context.meta)
     if (changes.length === 0) continue
     const pending = pendingChangesFor(agent.session, pendingBySession)
     for (const change of changes) {
-      pending.set(change.scope, { change, afterSeq: agent.session.seq })
+      pending.set(change.scope, {
+        change,
+        afterSeq: agent.session.seq,
+        ...step === undefined ? {} : { step },
+      })
       committed.push(change)
     }
   }

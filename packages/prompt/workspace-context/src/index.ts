@@ -21,6 +21,7 @@ import {
   commitPendingInstructionContexts,
   dynamicInstructionContext,
   name,
+  observeInstructionSessionEvent,
   reconcileInstructionContext,
   retainedInstructionVersionUpdates,
   rollbackPendingInstructionChanges,
@@ -54,6 +55,10 @@ export function apply(ctx: Context, config: Config): void {
     changes: WorkspaceInstructionChange[]
     versionUpdates: InstructionVersionUpdate[]
   }>()
+
+  ctx.on('session/event', (session, event) => {
+    observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
+  })
 
   ctx.on('agent/session-prefix', async (agent: Agent, _prefix, signal, next): Promise<Message[]> => {
     const rest = await next()

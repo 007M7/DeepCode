@@ -5,10 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { AgentId, type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -33,9 +33,12 @@ import {
 import {
   baselineInstructionState,
   commitPendingInstructionContexts,
+  observeInstructionSessionEvent,
   rollbackPendingInstructionChanges,
+  type InstructionVersionCache,
   type PendingInstructionChange,
 } from '../src/state.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 async function tempRepo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'dsh-workspace-context-'))
@@ -243,6 +246,20 @@ function expectNoDerivedMessages(agent: Agent): void {
 }
 
 describe('workspace context instruction discovery', () => {
+  it('treats ENOTDIR while probing a host candidate as confirmed absence', async () => {
+    const root = await tempRepo()
+    const homeFile = join(root, 'not-a-directory')
+    try {
+      await writeFile(homeFile, 'file')
+
+      const files = await discoverBaselineInstructionFiles({ cwd: root, dshHome: homeFile })
+
+      expect(files).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('loads user-global first, then root-to-cwd workspace instructions using the default candidate order', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1292,6 +1309,30 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('does not fall through to a lower-priority candidate when the winning provider file becomes unavailable', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.lstatTypes.set(join(root, 'AGENTS.md'), 'file')
+      fs.throwOnStat.add(join(root, 'AGENTS.md'))
+      fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'must not bypass AGENTS failure' })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      expectNoDerivedMessages(agent)
+      expect(fs.readTargets).not.toContain(join(root, 'CLAUDE.md'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('treats ctx.fs marker lookup failures as absent root markers', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1488,9 +1529,100 @@ describe('workspace context request injection', () => {
       await rm(home, { recursive: true, force: true })
     }
   })
+
+  it('does not bypass an unavailable host AGENTS.md with a lower-priority candidate', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'CLAUDE.md'), 'must not bypass unavailable AGENTS')
+      vi.resetModules()
+      vi.doMock('node:fs/promises', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('node:fs/promises')>()
+        return {
+          ...actual,
+          lstat: async (path: string) => {
+            if (path === join(root, 'AGENTS.md')) {
+              throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+            }
+            return actual.lstat(path)
+          },
+        }
+      })
+      const isolated = await import('@deepseek-ai/dsh-workspace-context')
+
+      const rendered = await isolated.loadBaselineInstructions({ cwd: root, dshHome: home, maxBytes: 65536 })
+
+      expect(rendered).toBeUndefined()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('dynamic nested workspace context injection', () => {
+  it('re-arms a buffered instruction change when a later tool aborts the step before context append', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested rule survives an aborted tool batch')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const adapter = new MockAdapter([
+        [
+          { type: 'block-start', index: 0, blockType: 'tool-call' },
+          { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('read-before-abort'), name: 'read', arguments: '{"file_path":"pkg/deep/file.txt"}' } },
+          { type: 'block-start', index: 1, blockType: 'tool-call' },
+          { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('abort-after-read'), name: 'abort_step', arguments: '{}' } },
+          { type: 'finish', reason: { kind: 'tool-calls' } },
+        ] satisfies StreamChunk[],
+        toolCallResponse('read-after-abort', 'read', { file_path: 'pkg/deep/file.txt' }),
+        textResponse('done'),
+      ])
+      await ctx.plugin(LlmService)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentLoop, { agents: [] })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const agent = ctx.agentLoop.create(AgentId('workspace-context-abort'), { model: 'mock' }, { cwd: root })
+      ctx.tools.register(defineTool({
+        name: 'abort_step',
+        description: 'Abort the current test step.',
+        parameters: {},
+        async execute() {
+          ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('test abort')
+          return [{ type: 'text', text: 'aborted' }]
+        },
+      }))
+
+      agent.send([{ type: 'text', text: 'read and abort' }])
+      await agent.whenIdle()
+      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(0)
+
+      agent.send([{ type: 'text', text: 'retry the read' }])
+      await agent.whenIdle()
+
+      const contexts = agent.session.events.filter(event => event.type === 'context/message')
+      expect(contexts).toHaveLength(1)
+      expect(adapter.requests).toHaveLength(3)
+      expect(adapter.requests[2]?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
+        .toContain('nested rule survives an aborted tool batch')
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('builds persisted digest state without inventing a provider version', () => {
     const state = baselineInstructionState([{
       absolutePath: '/repo/AGENTS.md',
@@ -2631,6 +2763,84 @@ describe('dynamic nested workspace context injection', () => {
 })
 
 describe('workspace context pending state', () => {
+  it('leaves pending transitions from other or untracked steps untouched', () => {
+    const agent = stubAgent('/')
+    const change = (scope: string) => ({
+      action: 'set' as const, scope, path: `${scope}/AGENTS.md`, digest: scope,
+    })
+    const pending = new WeakMap<object, Map<string, PendingInstructionChange>>([[
+      agent.session,
+      new Map([
+        ['untracked', { change: change('untracked'), afterSeq: 0 }],
+        ['other-turn', { change: change('other-turn'), afterSeq: 0, step: { turn: 2, step: 1 } }],
+        ['other-step', { change: change('other-step'), afterSeq: 0, step: { turn: 1, step: 2 } }],
+        ['current', { change: change('current'), afterSeq: 0, step: { turn: 1, step: 1 } }],
+      ]),
+    ]])
+    const versions: InstructionVersionCache = new WeakMap()
+    const ended = agent.session.append('step/end', { turn: 1, step: 1 })
+
+    observeInstructionSessionEvent(agent.session, ended, pending, versions)
+
+    expect([...pending.get(agent.session)?.keys() ?? []]).toEqual(['untracked', 'other-turn', 'other-step'])
+  })
+
+  it('confirms a pending transition only when its matching workspace context reaches the log', () => {
+    const agent = stubAgent('/')
+    const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
+    const versions: InstructionVersionCache = new WeakMap()
+    const [change] = commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
+    expect(change).toBeDefined()
+    versions.set(agent.session, new Map([['pkg', {
+      path: 'pkg/AGENTS.md', version: FsVersion('v1'), digest: 'one',
+    }]]))
+
+    const unrelated = agent.session.append('context/message', {
+      content: [], source: { kind: 'plugin', plugin: 'other' },
+    }, { surfaceOp: 'append' })
+    observeInstructionSessionEvent(agent.session, unrelated, pending, versions)
+    expect(pending.get(agent.session)?.has('pkg')).toBe(true)
+
+    const otherContext = workspaceChangeContext('other', 'other')
+    const otherWorkspaceEvent = agent.session.append('context/message', {
+      content: otherContext.content,
+      source: otherContext.source,
+      ...otherContext.envelope !== undefined ? { envelope: otherContext.envelope } : {},
+      ...otherContext.meta !== undefined ? { meta: otherContext.meta } : {},
+    }, { surfaceOp: 'append' })
+    observeInstructionSessionEvent(agent.session, otherWorkspaceEvent, pending, versions)
+    expect(pending.get(agent.session)?.has('pkg')).toBe(true)
+
+    const context = workspaceChangeContext('pkg', 'one')
+    const confirmed = agent.session.append('context/message', {
+      content: context.content,
+      source: context.source,
+      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+      ...context.meta !== undefined ? { meta: context.meta } : {},
+    }, { surfaceOp: 'append' })
+    observeInstructionSessionEvent(agent.session, confirmed, pending, versions)
+
+    expect(pending.has(agent.session)).toBe(false)
+    expect(versions.get(agent.session)?.has('pkg')).toBe(true)
+  })
+
+  it('discards pending state and its version fast path when the owning step closes first', () => {
+    const agent = stubAgent('/')
+    const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
+    const versions: InstructionVersionCache = new WeakMap()
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
+    versions.set(agent.session, new Map([['pkg', {
+      path: 'pkg/AGENTS.md', version: FsVersion('v1'), digest: 'one',
+    }]]))
+
+    const ended = agent.session.append('step/end', { turn: 1, step: 1 })
+    observeInstructionSessionEvent(agent.session, ended, pending, versions)
+
+    expect(pending.has(agent.session)).toBe(false)
+    expect(versions.has(agent.session)).toBe(false)
+  })
+
   it('rolls back only the exact current transition and releases empty session state', () => {
     const agent = stubAgent('/')
     const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()

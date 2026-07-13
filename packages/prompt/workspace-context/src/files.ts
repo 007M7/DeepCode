@@ -8,6 +8,7 @@ import { createReadStream } from 'node:fs'
 import { lstat, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { FileSystem, FsInfo, FsPathInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
@@ -63,21 +64,35 @@ export type ScopeInstructionProbe =
   | { kind: 'absent' }
   | { kind: 'unavailable' }
 
+interface StatFileInfo {
+  target?: FsTarget
+  size?: number
+  version?: FsVersion
+}
+
+type StatFileProbe =
+  | { kind: 'present'; info: StatFileInfo }
+  | { kind: 'absent' }
+  | { kind: 'unavailable' }
+
 function signalOptions(signal?: AbortSignal): { signal: AbortSignal } | undefined {
   return signal === undefined ? undefined : { signal }
 }
 
-async function nodeStatFile(path: string, signal?: AbortSignal): Promise<{ size: number } | undefined> {
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+}
+
+async function nodeStatFile(path: string, signal?: AbortSignal): Promise<StatFileProbe> {
   try {
     signal?.throwIfAborted()
     const info = await lstat(path)
     signal?.throwIfAborted()
-    if (!info.isFile()) return undefined
-    return { size: info.size }
-  } catch {
+    if (!info.isFile()) return { kind: 'absent' }
+    return { kind: 'present', info: { size: info.size } }
+  } catch (error: unknown) {
     signal?.throwIfAborted()
-    // Candidates can disappear while discovery is in progress.
-    return undefined
+    return isMissingPathError(error) ? { kind: 'absent' } : { kind: 'unavailable' }
   }
 }
 
@@ -85,18 +100,30 @@ async function fsStatFile(
   path: string,
   fileSystem: FileSystem,
   signal?: AbortSignal,
-): Promise<{ target: FsTarget; size?: number; version: FsVersion } | undefined> {
+): Promise<StatFileProbe> {
+  let pathInfo: FsPathInfo | undefined
   try {
-    const pathInfo = await fileSystem.lstat(path, undefined, signal)
-    if (pathInfo?.type !== 'file') return undefined
-    const target = await fileSystem.resolve(path, signalOptions(signal))
-    const info = await fileSystem.stat(target, signal)
-    if (info?.type !== 'file') return undefined
-    return { target, version: info.version, ...info.size === undefined ? {} : { size: info.size } }
+    pathInfo = await fileSystem.lstat(path, undefined, signal)
+    signal?.throwIfAborted()
   } catch {
     signal?.throwIfAborted()
-    // Provider absence and discovery races are both non-fatal.
-    return undefined
+    return { kind: 'unavailable' }
+  }
+  if (pathInfo?.type !== 'file') return { kind: 'absent' }
+
+  try {
+    const target = await fileSystem.resolve(path, signalOptions(signal))
+    signal?.throwIfAborted()
+    const info = await fileSystem.stat(target, signal)
+    signal?.throwIfAborted()
+    if (info?.type !== 'file') return { kind: 'unavailable' }
+    return {
+      kind: 'present',
+      info: { target, version: info.version, ...info.size === undefined ? {} : { size: info.size } },
+    }
+  } catch {
+    signal?.throwIfAborted()
+    return { kind: 'unavailable' }
   }
 }
 
@@ -104,7 +131,7 @@ async function statFile(
   path: string,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
-): Promise<{ target?: FsTarget; size?: number; version?: FsVersion } | undefined> {
+): Promise<StatFileProbe> {
   return fileSystem === undefined ? nodeStatFile(path, signal) : fsStatFile(path, fileSystem, signal)
 }
 
@@ -209,13 +236,21 @@ async function firstExistingInstructionFile(
 ): Promise<DiscoveredInstructionFile | undefined> {
   for (const candidate of instructionFileCandidates) {
     const path = join(dir, candidate)
-    const fileInfo = await statFile(path, fileSystem, signal)
-    if (fileInfo !== undefined) {
-      return {
-        absolutePath: path,
-        displayPath: relativeDisplay(root, path),
-        ...fileInfo,
-      }
+    const probe = await statFile(path, fileSystem, signal)
+    switch (probe.kind) {
+      case 'present':
+        return {
+          absolutePath: path,
+          displayPath: relativeDisplay(root, path),
+          ...probe.info,
+        }
+      case 'absent':
+        continue
+      case 'unavailable':
+        return undefined
+      /* v8 ignore next 2 -- StatFileProbe is closed; this arm only makes adding a kind a compile error. */
+      default:
+        return assertNever(probe, 'StatFileProbe')
     }
   }
   return undefined
@@ -235,13 +270,21 @@ async function discoverInstructionFiles(
   }
 
   const userGlobal = join(config.dshHome, 'AGENTS.md')
-  const userGlobalInfo = await statFile(userGlobal, fileSystem, options.signal)
-  if (userGlobalInfo !== undefined) {
-    addFile({
-      absolutePath: userGlobal,
-      displayPath: userGlobalDisplayPath(config.dshHome),
-      ...userGlobalInfo,
-    })
+  const userGlobalProbe = await statFile(userGlobal, fileSystem, options.signal)
+  switch (userGlobalProbe.kind) {
+    case 'present':
+      addFile({
+        absolutePath: userGlobal,
+        displayPath: userGlobalDisplayPath(config.dshHome),
+        ...userGlobalProbe.info,
+      })
+      break
+    case 'absent':
+    case 'unavailable':
+      break
+    /* v8 ignore next 2 -- StatFileProbe is closed; this arm only makes adding a kind a compile error. */
+    default:
+      assertNever(userGlobalProbe, 'StatFileProbe')
   }
 
   const cwd = resolve(options.cwd)
