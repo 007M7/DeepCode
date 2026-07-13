@@ -80,10 +80,12 @@ describe('runScenario', () => {
     const minimal = launchAcpTestAgent({ agent: AGENT, cwd: dir })
     await minimal.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const childFailure = new Error('child process failed')
-    const exited = new Promise<void>(resolve => minimal.child.once('exit', () => { resolve() }))
+    let exited = false
+    minimal.child.once('exit', () => { exited = true })
     minimal.child.emit('error', childFailure)
-    await expect(minimal.close('SIGKILL')).rejects.toBe(childFailure)
-    await exited
+    await expect(minimal.close('SIGTERM')).rejects.toBe(childFailure)
+    // close rejects only after the fallback SIGKILL has produced an exit edge.
+    expect(exited).toBe(true)
   })
 
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
