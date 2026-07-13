@@ -329,6 +329,9 @@ export class AgentRegistry extends Service {
    */
   enter(agent: Agent, owner: Agent | undefined): () => void {
     const id = agent.id
+    if (id !== agent.session.id) {
+      throw new Error(`agent id "${id}" does not match session id "${agent.session.id}"`)
+    }
     const carrier = scopeTarget(agent, agent)
     // This is the authoritative collision boundary. Concurrent create/resume
     // operations may both prepare, but only one exact entry can publish.

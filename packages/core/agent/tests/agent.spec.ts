@@ -11,7 +11,7 @@ function stubAgent(rawId: string): Agent {
   return {
     id,
     options: {},
-    session: new Session(SessionId(`${id}-session`)),
+    session: new Session(id),
     status: 'idle',
     ctx: new Context(),
     send() {},
@@ -48,6 +48,16 @@ describe('AgentRegistry', () => {
     dispose()
     expect(ctx.agents.get(agent.id)).toBeUndefined()
     expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
+  })
+
+  it('rejects an agent whose registry and session identities differ', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = { ...stubAgent('agent-id'), session: new Session(SessionId('session-id')) }
+
+    expect(() => ctx.agents.enter(agent, undefined))
+      .toThrow('agent id "agent-id" does not match session id "session-id"')
+    expect(ctx.agents.list()).toEqual([])
   })
 
   it('tracks runtime creator ownership separately from registry order', async () => {
