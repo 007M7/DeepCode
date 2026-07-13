@@ -874,7 +874,7 @@ describe('scoped-dispatch invariants', () => {
       ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }]],
     ]
     for (const [event, args] of rows) {
-      const subject = event.startsWith('tools/') ? agent : agent
+      const subject = agent
       expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, subject), event, ...args) },
         `${event} with matching carrier`).not.toThrow()
       expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, other), event, ...args) },

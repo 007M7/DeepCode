@@ -15,6 +15,9 @@
  * @module @deepseek-ai/dsh-hooks-codex
  */
 
+// Each dialect bridge keeps its complete dependency list visible at the entry
+// point; a cross-package facade for imports alone would add indirection.
+/* jscpd:ignore-start */
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -35,6 +38,7 @@ import {
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
 import { parseCodexConfig, type CodexHookConfig } from './config.ts'
+/* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
 export const inject = ['bash']
