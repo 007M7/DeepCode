@@ -35,9 +35,8 @@ _ARCH_TAGS = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm
 
 _EXE_ACQUISITION_HINT = (
     "Two ways to get the executable: run `scripts/build-exe-for-python-sdk.ts` (via tsx) in a "
-    "deepseek-harness checkout, or download the platform artifact of the `build-exe-for-python-sdk` "
-    "CI workflow (a tar.gz — tar preserves the executable bit) and unpack it into this package's "
-    "runtime/ directory. For local development "
+    "deepseek-harness checkout, or install the matching `deepseek-harness-runtime-bin` platform "
+    "wheel retained by the `build-exe-for-python-sdk` CI workflow. For local development "
     "against a repo source build, explicitly select the dev-only node carrier with "
     f"{RUNTIME_MODE_ENV_VAR}=node (or resolve_bundled_launch_args('node'))."
 )

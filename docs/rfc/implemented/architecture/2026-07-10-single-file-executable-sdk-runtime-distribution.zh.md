@@ -40,9 +40,9 @@ deploy root 是 [`python/sdk-runtime/package.json`](../../../../python/sdk-runti
 
 ### 构建管线与产物
 
-[`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：runtime 闭包校验 → `pnpm run build` →（清空后）`pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **直落** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`→ 注入 pkg 配置（`bin` 指闭包内 `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，`assets` 全量 glob——动态 import 对 pkg 静态分析不可见，必须显式全量打入）→ 每 target 一次 `pkg --sea` → 产物 `dsh-jsonrpc-agent-pkg-<platform>-<arch>` 落 `dist-exe/`（CI artifact）并拷回 runtime 目录。deploy 四 flag 均有实测依据：`--legacy` 是未开 inject-workspace-packages 时的必选路径；hoisted 产出零符号链接文件树（pkg VFS 最稳、物理保证 cordis 单实例）；关 peer 自动安装避免未发布包名触发 registry 解析；link-workspace-packages 让闭包指向 workspace/vendor 源。
+[`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：runtime 闭包校验 → `pnpm run build` →（清空后）`pnpm --filter dsh-jsonrpc-agent-pkg deploy --legacy --prod --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true` **直落** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`→ 注入 pkg 配置（`bin` 指闭包内 `node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`，`assets` 全量 glob——动态 import 对 pkg 静态分析不可见，必须显式全量打入）→ 每 target 一次 `pkg --sea` → 可执行文件 `dsh-jsonrpc-agent-pkg-<platform>-<arch>` 落 `dist-exe/` 并拷回 runtime 目录。CI 把它们作为测试中间输入，只保留对应的平台 wheel。deploy 四 flag 均有实测依据：`--legacy` 是未开 inject-workspace-packages 时的必选路径；hoisted 产出零符号链接文件树（pkg VFS 最稳、物理保证 cordis 单实例）；关 peer 自动安装避免未发布包名触发 registry 解析；link-workspace-packages 让闭包指向 workspace/vendor 源。
 
-CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅显式触发——`workflow_dispatch` 手动派发，或给 PR 打 `build-exe` 标签；linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，`~/.pkg-cache` 缓存，artifact 按平台上传；macOS ad-hoc 签名由 pkg 处理。每个平台都以 mock SSE 模型分别通过默认配置和自定义 `cordis.yml` 驱动 SDK，再以 NDJSON JSON-RPC 直接驱动 exe，校验 JSONL 与最终响应，最后把 release 形态的 wheel 安装到干净 venv 中并在不传 `runtime_bin` 的情况下运行；Linux 还检查 GLIBC 依赖并在 manylinux 2.28 容器中运行。[`.gitlab-ci.yml`](../../../../.gitlab-ci.yml) 只接受 `python-vX.Y.Z` tag 流水线，构建一个 SDK wheel 与 3 个原生 runtime wheel，再由单个串行 job 校验并发布这 4 个文件到项目 PyPI 注册表。Windows 是非目标。
+CI：[`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github/workflows/build-exe-for-python-sdk.yml)，仅显式触发——`workflow_dispatch` 手动派发，或给 PR 打 `build-exe` 标签；linux-x64 / linux-arm64（`ubuntu-24.04-arm`）/ macos-arm64 三平台原生构建，并缓存 `~/.pkg-cache`；macOS ad-hoc 签名由 pkg 处理。每个平台都以 mock SSE 模型分别通过默认配置和自定义 `cordis.yml` 驱动 SDK，再以 NDJSON JSON-RPC 直接驱动 exe，校验 JSONL 与最终响应，最后把 release 形态的 wheel 安装到干净 venv 中并在不传 `runtime_bin` 的情况下运行；Linux 还检查 GLIBC 依赖并在 manylinux 2.28 容器中运行。整次运行只保留 4 个产物，每个只含一个发布文件：平台无关的 SDK wheel 与 3 个原生 runtime wheel；裸 exe 和源码 bundle 只作为测试中间输入。[`.gitlab-ci.yml`](../../../../.gitlab-ci.yml) 只接受 `python-vX.Y.Z` tag 流水线，构建一个 SDK wheel 与 3 个原生 runtime wheel，再由单个串行 job 校验并发布这 4 个文件到项目 PyPI 注册表。Windows 是非目标。
 
 ### Python SDK 分发：双载体，exe 为生产、node 为开发
 
@@ -62,7 +62,7 @@ exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢�
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的 keyless pytest 套件以假运行时对端覆盖客户端协议、子进程清理、绝对 cwd 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台产物都通过默认 SDK 路径、自定义配置和直接二进制协议对着 mock 端点完成一个轮次，并校验最终文本与 JSONL；随后把平台 wheel 安装进干净 venv，在不传 `runtime_bin` 的情况下运行。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的 keyless pytest 套件以假运行时对端覆盖客户端协议、子进程清理、绝对 cwd 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置和直接二进制协议对着 mock 端点完成一个轮次，并校验最终文本与 JSONL；随后把平台 wheel 安装进干净 venv，在不传 `runtime_bin` 的情况下运行。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
 
 手工驱动注意：bin 视 stdin EOF 为「客户端已走」并立即 dispose，短命管道会中止在飞回合——管道驱动必须保持 stdin 打开到回合结束。
 
