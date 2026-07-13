@@ -12,9 +12,7 @@ Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This seam registers no prompt, schema, or message. A consumer may expose configured mode, enforcement, denial, or `SANDBOX_UNAVAILABLE` facts in its own guidance or result. | Zero direct tokens. Confinement changes model-visible text only through the consuming capability. |
+Indirectly, through consumers such as `dsh-bash-sandbox`, which may expose enforcement, denial, or sandbox-unavailable facts in schemas or results.
 
 ## Known Limitations and Deferred Work
 

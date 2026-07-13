@@ -20,9 +20,7 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The seam receives a program and host bindings but registers no prompt, schema, or message. Code Mode in `dsh-tools` exposes the SDK and `run_code`, then converts `CodeRunResult` into the outer tool result. | Zero direct tokens. Program logs, values, and failures affect the conversation only through the Code Mode consumer. |
+Indirectly, through Code Mode in `dsh-tools`, which exposes `run_code` and returns program logs, values, or failures as retained tool-result tokens.
 
 ## Known Limitations and Deferred Work
 

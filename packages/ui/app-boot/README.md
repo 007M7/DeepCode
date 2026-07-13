@@ -16,9 +16,7 @@ Bare plugin specifiers in a config (`@deepseek-ai/dsh-*`) resolve through the co
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | Boot and environment helpers load the configured plugin tree but register no prompt, schema, or message of their own. `.env`, loader diagnostics, and config-path selection are process concerns, not model context. | Zero direct tokens. The selected configuration indirectly determines which other packages contribute context. |
+Indirectly, through the plugin tree it loads, which determines the prompts, schemas, messages, and model adapter in the resulting application.
 
 ## Known Limitations and Deferred Work
 

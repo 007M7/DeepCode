@@ -43,9 +43,7 @@ Constraints: `suite.ts` imports vitest, so the package is importable only inside
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None in production | The test harness records, normalizes, scrubs, and compares request headers and ACP transcripts but does not alter the agent's assembled context. Replay scenarios obtain assistant chunks from `dsh-llm-replay`; record mode uses the real composition. | Zero production tokens. Replay spends no provider tokens, while record mode pays the composition's ordinary model cost; golden scrubbing changes files only, never the live request. |
+None, as this test-only harness records, normalizes, and compares ACP transcripts without changing the agent's assembled model request.
 
 ## Known Limitations and Deferred Work
 

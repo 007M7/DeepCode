@@ -37,9 +37,7 @@ The registry does not render model guidance or register model-facing tools. [`@d
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The registry renders nothing and registers no tool. `dsh-tool-skill` turns `list()` summaries into a session prefix and a selected `get()` body into a tool result; provider failures can remove entries from that request's catalog. | Zero direct tokens. Catalog size, descriptions, and loaded body length affect context only through the consumer. |
+Indirectly, through `dsh-tool-skill`, which renders provider summaries into the session prefix and loaded instructions into retained tool results.
 
 ## Known Limitations and Deferred Work
 

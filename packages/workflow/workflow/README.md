@@ -40,9 +40,7 @@ A child that resolves normally with a non-completed stop reason is not an infras
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The service seam and `workflow/*` observer events register no prompt, schema, or message. `dsh-tool-workflow` renders the parent-facing contract and final value; an engine decides which child prompts run. | Zero direct tokens. Parent result and child contexts affect tokens only through the consumer and implementation. |
+Indirectly, through `dsh-tool-workflow` and a workflow engine, which create child-agent requests and return a retained parent tool result.
 
 ## Known Limitations and Deferred Work
 

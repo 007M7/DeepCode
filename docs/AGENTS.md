@@ -35,12 +35,12 @@ Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; t
 
 ## Package Model Experience
 
-Every package README ends with this table immediately before `## Known Limitations and Deferred Work`; [allowlisted packages](../scripts/verify-readme-limitations.ts) end after it:
+Every package README ends with `## Model Experience` immediately before `## Known Limitations and Deferred Work`; [allowlisted no-limitations packages](../scripts/verify-readme-limitations.ts) end after Model Experience. Packages with direct, multi-surface, conditional, capped, or lifetime effects use this table:
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 
-Rows state what reaches which model and classify token cost or lifetime. Treat prompt text and tool schemas separately when their visibility conditions differ; zero-direct rows name the indirect path. `verify-package-readme-model-experience` gates shape and order, while review owns accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
+Rows state what reaches which model and classify token cost or lifetime; prompt text and tool schemas stay separate when visibility differs. Packages explicitly classified in [`SENTENCE_MODEL_EXPERIENCE`](../scripts/verify-package-readme-model-experience.ts) instead carry one sentence beginning `None, as ` or `Indirectly, through ` and ending with a period. The verifier gates the sentence allowlist, table shape, and section order; review owns factual accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
 
 ## Wordcount Budgets
 

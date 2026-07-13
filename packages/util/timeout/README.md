@@ -43,9 +43,7 @@ Local file `read`/`write`/`edit` take no `timeoutMs`: a syscall is best-effort-a
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This library only creates and classifies abort signals. It registers no prompt, schema, or message; consumers decide whether a timeout becomes a marker, a structured error, or no model-visible change. | Zero direct tokens. It can indirectly cap or replace a consumer's result when that consumer renders a timeout. |
+Indirectly, through consumers such as `dsh-timeout-policy`, which may replace a provider result with a retained timeout error or suppress a late result.
 
 ## Known Limitations and Deferred Work
 

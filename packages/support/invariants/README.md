@@ -53,9 +53,7 @@ A seeded or forked session arrives with events already in its log because constr
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None | The plugin observes and validates session events, agent states, and frozen model requests; it does not rewrite a prompt, schema, message, or stream. An invariant failure aborts the faulty turn instead of adding guidance. | Zero model tokens when checks pass; a failure prevents or ends a request rather than contributing context. |
+None, as this observer only validates events and frozen requests and never rewrites prompts, schemas, messages, or streams.
 
 ## Known Limitations and Deferred Work
 

@@ -62,9 +62,7 @@ The current model-facing tool collects synchronously: it awaits the child result
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The provider registry registers no prompt or tool. Provider lifecycle makes a bound `dsh-tool-subagent` schema appear or disappear, and `inheritsParentContext` selects truthful fresh-versus-fork wording. Run events are observe-only. | Zero direct tokens. Child prompts and final results enter model contexts only through a provider and consumer. |
+Indirectly, through `dsh-tool-subagent` and registered providers, which expose delegation schemas, child contexts, and retained parent results.
 
 ## Known Limitations and Deferred Work
 

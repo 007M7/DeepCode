@@ -41,9 +41,7 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This process utility registers no provider, prompt, tool, or message. A consuming backend's child application decides the child's model context; environment scrubbing and isolated config directories prevent ambient credentials and user state from silently changing that composition. | Zero direct tokens. It can indirectly stabilize child context, but it adds no text to parent or child requests. |
+Indirectly, through process-based subagent backends, whose child composition is constrained by credential scrubbing and isolated config directories.
 
 ## Known Limitations and Deferred Work
 

@@ -25,9 +25,7 @@ This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This UI-neutral seam registers no prompt or tool. A consumer such as `dsh-tool-ask-user` turns a model call into an `ask()` request and converts the provider's human answer into a model-visible tool result. | Zero direct tokens. Question and answer size affect context only through the consumer. |
+Indirectly, through consumers such as `dsh-tool-ask-user`, which return human answers as retained tool-result tokens.
 
 ## Known Limitations and Deferred Work
 

@@ -14,7 +14,7 @@ packages/<group>/<pkg>/
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
-                   # + the required Model Experience table
+                   # + the gated Model Experience table or short sentence
                    # + the gated "Known Limitations and Deferred Work" section
                    # (or a whitelist entry in scripts/verify-readme-limitations.ts)
 ```
@@ -56,7 +56,9 @@ Keep package-specific service API, config, events, extension points, and design 
 - **Consumer-visible gap** — exact boundary or deliberately deferred work.
 ```
 
-Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and its indirect path. Do not infer prompt visibility from tool-schema visibility; independently registered guidance can remain after a scoped tool restriction. Every package participates, including type-only libraries and backend seams. A package with genuinely no limitations joins the justified allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
+Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
+
+An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
 
 ## 5. Verify
 

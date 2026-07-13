@@ -31,9 +31,7 @@ Like every event they must sit inside an open turn. The mid-turn points (`PreToo
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This library registers nothing. Its `hook/invoked` and `hook/result` events are log-only and do not enter derived messages; bridge packages decide whether parsed `additionalContext`, blocks, or continuation feedback reach the model. | Zero direct tokens. Persisted hook audit records add no context tokens. |
+Indirectly, through `dsh-hooks-claude` and `dsh-hooks-codex`, which can turn parsed hook output into prompt context, blocked outcomes, or continuation feedback.
 
 ## Known Limitations and Deferred Work
 

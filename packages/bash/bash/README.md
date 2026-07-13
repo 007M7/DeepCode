@@ -38,9 +38,7 @@ The seam also owns the per-session mode override vocabulary (the sandbox RFC § 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | This interface registers no prompt, tool schema, or message. `dsh-tool-bash` turns an implementation's stdout, stderr, task state, and sandbox facts into model-visible tool results and guidance. | Zero direct tokens. Result size and sandbox state affect input tokens only when a consumer renders them. |
+Indirectly, through `dsh-tool-bash`, which turns executor output and sandbox facts into guidance and retained tool-result tokens.
 
 ## Known Limitations and Deferred Work
 

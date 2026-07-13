@@ -27,6 +27,4 @@ This package owns ONLY the primitive — no concrete id, no runtime code beyond 
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None | `Branded<B>` is erased at compile time and registers no runtime plugin, prompt, schema, event, or message. Branded ids serialize exactly as their underlying strings when another package logs or renders them. | Zero direct or indirect token overhead beyond the string another package already chose to expose. |
+None, as `Branded<B>` is erased at compile time and registers no runtime behavior.

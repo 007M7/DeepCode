@@ -45,9 +45,7 @@ This package declares three events (see the generated [events catalog](../../../
 
 ## Model Experience
 
-| Context surface | What the model sees | Token effect |
-|---|---|---|
-| None directly | The provider seam registers no prompt or tool. `dsh-tool-fs` converts provider text and structured `FsError` values into model-visible read, write, and edit results; policy listeners can change which outcome it receives. | Zero direct tokens. File content and errors enter context only through a consumer, whose window and byte caps determine result size. |
+Indirectly, through `dsh-tool-fs`, which renders provider text and errors as bounded, retained filesystem tool results.
 
 ## Known Limitations and Deferred Work
 
