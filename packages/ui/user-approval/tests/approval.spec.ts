@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ApprovalService, { ApprovalOutcome, ApprovalRequest, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
@@ -77,6 +79,99 @@ describe('ApprovalService.request', () => {
     expect(Object.keys(appended[0]?.data ?? {}).sort()).toEqual(['id', 'toolName'])
   })
 
+  it('borrows the exact readonly request for scoped dispatch and audit', async () => {
+    const ctx = await mounted()
+    const { agent, appended } = fakeAgent()
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
+    let received: ApprovalRequest | undefined
+    let carrier: unknown
+    scope.ctx.on('approval/request', function (req) {
+      received = req
+      carrier = carrierKeyOf(this)
+      return Promise.resolve<ApprovalOutcome>('allowed-once')
+    })
+    const request = requestOf(agent, {
+      toolName: 'scoped-tool',
+      callId: CallId('scoped-call'),
+      reason: 'scoped reason',
+    })
+
+    await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
+    expect(carrier).toBe(agent)
+    expect(received).toBe(request)
+    expect(appended).toHaveLength(2)
+    expect(appended[0]?.data).toMatchObject({
+      toolName: 'scoped-tool',
+      callId: 'scoped-call',
+      reason: 'scoped reason',
+    })
+    expect(appended[1]?.data).toMatchObject({ outcome: 'allowed-once' })
+    expect(appended[1]?.data['id']).toBe(appended[0]?.data['id'])
+    await scopeFiber.dispose()
+  })
+
+  it('contains an approval/asked observer throw after append and still completes the pair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ApprovalService)
+    const session = ctx.sessions.create(SessionId('asked-observer-throw'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const agent = { session } as unknown as Agent
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'approval/asked') throw new Error('observer failed after asked append')
+    })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('allowed-once')
+
+    const audit = session.events.filter(event => event.type.startsWith('approval/'))
+    const asked = session.events.find((event): event is SessionEvent<'approval/asked'> => event.type === 'approval/asked')
+    const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
+    expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(decided?.data.id).toBe(asked?.data.id)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after asked append'))
+  })
+
+  it('contains an approval/decided observer throw after append and still resolves', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ApprovalService)
+    const session = ctx.sessions.create(SessionId('decided-observer-throw'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const agent = { session } as unknown as Agent
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'approval/decided') throw new Error('observer failed after decided append')
+    })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('rejected')
+
+    const audit = session.events.filter(event => event.type.startsWith('approval/'))
+    const asked = session.events.find((event): event is SessionEvent<'approval/asked'> => event.type === 'approval/asked')
+    const decided = session.events.find((event): event is SessionEvent<'approval/decided'> => event.type === 'approval/decided')
+    expect(audit.map(event => event.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(decided?.data).toMatchObject({ id: asked?.data.id, outcome: 'rejected' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/event listener threw: Error: observer failed after decided append'))
+  })
+
+  it('propagates an append failure that prevented audit log growth', async () => {
+    const ctx = await mounted()
+    const failure = new Error('append failed before log growth')
+    const agent = {
+      session: {
+        events: [{ type: 'turn/start' }],
+        append: () => { throw failure },
+      },
+    } as unknown as Agent
+
+    await expect(ctx.approval.request(requestOf(agent))).rejects.toBe(failure)
+  })
+
   it('returns the first answering listener outcome (single decision slot)', async () => {
     const ctx = await mounted()
     const { agent } = fakeAgent()
@@ -97,6 +192,57 @@ describe('ApprovalService.request', () => {
     ctx.on('approval/request', (_req, next) => next())
 
     await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('unavailable')
+  })
+
+  it('dispatches to global and matching agent-scoped listeners, never a foreign scope', async () => {
+    const ctx = await mounted()
+    const { agent: agentA } = fakeAgent()
+    const { agent: agentB } = fakeAgent()
+    let scopeA!: Scope
+    let scopeB!: Scope
+    const scopesFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scopeA = createScope(inner, agentA)
+      scopeB = createScope(inner, agentB)
+    }, { inject: ['approval'] }))
+    const heard: string[] = []
+    ctx.on('approval/request', (req, next) => {
+      heard.push(req.agent === agentA ? 'global:A' : 'global:B')
+      return next()
+    })
+    scopeA.ctx.on('approval/request', (_req, next) => {
+      heard.push('scoped:A')
+      return next()
+    })
+    scopeB.ctx.on('approval/request', (_req, next) => {
+      heard.push('scoped:B')
+      return next()
+    })
+
+    await expect(ctx.approval.request(requestOf(agentA))).resolves.toBe('unavailable')
+    await expect(ctx.approval.request(requestOf(agentB))).resolves.toBe('unavailable')
+
+    expect(heard).toEqual(['global:A', 'scoped:A', 'global:B', 'scoped:B'])
+    await scopesFiber.dispose()
+  })
+
+  it('keys the scoped dispatch carrier to the exact request agent', async () => {
+    const ctx = await mounted()
+    const { agent } = fakeAgent()
+    let scope!: Scope
+    const scopeFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      scope = createScope(inner, agent)
+    }, { inject: ['approval'] }))
+    let seenKey: object | undefined
+    scope.ctx.on('approval/request', function (req, next) {
+      seenKey = carrierKeyOf(this)
+      expect(req.agent).toBe(agent)
+      return next()
+    })
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('unavailable')
+
+    expect(seenKey).toBe(agent)
+    await scopeFiber.dispose()
   })
 
   it('contains a throwing answerer as unavailable', async () => {
@@ -239,6 +385,15 @@ describe('approval policy (the approval/policy fold)', () => {
     setApprovalPolicy(session, 'ask')
     expect(effectiveApprovalPolicy(session.events)).toBe('ask')
     expect(session.events.at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
+  })
+
+  it('rejects a policy outside the closed vocabulary before appending', () => {
+    const append = vi.fn()
+    const session = { append } as unknown as Session
+
+    expect(() => { setApprovalPolicy(session, 'sometimes' as Parameters<typeof setApprovalPolicy>[1]) })
+      .toThrow('approval policy must be one of "ask" or "never"')
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('defaults a schema-less construction to ask (the ?? narrows the optional TYPE)', async () => {

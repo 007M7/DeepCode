@@ -77,8 +77,6 @@ export interface ChildHandle {
    * failed for its own reasons resolves with a non-`completed` stop reason.
    */
   readonly result: Promise<ChildResult>
-  /** Ask the host to cancel the child (fire-and-forget). */
-  cancel(reason?: string): void
   /** Ask the host to dispose the child; resolves on the host's ack. */
   dispose(): Promise<void>
 }
@@ -91,7 +89,8 @@ export interface ChildPort {
   /**
    * Start one child agent on the host (the `agent()` hook's start half).
    * @param request - the prompt and validated options.
-   * @returns the child handle; rejects when the host refuses the start.
+   * @returns the ready child handle; rejects when synchronous start or the
+   *   provider's asynchronous start fails.
    */
   startAgent(request: ChildStartRequest): Promise<ChildHandle>
 }

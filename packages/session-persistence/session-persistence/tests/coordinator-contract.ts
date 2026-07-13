@@ -143,14 +143,15 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('snapshot-on-buffer: mutating an event after session/event does not corrupt the persisted copy', async () => {
+    it('source-frozen events cannot be mutated after buffering and persist unchanged', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
         const session = ctx.sessions.create(SessionId('mutate'), { meta: { cwd: WORK } })
         const ev = session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-        // Mutate the live event object AFTER it was buffered by session/event.
-        ;(ev.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
+        expect(() => {
+          ;(ev.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
+        }).toThrow(TypeError)
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.parallel('session/flush', session)

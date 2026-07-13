@@ -22,7 +22,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
@@ -58,16 +58,16 @@ export function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly
 }
 
 /**
- * Reject non-JSON-serializable event data before a backend serializes a batch.
- * Live session appends already enforce this; persistence append paths also
- * accept replay/fork batches that may bypass a live session instance.
- * @param events - the batch to validate; throws naming the offending event's type and seq.
+ * Reject a batch that is not wholly losslessly JSON-serializable. Live session
+ * appends already enforce this; persistence append paths also accept replay or
+ * direct batches that may bypass a live session instance. Validation uses the
+ * same one-pass materializer as the coordinator, so getters are read once.
+ * @param events - the complete event batch to validate.
  */
 export function assertSerializable(events: readonly SessionEvent[]): void {
-  for (const event of events) {
-    if (!isJsonValue(event.data)) {
-      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
-    }
+  const snapshot = snapshotJsonValue(events)
+  if (snapshot === undefined) {
+    throw new Error('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
   }
 }
 
@@ -90,11 +90,11 @@ export function assertSerializable(events: readonly SessionEvent[]): void {
  *   {@link load} rejects a parse error or a `seq` gap in the COMMITTED region
  *   (unloadable); {@link append}'s first event `seq` MUST equal the backend's
  *   stored next-seq (after `load` has balanced any interrupted turn).
- * - **JSON-serializable data.** `SessionEventMap` is merge-extensible and
- *   `event.data` is typed only as `SessionEventMap[K]`, so {@link append}
- *   REJECTS non-JSON-serializable data with an error naming the offending
- *   event type. A backend snapshots (serializes/clones) each event when it
- *   buffers, since `session.events` hands out the live mutable object.
+ * - **JSON-serializable events.** `SessionEventMap` is merge-extensible, so
+ *   {@link append} materializes each complete batch through the shared
+ *   lossless-JSON boundary before buffering it. The public `session.events`
+ *   view is immutable, but persistence still snapshots direct/replay callers at
+ *   this independent trust boundary.
  * - **Durability.** {@link append} returns only once the batch is durable
  *   (the file backend fsyncs; a DB commits). {@link create} MAY defer the
  *   physical write until the first {@link append} (lazy materialization).

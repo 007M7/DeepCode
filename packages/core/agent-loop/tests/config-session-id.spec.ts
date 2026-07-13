@@ -24,6 +24,24 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 }
 
 describe('config-driven session id', () => {
+  it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const loopFiber = await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+    })
+
+    const resumeEffect = loopFiber.getEffects().find(effect => effect.label === 'agentLoop.resume(main)')
+    expect(resumeEffect?.children.map(child => child.label)).toEqual(['ctx.plugin()'])
+    expect(loopFiber.getEffects().filter(effect => effect.label === 'ctx.plugin()')).toEqual([])
+
+    await loopFiber.dispose()
+  })
+
   it('config-driven create uses a fresh ${id}-session-<uuid> per run (restart-safe)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-session-'))
     dirs.push(root)
@@ -78,7 +96,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(AgentLoop, { agents: [] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
-    const a1 = ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sticky-1') }).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sticky-1') })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()

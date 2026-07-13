@@ -235,12 +235,9 @@ describe('acp bridge — turn outcomes', () => {
     expect(failed).toHaveLength(1)
   })
 
-  it('settles via the log fallback when a prior session/event listener throws (starvation)', async () => {
-    // A peer session/event listener that runs BEFORE the bridge's listener
-    // throws on turn/end (prepend: true puts it first). cordis emit stops at the
-    // throw, so the bridge's session/event listener never sees turn/end and
-    // cannot settle there. The agent/status idle-fallback must reconcile the
-    // prompt from the log so the RPC settles instead of hanging.
+  it('settles successfully when an earlier turn/end observer throws', async () => {
+    // Session contains each post-commit observer failure, so a prepended peer
+    // cannot starve the bridge's live turn/end delivery.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('answer')] })
     harness.ctx.on('session/event', (_s, event) => {
       if (event.type === 'turn/end') throw new Error('peer listener boom')
@@ -250,9 +247,7 @@ describe('acp bridge — turn outcomes', () => {
     expect(res.stopReason).toBe('end_turn')
   })
 
-  it('log fallback REJECTS when the starved turn ended in error', async () => {
-    // Same starvation as above, but the turn fails: the idle-fallback must
-    // reject the RPC from the logged turn/end{error}, not resolve.
+  it('still rejects a failed turn when an earlier turn/end observer throws', async () => {
     harness = await makeBridgeHarness({ storageDir, script: [errorResponse('starved boom')] })
     harness.ctx.on('session/event', (_s, event) => {
       if (event.type === 'turn/end') throw new Error('peer listener boom')
@@ -262,21 +257,18 @@ describe('acp bridge — turn outcomes', () => {
       .rejects.toThrow(/turn failed: starved boom/)
   })
 
-  it('log fallback infers the owning turn when turn/START capture is starved', async () => {
-    // A peer listener throws on turn/START (not turn/end): the bridge never
+  it('captures and settles the owning turn when an earlier turn-start observer throws', async () => {
+    // Turn correlation still reaches the bridge after the throwing peer and
     // captures inflight.turn via the live stream. A throwing turn/start listener
-    // also FAILS the turn (the throw is recorded as the turn's error). Without
-    // the watermark inference the fallback would resolve `cancelled` (the bug);
-    // with it, it infers the owning turn from the log and REJECTS from that
-    // turn's error turn/end. (The model's own error is never reached — the turn
-    // failed at start — so the rejection carries the listener's failure.)
-    harness = await makeBridgeHarness({ storageDir, script: [textResponse('never runs')] })
+    // Session contains post-commit callbacks independently.
+    // The model request and normal turn outcome therefore still occur.
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('answer')] })
     harness.ctx.on('session/event', (_s, event) => {
       if (event.type === 'turn/start') throw new Error('peer listener boom on start')
     }, { prepend: true })
     const sessionId = await newSession(harness)
-    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .rejects.toThrow(/turn failed:/)
+    const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(result.stopReason).toBe('end_turn')
   })
 
   it('a between-turn injection does not settle the prompt early (message-trigger correlation)', async () => {

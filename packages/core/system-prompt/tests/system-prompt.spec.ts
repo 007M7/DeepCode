@@ -52,7 +52,7 @@ describe('SystemPrompt', () => {
 
     ctx.systemPrompt.section({ name: 'cwd', order: 20, text: () => 'cwd: /tmp' })
     ctx.systemPrompt.section({ name: 'rules', order: 10, text: 'Be precise.' })
-    ctx.systemPrompt.tools(() => [{ name: 'echo', description: 'echo back', parameters: {} }])
+    ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'echo', description: 'echo back', parameters: {} }] }))
 
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'rules', 'cwd'])
@@ -84,7 +84,7 @@ describe('SystemPrompt', () => {
 
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       inner.systemPrompt.section({ name: 'scoped', order: 0, text: 'scoped section' })
-      inner.systemPrompt.tools(() => [{ name: 'scoped-tool', description: '', parameters: {} }])
+      inner.systemPrompt.tools(() => ({ schemas: [{ name: 'scoped-tool', description: '', parameters: {} }] }))
       inner.systemPrompt.variable('scoped_var', () => 'v')
     }, { inject: ['systemPrompt'] }))
 
@@ -109,6 +109,14 @@ describe('SystemPrompt', () => {
     // The failed registration leaked nothing; the original stays intact.
     const assembly = await ctx.systemPrompt.assemble()
     expect(contributed(assembly).map(s => s.text)).toEqual(['first'])
+  })
+
+  it('rejects a non-finite section order', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    expect(() => ctx.systemPrompt.section({ name: 'bad-order', order: Number.NaN, text: 'x' }))
+      .toThrow('order must be a finite number')
+    expect(contributed(await ctx.systemPrompt.assemble())).toEqual([])
   })
 
   it('rolls back a section when a system-prompt/change listener throws (P1-1)', async () => {
@@ -141,11 +149,11 @@ describe('SystemPrompt', () => {
       if (!threw) { threw = true; throw new Error('boom change listener') }
     })
 
-    expect(() => ctx.systemPrompt.tools(() => [{ name: 't', description: '', parameters: {} }])).toThrow('boom change listener')
+    expect(() => ctx.systemPrompt.tools(() => ({ schemas: [{ name: 't', description: '', parameters: {} }] }))).toThrow('boom change listener')
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0) // nothing leaked
 
     off()
-    ctx.systemPrompt.tools(() => [{ name: 't', description: '', parameters: {} }])
+    ctx.systemPrompt.tools(() => ({ schemas: [{ name: 't', description: '', parameters: {} }] }))
     expect((await ctx.systemPrompt.assemble()).tools.map(t => t.name)).toEqual(['t'])
   })
 
@@ -209,7 +217,7 @@ describe('SystemPrompt', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     ctx.systemPrompt.section({ name: 'base', order: 0, text: 'base' })
-    ctx.systemPrompt.tools(() => [{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])
+    ctx.systemPrompt.tools(() => ({ schemas: [{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }] }))
 
     const first = await ctx.systemPrompt.assemble()
     first.sections[0]!.name = 'mutated'
@@ -243,7 +251,7 @@ describe('SystemPrompt', () => {
     let changeCount = 0
     ctx.on('system-prompt/change', () => void changeCount++)
 
-    const dispose = ctx.systemPrompt.tools(() => [])
+    const dispose = ctx.systemPrompt.tools(() => ({ schemas: [] }))
     // registration emits change
     expect(changeCount).toBe(1)
 
@@ -257,7 +265,7 @@ describe('SystemPrompt', () => {
     await ctx.plugin(SystemPrompt)
 
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.systemPrompt.tools(() => [{ name: 'fiber-tool', description: '', parameters: {} }])
+      inner.systemPrompt.tools(() => ({ schemas: [{ name: 'fiber-tool', description: '', parameters: {} }] }))
     }, { inject: ['systemPrompt'] }))
 
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(1)
@@ -280,7 +288,7 @@ describe('SystemPrompt', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
 
-    const dispose = ctx.systemPrompt.tools(() => [{ name: 'direct-tool', description: '', parameters: {} }])
+    const dispose = ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'direct-tool', description: '', parameters: {} }] }))
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(1)
 
     dispose()
