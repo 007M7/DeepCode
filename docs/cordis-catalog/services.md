@@ -248,7 +248,7 @@ Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contributions; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
@@ -257,13 +257,13 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:372`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:340`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
 Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also owns the reserved `run_code` presentation transport and the `tools:sdk` prompt section.
 
-Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One private visibility resolver feeds prompt assembly, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so what the model is shown, what a presenter renders, what a program can call, and what dispatches can never disagree.
+Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One private visibility resolver feeds the registry's prompt contribution, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so those registry-owned presentation and dispatch paths agree. An expert `system-prompt/assemble` listener may deliberately replace the final wire composition and owns any resulting divergence.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -276,7 +276,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:500`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:493`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
