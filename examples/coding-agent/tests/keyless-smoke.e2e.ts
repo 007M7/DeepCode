@@ -25,6 +25,8 @@ import { afterEach, describe, expect, it } from 'vitest'
  * product.
  */
 
+// TODO(loader-smoke-harness): extract the shared spawn/tempdir/timeout/EOF
+// harness used here, code-mode-keyless-smoke, and cordis-agent's keyless smoke.
 // The dsh-stdio-agent bin (the demo:repl entry) and this example's cordis.yml.
 // The bin resolves its config-path arg from CWD; the test spawns from a temp
 // cwd, so we pass the example config's ABSOLUTE path.
