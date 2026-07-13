@@ -7,10 +7,10 @@ hero:
   actions:
     - theme: brand
       text: 快速开始
-      link: /zh-CN/guide/quickstart
+      link: /guide/quickstart
     - theme: alt
       text: 开发插件
-      link: /zh-CN/develop/basic/
+      link: /develop/basic/
 features:
   - title: 插件化架构
     details: 基于 Cordis 效果系统，所有能力通过插件注册，加载即生效、卸载即还原。

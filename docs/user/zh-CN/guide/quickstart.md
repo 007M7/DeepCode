@@ -4,13 +4,14 @@
 
 ## 环境准备
 
-- [Node.js](https://nodejs.org/) >= 24
-- [pnpm](https://pnpm.io/) >= 9
+- [Node.js](https://nodejs.org/) ^22.19 或 >= 24
+- [pnpm](https://pnpm.io/) 11（建议通过 Corepack 使用仓库固定的版本）
 
 ```sh
 # 确认版本
-node -v   # v24.x 或更高
-pnpm -v   # 9.x 或更高
+node -v   # v22.19.x，或 v24.x 及更高版本
+corepack enable
+pnpm -v   # 11.x
 ```
 
 ## 第一步：运行 echo-agent
@@ -24,8 +25,6 @@ cd deepseek-harness
 
 # 安装依赖
 pnpm install
-# 如果看到 ERR_PNPM_IGNORED_BUILDS，可以忽略——安装已经成功了。
-# 想消除这个提示可以跑一次: pnpm approve-builds
 
 # 启动 echo-agent
 pnpm run demo:echo
@@ -94,5 +93,5 @@ echo-agent 和 coding-agent 用的是同一个应用框架(`@deepseek-ai/dsh-std
 
 ## 下一步
 
-- [配置文件](./config) — 了解 `cordis.yml` 的完整语法
+- [配置文件](./config.md) — 了解 `cordis.yml` 的完整语法
 - [开发插件](../develop/basic/) — 编写你自己的 tool 或后端

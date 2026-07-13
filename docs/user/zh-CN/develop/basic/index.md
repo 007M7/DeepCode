@@ -115,7 +115,7 @@ export default class MyService extends Service {
 }
 ```
 
-大多数情况下，函数形式足够了。类形式用于需要对外提供服务的插件（见 [服务与依赖](../framework/service)）。
+大多数情况下，函数形式足够了。类形式用于需要对外提供服务的插件（见 [服务与依赖](../framework/service.md)）。
 
 ## 完整示例
 
@@ -144,5 +144,5 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [开发一个 Tool](./tool) — 详细了解 tool 定义 DSL
-- [插件配置](./config) — 让插件接受用户配置
+- [开发一个 Tool](./tool.md) — 详细了解 tool 定义 DSL
+- [插件配置](./config.md) — 让插件接受用户配置

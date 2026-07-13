@@ -105,4 +105,4 @@ export function apply(ctx: Context, config: Config) {
 ## 下一步
 
 - [插件与生命周期](../framework/) — 深入了解插件的完整生命周期
-- [服务与依赖](../framework/service) — 让你的插件对外提供服务
+- [服务与依赖](../framework/service.md) — 让你的插件对外提供服务

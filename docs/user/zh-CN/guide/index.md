@@ -28,7 +28,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
 2. 填写 API key
 3. 运行
 
-不需要写任何代码。详见 [快速开始](./quickstart)。
+不需要写任何代码。详见 [快速开始](./quickstart.md)。
 
 ### 插件开发者
 
@@ -41,7 +41,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
 
 ## 技术栈
 
-- **运行时**: Node.js >= 24
+- **运行时**: Node.js ^22.19 或 >= 24
 - **语言**: TypeScript (ESM)
 - **框架**: Cordis
-- **包管理**: pnpm workspaces
+- **包管理**: pnpm workspaces（仓库固定使用 pnpm 11）

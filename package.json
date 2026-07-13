@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "vendor/*",
-    "packages/*/*"
+    "packages/*/*",
+    "website"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json && tsdown",
@@ -44,6 +45,10 @@
     "verify-type-equiv": "tsx scripts/verify-type-equiv.ts",
     "verify-translation-pairing": "tsx scripts/verify-translation-pairing.ts",
     "verify-doc-budgets": "tsx scripts/verify-doc-budgets.ts",
+    "docs:dev": "pnpm --filter @deepseek-ai/website run dev",
+    "docs:build": "pnpm --filter @deepseek-ai/website run build",
+    "docs:preview": "pnpm --filter @deepseek-ai/website run preview",
+    "docs:check": "pnpm exec vitest run scripts/project-doc-site.spec.ts && pnpm run docs:build",
     "verify-node-next-types": "tsx scripts/verify-node-next-types.ts",
     "gen-cordis-catalog": "tsx scripts/gen-cordis-catalog.ts",
     "gen-rfc-index": "tsx scripts/gen-rfc-index.ts",
@@ -62,7 +67,7 @@
     "gen-module-graph": "tsx scripts/gen-module-graph.ts",
     "verify-module-graph": "tsx scripts/gen-module-graph.ts --check",
     "constraints": "tsx scripts/check-workspace-constraints.ts",
-    "doc-sync": "pnpm run doc-typecheck && pnpm run verify-cordis-catalog && pnpm run verify-cordis-api && pnpm run verify-export-jsdoc && pnpm run verify-tool-catalog && pnpm run verify-config-catalog && pnpm run verify-persistence-catalog && pnpm run verify-doc-graphs && pnpm run verify-md-wrap && pnpm run verify-md-links && pnpm run verify-doc-refs && pnpm run verify-package-paths && pnpm run verify-mermaid && pnpm run verify-rfc-classification && pnpm run verify-rfc-format && pnpm run verify-type-equiv && pnpm run verify-translation-pairing && pnpm run verify-doc-budgets",
+    "doc-sync": "pnpm run doc-typecheck && pnpm run verify-cordis-catalog && pnpm run verify-cordis-api && pnpm run verify-export-jsdoc && pnpm run verify-tool-catalog && pnpm run verify-config-catalog && pnpm run verify-persistence-catalog && pnpm run verify-doc-graphs && pnpm run verify-md-wrap && pnpm run verify-md-links && pnpm run verify-doc-refs && pnpm run verify-package-paths && pnpm run verify-mermaid && pnpm run verify-rfc-classification && pnpm run verify-rfc-format && pnpm run verify-type-equiv && pnpm run verify-translation-pairing && pnpm run verify-doc-budgets && pnpm run docs:check",
     "hygiene": "pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types",
     "demo:echo": "node --expose-internals --import tsx packages/ui/stdio-agent/src/bin.ts examples/echo-agent/cordis.yml",
     "demo:repl": "node --expose-internals --import tsx packages/ui/stdio-agent/src/bin.ts examples/coding-agent/cordis.yml",

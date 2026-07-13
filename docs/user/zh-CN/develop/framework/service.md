@@ -127,21 +127,11 @@ export const inject = { optional: ['metrics'] }
 
 `plugin-a` 和 `plugin-b` 各自看到自己组内的 bash 实例，互不影响。
 
-## Harness 内置服务一览
+## Harness 内置服务
 
-| 服务名 | 提供者 | 用途 |
-|--------|--------|------|
-| `tools` | dsh-tools | Tool 注册表 |
-| `llm` | dsh-llm | LLM 调用 + 适配器注册 |
-| `agents` | dsh-agent | Agent 实例管理 |
-| `session` | dsh-session | 会话事件流 |
-| `systemPrompt` | dsh-system-prompt | 系统提示词组装 |
-| `bash` | dsh-bash-local | Bash 命令执行 |
-| `fs` | dsh-fs-local | 文件系统操作 |
-| `subagent` | dsh-subagent | 子代理委派 |
-| `persistence` | dsh-session-persistence | 会话持久化 |
+服务名、公开方法和源码位置由仓库自动生成，见[服务目录](../../../../cordis-catalog/services.md)。开发插件时应以该目录和服务接口的 TypeScript 类型为准，不要复制一份静态清单。
 
 ## 下一步
 
-- [事件系统](./events) — 插件间松耦合通信
+- [事件系统](./events.md) — 插件间松耦合通信
 - [能力三件套](../practice/) — 服务在 seam 模式中的应用

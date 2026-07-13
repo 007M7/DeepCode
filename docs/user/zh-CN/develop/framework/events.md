@@ -149,4 +149,4 @@ export function apply(ctx: Context) {
 ## 下一步
 
 - [能力三件套](../practice/) — 事件在 capability seam 中的角色
-- [LLM 适配器](../practice/llm-adapter) — 实现一个完整的 LLM 后端
+- [LLM 适配器](../practice/llm-adapter.md) — 实现一个完整的 LLM 后端

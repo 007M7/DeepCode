@@ -10,10 +10,12 @@
  * `paragraph` node whose source span covers more than one line. The parser owns
  * all the structure that legitimately occupies multiple lines — fenced code
  * (any fence length), tables, list items, blockquotes, HTML blocks, headings,
- * thematic breaks, link-reference definitions — so a hard wrap is simply "a
- * paragraph node that starts and ends on different lines." This is checker, not
- * formatter: it reports and never rewrites, so it introduces zero cosmetic
- * churn (no emphasis-marker or table-delimiter normalization).
+ * thematic breaks, link-reference definitions — while a small preprocessing
+ * pass masks VitePress YAML frontmatter and custom-container delimiter lines.
+ * A hard wrap is simply "a paragraph node that starts and ends on different
+ * lines." This is checker, not formatter: it reports and never rewrites, so it
+ * introduces zero cosmetic churn (no emphasis-marker or table-delimiter
+ * normalization).
  *
  * A wrapped paragraph inside a list item or blockquote is still a `paragraph`
  * node, so those are caught too. Scope mirrors doc-typecheck plus the two
@@ -57,11 +59,23 @@ interface Violation {
   text: string
 }
 
+function maskVitePressStructure(source: string): string {
+  const lines = source.split('\n')
+  if (lines[0] === '---') {
+    const closing = lines.indexOf('---', 1)
+    if (closing !== -1) {
+      for (let index = 0; index <= closing; index++) lines[index] = ''
+    }
+  }
+  return lines.map(line => line.trimStart().startsWith(':::') ? '' : line).join('\n')
+}
+
 /** Find every hard-wrapped prose paragraph in one Markdown file via its AST. */
 function findViolations(absPath: string): Violation[] {
   const file = relative(root, absPath)
   const source = readFileSync(absPath, 'utf8')
-  const tree = fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
+  const parsedSource = maskVitePressStructure(source)
+  const tree = fromMarkdown(parsedSource, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
   const out: Violation[] = []
 
   const visit = (node: Nodes): void => {

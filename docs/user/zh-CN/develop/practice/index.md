@@ -58,7 +58,7 @@
 | 文件系统 | `dsh-fs` | `dsh-fs-local` + `dsh-fs-policy` | `dsh-tool-fs` |
 | Web | `dsh-web` | `dsh-web-fetch-local` / `dsh-web-search-*` | `dsh-tool-web` |
 | 子代理 | `dsh-subagent` | `dsh-subagent-spawn` / `dsh-subagent-fork` | `dsh-tool-subagent` |
-| 压缩 | `dsh-compact` | `dsh-compact-basic` | (内置于 agent-loop) |
+| 压缩 | `dsh-compact` | `dsh-compact-basic` | 由实现插件消费 agent-loop 的扩展事件 |
 
 ## 开发你自己的三件套
 
@@ -153,4 +153,4 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [LLM 适配器](./llm-adapter) — 实现一个 LLM 后端（最常见的 seam 扩展）
+- [LLM 适配器](./llm-adapter.md) — 实现一个 LLM 后端（最常见的 seam 扩展）
