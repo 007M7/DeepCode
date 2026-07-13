@@ -317,7 +317,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:34`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:38`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-jsonrpc`
 

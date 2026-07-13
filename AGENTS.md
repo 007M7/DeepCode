@@ -46,6 +46,7 @@ pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
@@ -63,6 +64,7 @@ Run narrow checks during implementation and this CI-equivalent sequence before m
 set -euo pipefail
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync
@@ -117,7 +119,7 @@ Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, 
 
 Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why a narrower type is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring seam, protocol, or class.
 
-Comments and docs preserve complete contracts and non-obvious orientation, not the author's reasoning process. Do not narrate control flow, walk through tests, preserve review history, or restate code. Keep every factual clause that affects behavior, failure, timing, ownership, or safe use; link aggressively to the owning rationale instead of duplicating it. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Encode enforceable invariants in checks, using narrow justified escape hatches rather than disabling a rule globally.
+Comments and docs preserve complete contracts and non-obvious orientation, not reasoning transcripts. Do not narrate control flow or tests, preserve review history, or restate code. Keep factual clauses affecting behavior, failure, timing, ownership, or safe use; link aggressively to owning rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Encode enforceable invariants in checks, using narrow justified exceptions rather than disabling a rule globally.
 
 Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 
