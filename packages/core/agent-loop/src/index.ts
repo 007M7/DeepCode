@@ -14,7 +14,6 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type {
   AgentFactory,
   AgentHandle,
-  AgentId,
   AgentOptions,
   CreateAgentOptions,
   ResumeAgentOptions,
@@ -68,7 +67,7 @@ class FactoryOwnership {
 }
 
 /** Build the public cancellation error while preserving a caller-supplied cause. */
-function signalAbortError(id: AgentId, signal: AbortSignal): Error {
+function signalAbortError(id: SessionId, signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason
   return new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
 }
@@ -108,7 +107,7 @@ class AgentCreationTransaction {
     private readonly loopCtx: Context,
     private readonly ownerCtx: Context,
     private readonly ownership: FactoryOwnership,
-    readonly id: AgentId,
+    readonly id: SessionId,
     signal?: AbortSignal,
   ) {
     ownerCtx.fiber.assertActive()
@@ -325,8 +324,8 @@ declare module 'cordis' {
 export interface Config {
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Registry identity for the live agent. */
-    id: AgentId
+    /** Stable config label used in logs and as the fresh combined-id prefix. */
+    id: string
     /** Optional workspace for a fresh session. */
     cwd?: string
     /** Persisted session to resume instead of creating a fresh session. */
@@ -363,13 +362,13 @@ export class AgentLoop extends Service implements AgentFactory {
 
     for (const { id, cwd, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId === undefined || resumeSessionId === '') {
-        this.create(id, options, cwd === undefined ? {} : { cwd })
+        const sessionId = SessionId(`${id}-session-${randomUUID()}`)
+        this.create(sessionId, options, cwd === undefined ? {} : { cwd })
         continue
       }
       ctx.effect(() => {
         const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
           void this.resumeWith(ctx, childCtx.sessionPersistence, {
-            agentId: id,
             resumeSessionId,
             agentOptions: options,
           }).catch((error: unknown) => {
@@ -382,19 +381,19 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   /**
-   * Create an agent on a fresh per-run session, owned by the accessing fiber.
-   * Constructor-driven config calls use the loop fiber itself.
-   * @param id - agent registry id.
+   * Create an agent and session under one caller-supplied identity, owned by
+   * the accessing fiber. Constructor-driven config calls mint a fresh combined
+   * id before entering this boundary.
+   * @param id - shared agent/session identity.
    * @param options - concrete loop options.
    * @param meta - optional fresh-session workspace metadata.
    * @returns the published running agent.
    */
-  create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
+  create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
     const loopCtx = this.runtime.ctx
     const transaction = new AgentCreationTransaction(loopCtx, this.ctx, this.ownership, id)
     try {
-      const sessionId = SessionId(`${id}-session-${randomUUID()}`)
-      const session = loopCtx.sessions.prepare(sessionId, { meta })
+      const session = loopCtx.sessions.prepare(id, { meta })
       const agent = transaction.prepare(options, session)
       transaction.publish('startup')
       return agent
@@ -417,7 +416,7 @@ export class AgentLoop extends Service implements AgentFactory {
       this.runtime.ctx,
       ownerCtx,
       this.ownership,
-      options.agentId,
+      options.sessionId,
       options.signal,
     )
     try {
@@ -461,7 +460,7 @@ export class AgentLoop extends Service implements AgentFactory {
       this.runtime.ctx,
       ownerCtx,
       this.ownership,
-      options.agentId,
+      options.resumeSessionId,
       options.signal,
     )
     try {

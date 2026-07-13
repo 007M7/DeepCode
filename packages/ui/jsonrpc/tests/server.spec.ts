@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { AgentId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -135,7 +136,6 @@ describe('HarnessSdkServer', () => {
       expect(llmServer.requests).toHaveLength(2)
 
       const orphanHandle = await ctx.agents.create({
-        agentId: AgentId('orphan-agent'),
         sessionId: SessionId('orphan-session'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'dsagent-model' },
@@ -170,8 +170,8 @@ describe('HarnessSdkServer', () => {
     } as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
-    const create = vi.fn(async (options: { agentId: AgentId }) =>
-      String(options.agentId) === 'main' ? mainHandle : otherHandle)
+    const create = vi.fn(async (options: { sessionId: SessionId }) =>
+      String(options.sessionId) === 'main' ? mainHandle : otherHandle)
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
@@ -263,20 +263,18 @@ describe('HarnessSdkServer', () => {
       const server = new HarnessSdkServer(ctx, transport)
 
       const parentHandle = await ctx.agents.create({
-        agentId: AgentId('parent-agent'),
         sessionId: SessionId('main'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
       const handle = await ctx.agents.create({
-        agentId: AgentId('child-agent'),
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
         agentOptions: { model: 'deepseek' },
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
-        id: AgentId('child-agent'),
+        id: SessionId('child-session'),
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'child done' }],
       })
@@ -285,7 +283,7 @@ describe('HarnessSdkServer', () => {
         method: 'subagent.finished',
         params: {
           provider: 'spawn',
-          agentId: 'child-agent',
+          agentId: 'child-session',
           parentSessionId: 'main',
           childSessionId: 'child-session',
           status: 'ok',
@@ -311,19 +309,16 @@ describe('HarnessSdkServer', () => {
     let failedHandle: AgentHandle | undefined
     try {
       parentHandle = await ctx.agents.create({
-        agentId: AgentId('fallback-parent-agent'),
         sessionId: SessionId('fallback-parent'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
       handle = await ctx.agents.create({
-        agentId: AgentId('fallback-child-agent'),
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
         agentOptions: { model: 'deepseek' },
       })
       failedHandle = await ctx.agents.create({
-        agentId: AgentId('failed-child-agent'),
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
@@ -333,18 +328,18 @@ describe('HarnessSdkServer', () => {
 
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
-        id: AgentId('fallback-child-agent'),
+        id: SessionId('fallback-child-session'),
         stopReason: 'max-tokens',
         lastAssistantMessage: [],
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
-        id: AgentId('failed-child-agent'),
+        id: SessionId('failed-child-session'),
         stopReason: 'error',
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
-        id: AgentId('missing-child-agent'),
+        id: SessionId('missing-child-agent'),
         stopReason: 'error',
       })
 
@@ -352,7 +347,7 @@ describe('HarnessSdkServer', () => {
         method: 'subagent.finished',
         params: {
           provider: 'fork',
-          agentId: 'fallback-child-agent',
+          agentId: 'fallback-child-session',
           parentSessionId: 'fallback-parent',
           childSessionId: 'fallback-child-session',
           status: 'error',
@@ -364,7 +359,7 @@ describe('HarnessSdkServer', () => {
         method: 'subagent.finished',
         params: {
           provider: 'fork',
-          agentId: 'failed-child-agent',
+          agentId: 'failed-child-session',
           childSessionId: 'failed-child-session',
           status: 'error',
           stopReason: 'error',

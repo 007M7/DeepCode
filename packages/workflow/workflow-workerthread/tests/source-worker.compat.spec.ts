@@ -6,10 +6,10 @@
 
 import { expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import WorkerWorkflowEngine from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 // A fresh thread compiles the source runtime. Leave contention headroom on
 // shared CI runners without weakening any engine-level timeout assertion.
@@ -19,7 +19,7 @@ it('runs the default config through the source worker', async () => {
   const ctx = new Context()
   const subagents = await ctx.plugin(SubagentService)
   const engine = await ctx.plugin(WorkerWorkflowEngine, {})
-  const parent = { id: AgentId('workflow-compat-parent'), options: {} } as unknown as Agent
+  const parent = { id: SessionId('workflow-compat-parent'), options: {} } as unknown as Agent
   try {
     const run = ctx.workflows.start({
       script: 'return 6 * 7',

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -37,7 +38,7 @@ async function setup(script: Script) {
   await ctx.plugin(spawn, { providerName: 'spawn' })
   await ctx.plugin(WorkerWorkflowEngine, {})
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { model: 'mock' })
   return { ctx, parent, adapter }
 }
 
@@ -73,7 +74,7 @@ return { prose, verdict: judged.verdict, confidence: judged.confidence }`,
     // Both children were disposed to quiescence — no live child agents remain.
     expect(childIds.length).toBe(2)
     for (const childId of childIds) {
-      expect(ctx.agents.get(AgentId(childId))).toBeUndefined()
+      expect(ctx.agents.get(SessionId(childId))).toBeUndefined()
     }
   })
 

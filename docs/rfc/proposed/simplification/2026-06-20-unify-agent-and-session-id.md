@@ -16,13 +16,13 @@ Session itself repeats the same fact as `Session.id` and `Session.header.id`. Co
 
 Make an agent's registry id equal its session id. `CreateAgentOptions` accepts one id used for both final registry entries; resume registers the agent under the resumed session id; subagent creation mints one combined id; Session keeps one identity home by deriving `id` from `header.id` or removing the alias. Keep the existing creation transaction, final-entry collision checks, and exact-entry detach semantics; remove only maps and fields whose sole job is translating between the ids.
 
-The config-driven path must first settle its currently hidden resume-or-create policy. Today it uses a stable agent label and fresh UUID-suffixed session id to avoid colliding with a durable log on the next run. Under unification it must deliberately resume the fixed id, mint a fresh combined id, or expose an explicit policy; implementation must not pick silently.
+The config-driven path keeps `agents[].id` as a stable configuration label, not a live routing identity. A fresh start mints the combined id `${label}-session-${randomUUID()}` so durable restarts do not collide; `resumeSessionId` instead supplies the exact combined identity to load and register. Logs may use the stable label while all live and durable lookups use the one `SessionId`.
 
 `agent/created` and `agent/disposed` remain outside this proposal. They are paired publication lifecycle events, not identity aliases; any later consumer-free removal needs its own proposal after a fresh search.
 
 ## Alternatives considered
 
-**Keep separate routing and log identities.** The config-driven loop uses a stable configured agent id with a fresh UUID session on each fresh process start. That is a real use of the distinction: a stable routing/display label plus a new durable conversation. Unification can proceed only after choosing whether this path resumes a fixed identity, mints a combined per-run identity, or exposes the policy explicitly. If the stable label is a required product contract, reject this proposal rather than hiding it in another map.
+**Keep separate routing and log identities.** A stable configured label plus a fresh durable conversation is useful, but it does not require two live identities: the label can remain configuration/display metadata while the combined per-run `SessionId` owns routing and persistence. Keeping two ids would preserve translation maps and permit impossible pairings without adding lifecycle capability.
 
 ## Acceptance criteria
 
@@ -35,4 +35,4 @@ The config-driven path must first settle its currently hidden resume-or-create p
 
 ## Risks
 
-This forecloses latent multi-session-actor and session-handoff designs, makes persisted client-chosen session identity the registry identity, and touches every factory fixture. The config restart decision is blocking, not mechanical. If separate routing identity is a real requirement, reject this RFC and retain the current caller-supplied pair plus final-entry arbitration.
+This forecloses latent multi-session-actor and session-handoff designs, makes persisted client-chosen session identity the registry identity, and touches every factory fixture. If separate routing identity becomes a real requirement, it needs an explicit lifecycle design rather than an unconstrained caller-supplied pair.

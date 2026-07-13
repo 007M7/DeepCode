@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
@@ -72,7 +73,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
   it('collapses the wire tool list to [run_code], bridges sub-calls, and returns curated output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-e2e-'))
     ctx = await codeModeHarness(workdir)
-    const agent = ctx.agentLoop.create(AgentId('e2e-code-mode'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

@@ -57,17 +57,16 @@ function makeAgent(id: string, status: AgentStatus = 'idle'): Agent & {
     status,
     sent,
     steered,
-    // A minimal session stub: the UI reads only `session.header.id` (to map the
-    // session back to its agent id for the turn-boundary label).
-    session: { header: { id: `${id}-session` } },
+    // A minimal session stub with the agent's shared durable identity.
+    session: { id, header: { id } },
     send: (content: ContentBlock[]) => void sent.push(content),
     steer: (content: ContentBlock[]) => void steered.push(content),
   } as never
 }
 
 /** A session stub whose `header.id` matches an agent's, for `session/event` emits. */
-function makeSession(agentId: string): Session {
-  return { header: { id: `${agentId}-session` } } as Session
+function makeSession(id: string): Session {
+  return { id, header: { id } } as Session
 }
 
 /** An `assistant/chunk` session event carrying one raw stream chunk. */
@@ -75,7 +74,7 @@ function chunkEvent(chunk: StreamChunk): SessionEvent {
   return { type: 'assistant/chunk', seq: 0, time: 0, data: { turn: 1, step: 0, chunk } }
 }
 
-const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
+const CONFIG: Config = { welcome: 'hi there' }
 
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
@@ -99,12 +98,11 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toBe('hi there\n> ')
   })
 
-  it('falls back to default welcome/agent when called with empty config', async () => {
+  it('falls back to the default welcome when called with empty config', async () => {
     // createStdioChat is exported and may be driven directly (bypassing the
-    // Loader's schemastery validation), so it must default welcome/agent itself.
+    // Loader's schemastery validation), so it must default the welcome itself.
     const { out } = await setup({})
     expect(out.text()).toBe('ready.\n> ')
-    // And it drives the default agent id 'main'.
   })
 
   it('detects readline terminal mode from both stream TTY flags', async () => {
@@ -156,9 +154,9 @@ describe('createStdioChat rendering', () => {
   it('renders turn/start and turn/end markers from the session feed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    // agent/created populates the session-id → agent-id label map.
+    // agent/created supplies the app-owned target object.
     ctx.emit('agent/created', agent)
-    const session = makeSession('main')
+    const session = agent.session
     ctx.emit('session/event', session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 3, trigger: { kind: 'message' } },
     } as SessionEvent)
@@ -169,21 +167,20 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\n> ')
   })
 
-  it('falls back to the session id as the label when no agent is mapped', async () => {
+  it('uses the session id as the label for a non-target session', async () => {
     const { ctx, out } = await setup()
-    // No agent/created emitted, so the label map is empty — the header id shows.
+    // No target exists, so the event's durable identity is the label.
     ctx.emit('session/event', makeSession('orphan'), {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
-    expect(out.text()).toContain('[orphan-session turn 1] ')
+    expect(out.text()).toContain('[orphan turn 1] ')
   })
 
-  it('seeds labels for agents already registered before the UI installs', async () => {
+  it('uses an agent already registered before the UI installs as its target', async () => {
     // The pre-created `main` agent (and any agent surviving an HMR reload of just
     // this fiber) fired its `agent/created` before the UI's listener existed, so
     // the live listener alone would miss it. Seeding from `ctx.agents.list()` at
-    // install time is what keeps its turn header showing `[main turn N]` instead
-    // of the raw session id.
+    // install time preserves the terminal's fixed `[main turn N]` label.
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
@@ -193,7 +190,7 @@ describe('createStdioChat rendering', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       createStdioChat(inner, CONFIG, runtime)
     }, { inject: ['agents', 'userInteraction'] }))
-    ctx.emit('session/event', makeSession('main'), {
+    ctx.emit('session/event', agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 5] ')
@@ -209,17 +206,28 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
   })
 
-  it('drops the label mapping on agent/disposed', async () => {
+  it('drops the target object on agent/disposed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
     ctx.emit('agent/created', agent)
     ctx.emit('agent/disposed', agent)
-    // After disposal the map no longer resolves the agent id — fall back to the
-    // session header id.
-    ctx.emit('session/event', makeSession('main'), {
+    // After disposal the event belongs to a non-target session, so its durable
+    // identity is rendered directly.
+    ctx.emit('session/event', agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
-    expect(out.text()).toContain('[main-session turn 1] ')
+    expect(out.text()).toContain('[main turn 1] ')
+  })
+
+  it('keeps the target when a different agent is disposed', async () => {
+    const { ctx, out } = await setup()
+    const target = makeAgent('target')
+    ctx.emit('agent/created', target)
+    ctx.emit('agent/disposed', makeAgent('other'))
+    ctx.emit('session/event', target.session, {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[main turn 1] ')
   })
 
   it('renders tool/call and tool/result session events', async () => {
@@ -666,11 +674,11 @@ describe('createStdioChat input', () => {
     const spy = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
     input.feed('nobody home')
     await new Promise(r => setImmediate(r))
-    expect(spy).toHaveBeenCalledWith('ui-stdio: agent "%s" is not running', 'main')
+    expect(spy).toHaveBeenCalledWith('ui-stdio: main agent is not running')
   })
 
-  it('drives the agent named in config, not a hardcoded id', async () => {
-    const { ctx, input } = await setup({ welcome: 'w', agent: 'worker' })
+  it('drives the app-owned agent without a duplicate id config', async () => {
+    const { ctx, input } = await setup({ welcome: 'w' })
     const agent = makeAgent('worker')
     ctx.agents.register(agent)
     input.feed('hi')

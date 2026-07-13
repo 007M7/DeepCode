@@ -12,7 +12,7 @@ The scoped-registration surface: `Agent.ctx` is the agent's scope context (`dsh-
 
 - `ctx.agents.register(agent: Agent): () => void` — record an **already-constructed** agent. Disposed with the calling fiber.
 - Advanced ordered lifecycle: `enter(agent): () => void` performs the authoritative ID collision check and inserts without announcing; `announce(agent)` emits `agent/created` exactly once. A detach requested synchronously by a creation listener is deferred until that dispatch unwinds, and every detach checks the captured entry object, so a stale capability cannot delete a later same-ID replacement. The async factory uses this split; ordinary plugins use `register()`.
-- `ctx.agents.get(id: AgentId): Agent | undefined`
+- `ctx.agents.get(id: SessionId): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
 
 #### Factory seam (creation)

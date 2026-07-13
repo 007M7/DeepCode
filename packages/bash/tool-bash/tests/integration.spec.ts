@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { BashTaskId } from '@deepseek-ai/dsh-bash'
@@ -74,7 +75,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-fg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-fg'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
@@ -106,7 +107,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-exit'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-exit'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
@@ -128,7 +129,7 @@ describe('bash tool through the agent loop', () => {
     let taskId = ''
 
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-bg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-bg'), { model: 'mock' })
 
     // Capture the generated id so the deterministic fixture is checked against
     // the real executor instead of silently assuming it.

@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import * as mock from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /** A minimal parent — the mock provider only reads `parent.id`. */
 function fakeParent(id = 'parent-1'): Agent {
-  return { id: AgentId(id) } as unknown as Agent
+  return { id: SessionId(id) } as unknown as Agent
 }
 
 function baseRequest(over: Partial<SubagentStartRequest> = {}): SubagentStartRequest {

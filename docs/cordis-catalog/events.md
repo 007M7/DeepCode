@@ -23,7 +23,7 @@ An agent's fully composed scoped world was published in the AgentRegistry. Its s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:316`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:304`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was removed from the registry. The concrete AgentLoop lifecycle emits t
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:331`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:605`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:593`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:438`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:426`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:456`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:444`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). Content and the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:348`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:485`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:473`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:537`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:525`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -125,7 +125,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:381`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:552`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:540`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:570`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:558`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -173,7 +173,7 @@ Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` wat
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:588`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:576`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -317,7 +317,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:90`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:91`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -327,7 +327,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:66`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:67`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -337,7 +337,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:73`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -347,7 +347,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

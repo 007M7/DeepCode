@@ -4,10 +4,12 @@ import Loader from '@cordisjs/plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as mock from '@deepseek-ai/dsh-subagent-mock'
 import * as tool from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-subagent` on a real
@@ -20,7 +22,7 @@ import * as tool from '../src/index.ts'
 
 /** A minimal parent Agent — the tool reads `agent.id` for `parent`. */
 function fakeAgent(id = 'parent-1'): Agent {
-  return { id: AgentId(id) } as unknown as Agent
+  return { id: SessionId(id) } as unknown as Agent
 }
 
 async function setup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
@@ -114,7 +116,7 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('weird-child'),
+        id: SessionId('weird-child'),
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
         dispose: async () => {},
       }),
@@ -141,7 +143,7 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture-child'),
+          id: SessionId('capture-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -170,7 +172,7 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('bare-child'),
+          id: SessionId('bare-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -297,7 +299,7 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('spy-child'),
+        id: SessionId('spy-child'),
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
         dispose: async () => void disposed(),
       }),
@@ -319,7 +321,7 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('spy-child'),
+        id: SessionId('spy-child'),
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
         dispose: async () => void disposed(),
       }),
@@ -350,7 +352,7 @@ describe('dsh-tool-subagent', () => {
           resolveResult({ output: [], stopReason: 'aborted' })
         }, { once: true })
         return {
-          id: AgentId('spy-child'),
+          id: SessionId('spy-child'),
           result,
           dispose: async () => {},
         }
@@ -442,7 +444,7 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture2-child'),
+          id: SessionId('capture2-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -499,7 +501,7 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture3-child'),
+          id: SessionId('capture3-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -528,7 +530,7 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture4-child'),
+          id: SessionId('capture4-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }

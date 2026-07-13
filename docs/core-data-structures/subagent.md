@@ -68,7 +68,7 @@ The handle the consumer holds after a provider has established a ready child. Th
 
 ```ts type-equiv
 interface SubagentRun {
-  readonly id: AgentId
+  readonly id: SessionId
   readonly result: Promise<SubagentResult>
   dispose(): Promise<void>
   sendMessage?(content: ContentBlock[]): void

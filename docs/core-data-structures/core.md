@@ -73,7 +73,7 @@ Two large discriminated unions are the ones consumers `switch` over most: **`Str
 
 ## Branded IDs
 
-IDs that cross package boundaries are **branded** — structurally strings, but non-interchangeable at the type level (an `AgentId` can't be passed where a `CallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
+IDs that cross package boundaries are **branded** — structurally strings, but non-interchangeable at the type level (a `SessionId` cannot be passed where a `CallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
 
 The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../../packages/util/brand) (no runtime code, no harness-package dependency), so any package can brand the ids it owns without depending on an unrelated capability package (e.g. dsh-bash brands `BashTaskId`/`OwnerToken` via dsh-brand alone, never pulling in dsh-llm).
 
@@ -83,7 +83,7 @@ Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
-The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), `SessionId` (dsh-session), `AgentId` (dsh-agent). Each is `Branded<'CallId'>` etc. plus a same-named factory function. Capability seams brand their own ids too — see `BashTaskId`/`OwnerToken` in [bash.md](bash.md).
+The two core IDs are `CallId` (correlates a tool call with its result; dsh-llm) and `SessionId` (the shared live agent and durable session identity; dsh-session). Each is a `Branded<'…'>` plus a same-named factory function. Capability seams brand their own ids too — see `BashTaskId`/`OwnerToken` in [bash.md](bash.md).
 
 ## Content blocks and messages
 
@@ -254,7 +254,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 
 ```ts type-equiv
 interface Agent {
-  readonly id: AgentId
+  readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
@@ -353,7 +353,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `Agent.id` and `Agent.session.id` are the same branded `SessionId`. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 

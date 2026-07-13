@@ -22,7 +22,7 @@
  *     exclude: [todo_write]   # tool-name patterns transparent to the chain
  * ```
  *
- * Chain state is keyed per {@link AgentId} — the tool registry is a
+ * Chain state is keyed by the live agent object — the tool registry is a
  * context-level singleton whose waterfalls interleave every agent's calls, so
  * a shared counter would let one agent's repetition trip another's reminder.
  * State is in-memory only: a session resumed from persistence starts with a
@@ -37,7 +37,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { AgentId, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
@@ -202,9 +202,7 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`repeat-tool-guard: invalid argumentsPreviewChars ${argumentsPreviewChars} — must be an integer >= 1`)
   }
 
-  // TODO(agent-keyed-repeat-chain): key a WeakMap by the Agent itself; that
-  // removes the disposal-only status listener and cannot collide on id reuse.
-  const chains = new Map<AgentId, Chain>()
+  const chains = new WeakMap<Agent, Chain>()
 
   /** Whether a tool participates in the chain (untracked calls are transparent: they neither count nor reset). */
   function tracked(toolName: string): boolean {
@@ -227,9 +225,9 @@ export function apply(ctx: Context, config: Config): void {
     if (!tracked(exec.name)) return undefined
     const canonical = canonicalize(exec.arguments)
     const key = JSON.stringify([exec.name, canonical])
-    const chain = chains.get(exec.agent.id)
+    const chain = chains.get(exec.agent)
     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1
-    chains.set(exec.agent.id, { key, count })
+    chains.set(exec.agent, { key, count })
     if (!thresholdSet.has(count)) return undefined
     const text = count === thresholds[0]
       ? GENTLE_REMINDER
@@ -259,12 +257,7 @@ export function apply(ctx: Context, config: Config): void {
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
   ctx.on('agent/prompt-submit', (agent, _content, _source, next): Promise<PromptDecision> => {
-    chains.delete(agent.id)
+    chains.delete(agent)
     return next()
-  })
-
-  // Drop state when an agent goes away, bounding the map over harness lifetime.
-  ctx.on('agent/status', (agent, status) => {
-    if (status === 'disposed') chains.delete(agent.id)
   })
 }

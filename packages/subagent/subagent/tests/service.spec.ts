@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentService, {
@@ -12,9 +13,10 @@ import SubagentService, {
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 function fakeParent(id = 'parent-1'): Agent {
-  return { id: AgentId(id) } as unknown as Agent
+  return { id: SessionId(id) } as unknown as Agent
 }
 
 const ALL_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
@@ -45,7 +47,7 @@ class StubProvider implements SubagentProvider {
   async start(request: SubagentStartRequest): Promise<SubagentRun> {
     this.startCount += 1
     return {
-      id: AgentId(`child:${this.name}:${request.parent.id}`),
+      id: SessionId(`child:${this.name}:${request.parent.id}`),
       result: Promise.resolve(this.outcome),
       async dispose() {},
     }
@@ -141,7 +143,7 @@ describe('SubagentService', () => {
     const starting = subagents.start('deferred', baseRequest({ parent }))
     await Promise.resolve()
     expect(events).toEqual([])
-    ready.resolve({ id: AgentId('child'), result: result.promise, async dispose() {} })
+    ready.resolve({ id: SessionId('child'), result: result.promise, async dispose() {} })
     const run = await starting
     expect(events).toEqual(['start'])
     result.resolve({ output: [{ type: 'text', text: 'answer' }], stopReason: 'completed' })
@@ -190,7 +192,7 @@ describe('SubagentService', () => {
       capabilities: NO_CAPS,
       inheritsParentContext: false,
       async start() {
-        return { id: AgentId('infra-child'), result: failure.promise, async dispose() {} }
+        return { id: SessionId('infra-child'), result: failure.promise, async dispose() {} }
       },
     })
     const failedRun = await subagents.start('infra', baseRequest())

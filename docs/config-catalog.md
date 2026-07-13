@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:249`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -117,8 +117,8 @@ Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 export interface Config {
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Registry identity for the live agent. */
-    id: AgentId
+    /** Stable config label used in logs and as the fresh combined-id prefix. */
+    id: string
     /** Optional workspace for a fresh session. */
     cwd?: string
     /** Persisted session to resume instead of creating a fresh session. */
@@ -127,9 +127,9 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
+Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:325`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:324`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -611,7 +611,7 @@ Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-l
 ```ts config-catalog
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * it. `model`/`resumeSessionId` configure the pre-created agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -620,7 +620,7 @@ Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-l
  * `welcome` is the UI banner.
  */
 export interface Config {
-  /** Model name for the `main` agent (must have a registered adapter). */
+  /** Model name for the pre-created agent (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -635,7 +635,7 @@ export interface Config {
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
   /**
-   * If set, the `main` agent RESUMES this persisted session id instead of
+   * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
@@ -645,7 +645,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/ui/stdio-agent/src/index.ts:65`](../packages/ui/stdio-agent/src/index.ts)
+Source: [`packages/ui/stdio-agent/src/index.ts:64`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 

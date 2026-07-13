@@ -3,11 +3,11 @@
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster a terminal
  * chat needs — a console logger, the readline UI (the in-package `stdio-chat`
  * module), JSONL session
- * persistence, and a pre-created `main` agent the UI drives.
+ * persistence, and one pre-created agent the UI drives under its `main` label.
  *
  * The cluster is BAKED IN, not left to the leaf: a stdio app always logs to the
- * console (stdout is just the terminal) and always pre-creates the `main` agent
- * the readline UI sends to. The leaf supplies the swappable backends (the LLM
+ * console (stdout is just the terminal) and always pre-creates one agent the
+ * readline UI labels `main`. The leaf supplies the swappable backends (the LLM
  * adapter, the bash executor), optional product tools, the optional `hmr`
  * dev-reload plugin, and this app's {@link Config} (model, prompt, persistence
  * root, welcome banner).
@@ -41,7 +41,6 @@
 import type { Context } from 'cordis'
 import ConsoleExporter from '@cordisjs/plugin-logger-console'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
@@ -54,7 +53,7 @@ export const name = 'stdio-agent'
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * it. `model`/`resumeSessionId` configure the pre-created agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -63,7 +62,7 @@ export const name = 'stdio-agent'
  * `welcome` is the UI banner.
  */
 export interface Config {
-  /** Model name for the `main` agent (must have a registered adapter). */
+  /** Model name for the pre-created agent (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -78,7 +77,7 @@ export interface Config {
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
   skills?: agentCore.SkillConfig
   /**
-   * If set, the `main` agent RESUMES this persisted session id instead of
+   * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
@@ -103,9 +102,9 @@ export const Config: z<Config> = z.object({
 
 /**
  * Compose the spine with the stdio front door. The console logger comes first
- * (infra), then the agent-core bundle pre-creating the `main` agent from this
- * app's `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
- * backend, then the readline UI bound to `main`. The `hmr` dev-reload plugin is
+ * (infra), then the agent-core bundle pre-creating one agent from this app's
+ * `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
+ * backend, then the readline UI rendering that object as `main`. The `hmr` dev-reload plugin is
  * a leaf concern (see the module doc), so it is not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {
@@ -115,7 +114,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
     agents: [{
-      id: AgentId('main'),
+      id: 'main',
       model: config.model,
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
@@ -125,5 +124,5 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
-  ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
+  ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.' })
 }

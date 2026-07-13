@@ -9,7 +9,7 @@ import { Context, getTraceable, Service, symbols } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent, AgentId, AgentOptions } from './types.ts'
+import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 export { agentEvents, assembleContextFor } from './dispatch.ts'
@@ -33,15 +33,13 @@ declare module 'cordis' {
 
 /**
  * Options for programmatically creating an agent through the registry factory
- * ({@link AgentRegistry.create}). The caller supplies the live `sessionId`
- * (e.g. an ACP-generated id) and optional session metadata (the validated
- * `cwd`, fork lineage); the factory creates the session, the agent, and wires
- * them together.
+ * ({@link AgentRegistry.create}). The caller supplies the single live
+ * `sessionId` shared by the agent registry and session log (e.g. an
+ * ACP-generated id), plus optional session metadata (the validated `cwd`, fork
+ * lineage); the factory creates the session and agent under that identity.
  */
 export interface CreateAgentOptions {
-  /** The agent's id (the registry handle). */
-  readonly agentId: AgentId
-  /** The live session's id (NOT derived from agentId). */
+  /** The live agent/session identity. */
   readonly sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd`, `parentSession`
@@ -93,9 +91,7 @@ export interface CreateAgentOptions {
  * ({@link AgentRegistry.resume}).
  */
 export interface ResumeAgentOptions {
-  /** The agent's id (the registry handle). */
-  readonly agentId: AgentId
-  /** The persisted session id to load and resume on. */
+  /** The persisted session id to load and use as the live agent/session identity. */
   readonly resumeSessionId: SessionId
   /** Per-agent options (model, …). */
   readonly agentOptions?: AgentOptions
@@ -180,7 +176,7 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
 
 /** All mutable lifecycle state for one exact registry entry. */
 interface AgentEntry {
-  readonly id: AgentId
+  readonly id: SessionId
   readonly agent: Agent
   readonly carrier: Scoped<Agent>
   announced: boolean
@@ -201,7 +197,7 @@ interface FactorySlot {
  * {@link setFactory}.
  */
 export class AgentRegistry extends Service {
-  private store = new Map<AgentId, AgentEntry>()
+  private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
 
   constructor(ctx: Context) {
@@ -257,7 +253,7 @@ export class AgentRegistry extends Service {
    * agent): this constructs the agent and its session. Rejects if no factory is
    * registered or creation/setup fails. The resolved {@link AgentHandle} lets
    * the owner tear down exactly this agent.
-   * @param options - agent id, session id/seed/metadata, and agent options.
+   * @param options - shared identity, session seed/metadata, and agent options.
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async create(options: CreateAgentOptions): Promise<AgentHandle> {
@@ -428,10 +424,10 @@ export class AgentRegistry extends Service {
 
   /**
    * Look up a live agent.
-   * @param id - the agent id to look up.
+   * @param id - the shared agent/session id to look up.
    * @returns the agent, or undefined when no live agent has that id.
    */
-  get(id: AgentId): Agent | undefined {
+  get(id: SessionId): Agent | undefined {
     return this.store.get(id)?.agent
   }
 

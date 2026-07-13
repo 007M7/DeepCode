@@ -57,7 +57,7 @@ async function setup() {
 const fakeAgentDisposers = new Map<Context, (() => Promise<void> | void)[]>()
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
   // The registry KEY (agent.id) is deliberately DIFFERENT from the session
-  // token (session.header.id) — a config agent has `agentId !== sessionId`. The
+  // token (session.header.id), which is also the agent's durable id. The
   // owner token IS the session id, so the notice path must find the agent by
   // `session.header.id`, NOT the registry key. Using distinct values here makes
   // the test fail if a regression matched on the wrong field (a same-value fake

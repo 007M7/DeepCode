@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * The compaction smoke test: a real model runs a multi-step bash task with a
@@ -64,7 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       },
       persistenceRoot: join(workdir, '.sessions'),
     })
-    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-compaction'), { model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

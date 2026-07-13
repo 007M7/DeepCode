@@ -16,7 +16,6 @@ import type { Context } from 'cordis'
 import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -255,7 +254,6 @@ export class HarnessSdkServer {
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
     const handle = await this.ctx.agents.create({
-      agentId: AgentId(sessionId),
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
       agentOptions: { model: this.model },

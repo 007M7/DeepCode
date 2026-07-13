@@ -6,8 +6,9 @@
  * @module @deepseek-ai/dsh-subagent/types
  */
 
-import type { Agent, AgentId, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 /**
@@ -147,7 +148,7 @@ export interface SubagentResult {
  */
 export interface SubagentRun {
   /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
-  readonly id: AgentId
+  readonly id: SessionId
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport

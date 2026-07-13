@@ -32,7 +32,7 @@
  * event. A turn/step boundary is a durable fact: it lives in the session log
  * and is read off the `session/event` feed — it is NOT mirrored as an `agent/*`
  * emit. A consumer that needs the `Agent` handle (or its short id) at a boundary
- * keeps a session-id→agent map from `agent/created`/`agent/disposed`.
+ * looks up the agent directly by the event's session id.
  * See `docs/rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md`
  * and `docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
  *
@@ -45,24 +45,11 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-
-/** Identifies one live agent in the registry. */
-export type AgentId = Branded<'AgentId'>
-
-/**
- * Brand a string as an {@link AgentId}.
- * @param id - the raw agent id string.
- * @returns the same string, branded (a compile-time cast — no runtime cost).
- */
-export function AgentId(id: string): AgentId {
-  return id as AgentId
-}
-import type { Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -186,7 +173,8 @@ export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
  * package should depend on the implementation.
  */
 export interface Agent {
-  readonly id: AgentId
+  /** The single identity shared with {@link session}. */
+  readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus

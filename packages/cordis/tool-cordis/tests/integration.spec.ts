@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as ToolCordis from '../src/index.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -51,7 +52,7 @@ describe('cordis tools through the agent loop', () => {
       textResponse('Done.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-cordis'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-cordis'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }])
     await waitForIdle(ctx, agent)

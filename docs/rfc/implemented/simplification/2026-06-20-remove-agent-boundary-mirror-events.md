@@ -21,9 +21,9 @@ This duplication is not free. Every lifecycle change had to update the session e
 
 Make `session/event` the single live boundary/transcript stream. Consumers that render turns, tool calls, tool results, assistant messages, and durable boundaries subscribe to `session/event` and derive their UI from the same event vocabulary persistence uses.
 
-The four durable-boundary mirrors — `agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end` — are removed from the agent event taxonomy. A UI that wants the agent handle (or its short id) at a boundary keeps a small map from session id to agent id built from `agent/created`/`agent/disposed`; `dsh-ui-stdio` does exactly this to label its `[<agent> turn N]` header, since the `turn/start` session event carries only the turn number. The canonical record remains the event-sourced session log.
+The four durable-boundary mirrors — `agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end` — are removed from the agent event taxonomy. A UI that wants the agent handle at a boundary retains the live target object from `agent/created`/`agent/disposed` and compares its session directly; `dsh-ui-stdio` uses this to label the app-owned agent's `[main turn N]` header while other sessions render their durable id. The canonical record remains the event-sourced session log.
 
-The step mirrors (which had no consumer at all) were removed first, in [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md); that RFC KEPT the turn mirrors on the stated justification that the stdio UI needed the `Agent` handle at the turn boundary. This RFC finishes the job: `dsh-ui-stdio` is a disposable test REPL whose rendering can change freely, so "ui-stdio needs it" is not a reason to keep a mirror — it was migrated to `session/event` + the id map, and the turn mirrors were removed too.
+The step mirrors (which had no consumer at all) were removed first, in [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md); that RFC KEPT the turn mirrors on the stated justification that the stdio UI needed the `Agent` handle at the turn boundary. This RFC finishes the job: `dsh-ui-stdio` is a disposable test REPL whose rendering can change freely, so "ui-stdio needs it" is not a reason to keep a mirror — it reads `session/event` and retains only its live target object.
 
 ## Scope: what is and isn't removed
 
@@ -38,8 +38,8 @@ RETAINED — NOT durable-boundary mirrors, so out of scope for this decision:
 ## Alternatives considered
 
 - **Bundling `agent/steering` into the removal** — the original proposal's shape; narrowed out as scope creep: it mirrors the durable `steering/message` control record, not a boundary, and was removed by [its own later decision](2026-07-04-remove-agent-steering-mirror.md) (as was `agent/stream-chunk`, by [the stream-chunk-mirror RFC](2026-07-02-remove-stream-chunk-mirror.md)).
-- **Keeping the turn mirrors for the stdio UI** — [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md)'s original stance; rejected here because `dsh-ui-stdio` is a disposable test REPL, not a load-bearing consumer, and it renders boundaries from `session/event` + the id map instead.
+- **Keeping the turn mirrors for the stdio UI** — [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md)'s original stance; rejected here because `dsh-ui-stdio` is a disposable test REPL, not a load-bearing consumer, and it renders boundaries from `session/event` plus its live target object instead.
 
 ## Consequences
 
-A plugin can no longer observe turn/step boundaries from a convenient `Agent`-first event. It must either subscribe to `session/event` or maintain a session-to-agent association. That is an acceptable trade: boundary consumers should not depend on a second event feed that can drift from the durable log.
+A plugin can no longer observe turn/step boundaries from a convenient `Agent`-first event. It subscribes to `session/event` and, if it needs the live object, resolves the shared id through `ctx.agents` or retains the object it already owns. That is an acceptable trade: boundary consumers should not depend on a second event feed that can drift from the durable log.

@@ -37,8 +37,8 @@ import {
   type SessionNotification,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
 
@@ -190,7 +190,7 @@ function toError(value: unknown): Error {
  * @returns the ready run handle for the child subprocess.
  */
 export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Promise<SubagentRun> {
-  const id = AgentId(randomUUID())
+  const id = SessionId(randomUUID())
 
   if (request.signal.aborted) throw new Error('subagent request was aborted before the ACP child started')
 

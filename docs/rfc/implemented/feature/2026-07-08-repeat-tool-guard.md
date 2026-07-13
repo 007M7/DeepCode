@@ -12,11 +12,10 @@ The harness already has every seam the pi extension uses, and better ones: [the 
 
 The guard is a loop-hygiene plugin, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The purpose is to break unproductive loops within a few wasted steps instead of letting them run to the turn's natural end — while leaving the decision (retry differently, gather more evidence, or finish) entirely with the model, so a legitimately repeated call is delayed by nothing and blocked by nothing.
 
-The plugin is `@deepseek-ai/dsh-repeat-tool-guard` at `packages/guard/repeat-tool-guard/`, opening the `guard/` group for loop-hygiene plugins (single-package groups have precedent: [the todo-write RFC](2026-06-29-todo-write-tool.md) shipped `todo/tool-todo`). It registers three listeners and holds all state in plugin-local maps keyed by `AgentId` — the tool registry is a context-level singleton whose waterfalls interleave every agent's calls (subagents run on the same context), so per-agent keying is correctness, not polish.
+The plugin is `@deepseek-ai/dsh-repeat-tool-guard` at `packages/guard/repeat-tool-guard/`, opening the `guard/` group for loop-hygiene plugins (single-package groups have precedent: [the todo-write RFC](2026-06-29-todo-write-tool.md) shipped `todo/tool-todo`). It registers two listeners and holds state in a `WeakMap` keyed by the live `Agent` object — the tool registry is a context-level singleton whose waterfalls interleave every agent's calls (subagents run on the same context), so per-agent keying is correctness, not polish; weak object keys also make a disposal-only cleanup listener unnecessary.
 
 - **`tools/post-execute` (waterfall)** — the one detection point. The listener receives `(exec, result)` together, so counting and reminder delivery need no cross-event pending map (the pi extension needs one only because its `tool_call`/`tool_result` hooks are separate events). It always delegates via `next()` and, when a threshold is hit, folds a reminder onto the downstream decision's `additionalContext` — the observe-and-enrich posture [the hooks bridges](2026-06-30-hook-bridges.md) already use, honoring the waterfall contract. Counting happens here rather than in `tools/pre-execute` because post-execute also runs for denied calls (`ToolRegistry.execute` routes a deny through the same pipeline), and a model hammering a denied call is exactly the loop worth breaking.
 - **`agent/prompt-submit` (waterfall)** — pure reset hook: delegate via `next()`, clear the submitting agent's chain. A user interjection changes the context; repetition across it is not a loop.
-- **`agent/status` (emit)** — on `disposed`, drop the agent's state, bounding the maps over harness lifetime.
 
 ### Detection semantics
 
@@ -25,7 +24,7 @@ The chain key is `(tool name, canonical arguments)`; a call identical to the pre
 Two deliberate rules, both documented in [the package README](../../../../packages/guard/repeat-tool-guard/README.md) because they are behavior a reader would otherwise guess at:
 
 - **Untracked calls are transparent to the chain.** A call excluded by `include`/`exclude` neither increments nor resets the counter, so `grep X → todo_write → grep X` still counts as two consecutive `grep X` when `todo_write` is excluded. This is what makes exclusion useful — bookkeeping tools interleaved into a loop must not launder it — and it is the pi extension's (undocumented) semantics, kept on purpose and written down.
-- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller (tests, non-loop consumers) has no model to remind and no `AgentId` to key on.
+- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller (tests, non-loop consumers) has no model to remind and no live agent object to key on.
 
 ### Reminder delivery
 

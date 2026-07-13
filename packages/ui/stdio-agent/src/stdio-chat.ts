@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -36,15 +36,10 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  // TODO(fixed-stdio-agent): this app-internal plugin is mounted only for the
-  // precreated `main` agent; remove configurability and its config-only test.
-  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
-  agent?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
-  agent: z.string().default('main'),
 })
 
 /**
@@ -98,23 +93,16 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // Loader validation, so it must be self-contained rather than trusting the
   // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
   const welcome = config.welcome ?? 'ready.'
-  const agentId = AgentId(config.agent ?? 'main')
   const { input, output, exit } = runtime
 
-  // Render label lookup: the `turn/start` session event carries only the turn
-  // number, so to print the short agent id (`[main turn 1]`) we map the
-  // session's id to its agent's id. The session id is not reliably the agent id
-  // (a session can be created with an explicit/client-supplied id), so build the
-  // map from `agent/created` rather than parsing the id string. Seed from the
-  // registry's current agents first: an agent registered before this plugin
-  // installed (e.g. the pre-created `main` agent, or any agent surviving an HMR
-  // reload of just this fiber) already fired its `agent/created`, so the live
-  // listener alone would miss it and its turns would fall back to the raw
-  // session id.
-  const labelBySession = new Map<string, string>()
-  for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
-  ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
-  ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
+  // This app owns exactly one pre-created agent. Hold the live object directly:
+  // its per-run id is intentionally fresh, while `main` remains only the
+  // terminal's fixed display label.
+  let target: Agent | undefined = ctx.agents.list()[0]
+  ctx.on('agent/created', (agent) => { target ??= agent })
+  ctx.on('agent/disposed', (agent) => {
+    if (target === agent) target = undefined
+  })
 
   // Transcript rendering off the durable `session/event` feed — the assistant
   // token stream, turn/step boundaries, tool activity, and todos all come from
@@ -136,7 +124,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         output.write(chunk.text)
       }
     } else if (event.type === 'turn/start') {
-      const label = labelBySession.get(session.header.id) ?? session.header.id
+      const label = target?.session === session ? 'main' : session.id
       output.write(`\n[${label} turn ${event.data.turn}] `)
     } else if (event.type === 'turn/end') {
       if (inReasoning) output.write('\x1B[0m')
@@ -187,7 +175,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       // Work submitted: wait until a turn has run and the agent is idle.
       if (submittedWork) {
         if (!sawRunning) return
-        const agent = ctx.agents.get(agentId)
+        const agent = target
         if (agent && agent.status !== 'idle') return // a turn is still running
       }
       // Let any final output flush, then exit. The handle is tracked so the
@@ -201,7 +189,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     }
 
     const disposeStatusListener = ctx.on('agent/status', (subject, status) => {
-      if (subject.id !== agentId) return
+      if (subject !== target) return
       if (status === 'running') sawRunning = true
       if (status === 'idle') maybeExit()
     })
@@ -354,9 +342,9 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       }
       const text = line.trim()
       if (!text) return
-      const agent = ctx.agents.get(agentId)
+      const agent = target
       if (!agent) {
-        ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
+        ctx.logger.error('ui-stdio: main agent is not running')
         return
       }
       submittedWork = true

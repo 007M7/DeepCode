@@ -6,8 +6,10 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+
 import type { Message } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = { session: { header: { cwd } } } as unknown as Agent
@@ -102,16 +104,18 @@ describe('dsh-agent-core bundle', () => {
 
   it('defaults the agents list to empty (no pre-created agents)', async () => {
     const ctx = await mount()
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    expect(ctx.get('agents')?.get(SessionId('main'))).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
   it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), model: 'mock' }],
+      agents: [{ id: 'main', model: 'mock' }],
       persona: 'You are main.',
     })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    const agent = ctx.get('agents')?.list()[0]
+    expect(agent?.id).toBe(agent?.session.id)
+    expect(agent?.id).toMatch(/^main-session-/)
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are main.')
     await ctx.fiber.dispose()

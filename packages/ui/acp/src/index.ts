@@ -72,7 +72,6 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
 import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
@@ -686,7 +685,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
         validateMcpServers(params)
         const sessionId = SessionId(randomUUID())
         const handle = await agents.create({
-          agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
@@ -757,7 +755,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
             }
           }
           const handle = await agents.resume({
-            agentId: AgentId(sessionId),
             resumeSessionId: sessionId,
             agentOptions: agentOptions(config),
           })

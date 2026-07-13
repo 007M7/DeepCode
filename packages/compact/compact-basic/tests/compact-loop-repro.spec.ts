@@ -3,11 +3,12 @@ import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
@@ -119,7 +120,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   it('the head checkpoint the loop lands is a balanced cut on both sides', async () => {
     const { ctx } = await harness(8)
     try {
-      const agent = ctx.agentLoop.create(AgentId('repro'), { model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('repro'), { model: 'mock' })
       agent.send([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 

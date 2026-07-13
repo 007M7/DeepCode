@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -43,7 +44,7 @@ async function setup(script: Script) {
   await ctx.plugin(SubagentService)
   await ctx.plugin(fork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { model: 'mock' })
   return { ctx, parent }
 }
 
