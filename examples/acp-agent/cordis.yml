@@ -44,11 +44,9 @@
     # loop resolves per session (every ACP session carries the client's cwd,
     # so the persona can state the workspace).
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working
-      directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
-      Verify your work by running the code or tests. Keep answers brief and
-      factual.
+      Verify your work by running the code or tests. Keep answers brief and factual.
 
 # The subagent seam + both in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh

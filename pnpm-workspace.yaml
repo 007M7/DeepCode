@@ -19,3 +19,12 @@ allowBuilds:
   # need, so we deny them — install still succeeds.
   '@google/genai': false
   protobufjs: false
+
+# The Landlock launcher family is our own sibling-repo release, consumed
+# fresh (hours old at each coordinated bump) — the release-age quarantine
+# would block every such bump, so the family is exempted BY NAME, not by
+# pinned version.
+minimumReleaseAgeExclude:
+  - node-addon-landlock-run
+  - node-addon-landlock-run-linux-arm64
+  - node-addon-landlock-run-linux-x64

@@ -1,15 +1,16 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { defineAcpSnapshotSuite, type Scenario } from '@deepseek-ai/dsh-acp-snapshot'
+import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record write-back, the pinned-header
+ * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
- * `pnpm run test:snapshot:record` re-records the `recorded` scenarios against
- * the real API. See the package README (packages/support/acp-snapshot) and the
- * snapshot RFC, docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * `pnpm run test:snapshot:record` re-records model transcripts against the real
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
+ * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-agent bin (the demo:acp entry), this example's cordis.yml, and
@@ -26,16 +27,31 @@ const AGENT = {
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
 
+function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
+  switch (value) {
+    case undefined:
+    case '':
+    case 'replay':
+      return 'replay'
+    case 'record':
+      return 'record'
+    case 'refresh':
+      return 'refresh'
+    default:
+      throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
+  }
+}
+
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
-  // text-turn is the pinned-header scenario: the minimal single text turn,
-  // whose fixture is the ONE place the full system prompt + tool schemas are
-  // committed and compared verbatim.
+  // text-turn is the pinned-header scenario: the minimal single text turn.
+  // Its system-prompt.golden.md and JSONL tool list pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
+  { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
@@ -111,5 +127,5 @@ defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
   scenarios: SCENARIOS,
-  mode: process.env.DSH_SNAPSHOT === 'record' ? 'record' : 'replay',
+  mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
 })

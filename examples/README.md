@@ -19,7 +19,7 @@ A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + th
 
 Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
-Its `code-mode.cordis.yml` overlay flips the same tree to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so the model gets exactly one wire tool — `run_code` — plus a generated TypeScript SDK section, and composes the other tools by writing a program whose output it curates. Run with: `pnpm run demo:code-mode` (the REPL is the default UI; `acp` as the argument serves the acp-agent example's same-shaped overlay instead) — see the [Code Mode section](coding-agent/README.md#code-mode) for what to try.
+Its `code-mode.cordis.yml` overlay flips the same tree to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so its registry contribution is the reserved `run_code` transport plus a generated TypeScript SDK section, and the model composes the other tools by writing a program whose output it curates. Run with: `pnpm run demo:code-mode` (the REPL is the default UI; `acp` as the argument serves the acp-agent example's same-shaped overlay instead) — see the [Code Mode section](coding-agent/README.md#code-mode) for what to try.
 
 ## cordis-agent
 
@@ -32,3 +32,9 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
+
+## sandbox-acp-agent
+
+The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
+
+Run with: `pnpm run demo:sandbox-acp` (needs `DEEPSEEK_API_KEY`; bwrap, a Landlock-enforcing kernel, or macOS for confined runs). See [sandbox-acp-agent/README.md](sandbox-acp-agent/README.md).

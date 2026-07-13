@@ -99,7 +99,7 @@ async function makeConsumer(): Promise<string> {
     '  name: \'@deepseek-ai/dsh-acp-agent\'',
     '  config:',
     '    model: deepseek-v4-flash',
-    '    systemPrompt: \'test agent\'',
+    '    persona: \'test agent\'',
     '',
   ].join('\n'))
   return dir
@@ -120,7 +120,12 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, 
     child = spawn(process.execPath, ['--expose-internals', acpBin, './cordis.yml'], {
       cwd: consumer,
       // Dummy key: initialize never reaches the model, so it is never used.
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      env: {
+        ...process.env,
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        DSH_HOME: join(consumer, '.dsh'),
+        DSH_AGENTS_HOME: join(consumer, '.agents'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const stderr: string[] = []
@@ -180,7 +185,12 @@ function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ['--expose-internals', acpBin, configArg], {
       cwd,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      env: {
+        ...process.env,
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     child = proc

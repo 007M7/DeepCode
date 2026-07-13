@@ -16,6 +16,12 @@
     },
     {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }

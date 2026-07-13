@@ -15,6 +15,7 @@ class StubExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
       owner: request.owner,
+      sandboxMode: request.sandboxMode,
     }
   }
 
@@ -94,6 +95,11 @@ describe('BashExecutor service seam', () => {
     expect(bash.kill(task.id)).toBe(false)
     const result = await bash.run(bash.resolve({ command: 'true' }))
     expect(result.exitCode).toBe(0)
+  })
+
+  it('reports no default sandbox mode (composition truth: the base never confines)', async () => {
+    const { bash } = await setup()
+    expect(bash.sandboxMode).toBeUndefined()
   })
 
   it('onTaskDone delivers completions to registered listeners', async () => {
