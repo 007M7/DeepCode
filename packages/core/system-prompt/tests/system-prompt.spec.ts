@@ -316,7 +316,7 @@ describe('SystemPrompt', () => {
     // registration emits change
     expect(changeCount).toBe(1)
 
-    await dispose()
+    dispose()
     // disposal emits change again
     expect(changeCount).toBe(2)
   })
@@ -341,7 +341,7 @@ describe('SystemPrompt', () => {
     const dispose = ctx.systemPrompt.section({ name: 'direct', order: 0, text: 'direct section' })
     expect(contributed(await ctx.systemPrompt.assemble())).toHaveLength(1)
 
-    await dispose()
+    dispose()
     expect(contributed(await ctx.systemPrompt.assemble())).toHaveLength(0)
   })
 
@@ -352,7 +352,7 @@ describe('SystemPrompt', () => {
     const dispose = ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'direct-tool', description: '', parameters: {} }] }))
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(1)
 
-    await dispose()
+    dispose()
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0)
   })
 
@@ -370,7 +370,7 @@ describe('SystemPrompt', () => {
       // A provider returning undefined records "registered but no value here".
       expect((await ctx.systemPrompt.assemble()).variables).toEqual({ who: undefined })
 
-      await dispose()
+      dispose()
       expect(changeCount).toBe(2)
       expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
     })

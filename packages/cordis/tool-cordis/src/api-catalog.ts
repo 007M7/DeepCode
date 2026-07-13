@@ -65,10 +65,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'agents',
     summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
     methods: [
-      'setFactory(factory: AgentFactory): () => Promise<void> | void',
+      'setFactory(factory: AgentFactory): () => void',
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
-      'register(agent: Agent): () => Promise<void> | void',
+      'register(agent: Agent): () => void',
       'enter(agent: Agent): () => void',
       'announce(agent: Agent): void',
       'get(id: AgentId): Agent | undefined',
@@ -169,8 +169,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'skills',
     summary: 'Registry of skill providers.',
     methods: [
-      'registerProvider(provider: SkillProvider): () => Promise<void> | void',
-      'register(skill: SkillRegistration): () => Promise<void> | void',
+      'registerProvider(provider: SkillProvider): () => void',
+      'register(skill: SkillRegistration): () => void',
       'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
       'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
     ],
@@ -179,7 +179,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'subagents',
     summary: 'Named provider registry and capability-checked start surface.',
     methods: [
-      'registerProvider(provider: SubagentProvider): () => Promise<void> | void',
+      'registerProvider(provider: SubagentProvider): () => void',
       'getProvider(name: string): SubagentProvider | undefined',
       'list(): string[]',
       'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
@@ -189,9 +189,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'systemPrompt',
     summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contributions; the agent loop calls `assemble(context)` once per step.',
     methods: [
-      'section(section: PromptSection): () => Promise<void> | void',
-      'tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void',
-      'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void',
+      'section(section: PromptSection): () => void',
+      'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
+      'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void',
       'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
     ],
   },
@@ -199,9 +199,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'tools',
     summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.',
     methods: [
-      'register(definition: ToolDefinition): () => Promise<void> | void',
-      'restrict(filter: ToolRestriction): () => Promise<void> | void',
-      'guard(guard: ToolGuard): () => Promise<void> | void',
+      'register(definition: ToolDefinition): () => void',
+      'restrict(filter: ToolRestriction): () => void',
+      'guard(guard: ToolGuard): () => void',
       'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
       'schemas(scope?: ScopeKey): ToolSchema[]',
       'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
@@ -311,7 +311,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/turn-stop',
     mode: 'serial',
-    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): Promise<ContinuationStop | undefined> | ContinuationStop | undefined',
+    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
     summary: 'Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded.',
   },
   {
@@ -442,9 +442,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   },
   {
     name: 'tools/result',
-    mode: 'parallel',
-    signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<void> | void',
-    summary: 'Awaited notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
+    mode: 'emit',
+    signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined',
+    summary: 'Synchronous notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
   },
   {
     name: 'workflow/agent-end',

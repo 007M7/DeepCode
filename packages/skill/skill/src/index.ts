@@ -187,7 +187,7 @@ export class SkillService extends Service {
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
-  registerProvider(provider: SkillProvider): () => Promise<void> | void {
+  registerProvider(provider: SkillProvider): () => void {
     const name = provider.name
     if (name === RUNTIME_PROVIDER) {
       throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
@@ -210,6 +210,7 @@ export class SkillService extends Service {
       }
       ctx.emit('skill/provider-added', provider)
     }, 'skills.registerProvider()')
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -225,7 +226,7 @@ export class SkillService extends Service {
    *   contribution and invalidates caches; composite effects may yield it
    *   directly to preserve teardown ordering.
    */
-  register(skill: SkillRegistration): () => Promise<void> | void {
+  register(skill: SkillRegistration): () => void {
     validateRuntimeSkill(skill)
     const existing = this.runtime.get(skill.name)
     if (existing !== undefined) {
@@ -245,6 +246,7 @@ export class SkillService extends Service {
         invalidateCache()
       }
     }, 'skills.register()')
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 

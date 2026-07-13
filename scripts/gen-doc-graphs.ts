@@ -246,8 +246,8 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // Session disposal uses direct callback resolution so teardown contains each
   // synchronous throw and returned-promise rejection independently.
   { event: 'session/disposed', pkg: 'session', method: 'events.dispatch' },
-  // tools/result uses ctx.events.dispatch directly so the registry can await
-  // every observer while containing each callback independently.
+  // tools/result uses ctx.events.dispatch directly so the registry can invoke
+  // every synchronous observer while containing each callback independently.
   { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },
   // Subagent lifecycle events intentionally bypass ctx.emit and call
   // ctx.events.dispatch directly so one throwing listener cannot starve later
@@ -756,7 +756,7 @@ function renderToolPipeline(): string {
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
     `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
-    `  final["${mermaidCode('tools/result')} parallel notification<br/>frozen authoritative outcome"]`,
+    `  final["${mermaidCode('tools/result')} synchronous notification<br/>frozen authoritative outcome"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
     '  allResults["All calls in the step settled<br/>and tool/result events recorded"]',
@@ -785,7 +785,7 @@ function renderToolPipeline(): string {
     '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The awaited `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The synchronous `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')

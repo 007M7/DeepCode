@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
+import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { AgentId, agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentFactory, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
   const id = AgentId(rawId)
@@ -21,6 +22,14 @@ function stubAgent(rawId: string): Agent {
 }
 
 describe('AgentRegistry', () => {
+  it('keeps terminal stop decisions synchronous', () => {
+    type TurnStopListener = Events['agent/turn-stop']
+    type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
+
+    expectTypeOf<AsyncTurnStopListener>().not.toExtend<TurnStopListener>()
+    expectTypeOf<ReturnType<TurnStopListener>>().toEqualTypeOf<ContinuationStop | undefined>()
+  })
+
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
@@ -34,7 +43,7 @@ describe('AgentRegistry', () => {
     expect(ctx.agents.list()).toEqual([agent])
     expect(() => ctx.agents.register(stubAgent('a1'))).toThrow(/already registered/)
 
-    await dispose()
+    dispose()
     expect(ctx.agents.get(agent.id)).toBeUndefined()
     expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
   })
@@ -65,7 +74,7 @@ describe('AgentRegistry', () => {
 
     const dispose = ctx.agents.register(stubAgent('contained'))
     await Promise.resolve()
-    await dispose()
+    dispose()
     await Promise.resolve()
 
     expect(heard).toEqual(['contained'])
