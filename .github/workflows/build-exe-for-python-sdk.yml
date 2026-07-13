@@ -218,7 +218,7 @@ jobs:
           echo "exe=$exe" >> "$GITHUB_OUTPUT"
           echo "wheel=$wheel" >> "$GITHUB_OUTPUT"
 
-      - name: Full-turn SDK, custom cordis, and direct-binary smoke
+      - name: Full-turn SDK, executable snapshot, and direct-binary smoke
         run: >-
           uv run --python 3.10 --group test --project python/sdk
           python scripts/smoke-python-runtime.py
