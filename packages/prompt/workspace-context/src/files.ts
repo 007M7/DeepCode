@@ -7,7 +7,7 @@
 import { createReadStream } from 'node:fs'
 import { lstat, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import type { FileSystem, FsInfo, FsPathInfo, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { FileSystem, FsInfo, FsPathInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
@@ -21,10 +21,20 @@ export interface InstructionFile {
 /** An instruction file whose UTF-8 content was read successfully. */
 export interface LoadedInstructionFile extends InstructionFile {
   content: string
+  /** Provider freshness token when the file was loaded through `ctx.fs`. */
+  version?: FsVersion
 }
 
 interface DiscoveredInstructionFile extends InstructionFile {
   target?: FsTarget
+  size?: number
+  version?: FsVersion
+}
+
+/** Provider metadata for a winning scope candidate before its content is read. */
+export interface ProbedInstructionFile extends InstructionFile {
+  target: FsTarget
+  version: FsVersion
   size?: number
 }
 
@@ -49,7 +59,7 @@ export interface RenderedInstructionSet {
 
 /** Tri-state scope probe that distinguishes confirmed absence from provider failure. */
 export type ScopeInstructionProbe =
-  | { kind: 'present'; file: LoadedInstructionFile }
+  | { kind: 'present'; file: ProbedInstructionFile }
   | { kind: 'absent' }
   | { kind: 'unavailable' }
 
@@ -75,14 +85,14 @@ async function fsStatFile(
   path: string,
   fileSystem: FileSystem,
   signal?: AbortSignal,
-): Promise<{ target: FsTarget; size?: number } | undefined> {
+): Promise<{ target: FsTarget; size?: number; version: FsVersion } | undefined> {
   try {
     const pathInfo = await fileSystem.lstat(path, undefined, signal)
     if (pathInfo?.type !== 'file') return undefined
     const target = await fileSystem.resolve(path, signalOptions(signal))
     const info = await fileSystem.stat(target, signal)
     if (info?.type !== 'file') return undefined
-    return { target, ...info.size === undefined ? {} : { size: info.size } }
+    return { target, version: info.version, ...info.size === undefined ? {} : { size: info.size } }
   } catch {
     signal?.throwIfAborted()
     // Provider absence and discovery races are both non-fatal.
@@ -94,7 +104,7 @@ async function statFile(
   path: string,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
-): Promise<{ target?: FsTarget; size?: number } | undefined> {
+): Promise<{ target?: FsTarget; size?: number; version?: FsVersion } | undefined> {
   return fileSystem === undefined ? nodeStatFile(path, signal) : fsStatFile(path, fileSystem, signal)
 }
 
@@ -316,7 +326,14 @@ export async function loadBaselineInstructionSet(
   const loaded: LoadedInstructionFile[] = []
   for (const file of discovered) {
     const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
-    if (content !== undefined) loaded.push({ absolutePath: file.absolutePath, displayPath: file.displayPath, content })
+    if (content !== undefined) {
+      loaded.push({
+        absolutePath: file.absolutePath,
+        displayPath: file.displayPath,
+        content,
+        ...file.version === undefined ? {} : { version: file.version },
+      })
+    }
   }
   if (loaded.length === 0) return undefined
   const rendered = renderWorkspaceContext(loaded, { maxBytes: config.maxBytes })
@@ -329,11 +346,11 @@ export async function loadBaselineInstructionSet(
  * @param scope - `user-global`, `.`, or a project-relative directory.
  * @param projectRoot - project root used to resolve and display project scopes.
  * @param resolved - normalized plugin configuration.
- * @param fileSystem - provider used for no-follow probing and reading.
- * @param signal - cancellation for provider probes and streaming.
- * @returns present content, confirmed absence, or temporary unavailability.
+ * @param fileSystem - provider used for no-follow probing.
+ * @param signal - cancellation for provider probes.
+ * @returns present metadata, confirmed absence, or temporary unavailability.
  */
-export async function loadScopeInstruction(
+export async function probeScopeInstruction(
   scope: string,
   projectRoot: string,
   resolved: ResolvedConfig,
@@ -364,17 +381,40 @@ export async function loadScopeInstruction(
       return { kind: 'unavailable' }
     }
     if (info?.type !== 'file') return { kind: 'unavailable' }
-    const discovered: DiscoveredInstructionFile = {
+    const file: ProbedInstructionFile = {
       absolutePath,
       displayPath: scope === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
       target,
+      version: info.version,
       ...info.size === undefined ? {} : { size: info.size },
     }
-    const content = await readBounded(discovered, resolved.maxSourceBytes, fileSystem, signal)
-    if (content === undefined) return { kind: 'unavailable' }
-    return { kind: 'present', file: { absolutePath, displayPath: discovered.displayPath, content } }
+    return { kind: 'present', file }
   }
   return { kind: 'absent' }
+}
+
+/**
+ * Read one already-probed scope candidate under the configured source cap.
+ * @param file - winning provider candidate and its metadata snapshot.
+ * @param maxSourceBytes - maximum UTF-8 bytes accepted from the source.
+ * @param fileSystem - provider used for the streaming read.
+ * @param signal - cancellation for provider streaming.
+ * @returns loaded content with the probed version, or undefined when unavailable.
+ */
+export async function readScopeInstruction(
+  file: ProbedInstructionFile,
+  maxSourceBytes: number,
+  fileSystem: FileSystem,
+  signal?: AbortSignal,
+): Promise<LoadedInstructionFile | undefined> {
+  const content = await readBounded(file, maxSourceBytes, fileSystem, signal)
+  if (content === undefined) return undefined
+  return {
+    absolutePath: file.absolutePath,
+    displayPath: file.displayPath,
+    content,
+    version: file.version,
+  }
 }
 
 function userGlobalDisplayPath(dshHome: string): string {

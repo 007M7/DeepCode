@@ -81,7 +81,7 @@ Resolved targets must expose at least three concepts:
 - An opaque `targetKey`, used for stale guards and file-state lookup. The local backend might use a realpath-like key; a remote backend might use a workspace URI or file id. Consumers must not parse or assume this is a local absolute path.
 - A `displayPath`, used for model/UI-facing output. It may be a local absolute path, workspace-relative path, or remote URI depending on the backend.
 
-Read and mutation results must include an opaque file `version`. A local backend can use mtime/size or a hash-like token; a remote backend can use a revision id. The `dsh-fs-policy` plugin records versions for stale checks; consumers may display related metadata but must not interpret the version token.
+Read and mutation results must include an opaque file `version`. The local backend derives its token from bigint stat metadata (`dev`, `ino`, `size`, `mtimeNs`, and `ctimeNs`) so same-size rewrites and inode replacement invalidate consumers reliably; a remote backend can use a revision id or hash-like token. The `dsh-fs-policy` plugin records versions for stale checks; consumers may display related metadata but must not interpret the version token.
 
 The provider hands back decoded text: `readText` returns a whole regular text file, `streamText` streams the same text semantics for large files. Both own regular-file checks, bounded line/output handling is NOT theirs — line windowing, numbered-line rendering, and total-line accounting live in the executor (`dsh-tool-fs`), which reads through `ctx.fs` and renders the model-facing window. The provider owns UTF-8 decoding and binary/NUL rejection; it does not know about line windows or views.
 

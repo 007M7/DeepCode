@@ -31,6 +31,7 @@ import {
   renderWorkspaceContext,
 } from '@deepseek-ai/dsh-workspace-context'
 import {
+  baselineInstructionState,
   commitPendingInstructionContexts,
   rollbackPendingInstructionChanges,
   type PendingInstructionChange,
@@ -46,7 +47,7 @@ async function write(path: string, content: string): Promise<void> {
 }
 
 class RecordingFileSystem extends FileSystem {
-  entries = new Map<string, { type: FsInfo['type']; content?: string }>()
+  entries = new Map<string, { type: FsInfo['type']; content?: string; version?: FsVersion }>()
   lstatTypes = new Map<string, FsPathInfo['type']>()
   throwOnStat = new Set<string>()
   omitSizes = new Set<string>()
@@ -68,7 +69,7 @@ class RecordingFileSystem extends FileSystem {
     const entry = this.entries.get(target.targetKey)
     if (entry === undefined) return undefined
     const info: FsInfo = {
-      version: FsVersion(`v:${target.targetKey}`),
+      version: entry.version ?? FsVersion(`v:${target.targetKey}:${entry.type}:${entry.content ?? ''}`),
       type: entry.type,
     }
     if (entry.content !== undefined && !this.omitSizes.has(target.targetKey)) info.size = Buffer.byteLength(entry.content, 'utf8')
@@ -1062,7 +1063,7 @@ describe('workspace context request injection', () => {
 
       expect(derivedText(agent)).toContain('ctx.fs rule')
       expect(derivedText(agent)).not.toContain('node fs rule')
-      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md'), join(root, 'AGENTS.md')])
+      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1084,7 +1085,7 @@ describe('workspace context request injection', () => {
       await composeBaselinePrefix(ctx, agent)
 
       expect(derivedText(agent)).toContain('provider-only rule')
-      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md'), join(root, 'AGENTS.md')])
+      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
     } finally {
       await ctx.fiber.dispose()
       await rm(dirname(root), { recursive: true, force: true })
@@ -1490,6 +1491,22 @@ describe('workspace context request injection', () => {
 })
 
 describe('dynamic nested workspace context injection', () => {
+  it('builds persisted digest state without inventing a provider version', () => {
+    const state = baselineInstructionState([{
+      absolutePath: '/repo/AGENTS.md',
+      displayPath: 'AGENTS.md',
+      content: 'root rule',
+    }])
+
+    const change = state.changes.get('.')
+    expect(change).toMatchObject({
+      action: 'set',
+      path: 'AGENTS.md',
+    })
+    expect(change?.digest).toMatch(/^[a-f0-9]{40}$/)
+    expect(state.versions).toEqual(new Map())
+  })
+
   it('propagates the tool execution signal into dynamic filesystem reconciliation', async () => {
     const root = join(await tempRepo(), 'virtual-repo')
     const home = join(await tempRepo(), 'virtual-home')
@@ -1644,6 +1661,113 @@ describe('dynamic nested workspace context injection', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips instruction content reads while provider version and effective state are unchanged', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      const instructionPath = join(root, 'pkg/AGENTS.md')
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(instructionPath, { type: 'file', content: 'nested package rule' })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        callId: CallId('read-before-version-fast-path'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      const second = await ctx.tools.execute({
+        callId: CallId('read-with-version-fast-path'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+      })
+
+      expect(first.additionalContexts).toBeDefined()
+      expect(second.additionalContexts).toBeUndefined()
+      expect(fs.readTargets.filter(path => path === instructionPath)).toHaveLength(1)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('re-reads a changed provider version, then refreshes metadata when SHA-1 is unchanged', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      const instructionPath = join(root, 'pkg/AGENTS.md')
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(instructionPath, { type: 'file', content: 'same package rule', version: FsVersion('revision-1') })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        callId: CallId('read-before-same-digest-version-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      fs.entries.set(instructionPath, { type: 'file', content: 'same package rule', version: FsVersion('revision-2') })
+      const afterVersionChange = await ctx.tools.execute({
+        callId: CallId('read-after-same-digest-version-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+      })
+      const afterRefresh = await ctx.tools.execute({
+        callId: CallId('read-after-version-cache-refresh'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+      })
+
+      expect(afterVersionChange.additionalContexts).toBeUndefined()
+      expect(afterRefresh.additionalContexts).toBeUndefined()
+      expect(fs.readTargets.filter(path => path === instructionPath)).toHaveLength(2)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('isolates instruction version caches between sessions that touch the same scope', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      const instructionPath = join(root, 'pkg/AGENTS.md')
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(instructionPath, { type: 'file', content: 'shared path, separate sessions' })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+
+      const first = await ctx.tools.execute({
+        callId: CallId('read-from-first-session'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: stubAgent(root),
+      })
+      const second = await ctx.tools.execute({
+        callId: CallId('read-from-second-session'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: stubAgent(root),
+      })
+
+      expect(first.additionalContexts).toBeDefined()
+      expect(second.additionalContexts).toBeDefined()
+      expect(fs.readTargets.filter(path => path === instructionPath)).toHaveLength(2)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
     }
   })
 

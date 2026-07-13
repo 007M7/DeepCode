@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -97,6 +97,20 @@ describe('stat', () => {
 
     expect((await fs.stat(await fs.resolve('.')))?.type).toBe('directory')
     expect(await fs.stat(await fs.resolve('missing.txt'))).toBeUndefined()
+  })
+
+  it('changes version after a same-size rewrite even when mtime is restored', async () => {
+    const path = join(dir, 'same-size.txt')
+    await writeFile(path, 'first')
+    const target = await fs.resolve(path)
+    const beforeInfo = await stat(path)
+    const beforeVersion = await versionOf(target)
+
+    await fs.writeText(target, 'other')
+    await utimes(path, beforeInfo.atime, beforeInfo.mtime)
+
+    expect((await stat(path)).size).toBe(beforeInfo.size)
+    expect(await versionOf(target)).not.toBe(beforeVersion)
   })
 
   it('honors a pre-aborted signal', async () => {
@@ -327,9 +341,6 @@ describe('writeText', () => {
     await writeFile(join(dir, 'a.txt'), 'v1')
     const target = await fs.resolve('a.txt')
     const before = await versionOf(target)
-    // Change the byte length so the mtimeMs:size token provably differs (a
-    // same-size same-tick rewrite can collide — the documented version-token
-    // limitation; not what this test is about).
     const outcome = await fs.writeText(target, 'a much longer replacement body', { kind: 'replaceIfVersion', version: before })
     expect(outcome.version).not.toBe(before)
     expect(outcome.version).toBe(await versionOf(target))
