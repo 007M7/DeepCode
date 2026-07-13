@@ -32,7 +32,7 @@ Unknown options, malformed arguments, unsupported schemas, tripped caps, provide
 
 ## Run sequence
 
-`start()` validates meta and parses the body, creates the worker, and returns a holder-owned `WorkflowRun`. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
+`start()` validates meta and parses the body, creates the worker, and returns a holder-owned `WorkflowRun`. Source mode uses a data-URL bootstrap that installs the TypeScript transforms inside the worker; built mode passes the sibling CommonJS bundle `lib/worker.cjs` as a filesystem string. CommonJS is required because pkg's VFS Worker hook compiles filesystem-string entries in that format; the same entry also works under ordinary Node resolution. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
 
 For each `agent()` call:
 

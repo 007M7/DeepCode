@@ -72,6 +72,8 @@ export const Config: z<Config> = z.object({
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
+  // TODO(single-default-literal): share this schema default and the defensive
+  // apply() fallback through one named constant while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
   skills: agentCore.SkillConfigSchema,
 })

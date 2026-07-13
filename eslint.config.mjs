@@ -1,4 +1,5 @@
 import stylistic from '@stylistic/eslint-plugin'
+import sonarjs from 'eslint-plugin-sonarjs'
 import tseslint from 'typescript-eslint'
 
 /**
@@ -120,6 +121,17 @@ export default tseslint.config(
         varsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
+    },
+  },
+
+  // --- file-local duplication (all owned TypeScript) ---------------------
+  {
+    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
+    plugins: { sonarjs },
+    rules: {
+      // Cross-file clones are covered separately by jscpd.
+      'sonarjs/no-identical-functions': 'error',
+      'sonarjs/no-duplicated-branches': 'error',
     },
   },
 

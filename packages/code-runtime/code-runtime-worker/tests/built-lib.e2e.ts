@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
  * BUILT-ARTIFACT smoke for the published package (the real-load-path guard
  * from docs/testing.md): the unit suite runs `src/` under vitest, where the
  * worker entry resolves to `src/worker.ts` — a consumer runs `lib/index.js`
- * under plain `node`, where it must resolve the sibling `lib/worker.js`
+ * under plain `node`, where it must resolve the sibling `lib/worker.cjs`
  * bundle instead. This spawns plain `node` (NOT tsx) from inside the package
  * directory and imports the package BY NAME, so resolution flows through the
  * real `exports` map exactly as it would from a downstream install; the
@@ -21,11 +21,11 @@ import { describe, expect, it } from 'vitest'
  */
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))
-const built = ['lib/index.js', 'lib/worker.js'].every(file => existsSync(join(pkgDir, file)))
+const built = ['lib/index.js', 'lib/worker.cjs'].every(file => existsSync(join(pkgDir, file)))
   && existsSync(join(pkgDir, '../code-runtime/lib/index.js'))
 
 describe.skipIf(!built)('built lib real load path (plain node)', () => {
-  it('runs a TypeScript program with a binding through lib/index.js and its lib/worker.js entry', async () => {
+  it('runs a TypeScript program with a binding through lib/index.js and its lib/worker.cjs entry', async () => {
     const script = `
       const { Context } = await import('cordis')
       const { WorkerCodeRuntime } = await import('@deepseek-ai/dsh-code-runtime-worker')

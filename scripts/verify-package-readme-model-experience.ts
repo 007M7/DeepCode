@@ -54,6 +54,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/support/subagent-mock': { kind: 'indirect', reason: 'Only dsh-tool-subagent renders its configured test outcome.' },
   'packages/ui/acp-agent': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-core and dsh-acp.' },
   'packages/ui/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
+  'packages/ui/jsonrpc-agent': { kind: 'indirect', reason: 'Only the externally configured plugin tree contributes model context.' },
   'packages/ui/user-interaction': { kind: 'indirect', reason: 'Model-facing consumers render provider answers and seam errors.' },
   'packages/util/brand': { kind: 'none', reason: 'The type-only primitive is erased at compile time.' },
   'packages/util/timeout': { kind: 'indirect', reason: 'Only timeout consumers render timeout outcomes.' },
