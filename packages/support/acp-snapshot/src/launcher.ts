@@ -95,7 +95,10 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   // A spawn-level failure is an asynchronous `error` event. Observe it in the
   // same tick as spawn so a missing cwd or OS rejection cannot crash the test
   // runner, then make startup and shutdown surface the original error.
-  const childFailure = new Promise<Error>(resolve => child.once('error', resolve))
+  // Keep observing after the first error: a fallback kill attempted during
+  // shutdown may itself report another process error, which must not become an
+  // unhandled EventEmitter error after the promise has already settled.
+  const childFailure = new Promise<Error>(resolve => child.on('error', resolve))
   const spawned = Promise.race([
     new Promise<void>(resolve => child.once('spawn', resolve)),
     childFailure.then((error): never => { throw error }),
@@ -163,14 +166,23 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     waitForUpdate: match => new Promise((resolve, reject) => updateWaiters.push({ match, resolve, reject })),
     async close(signal?: NodeJS.Signals): Promise<void> {
       await spawned
-      if (child.exitCode !== null || child.signalCode !== null) return
+      if (!isRunning(child)) return
+      const exited = waitForExit(child)
       if (signal === undefined) child.stdin.end()
       else child.kill(signal)
       const failure = await Promise.race([
-        waitForExit(child).then((): undefined => undefined),
+        exited.then((): undefined => undefined),
         childFailure,
       ])
-      if (failure !== undefined) throw failure
+      if (failure === undefined) return
+
+      // An `error` after spawn is not an exit edge: in particular, a failed
+      // signal can leave the subprocess live. Force termination, await the
+      // already-observed exit edge, and only then propagate the child error so
+      // callers may safely remove cwd/session resources after close rejects.
+      child.kill('SIGKILL')
+      await exited
+      throw failure
     },
   }
 }
@@ -178,4 +190,9 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
 /** Resolve once a running child exits. */
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
+}
+
+/** Whether the child still lacks either OS termination marker. */
+function isRunning(child: ChildProcessWithoutNullStreams): boolean {
+  return child.exitCode === null && child.signalCode === null
 }
