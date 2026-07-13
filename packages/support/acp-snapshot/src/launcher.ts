@@ -65,7 +65,7 @@ export interface LaunchedAcpTestAgent {
   stderr(): string
   /** Resolve when a future session update matches the predicate. */
   waitForUpdate(match: (update: SessionNotification['update']) => boolean): Promise<SessionNotification['update']>
-  /** Gracefully close stdin, or send a signal, and wait for process exit. */
+  /** Gracefully close stdin, or send a signal, then wait for process exit, inherited stdio closure, and ACP parser drain. */
   close(signal?: NodeJS.Signals): Promise<void>
 }
 
@@ -132,7 +132,6 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   })
   child.stdout.on('end', () => {
     passthrough.push(null)
-    closeUpdateStream()
   })
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
@@ -163,6 +162,17 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       ?? (() => Promise.resolve({ outcome: { outcome: 'cancelled' } })),
   })
   const client = new ClientSideConnection(makeClient, stream)
+  // `exit` only reports the parent process's status. Descendants may retain
+  // inherited stdout/stderr handles and buffered ACP frames may still be
+  // crossing the SDK parser. Node's `close` follows stdio closure; the SDK's
+  // `closed` follows parser exhaustion. Capture both eagerly so a caller that
+  // invokes close after process exit still joins the complete drain boundary.
+  const stdioClosed = new Promise<void>(resolve => child.once('close', () => { resolve() }))
+  const drained = Promise.all([stdioClosed, client.closed]).then(() => undefined)
+  // A caller may await a pending update without calling close(). Make natural
+  // stream exhaustion terminal for those waiters too, but only after the
+  // parser has dispatched every buffered frame.
+  void client.closed.then(closeUpdateStream)
 
   return {
     child,
@@ -183,6 +193,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         throw error
       }
       if (!isRunning(child)) {
+        await drained
         closeUpdateStream()
         return
       }
@@ -194,6 +205,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         childFailure,
       ])
       if (failure === undefined) {
+        await drained
         closeUpdateStream()
         return
       }
@@ -204,6 +216,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       // callers may safely remove cwd/session resources after close rejects.
       child.kill('SIGKILL')
       await exited
+      await drained
       closeUpdateStream()
       throw failure
     },
