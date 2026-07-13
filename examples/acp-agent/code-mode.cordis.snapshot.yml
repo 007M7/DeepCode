@@ -17,8 +17,14 @@
         config:
           model: deepseek-v4-flash
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-          workspaceContext:
-            maxBytes: 65536
+          # Disabled in Code Mode: fs tools run as run_code sub-dispatches and
+          # code-mode.ts deliberately drops sub-call `additionalContext`, so the
+          # nested/changed/removed AGENTS.md notices this feature emits after
+          # read/write/edit are discarded before the loop can append them.
+          # Enabling it would only ship the baseline prefix while silently
+          # dropping the dynamic updates, so keep it off until sub-dispatch
+          # context propagation lands.
+          workspaceContext: false
           tools:
             mode: code
           persona: |

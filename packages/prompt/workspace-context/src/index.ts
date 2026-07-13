@@ -91,6 +91,13 @@ export function apply(ctx: Context, config: Config): void {
     next,
   ): Promise<PostToolDecision> => {
     const downstream = await next()
+    // A downstream listener/policy blocked this call: the registry turns it
+    // into a final `isError` result, so treat it like a failed fs touch and
+    // load nothing. Reconciling here would surface workspace instructions from
+    // a call the pipeline rejected, violating the "successful fs tool touches"
+    // contract, and would advance the nested/baseline tracking state off a
+    // touch that never really happened.
+    if (downstream.kind === 'block') return downstream
     const fileSystem = ctx.get('fs')
     if (fileSystem === undefined) return downstream
     const context = await dynamicInstructionContext(
@@ -104,14 +111,10 @@ export function apply(ctx: Context, config: Config): void {
       fileSystem,
     )
     if (context === undefined) return downstream
-    const additionalContext = concatContext(context, downstream.additionalContext)
-    if (downstream.kind === 'block') {
-      return { kind: 'block', feedback: downstream.feedback, additionalContext }
-    }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext,
+      additionalContext: concatContext(context, downstream.additionalContext),
     }
   })
 }

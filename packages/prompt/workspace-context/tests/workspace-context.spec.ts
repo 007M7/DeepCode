@@ -725,6 +725,62 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('does not load workspace instructions when a downstream listener blocks the tool call', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested package rule' })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const exec = {
+        callId: CallId('read-blocked-post-execute'),
+        name: 'read',
+        arguments: { file_path: 'pkg/file.txt' },
+        agent,
+      }
+      const result = {
+        callId: CallId('read-blocked-post-execute'),
+        isError: false,
+        content: [{ type: 'text' as const, text: 'hello' }],
+      }
+
+      // A later PostToolUse-style policy blocks this otherwise-successful read.
+      const blocked = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
+        kind: 'block' as const,
+        feedback: [{ type: 'text' as const, text: 'blocked by policy' }],
+      }))
+
+      expect(blocked).toEqual({
+        kind: 'block',
+        feedback: [{ type: 'text', text: 'blocked by policy' }],
+      })
+      expect(blocked.additionalContext).toBeUndefined()
+
+      // The same read, when the downstream accepts, DOES surface the nested
+      // instructions — proving the block branch above is what suppressed them,
+      // and that the block did not consume the pending nested change.
+      const accepted = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
+        kind: 'accept' as const,
+      }))
+      expect(accepted.kind).toBe('accept')
+      expect(accepted.additionalContext?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(blocksText(accepted.additionalContext?.content)).toContain('nested package rule')
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('contributes baseline instructions through the frozen session prefix instead of durable history', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1977,7 +2033,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('keeps downstream post-execute blocks while still attaching discovered instructions', async () => {
+  it('does not attach discovered instructions when a downstream listener blocks the tool call', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1998,12 +2054,11 @@ describe('dynamic nested workspace context injection', () => {
         agent: stubAgent(root),
       })
 
+      // The pipeline rejected this touch, so no workspace instructions from it
+      // should reach the model, and the block feedback must survive unchanged.
       expect(result.isError).toBe(true)
       expect(blocksText(result.content)).toBe('blocked downstream')
-      expect(blocksText(result.additionalContext?.content)).toContain('nested package rule')
-      expect(result.additionalContext?.meta).toMatchObject({
-        changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
-      })
+      expect(result.additionalContext).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
