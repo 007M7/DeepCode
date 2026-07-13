@@ -10,7 +10,7 @@ The description is derived from `provider.inheritsParentContext`: spawn and ACP 
 
 ## Lifecycle
 
-`execute` passes the tool execution's abort signal directly as the required `SubagentStartRequest.signal`, awaits `ctx.subagents.start(...)`, then awaits `run.result` inside a `try/finally` that always calls `run.dispose()`. The same signal therefore covers startup and live execution, while disposal guarantees quiescence on success, failure, and abort.
+`execute` passes the tool execution's abort signal when present, otherwise supplies an inert signal to satisfy the required `SubagentStartRequest.signal`. It awaits `ctx.subagents.start(...)`, then awaits `run.result` inside a `try/finally` that always calls `run.dispose()`. The selected signal therefore covers startup and live execution, while disposal guarantees quiescence on success, failure, and abort.
 
 A non-`completed` stop reason becomes an `isError` tool result; partial child output is never reported as success. The current tool blocks the parent turn until collection finishes; background and polling modes are deferred.
 

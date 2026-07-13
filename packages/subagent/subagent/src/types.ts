@@ -57,7 +57,7 @@ export interface SubagentStartRequest {
    * afterward.
    */
   readonly signal: AbortSignal
-  /** Per-child agent options (model, system prompt). */
+  /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
    * Optional structured-output schema — an object-rooted JSON Schema within the

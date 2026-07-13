@@ -353,7 +353,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 

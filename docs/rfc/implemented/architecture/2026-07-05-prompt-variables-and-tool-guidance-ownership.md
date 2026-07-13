@@ -16,11 +16,11 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 ## Decision
 
-**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. Identity and behavior → the deployment's persona, and nothing else.
+**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. Harness provenance → the static `harness:identity` section. Deployment role and behavior → the deployment's persona.
 
 ### Assemble context
 
-`SystemPrompt.assemble(context)` takes an `AssembleContext` — declared EMPTY and merge-extensible in `dsh-system-prompt` (the package stays agnostic of who assembles); `dsh-agent` declaration-merges `agent?: Agent` onto it (a new type-level edge `agent → system-prompt`, no cycle — `tools` already depends on both). The loop passes `{ agent }` each step; section text providers become `string | ((context) => string)` (zero-arg providers stay valid), and the `system-prompt/assemble` waterfall gains the context parameter so a listener can filter or extend per agent.
+`SystemPrompt.assemble(context)` takes a merge-extensible `AssembleContext`. `dsh-system-prompt` declares the optional `scope` selector used for scoped routing, while `dsh-agent` declaration-merges the optional typed `agent` field onto it (a type-level edge `agent → system-prompt`, with no runtime dependency cycle). The loop calls `assembleContextFor(agent)` each step so both fields identify the same agent; section text providers may read that context, and the `system-prompt/assemble` waterfall receives it so a listener can filter or extend per agent.
 
 ### Prompt variables
 
@@ -30,7 +30,7 @@ Plugins contribute named values via `ctx.systemPrompt.variable(name, provider)`;
 
 ### Persona as the order-0 section
 
-`dsh-system-prompt` itself registers the two harness-owned sections (they must survive a swapped loop plugin, so they do NOT live on `dsh-agent-loop`): the static `harness:identity` at order `-100` — every prompt opens by stating the agent is powered by the DeepSeek Harness SDK — and `deployment:persona` at order 0, whose text is the plugin's own `persona` config. The persona is per-DEPLOYMENT, not per-agent: every agent in the context (subagents included) renders the same one, `AgentOptions.systemPrompt` is deleted along with the per-agent forwarding plumbing (the app configs' `systemPrompt` keys become a `persona` key routed to this plugin through `dsh-agent-core`), and the ACP bridge and `dsh-tool-subagent` stop carrying persona configuration entirely. The loop's special-case join is deleted: `fullSystemPrompt ≡ renderPrompt(assembly)`, one ordered pipeline for everything the model sees, and `agent/pre-step` (compaction's token-pressure input) measures exactly the real prompt. Order bands are now convention: harness identity `-100`, persona `0`, tool guidance `100–199`; other negative orders also render before the persona.
+`dsh-system-prompt` itself registers the two harness-owned sections (they must survive a swapped loop plugin, so they do NOT live on `dsh-agent-loop`): the static `harness:identity` at order `-100` — every prompt opens by stating the agent is powered by the DeepSeek Harness SDK — and the global default `deployment:persona` at order 0, whose text is the plugin's own `persona` config. `AgentOptions.systemPrompt` and the loop's special-case join are gone: `fullSystemPrompt ≡ renderPrompt(assembly)`, one ordered pipeline for everything the model sees, and `agent/pre-step` (compaction's token-pressure input) measures exactly the real prompt. An agent-scoped section with the same `deployment:persona` name shadows the default for that agent; programmatic setup may register one directly, and the subagent persona feature installs one before publishing an in-process child when the selected provider supports it. Order bands are convention: harness identity `-100`, persona `0`, tool guidance `100–199`; other negative orders also render before the persona.
 
 ### Tool guidance ownership
 
@@ -56,7 +56,7 @@ Per-tool semantics and when-to-use live in tool DESCRIPTIONS, which already ship
 
 ## Shipped invariants
 
-- `renderPrompt(assemble({ agent }))` for the coding-agent example renders the persona FIRST (with the agent's model name interpolated), then the fs/bash/web guidance sections; the loop has no other prompt-composition path.
+- `renderPrompt(await assemble(assembleContextFor(agent)))` for the coding-agent example renders the harness identity, then the persona (with the agent's model name interpolated), then the fs/bash/web guidance sections; the loop has no other prompt-composition path.
 - The `subagent_fork` schema description says the child inherits the conversation; the `subagent` one says it does not. The tool follows its provider: absent before the backend activates, present after, gone when the backend unloads, re-worded from the fresh provider on reload.
 - Unknown/valueless/malformed/unbalanced `{{…}}` references throw with the section name in the message; duplicate section, variable, and tool-name registrations all throw.
 - Snapshot goldens are prompt-independent by construction: llm-replay keys replay on (turn, step) chunk streams and never re-verifies the outgoing request.
