@@ -47,22 +47,16 @@ async function setup() {
 }
 
 /**
- * Build a fake {@link Agent} whose session token is `sessionId`, REGISTER it in
- * `ctx.agents` (the completion-notice path finds the owning agent by scanning
- * the registry for a matching `session.header.id`), and return it. The returned
+ * Build a fake {@link Agent} with the shared registry/session `sessionId`,
+ * REGISTER it in `ctx.agents`, and return it. The returned
  * agent is also passed to `execute` as `exec.agent` so it owns the spawned task.
  * The registration disposer is tracked so {@link unregisterFakeAgents} can drop
  * it (simulating the owning session disconnecting before a task completes).
  */
 const fakeAgentDisposers = new Map<Context, (() => Promise<void> | void)[]>()
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
-  // The registry KEY (agent.id) is deliberately DIFFERENT from the session
-  // token (session.header.id), which is also the agent's durable id. The
-  // owner token IS the session id, so the notice path must find the agent by
-  // `session.header.id`, NOT the registry key. Using distinct values here makes
-  // the test fail if a regression matched on the wrong field (a same-value fake
-  // would pass either way — the "hits the line but not the scenario" trap).
-  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  const id = SessionId(sessionId)
+  const agent = { id, inject, session: new Session(id) } as unknown as Agent
   const dispose = ctx.agents.register(agent)
   const list = fakeAgentDisposers.get(ctx) ?? []
   list.push(dispose)
@@ -418,9 +412,9 @@ describe('background tools', () => {
   it('injects a completion notice into the owning agent (found via the registry by session token)', async () => {
     const ctx = await setup()
     const inject = vi.fn()
-    // The notice path looks the agent up in ctx.agents by its session token, so
+    // The notice path looks the agent up in ctx.agents by its shared id, so
     // the agent must be REGISTERED (not merely passed to execute). Mount a
-    // registry and register a fake whose session.header.id IS the owner token.
+    // registry and register a fake whose agent/session id IS the owner token.
     const agent = registerFakeAgent(ctx, 'bg', inject)
 
     const started = await ctx.tools.execute({
@@ -517,13 +511,14 @@ describe('background task ownership (cross-session isolation)', () => {
   function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, name: string, args: unknown) {
     return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
   }
-  // Ownership is by TOKEN (session.header.id), NOT agent object identity — so
-  // each agent needs a DISTINCT session id, else every fake yields the same
+  // Ownership is by the shared agent/session TOKEN, NOT agent object identity —
+  // so each agent needs a DISTINCT id, else every fake yields the same
   // token and the isolation tests pass for the wrong reason (all tasks owned by
-  // the same token). The impl reads `session.header.id`, so the fakes MUST carry
-  // it.
-  const fakeAgent = (sessionId: string) =>
-    ({ inject: () => undefined, session: { header: { version: 0, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+  // the same token).
+  const fakeAgent = (sessionId: string) => {
+    const id = SessionId(sessionId)
+    return { id, inject: () => undefined, session: new Session(id) } as unknown as import('@deepseek-ai/dsh-agent').Agent
+  }
 
   it('rejects bash_output/bash_kill for a task owned by a DIFFERENT session token', async () => {
     const ctx = await setup()
@@ -548,7 +543,7 @@ describe('background task ownership (cross-session isolation)', () => {
   })
 
   it('a DIFFERENT Agent object with the SAME session token may access the task (ownership is by token, not object identity)', async () => {
-    // Ownership fences by session.header.id, NOT Agent object identity. Two
+    // Ownership fences by the shared id, NOT Agent object identity. Two
     // distinct Agent objects sharing one session token (e.g. an agent re-created
     // on the same session) are the SAME owner.
     const ctx = await setup()
@@ -638,8 +633,10 @@ describe('session-cwd routing (per-session workdir)', () => {
     return ctx.tools.execute({ callId: CallId(`cwd-${++callCounter}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
   }
   // An agent whose session header carries a cwd (what session/new records).
-  const agentInCwd = (cwd: string) =>
-    ({ inject: () => undefined, session: { header: { version: 0, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+  const agentInCwd = (cwd: string) => {
+    const id = SessionId('c')
+    return { id, inject: () => undefined, session: { header: { version: 0, id, createdAt: 0, cwd } } } as unknown as import('@deepseek-ai/dsh-agent').Agent
+  }
 
   it('defaults bash to the agent\'s session cwd (not the server launch dir)', async () => {
     const ctx = await setup()
@@ -1188,10 +1185,11 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
    * enforces the enclosure.
    */
   function escalationAgent(events: Array<{ type: string; data: Record<string, unknown> }>): Agent {
+    const id = SessionId('sess-esc')
     return {
-      id: 'agent-esc',
+      id,
       session: {
-        header: { version: 0, id: 'sess-esc', createdAt: 0 },
+        header: { version: 0, id, createdAt: 0 },
         events: [{ type: 'turn/start' }],
         append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
       },
@@ -1406,7 +1404,7 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const injected: string[] = []
     const agent = {
-      id,
+      id: SessionId(id),
       session,
       inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
     } as unknown as Agent

@@ -69,10 +69,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
       'register(agent: Agent): () => void',
-      'enter(agent: Agent): () => void',
+      'enter(agent: Agent, owner: Agent | undefined): () => void',
       'announce(agent: Agent): void',
       'get(id: SessionId): Agent | undefined',
       'list(): Agent[]',
+      'roots(): Agent[]',
     ],
   },
   {
