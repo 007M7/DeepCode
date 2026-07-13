@@ -84,8 +84,11 @@ export class HarnessSdkServer {
   private model = 'deepseek'
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
+  private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
   private readonly subagentSessions = new Map<string, SubagentRecord>()
   private readonly disposers: (() => void)[] = []
+  private shutdownTask: Promise<Record<string, never>> | undefined
+  private shuttingDown = false
 
   constructor(
     private readonly ctx: Context,
@@ -161,7 +164,7 @@ export class HarnessSdkServer {
    * @returns `{ accepted: true }` after the turn settled.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
-    const rec = this.getOrCreateSession(params.sessionId)
+    const rec = await this.getOrCreateSession(params.sessionId)
     rec.lastTurnEnd = undefined
     rec.handle.agent.send(params.contentBlocks)
     await rec.handle.agent.whenIdle()
@@ -181,7 +184,15 @@ export class HarnessSdkServer {
    * as part of process exit.
    * @returns an empty object (the JSON-RPC result).
    */
-  async shutdown(): Promise<Record<string, never>> {
+  shutdown(): Promise<Record<string, never>> {
+    this.shutdownTask ??= this.performShutdown()
+    return this.shutdownTask
+  }
+
+  private async performShutdown(): Promise<Record<string, never>> {
+    this.shuttingDown = true
+    const pendingCreations = [...this.sessionCreations.values()]
+    await Promise.allSettled(pendingCreations)
     const records = [...this.sessions.values()]
     this.sessions.clear()
     await Promise.all(records.map(rec => rec.handle.dispose()))
@@ -211,10 +222,23 @@ export class HarnessSdkServer {
     }
   }
 
-  private getOrCreateSession(sessionId: string): SessionRecord {
+  private async getOrCreateSession(sessionId: string): Promise<SessionRecord> {
+    if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const existing = this.sessions.get(sessionId)
     if (existing) return existing
-    const handle = this.ctx.agents.create({
+    const pending = this.sessionCreations.get(sessionId)
+    if (pending) return pending
+    const creation = this.createSession(sessionId)
+    this.sessionCreations.set(sessionId, creation)
+    void creation.then(
+      () => { this.sessionCreations.delete(sessionId) },
+      () => { this.sessionCreations.delete(sessionId) },
+    )
+    return creation
+  }
+
+  private async createSession(sessionId: string): Promise<SessionRecord> {
+    const handle = await this.ctx.agents.create({
       agentId: AgentId(sessionId),
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
