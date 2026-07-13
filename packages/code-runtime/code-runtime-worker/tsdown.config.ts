@@ -3,8 +3,10 @@ import { defineConfig } from 'tsdown'
 /**
  * Package-shape override (see the root tsdown.config.ts): besides the
  * default lib/index.js bundle, the worker BOOTSTRAP ships as its own
- * sibling entry — `new Worker(new URL('./worker.js', import.meta.url))`
- * loads it as a file, so it cannot be part of the index bundle. TWO
+ * sibling CommonJS entry — `new Worker(fileURLToPath(new URL('./worker.cjs', import.meta.url)))`
+ * loads it as a file, so it cannot be part of the index bundle. pkg's VFS
+ * Worker hook compiles string-path entries as CommonJS, so an ESM worker is
+ * not viable inside the executable. TWO
  * single-entry builds, not one two-entry build: a multi-entry build emits
  * the shared bootstrap module as a `lib/bootstrap-*.js` chunk both bundles
  * import, which the package.json `files` whitelist (deliberately exact)
@@ -25,7 +27,7 @@ export default defineConfig([
   {
     entry: ['lib/types/worker.js'],
     outDir: 'lib',
-    format: ['esm'],
+    format: ['cjs'],
     platform: 'node',
     target: 'es2024',
     fixedExtension: false,

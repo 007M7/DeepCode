@@ -61,6 +61,9 @@ function readJson(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
 
+const rootManifest = readJson(join(root, 'package.json'))
+const repositoryVersion = rootManifest.version
+
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
 function packageDirs(base: string, depth: number): string[] {
   if (depth === 1) {
@@ -78,7 +81,7 @@ function packageDirs(base: string, depth: number): string[] {
 
 function workspaceManifests(): WorkspaceManifest[] {
   const manifests: WorkspaceManifest[] = [
-    { dir: '.', manifest: readJson(join(root, 'package.json')) },
+    { dir: '.', manifest: rootManifest },
   ]
 
   for (const { dir: base, depth } of workspaceGlobs) {
@@ -107,7 +110,7 @@ const dshBinPackageFiles = [
 
 const dshWorkerPackageFiles = [
   'lib/index.js',
-  'lib/worker.js',
+  'lib/worker.cjs',
   'lib/types/**/*.d.ts',
   'lib/types/**/*.d.ts.map',
   'src',
@@ -147,8 +150,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (peer && dev && peer !== dev) {
       errors.push(`${label}: cordis peer (${peer}) and dev (${dev}) ranges must match`)
     }
-    if (manifest.version !== '0.0.1') {
-      errors.push(`${label}: package.json must set "version": "0.0.1"`)
+    if (manifest.version !== repositoryVersion) {
+      errors.push(`${label}: package.json version must match root version ${repositoryVersion ?? '(missing)'}`)
     }
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
@@ -205,7 +208,16 @@ function checkHierarchyShape(): string[] {
   return errors
 }
 
-const errors = [...workspaceManifests().flatMap(checkWorkspace), ...checkHierarchyShape()]
+function checkRepositoryVersion(): string[] {
+  if (repositoryVersion && /^\d+\.\d+\.\d+$/.test(repositoryVersion)) return []
+  return ['package.json: version must be stable X.Y.Z']
+}
+
+const errors = [
+  ...checkRepositoryVersion(),
+  ...workspaceManifests().flatMap(checkWorkspace),
+  ...checkHierarchyShape(),
+]
 if (errors.length > 0) {
   console.error(errors.join('\n'))
   process.exitCode = 1

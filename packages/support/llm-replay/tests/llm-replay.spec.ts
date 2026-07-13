@@ -54,6 +54,16 @@ function chunkEvent(seq: number, turn: number, step: number, chunk: StreamChunk)
 let dir: string
 let file: string
 
+/** Write a session log file and return its path. */
+function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
+  let seq = 1
+  const events: SessionEvent[] = []
+  calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
+  const path = join(dir, filename)
+  writeFileSync(path, sessionJsonl(events, header), 'utf8')
+  return path
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'llm-replay-spec-'))
   file = join(dir, 'session.jsonl')
@@ -391,16 +401,6 @@ describe('parseSessionHeader', () => {
 })
 
 describe('loadSessionScripts', () => {
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
-
   it('returns one primary script for a single-session scenario', () => {
     const f = writeSession('session.jsonl', { id: 'p', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts: SessionScript[] = loadSessionScripts({ file: f })
@@ -507,16 +507,6 @@ describe('installLlmReplay (per-session keying)', () => {
     { type: 'text-delta', index: 0, text: 'child' },
     { type: 'finish', reason: { kind: 'stop' } },
   ]
-
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
 
   const live = (id: string): GenerateOptions =>
     ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })

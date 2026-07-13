@@ -14,6 +14,7 @@
 
 import { Worker } from 'node:worker_threads'
 import { stripTypeScriptTypes } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
@@ -98,16 +99,19 @@ interface LiveRun {
 }
 
 /**
- * The worker entry module. Source runs unbuilt (`src/worker.ts`, loadable
+ * The worker entry path. Source runs unbuilt (`src/worker.ts`, loadable
  * directly on this repo's Node range via native type stripping — the file
  * is erasable-only with type-only relative imports); the built package
- * ships it as a sibling bundle (`lib/worker.js`, its own tsdown entry).
+ * ships it as a sibling CommonJS bundle (`lib/worker.cjs`, its own tsdown
+ * entry) because pkg's VFS Worker hook compiles string-path entries as
+ * CommonJS.
  * The URL *pathname*'s extension says which world this module is in —
  * pathname, because dev-time module runners (vitest) may suffix
- * `import.meta.url` with a query string; relative resolution drops it.
+ * `import.meta.url` with a query string; relative resolution drops it. Worker
+ * receives a filesystem string so pkg's VFS Worker hook can resolve it.
  */
-/* v8 ignore next -- the './worker.js' arm is the built-lib world, unreachable unbuilt by construction; the built-lib e2e pins it. */
-const WORKER_URL = new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? './worker.ts' : './worker.js', import.meta.url)
+/* v8 ignore next -- the './worker.cjs' arm is the built-lib world, unreachable unbuilt by construction; the built-lib e2e pins it. */
+const WORKER_PATH = fileURLToPath(new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? './worker.ts' : './worker.cjs', import.meta.url))
 
 /** Render an unknown thrown value as a message, `Error` or not. */
 function messageOf(error: unknown): string {
@@ -273,7 +277,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
       maxLogBytes: this.config.maxLogBytes,
       maxValueBytes: this.config.maxValueBytes,
     }
-    const worker = new Worker(WORKER_URL, {
+    const worker = new Worker(WORKER_PATH, {
       workerData: bootData,
       // Model code gets NO ambient environment — stronger than the scrubbed
       // env the defensive-patterns rule requires for spawned commands.
