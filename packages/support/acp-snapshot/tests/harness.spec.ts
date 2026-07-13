@@ -40,6 +40,13 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
 describe('runScenario', () => {
+  it('surfaces an asynchronous child spawn failure through startup and close', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: join(dir, 'missing') })
+    await expect(launched.spawned).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(launched.close()).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
     const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
     const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
@@ -72,7 +79,11 @@ describe('runScenario', () => {
     // The minimal shape needs no environment or config override.
     const minimal = launchAcpTestAgent({ agent: AGENT, cwd: dir })
     await minimal.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    await minimal.close()
+    const childFailure = new Error('child process failed')
+    const exited = new Promise<void>(resolve => minimal.child.once('exit', () => { resolve() }))
+    minimal.child.emit('error', childFailure)
+    await expect(minimal.close('SIGKILL')).rejects.toBe(childFailure)
+    await exited
   })
 
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
