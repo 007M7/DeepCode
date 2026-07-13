@@ -149,6 +149,24 @@ describe('agent scope lifecycle', () => {
     await ctx.agents.get(SessionId('a1'))?.whenIdle()
   })
 
+  it('records agents created through an agent context as non-root runtime children', async () => {
+    const ctx = await harness()
+    const root = await ctx.agents.create({
+      sessionId: SessionId('runtime-root'),
+      agentOptions: { model: 'mock' },
+    })
+    const child = await root.agent.ctx.agents.create({
+      sessionId: SessionId('runtime-child'),
+      agentOptions: { model: 'mock' },
+    })
+
+    expect(ctx.agents.list()).toEqual([root.agent, child.agent])
+    expect(ctx.agents.roots()).toEqual([root.agent])
+
+    await child.dispose()
+    await root.dispose()
+  })
+
   it('scoped registrations live in the agent world and die with the agent', async () => {
     const ctx = await harness()
     const handle = await ctx.agents.create({ sessionId: SessionId('s1'), agentOptions: { model: 'mock' } })

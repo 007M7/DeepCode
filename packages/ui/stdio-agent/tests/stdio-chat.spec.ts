@@ -154,8 +154,7 @@ describe('createStdioChat rendering', () => {
   it('renders turn/start and turn/end markers from the session feed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    // agent/created supplies the app-owned target object.
-    ctx.emit('agent/created', agent)
+    ctx.agents.register(agent)
     const session = agent.session
     ctx.emit('session/event', session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 3, trigger: { kind: 'message' } },
@@ -203,7 +202,7 @@ describe('createStdioChat rendering', () => {
     const { ctx, input } = await setup()
     const resumed = makeAgent('resumed')
     ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
-    ctx.emit('agent/created', resumed)
+    ctx.agents.register(resumed)
 
     input.feed('continue')
     await new Promise(resolve => setImmediate(resolve))
@@ -224,8 +223,8 @@ describe('createStdioChat rendering', () => {
   it('drops the target object on agent/disposed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    ctx.emit('agent/created', agent)
-    ctx.emit('agent/disposed', agent)
+    const dispose = ctx.agents.register(agent)
+    dispose()
     // After disposal the event belongs to a non-target session, so its durable
     // identity is rendered directly.
     ctx.emit('session/event', agent.session, {
@@ -237,7 +236,7 @@ describe('createStdioChat rendering', () => {
   it('keeps the target when a different agent is disposed', async () => {
     const { ctx, out } = await setup()
     const target = makeAgent('target')
-    ctx.emit('agent/created', target)
+    ctx.agents.register(target)
     ctx.emit('agent/disposed', makeAgent('other'))
     ctx.emit('session/event', target.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
@@ -251,19 +250,27 @@ describe('createStdioChat rendering', () => {
     const child = makeAgent('child')
     ;(child.session.header as { parentSession?: string }).parentSession = oldRoot.id
     const replacement = makeAgent('replacement')
+    const lateChild = makeAgent('late-child')
     const disposeOld = ctx.agents.register(oldRoot)
-    ctx.agents.register(child)
+    const disposeChild = ctx.agents.enter(child, oldRoot)
+    ctx.agents.announce(child)
     ctx.agents.register(replacement)
+    const disposeLateChild = ctx.agents.enter(lateChild, replacement)
+    ctx.agents.announce(lateChild)
 
     // The replacement's created edge arrived while oldRoot was still targeted.
-    // Once oldRoot is removed, registry order is child then replacement; the
-    // most recently published survivor is the HMR replacement.
+    // A replacement-owned child then arrived even later. Once oldRoot is
+    // removed, runtime ownership still identifies replacement as the only
+    // surviving root instead of selecting either newer child by insertion order.
     disposeOld()
     input.feed('after hmr')
     await new Promise(resolve => setImmediate(resolve))
 
     expect(child.sent).toEqual([])
+    expect(lateChild.sent).toEqual([])
     expect(replacement.sent).toEqual([[{ type: 'text', text: 'after hmr' }]])
+    disposeLateChild()
+    disposeChild()
   })
 
   it('renders tool/call and tool/result session events', async () => {
