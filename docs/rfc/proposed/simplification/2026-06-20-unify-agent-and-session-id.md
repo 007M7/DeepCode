@@ -10,7 +10,7 @@ ACP already uses the same value for both identities. Where they diverge, stdio k
 
 The [agent-scope runtime](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md) has no reservation side tables: create and resume use one `AgentCreationTransaction`, and agent/session entries use the same final-entry collision rule. Separate ids therefore do not duplicate asynchronous liveness, rollback, or quiescence machinery. Identity unification is only an API and representation simplification: it deletes one caller-supplied id, one UUID per in-process child, and the remaining translation paths without changing the transaction lifecycle.
 
-Session itself repeats the same fact as `Session.id` and `Session.header.id`. Valid store paths construct them equal, but the constructor does not enforce equality and production consumers choose between the two. The duplicate creates an impossible-but-representable mismatch inside the object that owns session identity.
+Session itself repeats the same fact as `Session.id` and `Session.header.id`. Construction rejects a header whose id differs, so the aliases are constrained equal; the durable boundary must nevertheless validate the duplicate, and production consumers choose between its two homes.
 
 ## Proposal
 
