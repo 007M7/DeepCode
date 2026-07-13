@@ -32,15 +32,16 @@ setFactory(factory: AgentFactory): () => void
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
-enter(agent: Agent): () => void
+enter(agent: Agent, owner: Agent | undefined): () => void
 announce(agent: Agent): void
 get(id: SessionId): Agent | undefined
 list(): Agent[]
+roots(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:199`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:201`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 

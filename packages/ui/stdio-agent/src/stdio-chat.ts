@@ -95,18 +95,16 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const welcome = config.welcome ?? 'ready.'
   const { input, output, exit } = runtime
 
-  // This app owns one configured agent. Hold the live object directly: its
-  // per-run id is intentionally fresh, while `main` remains only the
-  // terminal's fixed display label. At install the configured agent is the
-  // earliest registry entry (it creates any subagents later). During HMR the
-  // replacement is published after the old tree, so when old teardown finally
-  // emits disposed, the newest survivor is the replacement. Persisted
-  // parentSession lineage is deliberately irrelevant: a resumed child session
-  // can itself be this process's configured top-level agent.
-  let target: Agent | undefined = ctx.agents.list()[0]
-  ctx.on('agent/created', (agent) => { target ??= agent })
+  // This app owns one configured top-level agent. Hold the live object
+  // directly: its per-run id is intentionally fresh, while `main` remains only
+  // the terminal's fixed display label. Runtime creator ownership distinguishes
+  // that root from its subagents even if a child is registered after an HMR
+  // replacement. Persisted parentSession lineage is deliberately irrelevant:
+  // a resumed child session can itself be this process's configured root.
+  let target: Agent | undefined = ctx.agents.roots()[0]
+  ctx.on('agent/created', () => { target ??= ctx.agents.roots()[0] })
   ctx.on('agent/disposed', (agent) => {
-    if (target === agent) target = ctx.agents.list().at(-1)
+    if (target === agent) target = ctx.agents.roots().at(-1)
   })
 
   // Transcript rendering off the durable `session/event` feed — the assistant
