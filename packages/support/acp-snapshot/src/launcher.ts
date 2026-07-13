@@ -114,18 +114,26 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
 
   const rawBuffers: Buffer[] = []
   const passthrough = new Readable({ read() {} })
-  child.stdout.on('data', (buffer: Buffer) => {
-    rawBuffers.push(buffer)
-    passthrough.push(buffer)
-  })
-  child.stdout.on('end', () => passthrough.push(null))
-
   const updates: SessionNotification['update'][] = []
   const updateWaiters: {
     match: (update: SessionNotification['update']) => boolean
     resolve: (update: SessionNotification['update']) => void
     reject: (reason: unknown) => void
   }[] = []
+  let updateStreamFailure: Error | undefined
+  const closeUpdateStream = (): void => {
+    if (updateStreamFailure !== undefined) return
+    updateStreamFailure = new Error('ACP test agent update stream closed before a matching session update arrived')
+    for (const waiter of updateWaiters.splice(0)) waiter.reject(updateStreamFailure)
+  }
+  child.stdout.on('data', (buffer: Buffer) => {
+    rawBuffers.push(buffer)
+    passthrough.push(buffer)
+  })
+  child.stdout.on('end', () => {
+    passthrough.push(null)
+    closeUpdateStream()
+  })
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
@@ -163,10 +171,21 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     updates,
     rawStdout: () => Buffer.concat(rawBuffers).toString('utf8'),
     stderr: () => stderrChunks.join(''),
-    waitForUpdate: match => new Promise((resolve, reject) => updateWaiters.push({ match, resolve, reject })),
+    waitForUpdate(match): Promise<SessionNotification['update']> {
+      if (updateStreamFailure !== undefined) return Promise.reject(updateStreamFailure)
+      return new Promise((resolve, reject) => updateWaiters.push({ match, resolve, reject }))
+    },
     async close(signal?: NodeJS.Signals): Promise<void> {
-      await spawned
-      if (!isRunning(child)) return
+      try {
+        await spawned
+      } catch (error: unknown) {
+        closeUpdateStream()
+        throw error
+      }
+      if (!isRunning(child)) {
+        closeUpdateStream()
+        return
+      }
       const exited = waitForExit(child)
       if (signal === undefined) child.stdin.end()
       else child.kill(signal)
@@ -174,7 +193,10 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         exited.then((): undefined => undefined),
         childFailure,
       ])
-      if (failure === undefined) return
+      if (failure === undefined) {
+        closeUpdateStream()
+        return
+      }
 
       // An `error` after spawn is not an exit edge: in particular, a failed
       // signal can leave the subprocess live. Force termination, await the
@@ -182,6 +204,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       // callers may safely remove cwd/session resources after close rejects.
       child.kill('SIGKILL')
       await exited
+      closeUpdateStream()
       throw failure
     },
   }
