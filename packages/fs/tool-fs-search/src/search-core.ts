@@ -10,7 +10,7 @@
  * detail: the tools request a per-run stdout capture budget from the bash seam,
  * parse only complete in-memory stdout within `rawOutputMaxBytes`, and never
  * read executor spill files. The model-facing recovery artifact is the
- * formatted result saved through `ctx.spillFiles.saveText()`
+ * formatted result saved through `ctx.spillStore.saveText()`
  * ({@link trySaveFormattedResult}).
  *
  * @module @deepseek-ai/dsh-tool-fs-search/search-core
@@ -20,7 +20,7 @@ import { isAbsolute, relative, sep } from 'node:path'
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
-import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
+import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 /**
@@ -214,8 +214,8 @@ export function toWorkdirRelative(path: string, workdir: string): string {
 
 /**
  * Best-effort save of one COMPLETE formatted search result through
- * `ctx.spillFiles.saveText()` — the model-facing recovery path for a capped
- * result. `spillFiles` is read with `ctx.get()` (not static inject) because
+ * `ctx.spillStore.saveText()` — the model-facing recovery path for a capped
+ * result. `spillStore` is read with `ctx.get()` (not static inject) because
  * formatted-result spill is optional; the spill owner is the calling agent's
  * session header id and the source is the tool execution identity. A missing
  * backend, a call with no session owner, or a `saveText()` rejection logs a
@@ -223,26 +223,26 @@ export function toWorkdirRelative(path: string, workdir: string): string {
  * reports that the complete result could not be saved; search success never
  * turns into `isError` because spill storage is unavailable.
  *
- * @param ctx - the plugin context; `spillFiles` is looked up opportunistically.
+ * @param ctx - the plugin context; `spillStore` is looked up opportunistically.
  * @param exec - the tool-execution context; supplies the owning session, tool name, and call id.
  * @param suggestedName - the backend-sanitized filename hint (e.g. `grep-results.txt`).
  * @param content - the complete formatted result to persist.
- * @returns the saved spill path, or `undefined` when the result could not be saved.
+ * @returns the saved spill reference, or `undefined` when the result could not be saved.
  */
 export async function trySaveFormattedResult(
   ctx: Context,
   exec: ToolExecution,
   suggestedName: string,
   content: string,
-): Promise<string | undefined> {
+): Promise<SpillRef | undefined> {
   const sessionId = exec.agent?.session.header.id
   if (sessionId === undefined) {
     ctx.logger.warn(`tool-fs-search: no session owner for ${exec.name} result; complete result not saved`)
     return undefined
   }
-  const spillFiles = ctx.get('spillFiles')
-  if (!spillFiles) {
-    ctx.logger.warn(`tool-fs-search: no ctx.spillFiles backend loaded; complete ${exec.name} result not saved`)
+  const spillStore = ctx.get('spillStore')
+  if (!spillStore) {
+    ctx.logger.warn(`tool-fs-search: no ctx.spillStore backend loaded; complete ${exec.name} result not saved`)
     return undefined
   }
   const save: SaveTextSpill = {
@@ -252,8 +252,7 @@ export async function trySaveFormattedResult(
     content,
   }
   try {
-    const { path } = await spillFiles.saveText(save)
-    return path
+    return await spillStore.saveText(save)
   } catch (error: unknown) {
     // Best-effort: a storage failure must never fail the search or hide the
     // inline result — the footer reports the unsaved remainder instead.

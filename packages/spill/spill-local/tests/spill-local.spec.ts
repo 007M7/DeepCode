@@ -1,9 +1,9 @@
 /**
  * Tests for the LOCAL spill backend: `saveText` writes a session-scoped file and
- * returns its path + byte length, filename sanitization neutralizes traversal,
- * the configured `root` is honored (and the private default when omitted), and a
- * storage failure rejects. The Cordis-free `store.ts` helpers are exercised
- * directly for the naming/encoding edge cases.
+ * returns a locator + byte length + retrieval hint, filename sanitization
+ * neutralizes traversal, the configured `root` is honored (and the private
+ * default when omitted), and a storage failure rejects. The Cordis-free
+ * `store.ts` helpers are exercised directly for the naming/encoding edge cases.
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
@@ -14,7 +14,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
-import LocalSpillFiles, { encodeSegment, privateRoot, saveTextFile, sessionDir } from '@deepseek-ai/dsh-spill-local'
+import LocalSpillStore, { encodeSegment, privateRoot, saveTextFile, sessionDir } from '@deepseek-ai/dsh-spill-local'
 
 let root: string
 
@@ -106,33 +106,34 @@ describe('privateRoot', () => {
   })
 })
 
-describe('LocalSpillFiles service', () => {
-  it('registers as ctx.spillFiles and saves under the configured root', async () => {
+describe('LocalSpillStore service', () => {
+  it('registers as ctx.spillStore and saves under the configured root', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSpillFiles, { root })
-    const ref = await ctx.spillFiles.saveText(request())
-    expect(dirname(ref.path)).toBe(sessionDir(root, 'sess-1'))
-    expect(readFileSync(ref.path, 'utf8')).toBe('the full body')
+    await ctx.plugin(LocalSpillStore, { root })
+    const ref = await ctx.spillStore.saveText(request())
+    expect(dirname(ref.locator)).toBe(sessionDir(root, 'sess-1'))
+    expect(readFileSync(ref.locator, 'utf8')).toBe('the full body')
     expect(ref.bytes).toBe(Buffer.byteLength('the full body', 'utf8'))
+    expect(ref.retrievalHint).toBe('Use read with offset/limit, or grep this path to search within it.')
   })
 
   it('resolves a relative configured root to absolute', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSpillFiles, { root: '.' })
-    expect(isAbsolute((ctx.spillFiles as LocalSpillFiles).root)).toBe(true)
+    await ctx.plugin(LocalSpillStore, { root: '.' })
+    expect(isAbsolute((ctx.spillStore as LocalSpillStore).root)).toBe(true)
   })
 
   it('falls back to the private root when none is configured', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSpillFiles, {})
-    expect((ctx.spillFiles as LocalSpillFiles).root).toBe(privateRoot())
+    await ctx.plugin(LocalSpillStore, {})
+    expect((ctx.spillStore as LocalSpillStore).root).toBe(privateRoot())
   })
 
   it('rejects when the root is not writable (missing parent, exclusive open)', async () => {
     const ctx = new Context()
     // A file (not a dir) as the root makes mkdir under it fail — a real storage error.
     const filePath = (await saveTextFile({ root, sessionId: 's', suggestedName: 'f', content: 'x' })).path
-    await ctx.plugin(LocalSpillFiles, { root: filePath })
-    await expect(ctx.spillFiles.saveText(request())).rejects.toThrow()
+    await ctx.plugin(LocalSpillStore, { root: filePath })
+    await expect(ctx.spillStore.saveText(request())).rejects.toThrow()
   })
 })

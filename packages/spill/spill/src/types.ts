@@ -11,22 +11,20 @@ import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
- * A local filesystem path produced by the spill seam, intended for the model's
- * `read` tool. The brand records that the path came from {@link SpillFiles.saveText}
- * (a runtime artifact, not a workspace file); it is still rendered to the model
- * as an ordinary path string in v1. A future remote/virtual backend may replace
- * this with a `spill://…` URI, so consumers treat it as opaque.
+ * Opaque model-facing handle for one spilled artifact. A local backend may use a
+ * filesystem path; a remote or database backend may use a URI or key. Consumers
+ * render it with {@link SpillRef.retrievalHint}, but do not parse it.
  */
-export type SpillPath = Branded<'SpillPath'>
+export type SpillLocator = Branded<'SpillLocator'>
 
 /**
- * Brand a string as a {@link SpillPath}.
+ * Brand a string as a {@link SpillLocator}.
  *
- * @param path The backend-produced path string to brand.
- * @returns The branded spill path.
+ * @param locator The backend-produced locator string to brand.
+ * @returns The branded spill locator.
  */
-export function SpillPath(path: string): SpillPath {
-  return path as SpillPath
+export function SpillLocator(locator: string): SpillLocator {
+  return locator as SpillLocator
 }
 
 /**
@@ -53,7 +51,7 @@ export interface SpillSource {
   label: string
 }
 
-/** One request to persist text to a spill file. */
+/** One request to persist text to a spill artifact. */
 export interface SaveTextSpill {
   owner: SpillOwner
   source: SpillSource
@@ -66,8 +64,9 @@ export interface SaveTextSpill {
   content: string
 }
 
-/** A saved spill file: its path plus the byte length written. */
+/** A saved spill artifact: its locator, byte length, and backend-specific retrieval guidance. */
 export interface SpillRef {
-  path: SpillPath
+  locator: SpillLocator
   bytes: number
+  retrievalHint: string
 }

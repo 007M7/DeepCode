@@ -236,13 +236,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
   },
   {
-    key: 'spillFiles',
+    key: 'spillStore',
     pkg: 'spill',
     title: 'Spill storage seam',
     mode: 'seam',
     implementations: ['spill-local'],
     consumers: ['spill-policy'],
-    note: 'The backend saves oversized tool text to a session-scoped path; spill-policy is the tools/post-execute consumer that decides when to spill.',
+    note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
   {
     key: 'workflows',

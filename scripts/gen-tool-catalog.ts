@@ -193,13 +193,13 @@ const TOOL_PACKAGES: ToolPackage[] = [
     async mount(ctx) {
       // The tools inject `bash` (search executes fixed `rg` commands through
       // the executor seam, not ctx.fs); boot the local executor to satisfy it.
-      // `ctx.spillFiles` is optional (read via ctx.get) and does not affect the
+      // `ctx.spillStore` is optional (read via ctx.get) and does not affect the
       // schemas, so no spill backend is mounted.
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolFsSearch)
     },
     note:
-      'glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillFiles backend; returned paths are follow-up-readable in co-located bash/filesystem deployments.',
+      'glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',

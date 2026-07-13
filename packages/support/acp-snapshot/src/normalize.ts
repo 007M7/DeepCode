@@ -61,8 +61,8 @@ function scrubString(value: string, ctx: NormalizeContext): string {
   // residual UUID (covers ids that appear in places we didn't enumerate).
   out = out.split(ctx.cwd).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
-  out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillPath:${name}}}`)
-  out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillPath:${name}}}`)
+  out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out

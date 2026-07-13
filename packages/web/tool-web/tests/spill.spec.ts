@@ -1,10 +1,10 @@
 /**
  * Showcase integration: the real `web_fetch` tool + the real spill stack
  * (`dsh-spill-local` backend + `dsh-spill-policy`), exercised through
- * `ctx.tools.execute()`. Proves the RFC's default path — a large formatted fetch
- * result is automatically retained and spilled with NO tool-specific spill code,
- * and the model-facing text changes ONLY by the deliberate spill notice (the
- * full formatted result lands in the spill file).
+ * `ctx.tools.execute()`. Proves the RFC's default local-backend path — a large
+ * formatted fetch result is automatically retained and spilled with NO
+ * tool-specific spill code, and the model-facing text changes ONLY by the
+ * deliberate spill notice (the full formatted result lands in the spill file).
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,7 +21,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
-import LocalSpillFiles from '@deepseek-ai/dsh-spill-local'
+import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 
@@ -50,7 +50,7 @@ beforeEach(async () => {
   // Provider cap generous so the tool returns a large formatted result; the
   // policy cap is what triggers the spill (the RFC's separation of concerns).
   await ctx.plugin(WebFetchLocal, { maxBodyChars: 500_000 })
-  await ctx.plugin(LocalSpillFiles, { root: spillRoot })
+  await ctx.plugin(LocalSpillStore, { root: spillRoot })
   await ctx.plugin(SpillPolicy, { maxInlineBytes: MAX_INLINE_BYTES })
   await ctx.plugin(ToolWeb)
 })
@@ -68,7 +68,7 @@ function fetchCall(): Promise<{ isError: boolean; content: { type: string; text?
 }
 
 describe('web_fetch spill showcase', () => {
-  it('spills a large formatted result and returns a preview + spill path', async () => {
+  it('spills a large formatted result and returns a preview + spill locator', async () => {
     const out = await fetchCall()
     expect(out.isError).toBe(false)
     const text = out.content.map(b => b.text).join('')
@@ -77,11 +77,11 @@ describe('web_fetch spill showcase', () => {
     expect(text.length).toBeLessThan(BODY.length)
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(MAX_INLINE_BYTES)
     expect(text).toContain(`Fetched ${base}`) // the head of the formatted result survives
-    expect(text).toContain('Full formatted result saved to:')
-    expect(text).toContain('Use read with offset/limit')
+    expect(text).toContain('Full formatted result stored at:')
+    expect(text).toContain('Use read with offset/limit, or grep this path')
 
     // The spill file holds the FULL formatted result the tool returned.
-    const match = /saved to: (\S+?)\. Use read/.exec(text)
+    const match = /stored at: (\S+?)\. Use read/.exec(text)
     expect(match).not.toBeNull()
     const spillPath = match![1]!
     const saved = readFileSync(spillPath, 'utf8')

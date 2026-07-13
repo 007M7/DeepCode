@@ -98,12 +98,12 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: `Full formatted result saved to: ${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit to inspect it.`,
+          text: `Full formatted result stored at: ${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
         }],
       },
     })
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
-    expect(out).toContain('{{spillPath:bash.txt}}')
+    expect(out).toContain('{{spillLocator:bash.txt}}')
     expect(out).not.toContain('session-c22bc3f1d2af')
     expect(out).not.toContain('8a7b6c5d4e3f')
   })
@@ -114,13 +114,13 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: `Full formatted result saved to: /private${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit to inspect it.`,
+          text: `Full formatted result stored at: /private${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
         }],
       },
     })
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
-    expect(out).toContain('{{spillPath:bash.txt}}')
-    expect(out).not.toContain('/private{{spillPath')
+    expect(out).toContain('{{spillLocator:bash.txt}}')
+    expect(out).not.toContain('/private{{spillLocator')
   })
 
   it('scrubs fixed snapshot spill paths', () => {
@@ -129,12 +129,12 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: 'Full formatted result saved to: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit to inspect it.',
+          text: 'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
         }],
       },
     })
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
-    expect(out).toContain('{{spillPath:bash.txt}}')
+    expect(out).toContain('{{spillLocator:bash.txt}}')
     expect(out).not.toContain('/tmp/dsh-acp-snapshot-spill')
   })
 

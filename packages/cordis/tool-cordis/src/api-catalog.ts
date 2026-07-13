@@ -173,7 +173,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'spillFiles',
+    key: 'spillStore',
     summary: 'Abstract spill storage service.',
     methods: [
       'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
@@ -819,16 +819,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillSummary {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    disableModelInvocation?: boolean;\n    source: SkillSource;\n    provider: string;\n    resourceBase?: SkillResourceBase;\n}',
   },
   {
+    name: 'SpillLocator',
+    declaration: 'export type SpillLocator = Branded<\'SpillLocator\'>;',
+  },
+  {
     name: 'SpillOwner',
     declaration: 'export interface SpillOwner {\n    sessionId: SessionId;\n}',
   },
   {
-    name: 'SpillPath',
-    declaration: 'export type SpillPath = Branded<\'SpillPath\'>;',
-  },
-  {
     name: 'SpillRef',
-    declaration: 'export interface SpillRef {\n    path: SpillPath;\n    bytes: number;\n}',
+    declaration: 'export interface SpillRef {\n    locator: SpillLocator;\n    bytes: number;\n    retrievalHint: string;\n}',
   },
   {
     name: 'SpillSource',

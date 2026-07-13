@@ -135,7 +135,7 @@
 
 # Bash-backed discovery tools (glob/grep): fixed ripgrep commands through the
 # local bash executor above — not ctx.fs. Capped results save the complete
-# formatted list through the spill backend below (ctx.spillFiles, optional).
+# formatted list through the spill backend below (ctx.spillStore, optional).
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
 
@@ -148,9 +148,9 @@
 
 # Tool-output spill stack: a local backend that saves oversized tool text under
 # a private session-scoped dir, and the tools/post-execute policy that replaces
-# an over-budget plain-text result with a preview + the spill path (the model
-# reads the full result later). A leaf pair after the app (needs ctx.tools). The
-# policy is a no-op until a tool returns more than maxInlineBytes of plain text.
+# an over-budget plain-text result with a preview + the spill locator/retrieval
+# hint. A leaf pair after the app (needs ctx.tools). The policy is a no-op until
+# a tool returns more than maxInlineBytes of plain text.
 - id: spill-local
   name: '@deepseek-ai/dsh-spill-local'
 

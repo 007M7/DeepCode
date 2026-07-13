@@ -1,6 +1,6 @@
 /**
  * Tests for the spill seam INTERFACE: a minimal concrete subclass registers as
- * `ctx.spillFiles`, a second load throws (duplicate service), and disposal
+ * `ctx.spillStore`, a second load throws (duplicate service), and disposal
  * releases the service. The storage behavior is the implementation's concern
  * (`@deepseek-ai/dsh-spill-local`); here we only pin the seam contract.
  */
@@ -9,16 +9,20 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { SpillFiles, SpillPath } from '@deepseek-ai/dsh-spill'
+import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 
 /** Minimal concrete backend: records the last request, returns a fixed ref. */
-class StubSpill extends SpillFiles {
+class StubStore extends SpillStore {
   last: SaveTextSpill | undefined
 
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     this.last = input
-    return { path: SpillPath(`/stub/${input.suggestedName}`), bytes: Buffer.byteLength(input.content, 'utf8') }
+    return {
+      locator: SpillLocator(`/stub/${input.suggestedName}`),
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      retrievalHint: 'Use the stub reader.',
+    }
   }
 }
 
@@ -32,25 +36,25 @@ function request(content: string): SaveTextSpill {
 }
 
 describe('spill seam', () => {
-  it('registers as ctx.spillFiles and saves text', async () => {
+  it('registers as ctx.spillStore and saves text', async () => {
     const ctx = new Context()
-    await ctx.plugin(StubSpill)
-    const ref = await ctx.spillFiles.saveText(request('hello'))
-    expect(ref).toEqual({ path: '/stub/web_fetch.txt', bytes: 5 })
-    expect((ctx.spillFiles as StubSpill).last?.content).toBe('hello')
+    await ctx.plugin(StubStore)
+    const ref = await ctx.spillStore.saveText(request('hello'))
+    expect(ref).toEqual({ locator: '/stub/web_fetch.txt', bytes: 5, retrievalHint: 'Use the stub reader.' })
+    expect((ctx.spillStore as StubStore).last?.content).toBe('hello')
   })
 
   it('rejects a second implementation (one per context)', async () => {
     const ctx = new Context()
-    await ctx.plugin(StubSpill)
-    await expect(ctx.plugin(StubSpill)).rejects.toThrow()
+    await ctx.plugin(StubStore)
+    await expect(ctx.plugin(StubStore)).rejects.toThrow()
   })
 
   it('releases the service on disposal', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(StubSpill)
-    expect(ctx.spillFiles).toBeInstanceOf(StubSpill)
+    const fiber = await ctx.plugin(StubStore)
+    expect(ctx.spillStore).toBeInstanceOf(StubStore)
     await fiber.dispose()
-    expect((ctx as Context & { spillFiles?: unknown }).spillFiles).toBeUndefined()
+    expect((ctx as Context & { spillStore?: unknown }).spillStore).toBeUndefined()
   })
 })

@@ -15,6 +15,7 @@ import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
+import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
@@ -100,18 +101,18 @@ export function buildGlobCommand(input: GlobInput): string {
 /**
  * Format the model-facing `glob` result: the retained paths, then — when the
  * result was capped — a footer carrying either the formatted-spill recovery
- * path or the could-not-save explanation. The omitted count is a budget fact:
+ * locator or the could-not-save explanation. The omitted count is a budget fact:
  * the search itself completed.
  *
  * @param retained - the retention outcome over every discovered path.
- * @param spillPath - the saved complete-result path, or `undefined` when unsaved.
+ * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
  * @returns the model-facing text.
  */
-export function formatGlobOutput(retained: RetainedItems<string>, spillPath: string | undefined): string {
+export function formatGlobOutput(retained: RetainedItems<string>, spillRef: SpillRef | undefined): string {
   const body = retained.items.join('\n')
   if (!retained.truncated) return body
-  const recovery = spillPath !== undefined
-    ? `Full sorted result saved to: ${spillPath}. Use read with offset/limit to inspect it.`
+  const recovery = spillRef !== undefined
+    ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
     : 'The complete result could not be saved; narrow pattern or path to see more.'
   return `${body}\n\n(Showing ${retained.kept} of ${retained.seen} paths. ${recovery})`
 }
@@ -168,10 +169,10 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
 
       // The complete sorted list is the recovery artifact; save it only when
       // the inline page omitted paths (an uncapped result needs no spill file).
-      const spillPath = retained.truncated
+      const spillRef = retained.truncated
         ? await trySaveFormattedResult(ctx, exec, 'glob-results.txt', all.join('\n'))
         : undefined
-      return [{ type: 'text', text: formatGlobOutput(retained, spillPath) }]
+      return [{ type: 'text', text: formatGlobOutput(retained, spillRef) }]
     },
     presentCall: presentGlobCall,
   }))

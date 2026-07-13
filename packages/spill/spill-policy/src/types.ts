@@ -1,6 +1,6 @@
 /**
  * Vocabulary for the spill-policy plugin: the minimal structural view of a tool
- * execution the policy needs to derive the owning session for a spill file.
+ * execution the policy needs to derive the owning session for a spill artifact.
  *
  * `@deepseek-ai/dsh-tools`' `ToolExecution` satisfies this shape, so the policy
  * reads `exec` straight through without importing `dsh-tools` or `dsh-agent`.

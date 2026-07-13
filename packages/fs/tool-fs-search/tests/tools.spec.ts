@@ -17,7 +17,7 @@ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
-import { SpillFiles, SpillPath } from '@deepseek-ai/dsh-spill'
+import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import {
@@ -95,14 +95,18 @@ class FakeBash extends BashExecutor {
 }
 
 /** A recording spill backend; arm `failWith` to script a storage failure. */
-class FakeSpill extends SpillFiles {
+class FakeSpill extends SpillStore {
   saves: SaveTextSpill[] = []
   failWith?: Error
 
   override saveText(input: SaveTextSpill): Promise<SpillRef> {
     if (this.failWith) return Promise.reject(this.failWith)
     this.saves.push(input)
-    return Promise.resolve({ path: SpillPath(`/spill/${input.suggestedName}`), bytes: Buffer.byteLength(input.content, 'utf8') })
+    return Promise.resolve({
+      locator: SpillLocator(`/spill/${input.suggestedName}`),
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      retrievalHint: 'Use the fake retrieval hint.',
+    })
   }
 }
 
@@ -119,7 +123,7 @@ async function setup(options: SetupOptions = {}) {
   if (options.spill === true) await ctx.plugin(FakeSpill)
   const fiber = await ctx.plugin(ToolFsSearch, options.config)
   const bash = ctx.bash as FakeBash
-  const spill = options.spill === true ? ctx.get('spillFiles') as FakeSpill : undefined
+  const spill = options.spill === true ? ctx.get('spillStore') as FakeSpill : undefined
   return { ctx, bash, spill, fiber }
 }
 
@@ -445,12 +449,12 @@ describe('glob results', () => {
     expect(bash.specs[0]?.command).toContain("-- 'sub'")
   })
 
-  it('caps at globMaxResults and saves the FULL sorted list through spillFiles', async () => {
+  it('caps at globMaxResults and saves the FULL sorted list through spillStore', async () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result saved to: /spill/glob-results.txt. Use read with offset/limit to inspect it.)')
+    expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves).toHaveLength(1)
     expect(spill?.saves[0]).toMatchObject({
       owner: { sessionId: 'session-1' },
@@ -543,7 +547,7 @@ describe('grep results', () => {
       '',
     ].join('\n'))
     const result = await call(ctx, 'grep', { pattern: 'e' }, { agent: agent('/w') })
-    expect(text(result)).toBe('Found 2 of 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\n(Full grep result saved to: /spill/grep-results.txt. Use read with offset/limit to inspect it.)')
+    expect(text(result)).toBe('Found 2 of 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\n(Full grep result stored at: /spill/grep-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves[0]).toMatchObject({
       source: { toolName: 'grep', label: 'result' },
       suggestedName: 'grep-results.txt',

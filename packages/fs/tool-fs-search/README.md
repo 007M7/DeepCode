@@ -1,13 +1,13 @@
 # @deepseek-ai/dsh-tool-fs-search
 
-The **model-facing filesystem discovery tools** — `glob`, `grep` — backed by the **bash executor seam**, not by `ctx.fs` provider methods. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a bounded, workdir-relative result. The package injects `tools`, `systemPrompt`, and `bash` — deliberately **not** `fs`; `ctx.spillFiles` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
+The **model-facing filesystem discovery tools** — `glob`, `grep` — backed by the **bash executor seam**, not by `ctx.fs` provider methods. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a bounded, workdir-relative result. The package injects `tools`, `systemPrompt`, and `bash` — deliberately **not** `fs`; `ctx.spillStore` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
 
 ```ts ignore-check
 // Default deployment: a bash executor, then the discovery tools.
 await ctx.plugin(LocalBashExecutor, { cwd: process.cwd() }) // @deepseek-ai/dsh-bash-local
 await ctx.plugin(ToolFsSearch)                              // this package — registers glob/grep
 // Optional: a spill backend makes capped results fully recoverable.
-await ctx.plugin(LocalSpillFiles)                           // @deepseek-ai/dsh-spill-local
+await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-spill-local
 ```
 
 Why bash-backed: local workspace discovery is naturally a process-backed `rg` workflow, and putting search on `ctx.fs` would force every filesystem backend to grow a search API. The bash executor owns request defaulting/capping, subprocess execution, process-group termination, environment scrubbing, raw output capture, and backend substitution (local, sandboxed, remote); this package owns schemas, argument validation, shell quoting, parsing, retention, formatted-result spill, and timeout declaration. The tools never call `ctx.bash.start()` and never expose a bash task id — the call returns only after `rg` exits, times out, is aborted, or fails.
@@ -22,8 +22,8 @@ All keys are optional; the defaults are the shipped search caps.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `globMaxResults` | `100` | Max paths one `glob` call retains inline (matches Claude Code's `GlobTool` limit); later paths go to the formatted spill file. |
-| `grepMaxMatches` | `250` | Max flat matches one `grep` call retains inline (matches Claude Code's `GrepTool` `head_limit`); later matches go to the formatted spill file. |
+| `globMaxResults` | `100` | Max paths one `glob` call retains inline (matches Claude Code's `GlobTool` limit); later paths go to the formatted spill artifact. |
+| `grepMaxMatches` | `250` | Max flat matches one `grep` call retains inline (matches Claude Code's `GrepTool` `head_limit`); later matches go to the formatted spill artifact. |
 | `grepMaxLineBytes` | `2000` | Byte cap per matched-line preview; the cut preserves UTF-8 boundaries and is marked `(line truncated)`. |
 | `rawOutputMaxBytes` | `20000000` | Max complete raw `rg` stdout a search will parse (matches Claude Code's ripgrep raw buffer); larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. |
 | `timeoutMs` | `30000` | Cooperative tool-call budget attached to both tool definitions, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`; the bash backend's own timeout stays a second safety cap. |
@@ -35,11 +35,11 @@ All keys are optional; the defaults are the shipped search caps.
 | `glob` | `pattern`, `path?` | `rg --files --glob <pattern> --sort=modified --no-ignore --hidden` plus VCS metadata excludes (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`). `path` is an optional **directory** search root; omitted means the resolved bash workdir. Returns one path per line, modification-time ordered. |
 | `grep` | `pattern`, `path?`, `include?` | Line-oriented `rg --json` parse (no colon-splitting ambiguity). `pattern` is a ripgrep regex; `path` is an optional **file or directory** target; `include` is ONE positive glob filter — a comma-separated list or a negated (`!…`) value is rejected up front (brace alternation like `*.{ts,tsx}` is fine). Returns matches grouped by file as `Line N: <preview>`. |
 
-Routine budgets stay out of the model-facing schema (no `head_limit`/`offset`/`case_insensitive`/output modes): a model that needs surrounding context reads the matched file with `read`; one that needs later results reads the formatted spill file with `read offset/limit`.
+Routine budgets stay out of the model-facing schema (no `head_limit`/`offset`/`case_insensitive`/output modes): a model that needs surrounding context reads the matched file with `read`; one that needs later results follows the returned spill locator's retrieval hint.
 
 ## Two budgets, two artifacts
 
-Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam and parses only complete retained stdout; if the executor still returns `stdout.truncated`, the search fails with `SEARCH_RAW_OUTPUT_OVERFLOW` and tells the model to narrow the query. The model-facing recovery artifact is different: when a search yields more logical results than the inline cap, the tool saves the COMPLETE formatted result through `ctx.spillFiles.saveText()` (suggested names `glob-results.txt` / `grep-results.txt`, owner = the calling session, source = the tool execution identity) and appends a footer naming the saved path. This is the first tool-owned spill call in the codebase — deliberate, because retention here is item-level: the generic `@deepseek-ai/dsh-spill-policy` only sees the final text on `tools/post-execute`, by which point a capped search has already omitted later paths/matches. A missing spill backend, a call with no session owner, or a `saveText()` failure keeps the inline page and reports that the complete result could not be saved — never an `isError`.
+Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam and parses only complete retained stdout; if the executor still returns `stdout.truncated`, the search fails with `SEARCH_RAW_OUTPUT_OVERFLOW` and tells the model to narrow the query. The model-facing recovery artifact is different: when a search yields more logical results than the inline cap, the tool saves the COMPLETE formatted result through `ctx.spillStore.saveText()` (suggested names `glob-results.txt` / `grep-results.txt`, owner = the calling session, source = the tool execution identity) and appends a footer naming the returned locator and retrieval hint. This is the first tool-owned spill call in the codebase — deliberate, because retention here is item-level: the generic `@deepseek-ai/dsh-spill-policy` only sees the final text on `tools/post-execute`, by which point a capped search has already omitted later paths/matches. A missing spill backend, a call with no session owner, or a `saveText()` failure keeps the inline page and reports that the complete result could not be saved — never an `isError`.
 
 ## Errors
 

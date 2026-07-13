@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-spill-local
 
-The **local-filesystem** implementation of the [`@deepseek-ai/dsh-spill`](../spill) storage seam. Registers as `ctx.spillFiles` and persists a tool's oversized text to a private, session-scoped file the model's `read` tool can open.
+The **local-filesystem** implementation of the [`@deepseek-ai/dsh-spill`](../spill) storage seam. Registers as `ctx.spillStore` and persists a tool's oversized text to a private, session-scoped file; its locator is the file path and its retrieval hint tells the model to use `read` or `grep` on that path.
 
 ## Storage layout
 

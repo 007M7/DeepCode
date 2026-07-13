@@ -4,9 +4,9 @@ The tool-output spill capability seam: an abstract storage interface, a local fi
 
 | Package | Role | ctx key |
 |---|---|---|
-| `spill/` | Abstract spill storage seam (`saveText` — persist oversized tool text to a session-scoped path) | `ctx.spillFiles` |
-| `spill-local/` | Local-filesystem backend: private, session-scoped files with traversal-safe names | (registers on `ctx.spillFiles`) |
-| `spill-policy/` | `tools/post-execute` policy: replaces oversized plain-text results with a preview + spill path | (no service surface) |
+| `spill/` | Abstract spill storage seam (`saveText` — persist oversized tool text and return a locator + retrieval hint) | `ctx.spillStore` |
+| `spill-local/` | Local-filesystem backend: private, session-scoped files with traversal-safe names | (registers on `ctx.spillStore`) |
+| `spill-policy/` | `tools/post-execute` policy: replaces oversized plain-text results with a preview + spill locator | (no service surface) |
 
 The interface lives at `spill/spill/`. The split mirrors bash/fs: the seam owns storage only, `spill-local` owns the filesystem mechanics, and `spill-policy` owns WHEN to spill and the model-facing notice. Preview mechanics stay in [`util/retention`](../util/README.md) — the policy composes the two without either owning the other's job.
 

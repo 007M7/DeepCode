@@ -13,7 +13,7 @@
  * bash executor owns request defaulting/capping, subprocess execution,
  * process-group termination, environment scrubbing, raw output capture, and
  * backend substitution. The package injects `tools`, `systemPrompt`, and
- * `bash` — deliberately NOT `fs`, and `ctx.spillFiles` is read opportunistically
+ * `bash` — deliberately NOT `fs`, and `ctx.spillStore` is read opportunistically
  * with `ctx.get()` because formatted-result spill is optional.
  *
  * Returned paths are displayed relative to the resolved bash workdir and are
@@ -52,7 +52,7 @@ export { singleQuote } from './shell-quote.ts'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs-search'
 
-/** Services required by the search tool suite (`spillFiles` is optional, read via `ctx.get()`). */
+/** Services required by the search tool suite (`spillStore` is optional, read via `ctx.get()`). */
 export const inject = ['tools', 'systemPrompt', 'bash']
 
 /** Plugin config (all optional — `Config` supplies the defaults). */

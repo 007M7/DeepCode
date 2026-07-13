@@ -1,9 +1,9 @@
 /**
- * `LocalSpillFiles`: the host-filesystem implementation of the
+ * `LocalSpillStore`: the host-filesystem implementation of the
  * `@deepseek-ai/dsh-spill` storage seam. Persists a tool's oversized text to a
  * private, session-scoped file (see `./store.ts` for the traversal-safe naming
- * and exclusive owner-only write) and returns a path the local `read` tool can
- * open.
+ * and exclusive owner-only write) and returns a path locator plus local
+ * read/grep retrieval guidance.
  *
  * @module @deepseek-ai/dsh-spill-local
  */
@@ -11,7 +11,7 @@
 import { Context } from 'cordis'
 import { resolve } from 'node:path'
 import z from 'schemastery'
-import { SpillFiles, SpillPath } from '@deepseek-ai/dsh-spill'
+import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import { privateRoot, saveTextFile } from './store.ts'
 
@@ -34,7 +34,7 @@ export interface Config {
  * (0700) root — a spilled tool result must not be readable by other local users
  * or redirectable via a planted symlink.
  */
-export class LocalSpillFiles extends SpillFiles {
+export class LocalSpillStore extends SpillStore {
   static Config: z<Config> = z.object({
     root: z.string(),
   })
@@ -54,8 +54,12 @@ export class LocalSpillFiles extends SpillFiles {
       suggestedName: input.suggestedName,
       content: input.content,
     })
-    return { path: SpillPath(saved.path), bytes: saved.bytes }
+    return {
+      locator: SpillLocator(saved.path),
+      bytes: saved.bytes,
+      retrievalHint: 'Use read with offset/limit, or grep this path to search within it.',
+    }
   }
 }
 
-export default LocalSpillFiles
+export default LocalSpillStore

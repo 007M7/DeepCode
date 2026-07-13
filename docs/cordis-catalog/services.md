@@ -232,13 +232,13 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
 
-## `ctx.spillFiles` — `SpillFiles` (abstract seam)
+## `ctx.spillStore` — `SpillStore` (abstract seam)
 
-Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillFiles` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
 Semantics every implementation must honor:
 
-- saveText persists the FULL `content` verbatim and returns a path the local `read` tool can open, plus the exact byte length written.
+- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
 - Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
 - `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
 
@@ -246,7 +246,7 @@ Semantics every implementation must honor:
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 ```
 
-Source: [`packages/spill/spill/src/index.ts:46`](../../packages/spill/spill/src/index.ts)
+Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

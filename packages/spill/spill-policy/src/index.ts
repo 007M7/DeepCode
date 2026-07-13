@@ -2,12 +2,12 @@
  * The spill-policy PLUGIN: a `tools/post-execute` result transformer that keeps
  * oversized plain-text tool results out of the model's context. When a final
  * result's UTF-8 size exceeds `maxInlineBytes`, it saves the FULL text to a
- * session-scoped spill file (`ctx.spillFiles`) and replaces the model-facing
- * result with a bounded head/tail preview plus the spill path — the model reads
- * the complete result later with the existing `read` tool.
+ * session-scoped spill artifact (`ctx.spillStore`) and replaces the
+ * model-facing result with a bounded head/tail preview plus the backend's
+ * locator and retrieval guidance.
  *
  * It registers NO service and owns NO storage or preview mechanics: preview is
- * `@deepseek-ai/dsh-retention` (`TextRetainer`), storage is `ctx.spillFiles`.
+ * `@deepseek-ai/dsh-retention` (`TextRetainer`), storage is `ctx.spillStore`.
  * The policy only decides WHEN to spill and composes the notice.
  *
  * ## Deliberately narrow
@@ -16,8 +16,8 @@
  * - Plain-text results only: a result carrying any non-text block is left
  *   untouched (the policy knows only the final formatted text, not tool
  *   internals).
- * - `read` is skipped to avoid a `read → spill file → read again` loop.
- * - Best-effort: no session owner, no `ctx.spillFiles` backend, or a save
+ * - `read` is skipped to avoid a `read → spill → read again` loop.
+ * - Best-effort: no session owner, no `ctx.spillStore` backend, or a save
  *   failure ⇒ log and return the original result. A spill failure must NEVER
  *   turn a successful tool call into an `isError` or hide the inline result.
  *
@@ -34,7 +34,7 @@ import z from 'schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer, describeOmitted } from '@deepseek-ai/dsh-retention'
 import type { Omitted } from '@deepseek-ai/dsh-retention'
-import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
+import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SpillPolicyExec } from './types.ts'
@@ -86,10 +86,10 @@ function preview(text: string, budget: number): { text: string; omitted: Omitted
   return { text: kept.text, omitted: kept.omittedBytes }
 }
 
-/** The spill-notice line for a given omission + path (no preview, no leading blank line). */
-function spillNotice(omitted: Omitted, spillPath: string): string {
+/** The spill-notice line for a given omission + saved reference (no preview, no leading blank line). */
+function spillNotice(omitted: Omitted, ref: SpillRef): string {
   const omission = describeOmitted(omitted, 'bytes')
-  return `(${omission} Full formatted result saved to: ${spillPath}. Use read with offset/limit to inspect it.)`
+  return `(${omission} Full formatted result stored at: ${ref.locator}. ${ref.retrievalHint})`
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -108,7 +108,7 @@ export function apply(ctx: Context, config: Config): void {
     // we bound whatever it accepted. A block passes through — spill only shapes
     // accepted plain-text results, never corrective feedback.
     const decision = await next()
-    // Skip `read` to avoid a read → spill file → read again loop.
+    // Skip `read` to avoid a read → spill → read again loop.
     if (decision.kind !== 'accept' || exec.name === 'read') return decision
 
     const content = decision.content ?? result.content
@@ -122,9 +122,9 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.warn(`spill-policy: no session owner for ${exec.name} result; keeping the inline result`)
       return decision
     }
-    const spillFiles = ctx.get('spillFiles')
-    if (!spillFiles) {
-      ctx.logger.warn('spill-policy: no ctx.spillFiles backend loaded; keeping the inline result')
+    const spillStore = ctx.get('spillStore')
+    if (!spillStore) {
+      ctx.logger.warn('spill-policy: no ctx.spillStore backend loaded; keeping the inline result')
       return decision
     }
 
@@ -134,9 +134,9 @@ export function apply(ctx: Context, config: Config): void {
       suggestedName: `${exec.name}.txt`,
       content: text,
     }
-    let path: string
+    let ref: SpillRef
     try {
-      ({ path } = await spillFiles.saveText(save))
+      ref = await spillStore.saveText(save)
     } catch (error: unknown) {
       // Best-effort: a storage failure (permissions, ENOSPC, backend down) must
       // never fail the call or hide the result — keep the original inline.
@@ -152,10 +152,10 @@ export function apply(ctx: Context, config: Config): void {
     // count (the full byte total): its digit count bounds the real count's, so
     // the reserved size is a safe upper bound and the final notice is never
     // longer than what we reserved. `\n\n` is the 2-byte join.
-    const reserve = Buffer.byteLength(spillNotice({ kind: 'exact', count: totalBytes }, path), 'utf8') + 2
+    const reserve = Buffer.byteLength(spillNotice({ kind: 'exact', count: totalBytes }, ref), 'utf8') + 2
     const previewBudget = Math.max(0, maxInlineBytes - reserve)
     const { text: previewText, omitted } = preview(text, previewBudget)
-    const notice = spillNotice(omitted, path)
+    const notice = spillNotice(omitted, ref)
     const replacedText = previewText.length > 0 ? `${previewText}\n\n${notice}` : notice
     // Invariant: the policy NEVER emits a replacement larger than the cap. When
     // the notice alone exceeds maxInlineBytes (a tiny cap or a long spill root),

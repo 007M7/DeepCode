@@ -2,7 +2,7 @@
  * Tests for the spill-policy PLUGIN. It registers no service, only the
  * `tools/post-execute` transformer. We drive real tools through
  * `ctx.tools.execute(...)` and assert: disabled mode is a true no-op, an
- * oversized plain-text result is spilled and replaced with a preview + path,
+ * oversized plain-text result is spilled and replaced with a preview + locator,
  * a small result and a non-text result pass through, `read` is skipped, and a
  * `saveText` failure / missing backend / missing owner all preserve the original
  * result without an `isError`.
@@ -17,19 +17,23 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import { SpillFiles, SpillPath } from '@deepseek-ai/dsh-spill'
+import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 
 /** A stub spill backend recording its saves; `fail` exercises the best-effort fallback. */
-class StubSpill extends SpillFiles {
+class StubStore extends SpillStore {
   saves: SaveTextSpill[] = []
   fail = false
 
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     if (this.fail) throw new Error('disk full')
     this.saves.push(input)
-    return { path: SpillPath(`/spill/${input.suggestedName}`), bytes: Buffer.byteLength(input.content, 'utf8') }
+    return {
+      locator: SpillLocator(`/spill/${input.suggestedName}`),
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      retrievalHint: 'Use the stub retrieval path.',
+    }
   }
 }
 
@@ -54,14 +58,14 @@ function exec(name: string, session = 's1'): ToolExecution {
  * Build a context with tools + the policy, and optionally a spill backend.
  * Returns the context and the backend handle (undefined when `withSpill` false).
  */
-async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubSpill; fiber: Awaited<ReturnType<Context['plugin']>> }> {
+async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubStore; fiber: Awaited<ReturnType<Context['plugin']>> }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  let spill: StubSpill | undefined
+  let spill: StubStore | undefined
   if (withSpill) {
-    await ctx.plugin(StubSpill)
-    spill = ctx.spillFiles as StubSpill
+    await ctx.plugin(StubStore)
+    spill = ctx.spillStore as StubStore
   }
   const fiber = await ctx.plugin(SpillPolicy, config)
   return { ctx, fiber, ...spill ? { spill } : {} }
@@ -108,7 +112,7 @@ describe('config validation', () => {
 })
 
 describe('oversized plain-text replacement', () => {
-  it('spills the full text and replaces the result with a preview + path within the cap', async () => {
+  it('spills the full text and replaces the result with a preview + locator within the cap', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 200 })
     const body = 'HEAD'.repeat(200) + 'TAIL'.repeat(200) // 1600 bytes > 200
     ctx.tools.register(textTool('big', body))
@@ -124,8 +128,8 @@ describe('oversized plain-text replacement', () => {
     const text = textOf(result.content)
     expect(text).not.toBe(body)
     expect(text.startsWith('HEAD')).toBe(true)
-    expect(text).toContain('Full formatted result saved to: /spill/big.txt')
-    expect(text).toContain('Use read with offset/limit')
+    expect(text).toContain('Full formatted result stored at: /spill/big.txt')
+    expect(text).toContain('Use the stub retrieval path.')
     expect(text).toContain('Omitted')
     // The replacement (preview + blank line + notice) stays within the cap and
     // is smaller than the original — the whole point of spilling.
@@ -221,7 +225,7 @@ describe('composition', () => {
     ctx.tools.register(textTool('small', 'tiny'))
     const result = await ctx.tools.execute(exec('small'))
     expect(spill?.saves[0]?.content).toBe('z'.repeat(500))
-    expect(textOf(result.content)).toContain('Full formatted result saved to')
+    expect(textOf(result.content)).toContain('Full formatted result stored at')
   })
 
   it('preserves a downstream accept decision additionalContext when spilling', async () => {
@@ -231,7 +235,7 @@ describe('composition', () => {
       ({ kind: 'accept', additionalContext: context }))
     ctx.tools.register(textTool('big', 'x'.repeat(1000)))
     const result = await ctx.tools.execute(exec('big'))
-    expect(textOf(result.content)).toContain('Full formatted result saved to')
+    expect(textOf(result.content)).toContain('Full formatted result stored at')
     expect(result.additionalContext).toEqual(context)
   })
 })
@@ -259,7 +263,7 @@ describe('disposal (HMR safety)', () => {
 
     // Live: the listener spills and replaces.
     const before = await ctx.tools.execute(exec('big'))
-    expect(textOf(before.content)).toContain('Full formatted result saved to')
+    expect(textOf(before.content)).toContain('Full formatted result stored at')
     expect(spill?.saves).toHaveLength(1)
 
     // After disposal the listener is gone — the result passes through untouched

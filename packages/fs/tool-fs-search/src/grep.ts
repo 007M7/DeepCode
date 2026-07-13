@@ -16,6 +16,7 @@ import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
+import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
@@ -221,21 +222,21 @@ export function formatGrepMatches(matches: GrepMatch[]): string {
 /**
  * Format the model-facing `grep` result: a found-count header, the retained
  * matches grouped by file, then — when the result was capped — a footer
- * carrying either the formatted-spill recovery path or the could-not-save
+ * carrying either the formatted-spill recovery locator or the could-not-save
  * explanation. The omitted count is a budget fact: the search itself completed.
  *
  * @param retained - the retention outcome over every parsed match.
- * @param spillPath - the saved complete-result path, or `undefined` when unsaved.
+ * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
  * @returns the model-facing text.
  */
-export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillPath: string | undefined): string {
+export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: SpillRef | undefined): string {
   const header = retained.truncated
     ? `Found ${retained.kept} of ${retained.seen} matches`
     : `Found ${retained.seen} ${matchNoun(retained.seen)}`
   const body = formatGrepMatches(retained.items)
   if (!retained.truncated) return `${header}\n\n${body}`
-  const recovery = spillPath !== undefined
-    ? `Full grep result saved to: ${spillPath}. Use read with offset/limit to inspect it.`
+  const recovery = spillRef !== undefined
+    ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
     : 'The complete result could not be saved; narrow pattern, path, or include to see more.'
   return `${header}\n\n${body}\n\n(${recovery})`
 }
@@ -299,7 +300,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       // The spill file stores the FULL formatted match list (same grouped,
       // per-line-previewed shape the model saw), so read offset/limit pages the
       // same logical result; save only when the inline page omitted matches.
-      const spillPath = retained.truncated
+      const spillRef = retained.truncated
         ? await trySaveFormattedResult(
           ctx,
           exec,
@@ -307,7 +308,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
           `Found ${all.length} ${matchNoun(all.length)}\n\n${formatGrepMatches(all)}`,
         )
         : undefined
-      return [{ type: 'text', text: formatGrepOutput(retained, spillPath) }]
+      return [{ type: 'text', text: formatGrepOutput(retained, spillRef) }]
     },
     presentCall: presentGrepCall,
   }))

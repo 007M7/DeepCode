@@ -16,7 +16,7 @@ The tools do not use `ctx.bash.start()` and do not create model-visible backgrou
 
 The tools align `path` with Claude Code's search tools while binding resolution to the bash workdir, not to `ctx.fs`. The tool derives the bash request workdir from `exec.agent?.session.header.cwd`, mirroring `dsh-tool-bash` and `dsh-tool-fs`; when no session cwd exists, it omits `request.workdir` so the bash implementation applies its configured cwd or process cwd through `resolve()`. For `grep`, `path` is an optional ripgrep target and may be a file or directory; omitted means the resolved bash workdir. For `glob`, `path` is an optional directory search root; omitted means the resolved bash workdir. Relative `path` values resolve against that workdir. Returned paths are displayed relative to the resolved bash workdir when possible and are intended to be follow-up-readable only in co-located deployments where the bash workdir and filesystem `read` root are the same workspace. v1 documents that deployment requirement but does not perform runtime cross-service validation. Remote or virtual filesystem search is deferred until there is a shared workspace/root contract or a provider-specific search backend.
 
-The package does not inject `fs`. It injects `tools`, `systemPrompt`, and `bash`; it deliberately reads `spillFiles` with `ctx.get('spillFiles')` instead of static inject because formatted-result spill is optional. Existing `@deepseek-ai/dsh-tool-fs` deployments that only want `read` / `write` / `edit` do not need to load bash.
+The package does not inject `fs`. It injects `tools`, `systemPrompt`, and `bash`; it deliberately reads `spillStore` with `ctx.get('spillStore')` instead of static inject because formatted-result spill is optional. Existing `@deepseek-ai/dsh-tool-fs` deployments that only want `read` / `write` / `edit` do not need to load bash.
 
 ### Package shape
 
@@ -63,9 +63,9 @@ Routine budgets stay out of the model-facing schema. `@deepseek-ai/dsh-tool-fs-s
 | `rawOutputMaxBytes` | `20000000` | Max complete raw `rg` stdout the tool will parse; matches Claude Code's ripgrep raw buffer. |
 | `timeoutMs` | `30000` | Tool-call timeout attached to both tool definitions and enforced by `@deepseek-ai/dsh-timeout-policy`. |
 
-`globMaxResults` and `grepMaxMatches` use `ItemRetainer({ kind: 'head' })`. `grepMaxLineBytes` uses `TextRetainer({ kind: 'head', maxBytes: grepMaxLineBytes })` for each matched line so preview cuts preserve UTF-8 boundaries. This follows the [tool result retention library](../../implemented/architecture/2026-07-06-tool-result-retention-library.md) mapping for discovery items: collect the complete result, retain head items inline, and keep path mapping, grouping, and per-line preview outside the retainer. `grep` does not expose `case_insensitive`, `head_limit`, `offset`, `count`, multiline, context lines, output modes, or file type filters in v1. A model that needs surrounding context reads the matched file with `read`; a model that needs later results reads the formatted spill file with `read offset/limit`.
+`globMaxResults` and `grepMaxMatches` use `ItemRetainer({ kind: 'head' })`. `grepMaxLineBytes` uses `TextRetainer({ kind: 'head', maxBytes: grepMaxLineBytes })` for each matched line so preview cuts preserve UTF-8 boundaries. This follows the [tool result retention library](../../implemented/architecture/2026-07-06-tool-result-retention-library.md) mapping for discovery items: collect the complete result, retain head items inline, and keep path mapping, grouping, and per-line preview outside the retainer. `grep` does not expose `case_insensitive`, `head_limit`, `offset`, `count`, multiline, context lines, output modes, or file type filters in v1. A model that needs surrounding context reads the matched file with `read`; a model that needs later results follows the returned spill locator's retrieval hint.
 
-The Claude Code values are reference points for the two-layer budget, not model-facing schema precedent. Its dedicated search tools buffer raw ripgrep output up to 20 MB for internal processing, use a 20-second ripgrep timeout on non-WSL platforms (60 seconds on WSL), then apply search-specific caps before the model sees a result: `GrepTool` defaults to `head_limit = 250` and persists formatted results above 20,000 characters, while `GlobTool` defaults to 100 paths and persists formatted results above 100,000 characters. This RFC mirrors the raw-buffer and inline-count defaults, chooses a 30-second default search timeout, and uses this harness's `ctx.spillFiles.saveText()` path for formatted-result recovery.
+The Claude Code values are reference points for the two-layer budget, not model-facing schema precedent. Its dedicated search tools buffer raw ripgrep output up to 20 MB for internal processing, use a 20-second ripgrep timeout on non-WSL platforms (60 seconds on WSL), then apply search-specific caps before the model sees a result: `GrepTool` defaults to `head_limit = 250` and persists formatted results above 20,000 characters, while `GlobTool` defaults to 100 paths and persists formatted results above 100,000 characters. This RFC mirrors the raw-buffer and inline-count defaults, chooses a 30-second default search timeout, and uses this harness's `ctx.spillStore.saveText()` path for formatted-result recovery.
 
 The `path` field follows the same split as Claude Code: `grep.path` is a file-or-directory ripgrep target, while `glob.path` is a directory search root. v1 does not expose a separate cwd/workdir argument on these tools.
 
@@ -73,9 +73,9 @@ The `path` field follows the same split as Claude Code: `grep.path` is a file-or
 
 ### Execution
 
-`glob` builds a fixed `rg --files` command rooted at the resolved directory search root (`path` when supplied, else the bash workdir): `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`, plus VCS metadata excludes for `.git`, `.svn`, `.hg`, `.bzr`, `.jj`, and `.sl`. This aligns with Claude Code on hidden/ignored-file discovery and modified-time ordering while keeping VCS internals out of broad searches. The tool parses one path per line, maps results back to paths relative to the bash workdir when possible, pushes each path into `ItemRetainer({ kind: 'head', maxItems: globMaxResults })`, and formats the full sorted path list for a spill file when the retained result is capped.
+`glob` builds a fixed `rg --files` command rooted at the resolved directory search root (`path` when supplied, else the bash workdir): `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`, plus VCS metadata excludes for `.git`, `.svn`, `.hg`, `.bzr`, `.jj`, and `.sl`. This aligns with Claude Code on hidden/ignored-file discovery and modified-time ordering while keeping VCS internals out of broad searches. The tool parses one path per line, maps results back to paths relative to the bash workdir when possible, pushes each path into `ItemRetainer({ kind: 'head', maxItems: globMaxResults })`, and formats the full sorted path list for a spill artifact when the retained result is capped.
 
-`grep` builds a fixed line-oriented `rg --json` command against the supplied file/directory target (`path` when supplied, else the bash workdir) so file path, line number, and line text are parsed without colon-splitting ambiguity. It consumes `match` records, treats malformed JSON or malformed match records as `SEARCH_FAILED`, maps result paths relative to the bash workdir when possible, applies per-line preview retention with `grepMaxLineBytes`, pushes each match into `ItemRetainer({ kind: 'head', maxItems: grepMaxMatches })`, then groups only the retained preview matches by file for inline output. The spill file stores the full formatted match list, not only the omitted tail, so `read offset/limit` works against the same logical result the model saw.
+`grep` builds a fixed line-oriented `rg --json` command against the supplied file/directory target (`path` when supplied, else the bash workdir) so file path, line number, and line text are parsed without colon-splitting ambiguity. It consumes `match` records, treats malformed JSON or malformed match records as `SEARCH_FAILED`, maps result paths relative to the bash workdir when possible, applies per-line preview retention with `grepMaxLineBytes`, pushes each match into `ItemRetainer({ kind: 'head', maxItems: grepMaxMatches })`, then groups only the retained preview matches by file for inline output. The spill artifact stores the full formatted match list, not only the omitted tail, so the retrieval hint points at the same logical result the model saw.
 
 Raw `rg` stdout is an internal transport detail. The tool requests `stdoutMaxBytes: rawOutputMaxBytes` through `ctx.bash.resolve()` and parses `stdout.text` only when the executor returns untruncated stdout within that cap. If stdout is larger than `rawOutputMaxBytes`, or the executor still returns `stdout.truncated`, the tool fails with a clear search error telling the model to narrow `pattern`, `path`, or `include`. The tool never exposes raw `rg` output or bash raw spill paths to the model.
 
@@ -87,13 +87,13 @@ Search failures use a package-owned `HarnessError` subclass with `SEARCH_*` code
 
 ### Formatted result spill
 
-`ctx.spillFiles` is optional and used only for model-facing formatted results. This is the first tool-owned spill call pattern in the codebase, and it is intentional because search retention is item-level policy: `globMaxResults` caps paths and `grepMaxMatches` caps matches while the tool still holds the complete logical result. The generic `dsh-spill-policy` caps final text bytes on `tools/post-execute`; by then a search tool would already have omitted later paths or matches, so the policy cannot recover them.
+`ctx.spillStore` is optional and used only for model-facing formatted results. This is the first tool-owned spill call pattern in the codebase, and it is intentional because search retention is item-level policy: `globMaxResults` caps paths and `grepMaxMatches` caps matches while the tool still holds the complete logical result. The generic `dsh-spill-policy` caps final text bytes on `tools/post-execute`; by then a search tool would already have omitted later paths or matches, so the policy cannot recover them.
 
-When a search produces more logical results than the inline cap and `ctx.spillFiles` is present, the tool saves the complete formatted result with `saveText()`. The spill owner is the calling agent's session header id (`exec.agent?.session.header.id`); without that owner, the search keeps the inline result and reports that the complete result could not be saved. The spill source is the tool execution identity: `{ toolName: exec.name, callId: exec.callId, label: 'result' }`. The suggested filenames are `grep-results.txt` and `glob-results.txt`; the spill backend still sanitizes them as hints, never paths.
+When a search produces more logical results than the inline cap and `ctx.spillStore` is present, the tool saves the complete formatted result with `saveText()`. The spill owner is the calling agent's session header id (`exec.agent?.session.header.id`); without that owner, the search keeps the inline result and reports that the complete result could not be saved. The spill source is the tool execution identity: `{ toolName: exec.name, callId: exec.callId, label: 'result' }`. The suggested filenames are `grep-results.txt` and `glob-results.txt`; the spill backend still treats them as hints, never paths.
 
 When spill storage is absent, the call has no session owner, or saving fails, the tool still returns the inline page and a footer explaining that the complete result could not be saved. Search success must not turn into an `isError` result solely because formatted-result spill storage is unavailable.
 
-The bash raw output stream and the formatted search spill file are different artifacts. Raw `rg` stdout is parsed only in memory within the requested bash stdout cap; the formatted spill file is the stable model-facing recovery path produced by `ctx.spillFiles.saveText()`.
+The bash raw output stream and the formatted search spill artifact are different artifacts. Raw `rg` stdout is parsed only in memory within the requested bash stdout cap; the formatted spill artifact is the stable model-facing recovery locator produced by `ctx.spillStore.saveText()`.
 
 ### Result shape
 
@@ -102,7 +102,7 @@ A capped `glob` result with successful formatted spill returns the inline page a
 ```text
 <first N paths>
 
-(Showing N of M paths. Full sorted result saved to: /.../session-abc123/9f8e7d-glob-results.txt. Use read with offset/limit to inspect it.)
+(Showing N of M paths. Full sorted result stored at: /.../session-abc123/9f8e7d-glob-results.txt. Use read with offset/limit, or grep this path to search within it.)
 ```
 
 A capped `grep` result with successful formatted spill returns grouped preview matches and a spill notice:
@@ -113,10 +113,10 @@ Found N of M matches
 <file>
 Line 12: ...
 
-(Full grep result saved to: /.../session-abc123/9f8e7d-grep-results.txt. Use read with offset/limit to inspect it.)
+(Full grep result stored at: /.../session-abc123/9f8e7d-grep-results.txt. Use read with offset/limit, or grep this path to search within it.)
 ```
 
-If the complete logical result fits under the inline cap, no formatted spill file is created. If the complete logical result is too large but formatted spill is unavailable, the footer says that the result was capped and the complete result could not be saved. The `truncated` / omitted count is a budget fact, not an incomplete-search fact; timeout, invalid regex, missing `rg`, inaccessible workdirs, raw-output overflow, binary skips, and parse failures stay in tool-domain error or incomplete fields.
+If the complete logical result fits under the inline cap, no formatted spill artifact is created. If the complete logical result is too large but formatted spill is unavailable, the footer says that the result was capped and the complete result could not be saved. The `truncated` / omitted count is a budget fact, not an incomplete-search fact; timeout, invalid regex, missing `rg`, inaccessible workdirs, raw-output overflow, binary skips, and parse failures stay in tool-domain error or incomplete fields.
 
 ## Alternatives considered
 
@@ -126,15 +126,15 @@ If the complete logical result fits under the inline cap, no formatted spill fil
 
 **Use `ctx.bash.start()` for streaming early stop.** Rejected: `start()` creates model-visible background task semantics: task ids, owner tokens, `bash_output`, `bash_kill`, completion notifications, and no built-in timeout. `grep` needs a foreground tool result, not a background bash workflow. If streaming search becomes necessary, the right abstraction is a foreground streaming process handle on the bash/process seam, not borrowing the public background-task API.
 
-**Expose bash raw spill paths to the model.** Rejected: a bash raw spill path contains raw `rg` stdout (`rg --json` records for grep), not the stable formatted search result. Search parses raw stdout only as an internal transport; model recovery uses a formatted result saved through `ctx.spillFiles.saveText()`.
+**Expose bash raw spill paths to the model.** Rejected: a bash raw spill path contains raw `rg` stdout (`rg --json` records for grep), not the stable formatted search result. Search parses raw stdout only as an internal transport; model recovery uses a formatted result saved through `ctx.spillStore.saveText()`.
 
-**Add `spillFiles.saveFile()` for bash output normalization first.** Rejected for this RFC's v1: `saveFile()` would help a future bash normalization pass move existing executor spill files into session-scoped spill storage, but search only needs bounded in-memory raw `rg` stdout before producing the model-facing artifact. `saveText()` is sufficient for the formatted search result.
+**Add `spillStore.saveFile()` for bash output normalization first.** Rejected for this RFC's v1: `saveFile()` would help a future bash normalization pass move existing executor spill files into session-scoped spill storage, but search only needs bounded in-memory raw `rg` stdout before producing the model-facing artifact. `saveText()` is sufficient for the formatted search result.
 
 **Rely on the generic `dsh-spill-policy`.** Rejected: generic post-execute spill sees only the final tool result. If `grep` / `glob` return the first page inline, the generic policy cannot recover omitted results. The search tools must save the complete formatted result themselves before returning the bounded model-facing text.
 
-**Expose Claude Code's full `GrepTool` schema.** Rejected for v1: `output_mode`, context flags, multiline, `head_limit`, `offset`, `case_insensitive`, and type filters make the model-facing surface into a ripgrep wrapper. This harness keeps routine budgets and continuation mechanics in deployment policy and spill files.
+**Expose Claude Code's full `GrepTool` schema.** Rejected for v1: `output_mode`, context flags, multiline, `head_limit`, `offset`, `case_insensitive`, and type filters make the model-facing surface into a ripgrep wrapper. This harness keeps routine budgets and continuation mechanics in deployment policy and spill artifacts.
 
-**Keep early-stop search and skip formatted spill files.** Rejected for this proposal: early stop is more efficient but gives the model no path to inspect later results. The chosen v1 optimizes result recoverability and implementation simplicity, with `timeoutMs`, `rawOutputMaxBytes`, bash backend caps, and formatted spill files as safety backstops.
+**Keep early-stop search and skip formatted spill artifacts.** Rejected for this proposal: early stop is more efficient but gives the model no path to inspect later results. The chosen v1 optimizes result recoverability and implementation simplicity, with `timeoutMs`, `rawOutputMaxBytes`, bash backend caps, and formatted spill artifacts as safety backstops.
 
 **Expand the bash seam with a raw-output reader first.** Rejected: a portable `readRawOutput(ref, maxBytes)` API would add reference lifetime, permission, and backend storage semantics. A per-run `stdoutMaxBytes` request is the narrower seam: search either receives complete stdout within `rawOutputMaxBytes` or fails clearly.
 
@@ -148,11 +148,11 @@ If the complete logical result fits under the inline cap, no formatted spill fil
 
 ## Consequences
 
-- `glob` and `grep` are model-facing tools in `@deepseek-ai/dsh-tool-fs-search`, not `ctx.fs` provider methods and not part of the existing `@deepseek-ai/dsh-tool-fs` root plugin. The package injects `tools`, `systemPrompt`, and `bash`; it does not inject `fs`, and `ctx.spillFiles` stays optional via `ctx.get('spillFiles')`.
+- `glob` and `grep` are model-facing tools in `@deepseek-ai/dsh-tool-fs-search`, not `ctx.fs` provider methods and not part of the existing `@deepseek-ai/dsh-tool-fs` root plugin. The package injects `tools`, `systemPrompt`, and `bash`; it does not inject `fs`, and `ctx.spillStore` stays optional via `ctx.get('spillStore')`.
 - The schemas are exactly `glob(pattern, path?)` and `grep(pattern, path?, include?)`; search caps and timeout are defaulted, validated Config fields (`globMaxResults`, `grepMaxMatches`, `grepMaxLineBytes`, `rawOutputMaxBytes`, `timeoutMs`).
 - The tools execute through `ctx.bash.resolve(request)` → `ctx.bash.run(spec)`, forward `exec.signal`, never call `ctx.bash.start()`, and never expose a bash task id. The bash request workdir comes from `exec.agent?.session.header.cwd` when available; the resolved `spec.workdir` drives execution and relative-path display.
 - The tools request `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam, parse only untruncated stdout within that cap, and treat over-cap or still-truncated raw output as a clear search failure; raw `rg` output is never exposed to the model.
-- Oversized complete formatted results are saved through `ctx.spillFiles.saveText()` when available while inline results stay bounded; spill failure, a missing backend, or a missing owner preserves the inline result and reports the unsaved remainder — never an `isError`.
+- Oversized complete formatted results are saved through `ctx.spillStore.saveText()` when available while inline results stay bounded; spill failure, a missing backend, or a missing owner preserves the inline result and reports the unsaved remainder — never an `isError`.
 - The package README, the generated config catalog, and exported JSDoc document the Config fields and `SEARCH_*` codes; the coding-agent example ships the tools (the acp-agent tree waits on the snapshot re-record above); the fs group README records the co-located bash/filesystem deployment requirement.
 
 ## Risks
@@ -163,4 +163,4 @@ Shell command construction is the sharpest safety edge. Because `ctx.bash` accep
 
 The v1 assumes a co-located bash/filesystem deployment. If bash searches one workspace and the `read` tool resolves paths against another, returned paths may not be follow-up-readable. The package documents this requirement but does not verify it at runtime.
 
-Spill paths are local filesystem paths in v1. The formatted-result design works for local deployments where `read` can open spill files; remote or workspace-confined deployments need either an allowlist for spill paths or a future virtual spill URI bridge.
+Spill locators are backend-owned. The current local backend returns local filesystem paths and works in deployments where `read`/`grep` can open those files; remote or workspace-confined deployments can use a backend whose locator and retrieval hint point at a supported retrieval mechanism.
