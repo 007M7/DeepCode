@@ -17,7 +17,7 @@
     "typecheck": "tsc -b tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "duplication": "jscpd --config .jscpd.json packages",
+    "duplication": "jscpd --config .jscpd.json packages scripts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",

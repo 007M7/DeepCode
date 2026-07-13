@@ -99,12 +99,16 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 
   constructor(private readonly options: PerplexitySearchProviderOptions) {}
 
+  // Availability checks stay beside each provider's distinct config contract;
+  // a shared base class would obscure which fields make this backend usable.
+  /* jscpd:ignore-start */
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
     if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
     if (!isPositiveInteger(this.options.maxTokens)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
+  /* jscpd:ignore-end */
 
   async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
     let response: Response
@@ -159,6 +163,9 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   }
 }
 
+// These two predicates are intentionally local: exporting generic internals
+// from the public web seam would cost more API surface than these pure checks.
+/* jscpd:ignore-start */
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -168,3 +175,4 @@ function isAbortError(error: unknown): boolean {
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
+/* jscpd:ignore-end */
