@@ -8,9 +8,9 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as HooksCodex from '@deepseek-ai/dsh-hooks-codex'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -54,14 +54,14 @@ async function harness(dir: string, adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
 }
-function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 
 /** Poll `predicate` until true or the deadline passes (detached hook effects can't be awaited directly). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {

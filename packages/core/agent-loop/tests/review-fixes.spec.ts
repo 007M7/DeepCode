@@ -4,12 +4,16 @@ import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@d
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 /** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
@@ -25,7 +29,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -36,7 +40,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -324,7 +328,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -337,7 +341,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(statuses).toEqual(['running', 'disposed'])
     expect(reasons).toEqual([{ kind: 'disposed' }])
@@ -347,7 +351,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -359,7 +363,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done // must not hang
+    await driverDone(agent) // must not hang
 
     expect(agent.status).toBe('disposed')
     expect(ctx.agents.get(SessionId('scoped'))).toBeUndefined() // unregistered despite the throw
@@ -697,7 +701,7 @@ describe('turn and step boundary recovery', () => {
   }
 
   /** Count turn/step boundary events for balance assertions. */
-  function boundaryCounts(agent: ReactLoopAgent) {
+  function boundaryCounts(agent: Agent) {
     const e = [...agent.session.events]
     return {
       turnStart: e.filter(x => x.type === 'turn/start').length,
@@ -871,7 +875,7 @@ describe('turn and step boundary recovery', () => {
     // balanced with reason disposed (no error event for a disposal).
     const adapter = new MockAdapter(['hang'])
     const ctx = await balancedHarness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -882,7 +886,7 @@ describe('turn and step boundary recovery', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose() // dispose during the hanging step
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     const turnStarts = e.filter(x => x.type === 'turn/start').length
@@ -900,7 +904,7 @@ describe('turn and step boundary recovery', () => {
     // and must preserve reason=disposed rather than rewrite it as a plugin error.
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-prestep-dispose-throw'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -919,7 +923,7 @@ describe('turn and step boundary recovery', () => {
     ctx.on('agent/error', (_a, _t, _s, error) => void errorEmits.push(error))
 
     send(agent, 'go')
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     // Balanced: one turn/start, one turn/end carrying disposed (NOT error).
@@ -1148,7 +1152,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     // calls stop() synchronously, setting status=disposed), then release the
     // block. The loop must check isDisposed() after assembly and end the turn
     // `disposed` — no LLM call. Don't await fiber.dispose() before releasing
-    // the blocker: the dispose chain awaits agent.done, which hangs until the
+    // the blocker: the dispose chain awaits driverDone(agent), which hangs until the
     // loop unblocks.
     const adapter = new MockAdapter(['hang'])
     let releaseAssemble!: () => void
@@ -1170,7 +1174,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose-assemble'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -1183,15 +1187,15 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await new Promise(r => setTimeout(r, 50))
 
     // Start disposal — stop() sets status=disposed synchronously, then the
-    // disposer's await agent.done hangs because the loop is blocked in the
+    // disposer's await driverDone(agent) hangs because the loop is blocked in the
     // waterfall. Do NOT await yet; release the blocker first.
     const disposalDone = fiber.dispose()
 
     // Now release the blocked waterfall — the loop unblocks, checks
-    // isDisposed(), and exits, which resolves agent.done and disposalDone.
+    // isDisposed(), and exits, which resolves driverDone(agent) and disposalDone.
     releaseAssemble()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
     unlisten()
 
     const e = [...agent.session.events]
@@ -1226,7 +1230,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-cancel-assemble'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -1241,7 +1245,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     releaseAssemble()
     await waitForIdle(ctx, agent)
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
     unlisten()
 
     const e = [...agent.session.events]
@@ -1281,7 +1285,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
       await blocker
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose-prestep'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -1296,7 +1300,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     const disposalDone = fiber.dispose()
     releasePreStep()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     // After the pre-step seam finishes, the post-seam cancel/dispose check
     // catches disposal. The step was never opened, no LLM call was made.
@@ -1333,7 +1337,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
       await blocker
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-cancel-prestep'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -1348,7 +1352,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     releasePreStep()
     await waitForIdle(ctx, agent)
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
@@ -1383,7 +1387,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose-no-leak'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -1394,7 +1398,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     const disposalDone = fiber.dispose()
     releaseAssemble()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)

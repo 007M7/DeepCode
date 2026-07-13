@@ -4,10 +4,14 @@ import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter, persona = '') {
   const ctx = new Context()
@@ -26,7 +30,7 @@ async function harness(adapter: MockAdapter, persona = '') {
  * invoke this right after send(), when the loop hasn't woken yet (status is
  * still 'idle' synchronously), so polling the current status would lie.
  */
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -37,7 +41,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -175,7 +179,7 @@ describe('agent loop', () => {
       agentOptions: { model: 'mock' },
     })
 
-    const agent = handle.agent as ReactLoopAgent
+    const agent = handle.agent
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
@@ -911,7 +915,7 @@ describe('agent loop', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -922,7 +926,7 @@ describe('agent loop', () => {
     expect(agent.status).toBe('running')
 
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(agent.status).toBe('disposed')
     expect(ctx.agents.get(SessionId('scoped'))).toBeUndefined()
@@ -942,7 +946,7 @@ describe('agent loop', () => {
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const agent = ctx.agents.list()[0]! as ReactLoopAgent
+    const agent = ctx.agents.list()[0]!
     expect(agent).toBeDefined()
     expect(agent.id).toBe(agent.session.id)
     expect(agent.id).toMatch(/^config-agent-session-/)
@@ -965,7 +969,7 @@ describe('agent loop', () => {
       agents: [{ id: 'config-agent', model: 'mock', cwd: '/work/project' }],
     })
 
-    const agent = ctx.agents.list()[0]! as ReactLoopAgent
+    const agent = ctx.agents.list()[0]!
     expect(agent.session.header.cwd).toBe('/work/project')
   })
 

@@ -168,9 +168,8 @@ export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 /**
  * The agent handle — the surface every plugin (UI, hooks, orchestrators)
- * programs against. The concrete implementation lives in
- * `@deepseek-ai/dsh-agent-loop` (class `ReactLoopAgent`); nothing outside the loop
- * package should depend on the implementation.
+ * programs against. The concrete implementation is package-internal to
+ * `@deepseek-ai/dsh-agent-loop`; nothing outside that package depends on it.
  */
 export interface Agent {
   /** The single identity shared with {@link session}. */

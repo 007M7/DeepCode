@@ -7,9 +7,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
@@ -105,7 +105,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   return { ctx, compact }
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {

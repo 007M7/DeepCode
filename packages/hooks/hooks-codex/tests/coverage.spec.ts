@@ -7,9 +7,9 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as HooksCodex from '@deepseek-ai/dsh-hooks-codex'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -33,10 +33,10 @@ async function harness(configPath: string, adapter: MockAdapter, opts: { stderrS
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
-function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 /** Poll until `predicate` holds or the deadline passes — robust to detached
  * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
@@ -556,7 +556,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const { SessionId } = await import('@deepseek-ai/dsh-session')
     const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
-    await waitForIdle(ctx, handle.agent as ReactLoopAgent)
+    await waitForIdle(ctx, handle.agent)
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8').trim().endsWith(sessionDir.split('/').pop()!)).toBe(true)
     await handle.dispose()

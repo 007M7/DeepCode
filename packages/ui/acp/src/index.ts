@@ -18,7 +18,7 @@
  *                      turn about to start) + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
- * its own `ReactLoopAgent`. Sessions are keyed by their shared agent/session id;
+ * its own concrete `Agent`. Sessions are keyed by their shared agent/session id;
  * every `session/event` and `agent/*` event is routed strictly to its owning
  * session record, so two sessions streaming at once never interleave their
  * `session/update` notifications. Permission prompts use the same identity: the

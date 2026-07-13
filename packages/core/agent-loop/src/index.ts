@@ -12,6 +12,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type {
+  Agent,
   AgentFactory,
   AgentHandle,
   AgentOptions,
@@ -31,8 +32,6 @@ import {
   ReactLoopAgent,
 } from './agent.ts'
 import type { PreparedReactLoopAgent } from './agent.ts'
-
-export { ReactLoopAgent } from './agent.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
@@ -333,7 +332,7 @@ export interface Config {
   })[]
 }
 
-/** Concrete ReactLoopAgent factory and driver service. */
+/** Concrete agent factory and driver service. */
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
 
@@ -389,7 +388,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * @param meta - optional fresh-session workspace metadata.
    * @returns the published running agent.
    */
-  create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
+  create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent {
     const loopCtx = this.runtime.ctx
     const transaction = new AgentCreationTransaction(loopCtx, this.ctx, this.ownership, id)
     try {

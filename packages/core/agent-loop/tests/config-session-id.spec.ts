@@ -7,16 +7,16 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -57,7 +57,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(AgentLoop, { agents: [{ id: 'cfg', model: 'mock' }] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg')]))
-    const a1 = ctx1.agents.list()[0] as ReactLoopAgent
+    const a1 = ctx1.agents.list()[0] as Agent
     expect(a1.id).toBe(a1.session.id)
     expect(a1.session.id).toMatch(idPattern)
     expect(ctx1.agents.get(SessionId('cfg'))).toBeUndefined()
@@ -76,7 +76,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(AgentLoop, { agents: [{ id: 'cfg', model: 'mock' }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg2')]))
-    const a2 = ctx2.agents.list()[0] as ReactLoopAgent
+    const a2 = ctx2.agents.list()[0] as Agent
     expect(a2.id).toBe(a2.session.id)
     expect(a2.session.id).toMatch(idPattern)
     expect(a2.session.id).not.toBe(a1.session.id)
@@ -100,7 +100,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(AgentLoop, { agents: [] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
-    const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent
     a1.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
@@ -119,10 +119,10 @@ describe('config-driven session id', () => {
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
     // The deferred resume runs on a microtask after the backend is available.
-    let resumed: ReactLoopAgent | undefined
+    let resumed: Agent | undefined
     for (let i = 0; i < 50 && !resumed; i++) {
       await new Promise(r => setTimeout(r, 5))
-      resumed = ctx2.agents.get(SessionId('sticky-1')) as ReactLoopAgent | undefined
+      resumed = ctx2.agents.get(SessionId('sticky-1'))
     }
     expect(resumed).toBeDefined()
     // The live session id IS the resumed id (NOT a fresh ${id}-session-<uuid>),

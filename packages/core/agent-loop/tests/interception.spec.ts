@@ -4,9 +4,9 @@ import LlmService, { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type ContinuationDecision, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type ContinuationDecision, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /**
@@ -30,7 +30,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -41,11 +41,11 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-function events(agent: ReactLoopAgent): SessionEvent[] {
+function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
 }
 

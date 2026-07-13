@@ -8,9 +8,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -58,7 +58,7 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   return harness
 }
 
-function waitForIdle(harness: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = harness.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
