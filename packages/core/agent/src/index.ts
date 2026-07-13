@@ -178,6 +178,8 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
 interface AgentEntry {
   readonly id: SessionId
   readonly agent: Agent
+  /** Runtime creator-agent ownership; independent of durable session lineage. */
+  readonly owner: Agent | undefined
   readonly carrier: Scoped<Agent>
   announced: boolean
   announcing: boolean
@@ -303,7 +305,7 @@ export class AgentRegistry extends Service {
    */
   register(agent: Agent): () => void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
-      yield this.enter(agent)
+      yield this.enter(agent, this.ctx.agent)
       this.announce(agent)
     }.bind(this), 'agents.register()')
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
@@ -317,12 +319,15 @@ export class AgentRegistry extends Service {
    * returned detach closure into its pre-installed composite teardown before
    * calling {@link announce}. Ordinary callers use {@link register}.
    * @param agent - the prepared, unpublished agent.
+   * @param owner - live agent whose scoped context created this agent, or
+   *   undefined for a top-level runtime root. This is runtime ownership, not
+   *   the resumed session's durable parent lineage.
    * @returns an idempotent closure that removes this exact entry and emits
    *   `agent/disposed` with listener failures contained. When called from a
    *   synchronous `agent/created` listener, removal and disposal wait until
    *   that creation dispatch unwinds.
    */
-  enter(agent: Agent): () => void {
+  enter(agent: Agent, owner: Agent | undefined): () => void {
     const id = agent.id
     const carrier = scopeTarget(agent, agent)
     // This is the authoritative collision boundary. Concurrent create/resume
@@ -331,6 +336,7 @@ export class AgentRegistry extends Service {
     const entry: AgentEntry = {
       id,
       agent,
+      owner,
       carrier,
       announced: false,
       announcing: false,
@@ -437,6 +443,18 @@ export class AgentRegistry extends Service {
    */
   list(): Agent[] {
     return [...this.store.values()].map(entry => entry.agent)
+  }
+
+  /**
+   * All live top-level agents in registration order. A top-level agent was
+   * created without an owning agent context; durable session lineage does not
+   * affect this runtime relation, so a resumed fork may still be a root.
+   * @returns a fresh array; mutating it does not affect the registry.
+   */
+  roots(): Agent[] {
+    return [...this.store.values()]
+      .filter(entry => entry.owner === undefined)
+      .map(entry => entry.agent)
   }
 }
 
