@@ -47,18 +47,22 @@ async function setupWithTasks() {
 }
 
 /**
- * Build a fake {@link Agent} whose session token is `sessionId` and REGISTER it
- * in `ctx.agents` (an owned task registration attaches the awaited owner
- * cleanup via `ctx.agents.onCleanup`, which requires a live registered agent).
- * The agent id is deliberately DIFFERENT from the session token so a
- * wrong-field match fails the test.
+ * Build a fake {@link Agent} whose session token is `sessionId`, give it a
+ * dedicated lifecycle fiber for `Agent.ctx`, and register it in `ctx.agents`.
+ * The agent id is deliberately different from the session token so a
+ * wrong-field ownership match fails the test.
  */
-function registerFakeAgent(ctx: Context, sessionId: string): Agent {
-  const agent = { id: `agent-${sessionId}`, inject: () => {}, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
+function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
+  const scopeFiber = ctx.plugin(() => {})
+  const agent = {
+    id: `agent-${sessionId}`,
+    ctx: scopeFiber.ctx,
+    inject,
+    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+  } as unknown as Agent
   ctx.agents.register(agent)
   return agent
 }
-
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
   return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
@@ -144,11 +148,12 @@ async function setupSandboxed(withApproval = false) {
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
 
-function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access'): Agent {
+function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
   if (mode !== undefined) events.push({ type: 'bash/sandbox-mode', data: { mode } })
   return {
     id: 'sandbox-agent',
+    ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
     session: {
       header: { version: 0, id: 'sandbox-session', createdAt: 0 },
       events,
@@ -270,12 +275,20 @@ describe('bash tool', () => {
     [{ command: '  ', description: 'd' }, /invalid command/],
     [{ command: 'x', description: '   ' }, /invalid description/],
     [{ command: 'x', description: 'd', timeoutMs: -1 }, /invalid timeoutMs/],
-    [{ command: 'x', description: 'd', timeoutMs: Number.NaN }, /invalid timeoutMs/],
   ])('rejects value-invalid args %j', async (args, pattern) => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', args)
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(pattern)
+  })
+
+  it('rejects a non-JSON numeric argument before tool-specific validation', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', {
+      command: 'x', description: 'd', timeoutMs: Number.NaN,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('tool execution arguments must be losslessly JSON-serializable')
   })
 
   it('registers the bash schema with run_in_background exposed by default', async () => {
@@ -572,7 +585,7 @@ describe('sandbox escalation through the generic task producer', () => {
   it('runs a granted foreground or background call under the approved mode', async () => {
     const { ctx, bash } = await setupSandboxed(true)
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
-    const agent = sandboxAgent()
+    const agent = sandboxAgent(undefined, ctx)
     ctx.agents.register(agent)
     const foreground = await ctx.tools.execute({
       callId: CallId('sandbox-signal'),

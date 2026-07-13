@@ -31,7 +31,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
@@ -100,14 +100,14 @@ export class TaskService extends Service {
   private surfaces = new Set<symbol>()
   private listeners = new Set<TaskDoneListener>()
   private listenersClosed = false
-  /** Owner agents whose cleanup effect is attached, mapped to its self-detacher. */
-  private ownerCleanups = new Map<AgentId, () => void>()
+  /** Owner agents whose scope cleanup is attached, mapped to its exact disposer. */
+  private ownerCleanups = new Map<Agent, () => Promise<void> | void>()
   /**
    * The service's OWN construction-time context, for work that outlives the
    * calling fiber: detached settlement continuations (logging), and the
-   * owner-cleanup registration on `ctx.agents` (which must survive a producer
-   * plugin's HMR reload, unlike the caller-fiber-scoped effects in
-   * {@link onTaskDone}/{@link attachSurface}).
+   * service teardown. Owner cleanup itself is registered through the owning
+   * agent's scope so it survives producer-plugin reloads and participates in
+   * the agent's structural quiescence boundary.
    */
   private readonly selfCtx: Context
 
@@ -123,8 +123,7 @@ export class TaskService extends Service {
    * control-surface fence ({@link attachSurface}; a task the model could
    * never read or stop must fail loud before it exists), kind/label
    * validation, exact live owner-instance identity, and the owner's awaited
-   * disposal-cleanup attach (once per owner agent, through
-   * `ctx.agents.onCleanup`) — runs BEFORE
+   * disposal-cleanup attach (once per owner agent, through `owner.ctx`) — runs BEFORE
    * `spec.run()` starts the actual work, and nothing in the runtime can fail
    * after it returns: "work started but never got a collectable id" is
    * structurally impossible, not a producer rollback obligation. The runtime
@@ -442,16 +441,13 @@ export class TaskService extends Service {
   }
 
   /**
-   * Attach the awaited owner-disposal cleanup for an owner agent, once: when
-   * the agent's disposal chain drains (`ctx.agents.drainCleanups`), the
-   * owner's still-live tasks are cancelled, awaited to settlement, and their
-   * snapshots dropped. Registered through {@link selfCtx} so the cleanup
-   * survives producer-plugin reloads. When the cleanup starts, it detaches its
-   * own effect before awaiting task settlement, so completed owners do not
-   * accumulate effect wrappers (and captured sessions) on the long-lived tasks
-   * fiber. A narrow race remains if new work starts on an agent already being
-   * drained: before this callback clears the owner entry, that start can reuse
-   * the in-flight cleanup after its task snapshot was taken.
+   * Attach the awaited owner-disposal cleanup for an owner agent, once. The
+   * effect is registered through `owner.ctx`, so it belongs to the agent scope
+   * rather than the producer or long-lived tasks fiber: it survives producer
+   * reloads, runs at the structural agent quiescence boundary, and removes its
+   * wrapper automatically when that scope unwinds. The tasks service retains
+   * the exact disposer only so service teardown can detach cross-fiber effects
+   * instead of leaving a dead service captured by still-live agents.
    * Fails loud when no agent registry is mounted or when `owner` is not the
    * exact live instance currently registered under its id — accepting a stale
    * object after id reuse would attach its session's task to another agent's
@@ -466,20 +462,15 @@ export class TaskService extends Service {
     if (agents.get(ownerId) !== owner) {
       throw new Error(`agent "${ownerId}" is not the registered agent instance (background task owner must be live)`)
     }
-    if (this.ownerCleanups.has(ownerId)) return
+    if (this.ownerCleanups.has(owner)) return
     const ownerSession = owner.session.header.id
-    // Attach FIRST, record after: onCleanup throws for an unregistered agent,
-    // and marking the owner as covered before that would make every later
-    // registration for the same owner silently skip the cleanup.
-    const detach = agents.onCleanup(ownerId, async () => {
-      const disposeEffect = this.ownerCleanups.get(ownerId)
-      this.ownerCleanups.delete(ownerId)
-      // A drain racing lifecycle teardown may find that the effect was already
-      // detached; otherwise this removes its wrapper from the tasks fiber now.
-      disposeEffect?.()
+    // Attach FIRST, record after: an already-disposing scope rejects effects,
+    // and marking the owner as covered before that would poison later starts.
+    const detach = owner.ctx.effect(() => async () => {
+      this.ownerCleanups.delete(owner)
       await this.disposeOwned(ownerSession)
-    })
-    this.ownerCleanups.set(ownerId, detach)
+    }, 'tasks.ownerCleanup()')
+    this.ownerCleanups.set(owner, detach)
   }
 
   /** Cancel, await terminal records, and drop every task owned by one session. */
@@ -504,6 +495,12 @@ export class TaskService extends Service {
     this.cancelForTeardown(all, 'tasks service disposed')
     await Promise.all(all.map(task => task.settled))
     this.store.clear()
+    // These effects belong to agent scopes, not this service's fiber. Detach
+    // them after the shared store is quiescent so a tasks-service reload cannot
+    // leave old callbacks retaining the dead service until each agent exits.
+    const ownerCleanups = [...this.ownerCleanups.values()]
+    this.ownerCleanups.clear()
+    await Promise.all(ownerCleanups.map(cleanup => Promise.resolve(cleanup())))
   }
 
   /**

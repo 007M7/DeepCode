@@ -68,6 +68,7 @@ const WANT_PERMISSION = process.env.MOCK_PERMISSION === '1'
 const NO_ALLOW = process.env.MOCK_NO_ALLOW === '1'
 const THOUGHT = process.env.MOCK_THOUGHT === '1'
 const CRASH_ON_CANCEL = process.env.MOCK_CRASH_ON_CANCEL === '1'
+const CRASH_ON_PROMPT = process.env.MOCK_CRASH_ON_PROMPT === '1'
 const IGNORE_CANCEL = process.env.MOCK_IGNORE_CANCEL === '1'
 const READY_FILE = process.env.MOCK_READY_FILE
 const FLUSH_ON_EOF = process.env.MOCK_FLUSH_ON_EOF
@@ -105,6 +106,7 @@ function makeAgent(conn: AgentSideConnection): Agent {
       return Promise.resolve()
     },
     async prompt(params: PromptRequest): Promise<PromptResponse> {
+      if (CRASH_ON_PROMPT) process.exit(1)
       if (WANT_PERMISSION) {
         // Ask the client to approve before answering; honor its decision. Under
         // MOCK_NO_ALLOW the only options are reject-shaped, so an `allow`-policy
@@ -225,4 +227,3 @@ if (process.env.MOCK_IGNORE_EOF === '1') {
   setInterval(() => { /* stay alive past EOF until SIGTERM */ }, 1000)
   if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'ignore-eof-armed')
 }
-

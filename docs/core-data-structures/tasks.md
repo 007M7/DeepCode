@@ -20,8 +20,8 @@ interface TaskStart {
   label: string
   /**
    * The spawning agent. Its `session.header.id` becomes the task's owner
-   * token (read/kill/wait/list are fenced to that session), and its disposal
-   * cancels and awaits the task through the `ctx.agents.onCleanup` seam. It
+   * token (read/kill/wait/list are fenced to that session), and its `ctx` scope
+   * owns an async cleanup that cancels and awaits the task during disposal. It
    * must be the exact live instance currently registered under its agent id;
    * a stale object whose id has been reused is rejected before work starts.
    * `undefined` starts an UNOWNED task: open to any caller, alive until the
@@ -140,4 +140,4 @@ interface TaskRead {
 
 ## The service
 
-`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per terminal record, effect-scoped, contained). Start validates that an owned task names the exact live Agent instance currently registered under its id, so an old reference cannot bind work to a replacement agent's cleanup after id reuse. Every read/kill/wait/get separately compares the task's owner session with the caller's and rejects a foreign one. Owned tasks are cancelled and normally awaited to producer quiescence when their owning agent disposes (the `ctx.agents.onCleanup` seam); a teardown cancel that throws force-fails only the registry record and reports that the underlying work may be orphaned, preventing disposal deadlock without claiming quiescence. The model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).
+`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per terminal record, effect-scoped, contained). Start validates that an owned task names the exact live Agent instance currently registered under its id, so an old reference cannot bind work to a replacement agent's cleanup after id reuse. Every read/kill/wait/get separately compares the task's owner session with the caller's and rejects a foreign one. Owned tasks register one async cleanup through the exact owner's `agent.ctx`; scope disposal cancels them and normally awaits producer quiescence. A teardown cancel that throws force-fails only the registry record and reports that the underlying work may be orphaned, preventing disposal deadlock without claiming quiescence. The model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).

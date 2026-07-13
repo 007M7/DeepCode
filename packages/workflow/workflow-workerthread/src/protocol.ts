@@ -33,8 +33,6 @@ export enum WorkerToHostType {
   AgentEnd = 'agent-end',
   /** Child RPC: start a child on the host (answered by ChildStarted or ChildStartError). */
   ChildStart = 'child-start',
-  /** Child RPC: cancel a started child (fire-and-forget). */
-  ChildCancel = 'child-cancel',
   /** Child RPC: dispose a started child (answered by ChildDisposed). */
   ChildDispose = 'child-dispose',
   /** The run's single terminal result. */
@@ -55,8 +53,6 @@ export interface WorkerToHostPayloads {
   [WorkerToHostType.AgentEnd]: { info: WorkflowAgentEndInfo }
   /** The RPC correlation id and the prompt plus validated options. */
   [WorkerToHostType.ChildStart]: { callId: number; request: ChildStartRequest }
-  /** The RPC correlation id and the cancel reason (undefined = unspecified). */
-  [WorkerToHostType.ChildCancel]: { callId: number; reason: string | undefined }
   /** The RPC correlation id of the child to dispose. */
   [WorkerToHostType.ChildDispose]: { callId: number }
   /** The run's terminal outcome. */
@@ -69,9 +65,9 @@ export enum HostToWorkerType {
   Go = 'go',
   /** Cancel the run: hooks start throwing and the script dies at its next await. */
   Cancel = 'cancel',
-  /** Child RPC reply: the start succeeded (exactly one of ChildStarted/ChildStartError per ChildStart). */
+  /** Child RPC reply: the provider fulfilled with a ready run (exactly one start reply per ChildStart). */
   ChildStarted = 'child-started',
-  /** Child RPC reply: the start was refused or threw. */
+  /** Child RPC reply: the provider's asynchronous start failed. */
   ChildStartError = 'child-start-error',
   /** Child RPC: a started child's result RESOLVED (its JSON projection). */
   ChildSettled = 'child-settled',

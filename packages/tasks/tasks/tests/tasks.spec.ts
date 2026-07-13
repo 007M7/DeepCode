@@ -6,19 +6,31 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 
-function stubAgent(rawId: string, rawSessionId = `${rawId}-session`): Agent {
+const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
+
+function stubAgent(ctx: Context, rawId: string, rawSessionId = `${rawId}-session`): Agent {
   const id = AgentId(rawId)
-  return {
+  const scopeFiber = ctx.plugin(() => {})
+  const agent = {
     id,
     options: {},
     session: new Session(SessionId(rawSessionId)),
-    status: 'idle',
+    status: 'idle' as const,
+    ctx: scopeFiber.ctx,
     send() {},
     steer() {},
     inject() {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
+  agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })
+  return agent
+}
+
+async function disposeAgentScope(agent: Agent): Promise<void> {
+  const dispose = agentScopeDisposers.get(agent)
+  if (dispose === undefined) throw new Error(`missing test scope for agent "${agent.id}"`)
+  await dispose()
 }
 
 /** A controllable producer start-spec: settle its `done` on demand, record cancels. */
@@ -320,9 +332,9 @@ describe('TaskService.wait', () => {
 describe('TaskService owner isolation', () => {
   it('fences read/kill/wait to the owning session and keeps unowned tasks open', async () => {
     const ctx = await harness()
-    const owner = stubAgent('owner')
+    const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
-    const other = stubAgent('other')
+    const other = stubAgent(ctx, 'other')
 
     const owned = ctx.tasks.start(producer({ owner }).spec)
     const open = ctx.tasks.start(producer().spec)
@@ -340,8 +352,8 @@ describe('TaskService owner isolation', () => {
 
   it('list() shows only caller-owned plus unowned tasks', async () => {
     const ctx = await harness()
-    const alice = stubAgent('alice')
-    const bob = stubAgent('bob')
+    const alice = stubAgent(ctx, 'alice')
+    const bob = stubAgent(ctx, 'bob')
     ctx.agents.register(alice)
     ctx.agents.register(bob)
 
@@ -358,7 +370,7 @@ describe('TaskService owner isolation', () => {
     const ctx = new Context()
     await ctx.plugin(TaskService)
     ctx.tasks.attachSurface('test-surface')
-    expect(() => ctx.tasks.start(producer({ owner: stubAgent('a') }).spec))
+    expect(() => ctx.tasks.start(producer({ owner: stubAgent(ctx, 'a') }).spec))
       .toThrow('background task ownership requires the agent registry')
     // The failed registration mutated nothing: no stored task, counter untouched.
     expect(ctx.tasks.list()).toEqual([])
@@ -367,7 +379,7 @@ describe('TaskService owner isolation', () => {
 
   it('a failed owner-cleanup attach leaves the registry unchanged and does not poison the owner', async () => {
     const ctx = await harness()
-    const ghost = stubAgent('ghost') // never registered in ctx.agents
+    const ghost = stubAgent(ctx, 'ghost') // never registered in ctx.agents
 
     // Exact-instance preflight rejects the unregistered agent BEFORE any
     // registry mutation or owner-cleanup attachment.
@@ -390,18 +402,18 @@ describe('TaskService owner isolation', () => {
       }),
     })
     expect(id).toBe('bash-1') // the failed attempt burned no counter
-    await ctx.agents.drainCleanups(ghost.id)
+    await disposeAgentScope(ghost)
     expect(cancels).toEqual(['owner disposed'])
     expect(ctx.tasks.list(ghost)).toEqual([])
   })
 
   it('rejects a stale owner instance after another agent reuses its id', async () => {
     const ctx = await harness()
-    const staleOwner = stubAgent('owner', 'stale-session')
+    const staleOwner = stubAgent(ctx, 'owner', 'stale-session')
     const unregisterStale = ctx.agents.register(staleOwner)
     unregisterStale()
 
-    const currentOwner = stubAgent('owner', 'current-session')
+    const currentOwner = stubAgent(ctx, 'owner', 'current-session')
     ctx.agents.register(currentOwner)
     const current = producer({ owner: currentOwner })
     ctx.tasks.start(current.spec) // Attach the current owner's cleanup first.
@@ -416,14 +428,14 @@ describe('TaskService owner isolation', () => {
 
     current.settle({ status: 'completed' })
     await tick()
-    await ctx.agents.drainCleanups(currentOwner.id)
+    await disposeAgentScope(currentOwner)
   })
 })
 
 describe('TaskService owner cleanup', () => {
   it('drains the owner: cancels live tasks, awaits settlement, drops snapshots', async () => {
     const ctx = await harness()
-    const owner = stubAgent('owner')
+    const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
 
     // The producer settles only when cancelled — models a child that stops on request.
@@ -443,15 +455,15 @@ describe('TaskService owner cleanup', () => {
     terminal.settle({ status: 'completed' })
     await tick()
 
-    await ctx.agents.drainCleanups(owner.id)
+    await disposeAgentScope(owner)
     expect(cancels).toEqual(['owner disposed'])
     // Snapshots dropped: nothing of the owner's remains, listing is empty.
     expect(ctx.tasks.list(owner)).toEqual([])
   })
 
-  it('attaches one cleanup per owner and re-attaches after a drain', async () => {
+  it('attaches one cleanup per owner and drains all owned tasks with the scope', async () => {
     const ctx = await harness()
-    const owner = stubAgent('owner')
+    const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
 
     const first = producer({ owner })
@@ -461,34 +473,28 @@ describe('TaskService owner cleanup', () => {
     first.settle({ status: 'completed' })
     second.settle({ status: 'completed' })
     await tick()
-    await ctx.agents.drainCleanups(owner.id)
-
-    // A fresh task after the drain gets a fresh cleanup (the set was consumed).
-    const third = producer({ owner })
-    ctx.tasks.start(third.spec)
-    third.settle({ status: 'completed' })
-    await tick()
-    expect(ctx.tasks.list(owner)).toHaveLength(1)
-    await ctx.agents.drainCleanups(owner.id)
+    expect(owner.ctx.fiber.getEffects().filter(effect => effect.label === 'tasks.ownerCleanup()')).toHaveLength(1)
+    await disposeAgentScope(owner)
     expect(ctx.tasks.list(owner)).toEqual([])
   })
 
-  it('releases the owner-cleanup effect from the tasks fiber after its drain', async () => {
+  it('registers owner cleanup on the agent scope rather than the tasks fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const tasksFiber = await ctx.plugin(TaskService)
     ctx.tasks.attachSurface('test-surface')
-    const owner = stubAgent('owner')
+    const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
-    const ownerCleanupEffects = () => tasksFiber.getEffects()
-      .filter(effect => effect.label === 'agents.onCleanup()')
+    const ownerCleanupEffects = () => owner.ctx.fiber.getEffects()
+      .filter(effect => effect.label === 'tasks.ownerCleanup()')
 
     const first = producer({ owner })
     ctx.tasks.start(first.spec)
     expect(ownerCleanupEffects()).toHaveLength(1)
     first.settle({ status: 'completed' })
     await tick()
-    await ctx.agents.drainCleanups(owner.id)
+    expect(tasksFiber.getEffects().some(effect => effect.label === 'tasks.ownerCleanup()')).toBe(false)
+    await disposeAgentScope(owner)
 
     // Only the owner registration is released; the long-lived tasks service
     // and its own teardown effect remain active.
@@ -496,20 +502,12 @@ describe('TaskService owner cleanup', () => {
     expect(ctx.get('tasks')).toBeDefined()
     expect(tasksFiber.getEffects().some(effect => effect.label === 'tasks teardown')).toBe(true)
 
-    // The same still-live owner can attach and release a fresh registration.
-    const second = producer({ owner })
-    ctx.tasks.start(second.spec)
-    expect(ownerCleanupEffects()).toHaveLength(1)
-    second.settle({ status: 'completed' })
-    await tick()
-    await ctx.agents.drainCleanups(owner.id)
-    expect(ownerCleanupEffects()).toHaveLength(0)
   })
 
   it('force-fails a throwing teardown cancel without awaiting producer done, first outcome wins', async () => {
     const ctx = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const owner = stubAgent('owner')
+    const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
     const seen: TaskSnapshot[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
@@ -525,7 +523,7 @@ describe('TaskService owner cleanup', () => {
       }),
     })
 
-    const drain = ctx.agents.drainCleanups(owner.id)
+    const drain = disposeAgentScope(owner)
     let drained = false
     void drain.then(() => { drained = true })
     await tick()
@@ -616,6 +614,32 @@ describe('TaskService disposal', () => {
     expect(disposedWithoutProducerDone).toBe(true)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('work may be orphaned'))
     expect(seen).toEqual([])
+  })
+
+  it('detaches owner effects from still-live agent scopes when the service unloads', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const tasksFiber = await ctx.plugin(TaskService)
+    ctx.tasks.attachSurface('test-surface')
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'owned work',
+      owner,
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+      }),
+    })
+    const ownerEffects = () => owner.ctx.fiber.getEffects()
+      .filter(effect => effect.label === 'tasks.ownerCleanup()')
+    expect(ownerEffects()).toHaveLength(1)
+
+    await tasksFiber.dispose()
+
+    expect(ownerEffects()).toHaveLength(0)
   })
 
   it('detaching the last surface re-arms the register fence', async () => {

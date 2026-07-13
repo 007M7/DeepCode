@@ -16,7 +16,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 |---|---|---|
 | `model` | — | Model name for created agents (must have a registered adapter). |
 
-(No persona key: the deployment persona is `dsh-system-prompt`'s own `persona` config — a context-wide section, so ACP-created agents render it without the bridge carrying prompt text.)
+(No persona key: `dsh-system-prompt`'s own `persona` config supplies the global default section, so ACP-created agents render it without the bridge carrying prompt text. An agent-scoped same-name section may still shadow that default.)
 
 The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' }`) — branding is a literal at the `initialize` site, not config.
 
@@ -36,7 +36,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 
 ## Multi-session
 
-The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so `agent/*` events — which carry only the `Agent` — demux in O(1). Every `session/event` and `agent/status` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. Permission prompts follow the same ownership: the `approval/request` answerer resolves the owning session through the reverse map and prompts only there.
+The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so agent-scoped approval events demultiplex in O(1). Every `session/event` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. Permission prompts follow the same ownership: the `approval/request` answerer resolves the owning session through the reverse map and prompts only there.
 
 ## Session config options
 
@@ -71,7 +71,7 @@ When the client does NOT advertise the capability, none of the `_meta`/terminal 
 
 ## Settle-exactly-once
 
-A `session/prompt` resolves (or rejects) exactly once, keyed off the canonical session log (the `session/event` stream). One listener captures the prompt's owning turn from the log's `turn/start` and settles on the matching `turn/end` — the durable boundary event (`closeTurn` appends it unconditionally; there is no `agent/*` turn mirror). A prompt settles only on ITS OWN turn (`inflight.turn === turn/end.turn`), so a stale `turn/end` for a previously-cancelled turn whose end arrives late can never settle the wrong prompt. A turn that ends `error` REJECTS the RPC with an internal error carrying the failure message (ACP has no error stop reason); every other reason resolves via the codec. As a fallback, when the agent settles to `idle`/`disposed` with a prompt still pending — e.g. a peer `session/event` listener registered before the bridge threw and starved the bridge's listener — an `agent/status` handler reconciles the prompt from the log (the owning turn's `turn/end`, or `cancelled` if the turn was torn down without one). An empty/whitespace prompt is rejected up front — it would queue no work, so no turn would start and the RPC would hang.
+A `session/prompt` resolves or rejects exactly once from the canonical `session/event` stream. The listener captures the prompt's owning turn from `turn/start` and settles in a `finally` block when the matching `turn/end` is appended, so a presentation/streaming failure cannot strand the RPC after the durable terminal event exists. Correlation by turn id prevents a late end from a cancelled prompt from settling its successor. A turn ending in `error` rejects the RPC with an internal error carrying the failure message because ACP has no error stop reason; every other reason resolves through the codec. An empty or whitespace-only prompt is rejected before enqueue because it would start no turn and otherwise leave the RPC pending.
 
 ## Permission prompts
 

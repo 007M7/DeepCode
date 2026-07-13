@@ -1,8 +1,8 @@
 /**
  * System prompt assembly registry. Plugins contribute ordered text sections,
  * tool schema providers, and named prompt variables; `assemble(context)`
- * collates them through a waterfall that runs once per step, and
- * `renderPrompt` interpolates `{{variable}}` references into the final text.
+ * collates them through a waterfall that runs once per step, and `renderPrompt`
+ * interpolates `{{variable}}` references into the final text.
  *
  * The harness-owned prompt openers live here too: this plugin registers the
  * static `harness:identity` section (order −100) and the deployment's
@@ -14,6 +14,8 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
@@ -27,6 +29,15 @@ declare module 'cordis' {
      * {@link PromptAssembly} (sections + tools + variables) before it is
      * rendered. Bound to the {@link SystemPrompt} service; call `next()` to
      * delegate.
+     *
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
+     * by `context.scope` — a listener registered through `agent.ctx` fires only
+     * for that agent's assemblies; a plain plugin listener fires for every
+     * assembly (scope-less ones included, dispatched subject-less).
+     *
+     * The returned assembly is authoritative. This is an expert composition
+     * seam: a listener that removes or replaces another plugin's protocol
+     * contribution owns preserving that protocol's invariants.
      * @param assembly - the assembly built from the registered sections, tool
      *   providers, and variable providers; listeners may mutate it or return a
      *   replacement.
@@ -35,10 +46,14 @@ declare module 'cordis' {
      *   is for), so a listener can filter or extend per agent.
      * @mode waterfall
      */
-    'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
+    'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
     /**
-     * A section, tool provider, or variable provider was registered or
-     * unregistered (the assembly inputs changed).
+     * A section, tool provider, or variable provider was registered
+     * or unregistered (the assembly inputs changed — possibly for one scope
+     * only). An UNFILTERED registry-subject notification, deliberately not
+     * scope-filtered dispatch: a global change concerns every agent's next
+     * assembly, so a scoped listener subscribing here sees every change, not
+     * just its own scope's.
      * @mode emit
      */
     'system-prompt/change'(): void
@@ -47,30 +62,41 @@ declare module 'cordis' {
 
 /**
  * Per-assembly input: what one {@link SystemPrompt.assemble} call is FOR.
- * Declared empty here so this package stays agnostic of who assembles;
- * merge-extensible — `@deepseek-ai/dsh-agent` declares the `agent` field, so
- * section text and variable providers can be functions of the calling agent.
- * Every field is optional by nature: a bare `assemble()` (tests, diagnostics)
- * carries an empty context, and providers must tolerate absent fields.
+ * Merge-extensible and agnostic of who assembles — `@deepseek-ai/dsh-agent`
+ * declares the `agent` field, so section text and variable providers can be
+ * functions of the calling agent. Every field is optional by nature: a bare
+ * `assemble()` (tests, diagnostics) carries an empty, scope-less context, and
+ * providers must tolerate absent fields.
  */
-export interface AssembleContext {}
+export interface AssembleContext {
+  /**
+   * The scope layer this assembly resolves (`@deepseek-ai/dsh-scope`): scoped
+   * sections/variables/tool-providers registered through this key's context
+   * join the assembly (shadowing same-named global contributions), and the
+   * `system-prompt/assemble` waterfall dispatches in this scope. The agent
+   * loop sets it to the agent (alongside the `agent` DX field — never set
+   * `agent` without `scope`; the dev invariants flag the mismatch). Absent =
+   * a scope-less assembly: global layer only, subject-less dispatch.
+   */
+  scope?: ScopeKey
+}
 
 /** One contributed section of the system prompt (registry input). */
 export interface PromptSection {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.section}). */
-  name: string
+  readonly name: string
   /**
    * Sections are concatenated in ascending order. Convention: `-100` is the
    * harness identity, `0` the deployment persona, tool guidance uses 100–199;
    * other negative orders also render before the persona.
    */
-  order: number
+  readonly order: number
   /**
    * Static text or a provider evaluated at each assembly with that assembly's
    * {@link AssembleContext}. The text may reference `{{variable}}`s — they are
    * interpolated later, by {@link renderPrompt}.
    */
-  text: string | ((context: AssembleContext) => string)
+  readonly text: string | ((context: AssembleContext) => string)
 }
 
 /** One section of an assembly: {@link PromptSection} with its text resolved. */
@@ -81,6 +107,23 @@ export interface AssembledSection {
   order: number
   /** The resolved (but not yet interpolated) section text. */
   text: string
+}
+
+/**
+ * What one tool-schema provider contributes to an assembly
+ * ({@link SystemPrompt.tools}). `schemas` is the provider's POST-restriction
+ * visible set for the assembly's scope — exactly what the model may be shown.
+ * `knownNames` is its PRE-restriction name universe: the set configured names
+ * (`toolOrder`) are validated against, so a config typo fails loud while a
+ * restricted-away tool stays a normal, non-erroneous absence. Omitted,
+ * `knownNames` defaults to the names of `schemas` (right for providers with no
+ * restriction concept).
+ */
+export interface ToolProviderResult {
+  /** The schemas this provider contributes to THIS assembly. */
+  readonly schemas: readonly ToolSchema[]
+  /** The pre-restriction name universe for config validation (defaults to `schemas`' names). */
+  readonly knownNames?: readonly string[]
 }
 
 /**
@@ -146,23 +189,26 @@ function validateToolOrder(toolOrder: string[] | undefined): string[] | undefine
  * list, plain lexicographic name order; with one, listed names take their
  * listed position and every unlisted tool lands at the
  * {@link TOOL_ORDER_REST} rest entry in lexicographic name order. A listed
- * name with no collected tool throws — misconfiguration fails loud, and this
- * is the earliest moment the registered tool set exists to check against
- * (tool plugins register after the service constructs, so load time is too
- * early): the assembly rejects, failing the caller's turn before any model
- * request. Never drops a tool, and both sorts are stable, so tools sharing a
- * name keep their collection order.
+ * name outside `knownNames` — the providers' PRE-restriction name universe —
+ * throws: misconfiguration fails loud, and each assembly is the earliest
+ * moment the registered tool set exists to check against (tool plugins
+ * register after the service constructs, so load time is too early); the
+ * assembly rejects, failing the caller's turn before any model request. A
+ * listed name that is KNOWN but not collected (a tool restricted away for
+ * this assembly's scope) is a normal absence: its position simply
+ * contributes nothing — `toolOrder` stays compatible with per-agent
+ * `restrict()` masks. Never drops a collected tool, and both sorts are
+ * stable, so tools sharing a name keep their collection order.
  */
-function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined): ToolSchema[] {
+function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined, knownNames: ReadonlySet<string>): ToolSchema[] {
   const reserved = tools.find(tool => tool.name === TOOL_ORDER_REST)
   if (reserved !== undefined) {
     throw new Error(`tool provider returned reserved tool name "${TOOL_ORDER_REST}" (reserved for toolOrder's rest entry)`)
   }
   if (toolOrder === undefined) return tools.sort(compareToolNames)
-  const registered = new Set(tools.map(tool => tool.name))
-  const unknown = toolOrder.filter(name => name !== TOOL_ORDER_REST && !registered.has(name))
+  const unknown = toolOrder.filter(name => name !== TOOL_ORDER_REST && !knownNames.has(name))
   if (unknown.length > 0) {
-    throw new Error(`toolOrder lists unregistered tool${unknown.length > 1 ? 's' : ''} ${unknown.map(name => `"${name}"`).join(', ')}; registered tools: ${[...registered].sort().join(', ') || '(none)'}`)
+    throw new Error(`toolOrder lists unregistered tool${unknown.length > 1 ? 's' : ''} ${unknown.map(name => `"${name}"`).join(', ')}; known tools: ${[...knownNames].sort().join(', ') || '(none)'}`)
   }
   const listed = new Set(toolOrder)
   const rest = tools.filter(tool => !listed.has(tool.name)).sort(compareToolNames)
@@ -181,7 +227,10 @@ export interface Config {
    * The deployment's persona — the ONE deployment-authored fragment of the
    * system prompt, rendered as the order-0 `deployment:persona` section
    * (after the harness identity, before all tool guidance). Every agent in
-   * the context shares it, subagents included. Template, not free-form text:
+   * the context shares it by default; a per-agent persona is a SCOPED section
+   * of the same name registered through that agent's `agent.ctx` (it shadows
+   * this one for that agent — the subagent seam's `persona` request field does
+   * exactly that). Template, not free-form text:
    * every complete `{{…}}` group is interpreted strictly against the
    * registered prompt variables (the shipped agent loop registers `{{model}}`
    * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
@@ -301,8 +350,12 @@ export class SystemPrompt extends Service {
   })
 
   private sections: PromptSection[] = []
-  private toolProviders: (() => ToolSchema[])[] = []
+  private toolProviders: ((context: AssembleContext) => ToolProviderResult)[] = []
   private variableProviders = new Map<string, (context: AssembleContext) => string | undefined>()
+  /** Per-scope layers (`@deepseek-ai/dsh-scope`); entries drop when a layer empties, so a disposed scope leaves no residue. */
+  private scopedSections = new Map<ScopeKey, PromptSection[]>()
+  private scopedToolProviders = new Map<ScopeKey, ((context: AssembleContext) => ToolProviderResult)[]>()
+  private scopedVariableProviders = new Map<ScopeKey, Map<string, (context: AssembleContext) => string | undefined>>()
   private readonly toolOrder: string[] | undefined
 
   constructor(ctx: Context, public config: Config) {
@@ -330,61 +383,110 @@ export class SystemPrompt extends Service {
 
   /**
    * Contribute a text section to the system prompt. Order is determined by
-   * `section.order` (ascending). Throws if a section with the same name is
-   * already registered (a duplicate would silently double prompt text — e.g.
-   * a double-loaded tool plugin). The section is removed when the calling
-   * fiber is disposed. Emits `system-prompt/change` on register/unregister.
+   * `section.order` (ascending). The layer is decided by the CALLING context
+   * (`@deepseek-ai/dsh-scope`): a plain plugin context contributes globally; a
+   * scoped context (`agent.ctx`) contributes to that scope alone — and a
+   * scoped section SHADOWS a same-named global section for that scope's
+   * assemblies (most-specific-wins; this is how a per-agent persona overrides
+   * `deployment:persona`). The readonly typed contribution is borrowed until
+   * disposal; only the semantic
+   * finite-order rule is checked at runtime. Throws if the SAME layer already has the name (a
+   * duplicate would silently double prompt text — e.g. a double-loaded tool
+   * plugin; the global-duplicate message names `agent.ctx` as the per-agent
+   * alternative). Removed when the calling fiber is disposed. Emits
+   * `system-prompt/change` on register/unregister.
    * @param section - the section to contribute (name, order, text or provider).
-   * @returns the disposer that removes the section.
+   * @returns the disposer that removes the section. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
   section(section: PromptSection): () => void {
+    if (!Number.isFinite(section.order)) {
+      throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
+    }
+    const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      if (this.sections.some(existing => existing.name === section.name)) {
-        throw new Error(`prompt section "${section.name}" is already registered`)
+      const layer = scope === undefined
+        ? this.sections
+        : this.scopedSections.get(scope) ?? (() => {
+          const created: PromptSection[] = []
+          this.scopedSections.set(scope, created)
+          return created
+        })()
+      if (layer.some(existing => existing.name === section.name)) {
+        throw new Error(scope === undefined
+          ? `prompt section "${section.name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
+          : `prompt section "${section.name}" is already registered in this scope`)
       }
-      this.sections.push(section)
+      layer.push(section)
       // Yield the rollback BEFORE emitting `system-prompt/change`: a generator
       // effect collects each yielded disposer before the next step runs, so a
       // throwing change listener removes the section instead of leaking it into
       // every future assembly.
       yield () => {
-        const index = this.sections.indexOf(section)
+        const index = layer.indexOf(section)
         /* v8 ignore next 3 -- defensive: section was registered, so indexOf is guaranteed >= 0 */
-        if (index >= 0) this.sections.splice(index, 1)
+        if (index >= 0) layer.splice(index, 1)
+        if (scope !== undefined && layer.length === 0) this.scopedSections.delete(scope)
         this.ctx.emit('system-prompt/change')
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.section()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return dispose
   }
 
   /**
-   * Contribute a tool-schema provider that is evaluated at each assembly
-   * call (so it can reflect the live registry state). The provider is
-   * removed when the calling fiber is disposed. A provider must not return a
-   * schema named {@link TOOL_ORDER_REST}; that name is reserved for
+   * Contribute a tool-schema provider, evaluated at each assembly call with
+   * that assembly's {@link AssembleContext} (so it reflects the live registry
+   * state AND the assembly's scope — see {@link ToolProviderResult} for the
+   * `schemas`/`knownNames` split). The layer is decided by the calling
+   * context: a scoped provider (registered through `agent.ctx`) is consulted
+   * only for that scope's assemblies. Removed when the calling fiber is
+   * disposed. A provider must not return a schema named
+   * {@link TOOL_ORDER_REST}; that name is reserved for
    * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
    * `system-prompt/change`.
    * @param provider - evaluated at every {@link assemble} for fresh schemas.
-   * @returns the disposer that removes the provider.
+   * @returns the disposer that removes the provider. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  tools(provider: () => ToolSchema[]): () => void {
+  tools(provider: (context: AssembleContext) => ToolProviderResult): () => void {
+    const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      this.toolProviders.push(provider)
+      const layer = scope === undefined
+        ? this.toolProviders
+        : this.scopedToolProviders.get(scope) ?? (() => {
+          const created: ((context: AssembleContext) => ToolProviderResult)[] = []
+          this.scopedToolProviders.set(scope, created)
+          return created
+        })()
+      layer.push(provider)
       // Yield the rollback BEFORE emitting `system-prompt/change` (see section()).
       yield () => {
-        const index = this.toolProviders.indexOf(provider)
+        const index = layer.indexOf(provider)
         /* v8 ignore next 3 -- defensive: provider was registered, so indexOf is guaranteed >= 0 */
-        if (index >= 0) this.toolProviders.splice(index, 1)
+        if (index >= 0) layer.splice(index, 1)
+        if (scope !== undefined && layer.length === 0) this.scopedToolProviders.delete(scope)
         this.ctx.emit('system-prompt/change')
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.tools()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return dispose
   }
 
   /**
@@ -392,50 +494,75 @@ export class SystemPrompt extends Service {
    * `{{name}}`. The provider is evaluated at each assembly with that
    * assembly's {@link AssembleContext}; returning `undefined` means "no value
    * for this assembly" (a section referencing it then fails to render — a
-   * deployment must not claim facts it does not have). Throws on a name that
-   * does not match `[a-z][a-z0-9_]*` (it could never be referenced) or is
-   * already registered. Removed when the calling fiber is disposed; emits
+   * deployment must not claim facts it does not have). The layer is decided
+   * by the calling context: a scoped variable (registered through
+   * `agent.ctx`) resolves only for that scope's assemblies and SHADOWS a
+   * same-named global variable there. Throws on a name that does not match
+   * `[a-z][a-z0-9_]*` (it could never be referenced) or one already registered
+   * in the SAME layer. Removed when the calling fiber is disposed; emits
    * `system-prompt/change` on register/unregister.
    * @param name - the reference name (matches `[a-z][a-z0-9_]*`).
    * @param provider - evaluated at every {@link assemble} for the value.
-   * @returns the disposer that removes the variable.
+   * @returns the disposer that removes the variable. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
   variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void {
+    if (!VARIABLE_NAME.test(name)) {
+      throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
+    }
+    const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      if (!VARIABLE_NAME.test(name)) {
-        throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
+      const layer = scope === undefined
+        ? this.variableProviders
+        : this.scopedVariableProviders.get(scope) ?? (() => {
+          const created = new Map<string, (context: AssembleContext) => string | undefined>()
+          this.scopedVariableProviders.set(scope, created)
+          return created
+        })()
+      if (layer.has(name)) {
+        throw new Error(scope === undefined
+          ? `prompt variable "${name}" is already registered (for a per-agent value, register through that agent's \`agent.ctx\` instead)`
+          : `prompt variable "${name}" is already registered in this scope`)
       }
-      if (this.variableProviders.has(name)) {
-        throw new Error(`prompt variable "${name}" is already registered`)
-      }
-      this.variableProviders.set(name, provider)
+      layer.set(name, provider)
       // Yield the rollback BEFORE emitting `system-prompt/change` (see section()).
       yield () => {
-        this.variableProviders.delete(name)
+        layer.delete(name)
+        if (scope !== undefined && layer.size === 0) this.scopedVariableProviders.delete(scope)
         this.ctx.emit('system-prompt/change')
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.variable()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return dispose
   }
 
   /**
-   * Assemble the current prompt for one caller: section texts are resolved
-   * against `context` and sorted by order, tools collected from all providers
-   * and put in the canonical model-facing order ({@link Config.toolOrder}, or
-   * lexicographic name order when unconfigured — provider registration order
-   * is a plugin-load artifact and never reaches the assembly; a configured
-   * order naming a tool no provider contributed rejects the assembly), and every
-   * registered variable resolved against `context` into `assembly.variables`.
-   * Tool schemas are deep-cloned because adapters and request waterfalls may
-   * mutate schema objects. Runs through the `system-prompt/assemble`
-   * waterfall, giving listeners the opportunity to mutate or replace the
-   * assembly before it reaches the model — like the sections' `order` sort,
-   * tool canonicalization happens on the initial assembly, and a listener
-   * owns the determinism of whatever it emits. Await the result before
-   * reading the assembly values — waterfall listeners may be async.
+   * Assemble the current prompt for one caller: the global layer merged with
+   * {@link AssembleContext.scope}'s layer (scoped sections/variables SHADOW
+   * same-named global ones — most-specific-wins) — section texts resolved
+   * against `context` and sorted by order across the union, tools collected
+   * from the global providers plus the scope's and put in the canonical
+   * model-facing order ({@link Config.toolOrder}, or lexicographic name order
+   * when unconfigured — provider registration order is a plugin-load artifact
+   * and never reaches the assembly; a configured order naming a tool outside
+   * the providers' `knownNames` universe rejects the assembly, while a known
+   * name restricted away for this scope is a normal absence), and every
+   * visible variable resolved against `context` into `assembly.variables`.
+   * Tool schemas are detached because assembly waterfalls may mutate them.
+   * Runs through the `system-prompt/assemble` waterfall, giving listeners the
+   * opportunity to mutate or replace the assembly; the returned value is the
+   * authoritative model-visible composition. Like the sections' `order`
+   * sort, tool canonicalization happens on the initial assembly; listener
+   * output owns its own determinism. Await the result before reading the
+   * assembly values — waterfall listeners may be async.
    * Interpolation happens later, in {@link renderPrompt}.
    * @param context - what this assembly is for (defaults to an empty context;
    *   see {@link AssembleContext}).
@@ -445,25 +572,64 @@ export class SystemPrompt extends Service {
   // rejection: a Promise-returning method must not throw synchronously
   // (`assemble().catch(...)` would miss it).
   async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
+    const scope = context.scope
+    // Variables: global layer first, then the scope's layer OVERWRITES
+    // same-named entries (shadowing — a per-agent value wins for that agent).
     const variables: Record<string, string | undefined> = {}
     for (const [name, provider] of this.variableProviders) {
       variables[name] = provider(context)
     }
+    const scopedVariables = scope === undefined ? undefined : this.scopedVariableProviders.get(scope)
+    for (const [name, provider] of scopedVariables ?? []) {
+      variables[name] = provider(context)
+    }
+    // Sections: merge by name, scoped REPLACING same-named global entries
+    // (most-specific-wins — the per-agent persona mechanism), then sort by
+    // order across the union. Registration order within a layer is preserved
+    // for equal orders (stable sort).
+    const sectionByName = new Map<string, PromptSection>()
+    for (const section of this.sections) sectionByName.set(section.name, section)
+    for (const section of (scope === undefined ? [] : this.scopedSections.get(scope)) ?? []) {
+      sectionByName.set(section.name, section)
+    }
+    // Tools: consult the global providers plus the scope's, each with this
+    // assembly's context. `schemas` are what the model may see (already
+    // post-restriction, per provider); `knownNames` (defaulting to the
+    // schemas' names) form the pre-restriction universe `toolOrder` is
+    // validated against, so a restricted-away tool is a normal absence while
+    // a config typo still fails every assembly loudly.
+    const providers = [
+      ...this.toolProviders,
+      ...(scope === undefined ? [] : this.scopedToolProviders.get(scope)) ?? [],
+    ]
+    const collected: ToolSchema[] = []
+    const knownNames = new Set<string>()
+    for (const provider of providers) {
+      const result = provider(context)
+      const schemas = result.schemas.map(({ name, description, parameters }): ToolSchema => ({
+        name,
+        description,
+        parameters: structuredClone(parameters),
+      }))
+      const acceptedKnownNames = result.knownNames ?? schemas.map(tool => tool.name)
+      collected.push(...schemas)
+      for (const name of acceptedKnownNames) knownNames.add(name)
+    }
     const assembly: PromptAssembly = {
-      sections: this.sections
+      sections: [...sectionByName.values()]
         .map(section => ({
           name: section.name,
           order: section.order,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
         }))
         .sort((a, b) => a.order - b.order),
-      tools: orderTools(
-        this.toolProviders.flatMap(provider =>
-          provider().map(tool => ({ ...tool, parameters: structuredClone(tool.parameters) }))),
-        this.toolOrder),
+      tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
-    return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, context, () => Promise.resolve(assembly))
+    return this.ctx.waterfall(
+      scopeTarget(this, scope), 'system-prompt/assemble', assembly, context,
+      () => Promise.resolve(assembly),
+    )
   }
 }
 

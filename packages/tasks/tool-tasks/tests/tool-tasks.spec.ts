@@ -27,7 +27,13 @@ async function setup(config: ToolTasks.Config = {}) {
  * wrong-field match fails the test).
  */
 function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
-  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  const scopeFiber = ctx.plugin(() => {})
+  const agent = {
+    id: `agent-${sessionId}`,
+    ctx: scopeFiber.ctx,
+    inject,
+    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+  } as unknown as Agent
   ctx.agents.register(agent)
   return agent
 }

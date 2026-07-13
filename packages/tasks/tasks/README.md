@@ -17,8 +17,8 @@ Every read/kill/wait/get compares the task's owner session (`owner.session.heade
 ## Lifecycle
 
 - Registrations are NOT effect-scoped to the registering fiber: tasks belong to their owning agent + producing backend, so producer/surface HMR reloads never touch them.
-- An owned task must name the exact live `Agent` instance currently registered under its id (stale objects are rejected after id reuse), then attaches once per owner an awaited cleanup via `ctx.agents.onCleanup`: on owner disposal the registry cancels live tasks, awaits contract-compliant producers to quiescence, and drops their snapshots. If a teardown cancel throws, it force-fails the record and logs that the underlying work may be orphaned rather than deadlocking `AgentHandle.dispose()`.
-- Service disposal closes the listener registry first (late teardown settlements stay silent), then applies the same cancellation rule to every live task and awaits terminal records.
+- An owned task must name the exact live `Agent` instance currently registered under its id (stale objects are rejected after id reuse), then attaches one awaited cleanup through `owner.ctx`: agent-scope disposal cancels live tasks, awaits contract-compliant producers to quiescence, and drops their snapshots. If a teardown cancel throws, it force-fails the record and logs that the underlying work may be orphaned rather than deadlocking `AgentHandle.dispose()`.
+- Service disposal closes the listener registry first, applies the same cancellation rule to every live task, awaits terminal records, then detaches its effects from still-live agent scopes so a reloaded tasks service is not retained until those agents exit.
 - A producer whose `cancel` returns but never causes `done` to settle remains indistinguishable from a slow stop and can stall teardown; solving that residual requires an explicit bounded-lifetime or forced-disposal design.
 
 ## Non-goals (v1)

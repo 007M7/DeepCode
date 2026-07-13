@@ -107,7 +107,7 @@ describe('loop-level canonical tool order', () => {
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
-    expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; registered tools: alpha'])
+    expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; known tools: alpha'])
     expect(foldRequestHeader(agent.session.events)).toBeUndefined()
     const end = agent.session.events.find(e => e.type === 'turn/end')
     expect(end?.type === 'turn/end' && end.data.reason).toMatchObject({ kind: 'error', step: 1 })
