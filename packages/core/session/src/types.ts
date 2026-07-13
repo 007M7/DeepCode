@@ -195,10 +195,9 @@ export interface TodoItem {
  * The request header: everything about an LLM request besides its derived
  * message history — the call configuration plus the rendered system prompt,
  * tool schemas, and the session prefix. Logged session state (the
- * reconstructability RFC): a
- * {@link SessionEventMap} `request/header` snapshot installs one, a
- * `request/header-delta` amends it, and folding those events over the log
- * (`foldRequestHeader`) reconstructs the header any request was built under.
+ * reconstructability RFC): each changed header is logged as a full
+ * {@link SessionEventMap} `request/header` snapshot, and taking the latest
+ * snapshot (`foldRequestHeader`) reconstructs the header any request used.
  * Canonical form: an empty system prompt, an empty tool list, and an empty
  * prefix are ABSENT fields, matching how requests are built.
  */
@@ -223,43 +222,9 @@ export interface EpochHeader {
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
- * `'fallback'` — a mid-run change the delta encoding could not round-trip
- * (e.g. a pure tool reordering), recorded whole instead.
+ * `'change'` — a later request used a different header.
  */
-export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
-
-/**
- * Line-level edit of the system prompt: keep the first `keepStart` and last
- * `keepEnd` lines of the previous text, with `insert` replacing everything
- * between. Computed as a common-prefix/common-suffix trim — deterministic,
- * library-free, degenerating to a full replacement when nothing is shared.
- * Absence is encoded as zero lines (the canonical form has no empty-string
- * system), so a transition to or from "no system prompt" round-trips.
- */
-export interface SystemDelta {
-  /** Lines kept from the start of the previous system prompt. */
-  keepStart: number
-  /** Lines kept from the end of the previous system prompt. */
-  keepEnd: number
-  /** Lines replacing everything between the kept edges. */
-  insert: string[]
-}
-
-/**
- * Tool-set edit keyed by tool name (names are unique — the registry rejects
- * duplicates): `removed` names drop, `changed` schemas replace their
- * predecessor in place, `added` schemas append at the end. A change this
- * encoding cannot express (a pure reordering) fails the writer's round-trip
- * guard and is recorded as a `'fallback'` snapshot instead.
- */
-export interface ToolsDelta {
-  /** Schemas appended to the end of the tool list. */
-  added: ToolSchema[]
-  /** Names of schemas dropped from the tool list. */
-  removed: string[]
-  /** Schemas replacing the same-named predecessor in place. */
-  changed: ToolSchema[]
-}
+export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
  * The session event vocabulary — the append-only source of truth for an
@@ -363,32 +328,14 @@ export interface SessionEventMap {
    * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
    * with the {@link RequestHeaderReason} it was recorded whole. Appended by
    * the loop inside the step, before dispatch, on a loop instance's first
-   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
-   * round-trip guard (`'fallback'`); always records what the request actually
-   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
-   * the latest snapshot and applies the deltas after it. NOT a
+   * request-building step (`'initial'`/`'resume'`) or when a later request's
+   * header changes (`'change'`); always records what the request actually used,
+   * post-`agent/request`. Reconstruction reads the latest snapshot. NOT a
    * {@link SurfaceEventType}: it produces no LLM message — it is the request
    * envelope, logged so every request is a pure function of the session log
    * (the reconstructability RFC).
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
-  /**
-   * Amendment to the folded {@link EpochHeader}: at least one of a
-   * {@link SystemDelta}, a {@link ToolsDelta}, a whole replacement
-   * {@link LlmCallConfig} (four scalars — not worth diffing), or a whole
-   * replacement session prefix (`messagePrefix` — small advisory content,
-   * replaced whole; an EMPTY array encodes the transition to "none",
-   * mirroring the canonical form's absent field — the loop never produces
-   * one in practice: the prefix is composed once per instance and anchored
-   * by that instance's snapshot, so this arm exists for codec totality).
-   * Appended by the
-   * loop inside the step, before dispatch, when the header for this request
-   * differs from the fold of the log so far; the writer verifies
-   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
-   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
-   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
-   */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
@@ -396,7 +343,7 @@ export type SessionEventType = keyof SessionEventMap
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
- * messages and are eligible to appear on the surface linked list. Only these
+ * messages and are eligible to appear on the ordered surface. Only these
  * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
  */
 export type SurfaceEventType =
@@ -407,7 +354,7 @@ export type SurfaceEventType =
   | 'steering/message'
 
 /**
- * A {@link SessionEvent} that is **on** the surface linked list — its
+ * A {@link SessionEvent} that is **on** the ordered surface — its
  * `surfaceOp` is guaranteed present (mandatory), narrowed from a
  * surface-eligible {@link SessionEvent} by checking both `type` and
  * `surfaceOp` at runtime.
@@ -418,7 +365,7 @@ export type SurfaceEventType =
 export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
 
 /**
- * How a session event entered the surface linked list. Only valid on
+ * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
  * - `'append'`: added to the tail — normal path for user/assistant/tool/context
@@ -435,7 +382,7 @@ export type SurfaceOp =
 
 /**
  * Surface metadata passed to {@link Session.append}.
- * `surfaceOp` controls how the event enters the surface linked list;
+ * `surfaceOp` controls how the event enters the ordered surface;
  * `sourceEventSeqs` records the seq numbers of events that are provenance
  * sources of this one (e.g. the `assistant/chunk` seqs behind an
  * `assistant/message`, or the shadowed nodes behind a compaction replacement).

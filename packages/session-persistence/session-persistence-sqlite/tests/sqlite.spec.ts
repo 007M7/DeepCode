@@ -144,6 +144,23 @@ describe('scanRows', () => {
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-delta', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+    insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
+    insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+    await mounted.dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')

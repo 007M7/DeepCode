@@ -60,8 +60,8 @@ interface SessionTrace {
   /** Every seq seen so far — validates `sourceEventSeqs` references. */
   knownSeqs: Set<number>
   /**
-   * The seqs currently on the surface linked list, in linked-list order
-   * (head to tail). A replace reorders this relative to seq order (the new
+   * The seqs currently on the surface, in derived-message order. A replace
+   * reorders this relative to seq order (the new
    * node takes the replaced range's position), so range validation is
    * positional, not by seq comparison.
    */
@@ -154,7 +154,7 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       }
     }
   }
-  // Fold this event into the tracked surface linked list, validating the
+  // Fold this event into the tracked surface order, validating the
   // replace contract as we go. `append` adds a tail node; `replace` shadows a
   // positional range — every shadowed node must appear in sourceEventSeqs.
   if (se.surfaceOp !== undefined) {
@@ -497,7 +497,7 @@ export function apply(ctx: Context): void {
   //   the boundary (an `agent/request`-window inject) is legitimately absent
   //   from this request, and a current-surface comparison would false-fire.
   // - header: every non-content field must equal the fold of the log's
-  //   `request/header*` events — the loop logs the header event BEFORE
+  //   `request/header` events — the loop logs the header event BEFORE
   //   dispatch, so the fold already covers this request.
   //
   // Registered with `prepend: true` so a short-circuiting llm/stream listener

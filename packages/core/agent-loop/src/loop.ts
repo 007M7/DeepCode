@@ -170,8 +170,8 @@ export interface LoopHandle {
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
  *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
- *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
- *                                                        log (initial/resume anchor, delta, fallback)
+ *       session('request/header')                      ⟵ the header event this request owes the
+ *                                                        log (initial/resume anchor or changed snapshot)
  *       req = freeze({header..., messages: prefix+boundary, sessionId, signal})
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks, frozen req)
  *         session('assistant/chunk')
@@ -774,7 +774,7 @@ async function runStep(
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
   const sessionPrefix = transmission.sessionPrefix!
 
-  // The request header (the log's request/header* vocabulary): canonical form,
+  // The request header (the log's request/header snapshots): canonical form,
   // recorded before dispatch so the log always explains the request —
   // including the session prefix, which no other event carries.
   const header = canonicalHeader({

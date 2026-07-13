@@ -151,6 +151,15 @@ function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly Sessio
     })
 }
 
+/** Reject events from an obsolete v0 vocabulary that this build cannot replay. */
+function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): void {
+  const legacyType: string = 'request/header-delta'
+  const legacy = events.find(event => event.type === legacyType)
+  if (legacy !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
+  }
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -242,6 +251,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (batch === undefined) {
       throw new TypeError('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
     }
+    assertSupportedEvents(batch, id)
     return this.serialize(id, () => this.appendCore(id, batch))
   }
 
@@ -280,6 +290,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, id)
 
     // Crash-recovery: if the log ended mid-turn (real, preserved events but no
     // closing turn/end), close it durably DURING load so disk, the returned log,

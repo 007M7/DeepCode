@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, isToolPairingBalanced } from '../src/index.ts'
-import type { SessionEvent, SurfaceNode } from '../src/index.ts'
+import type { SessionEvent } from '../src/index.ts'
 
 /**
  * Unit coverage for the tool-pairing balance check. It decides whether a CUT in
@@ -12,8 +12,8 @@ import type { SessionEvent, SurfaceNode } from '../src/index.ts'
  * no step (pre-step user message, inter-step steering, injection context) are
  * pairing-neutral, so their cuts are free boundaries.
  *
- * The fixtures are built through a real {@link Session} so the surface linked
- * list is derived exactly as production does — including the non-monotonic
+ * The fixtures are built through a real {@link Session} so the ordered surface
+ * sequence list is derived exactly as production does — including the non-monotonic
  * surface a `replace` op leaves (a compaction checkpoint at a high log seq
  * sitting at the surface head), which is the case the abandoned log-position
  * scan mis-classified.
@@ -27,7 +27,7 @@ import type { SessionEvent, SurfaceNode } from '../src/index.ts'
 const SURFACE = { surfaceOp: 'append' as const }
 
 /** Surface nodes + log for a session, the two args the balance check takes. */
-function surfaceOf(session: Session): { nodes: readonly SurfaceNode[]; events: readonly SessionEvent[] } {
+function surfaceOf(session: Session): { nodes: readonly number[]; events: readonly SessionEvent[] } {
   return { nodes: session.surface.nodes, events: session.events }
 }
 
@@ -40,9 +40,9 @@ function startBalanced(session: Session, seq: number): boolean {
 /** The cut AFTER the surface node at `seq` is balanced (safe region end). */
 function endBalanced(session: Session, seq: number): boolean {
   const { nodes, events } = surfaceOf(session)
-  const node = nodes.find(n => n.seq === seq)
-  if (!node) throw new Error(`seq ${seq} is not a surface node`)
-  return isToolPairingBalanced(nodes, events, node.next)
+  const index = nodes.indexOf(seq)
+  if (index === -1) throw new Error(`seq ${seq} is not a surface node`)
+  return isToolPairingBalanced(nodes, events, nodes[index + 1] ?? null)
 }
 
 /** Surface seq of the nth (0-based) event of a given type. */
@@ -274,20 +274,20 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
   it('the head checkpoint sits at the surface head while a later surface node follows it in the log', () => {
     const s = checkpointHeadedSession()
     const nodes = s.surface.nodes
-    const checkpointSeq = nodes[0]!.seq
+    const checkpointSeq = nodes[0]!
     // The checkpoint heads the surface, yet a surface node (the open step's
     // assistant) follows it in LOG order — the exact split between surface
     // position and log position that the log-position scan tripped on.
     const laterSurfaceInLog = s.events.find(
-      e => e.seq > checkpointSeq && nodes.some(n => n.seq === e.seq),
+      e => e.seq > checkpointSeq && nodes.includes(e.seq),
     )
     expect(laterSurfaceInLog).toBeDefined()
-    expect(nodes[0]!.seq).toBe(checkpointSeq)
+    expect(nodes[0]!).toBe(checkpointSeq)
   })
 
   it('start cut before the head checkpoint is balanced (it is the head)', () => {
     const s = checkpointHeadedSession()
-    expect(startBalanced(s, s.surface.nodes[0]!.seq)).toBe(true)
+    expect(startBalanced(s, s.surface.nodes[0]!)).toBe(true)
   })
 
   it('end cut after the head checkpoint is balanced (it carries no tool pair)', () => {
@@ -296,7 +296,7 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
     // wrongly reported mid-step. The surface balance sees a neutral node whose
     // following cut closes no open call.
     const s = checkpointHeadedSession()
-    expect(endBalanced(s, s.surface.nodes[0]!.seq)).toBe(true)
+    expect(endBalanced(s, s.surface.nodes[0]!)).toBe(true)
   })
 })
 

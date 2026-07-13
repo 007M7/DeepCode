@@ -35,7 +35,6 @@
  */
 
 import type { SessionEvent } from './types.ts'
-import type { SurfaceNode } from './surface.ts'
 
 /**
  * The tool-pairing delta of a surface node: how it shifts the count of
@@ -62,20 +61,20 @@ function nodeDelta(event: SessionEvent): number {
  * cut has its answering `tool/result` before the cut too, so the cut is a safe
  * edge for a collapsed region (it cannot split an assistant↔result pair).
  *
- * `nodes` is the surface linked list in head→tail order (e.g.
+ * `nodes` is the surface sequence list in head→tail order (e.g.
  * `session.surface.nodes`); `events` is the session log, used to look each
- * node's event up by `seq`. `beforeSeq` names the cut by the surface node it
+ * event up by sequence. `beforeSeq` names the cut by the surface event it
  * sits immediately before; the after-tail cut (the whole surface) is `null`,
  * as is any `beforeSeq` not present on the surface.
  *
  * A region `[start..end]` is collapsible iff both edges are balanced cuts: call
  * `isToolPairingBalanced(nodes, events, start)` for the cut before `start`, and
  * `isToolPairingBalanced(nodes, events, after)` — where `after` is `end`'s
- * surface successor (`SurfaceNode.next`), or `null` when `end` is the tail —
+ * surface successor (`nodes[index + 1]`), or `null` when `end` is the tail —
  * for the cut after `end`.
  *
- * @param nodes - the surface linked list in head→tail order.
- * @param events - the session log each node's `seq` indexes into.
+ * @param nodes - surface event sequences in head→tail order.
+ * @param events - the session log each sequence indexes into.
  * @param beforeSeq - names the cut (the node it sits immediately before);
  *   `null` — or any seq not on the surface — means the after-tail cut.
  * @returns true when every `tool-call` before the cut is answered before it
@@ -86,18 +85,18 @@ function nodeDelta(event: SessionEvent): number {
  *   rather than silently mis-classifying a boundary.
  */
 export function isToolPairingBalanced(
-  nodes: readonly SurfaceNode[],
+  nodes: readonly number[],
   events: readonly SessionEvent[],
   beforeSeq: number | null,
 ): boolean {
   let depth = 0
-  for (const node of nodes) {
-    if (node.seq === beforeSeq) return depth === 0
-    // node.seq is a surface-node seq, always a valid log index by construction.
+  for (const seq of nodes) {
+    if (seq === beforeSeq) return depth === 0
+    // seq is a surface event sequence, always a valid log index by construction.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    depth += nodeDelta(events[node.seq]!)
+    depth += nodeDelta(events[seq]!)
     if (depth < 0) {
-      throw new Error(`tool-pairing balance: tool/result at surface seq ${node.seq} has no matching tool-call (corrupt surface)`)
+      throw new Error(`tool-pairing balance: tool/result at surface seq ${seq} has no matching tool-call (corrupt surface)`)
     }
   }
   // Reached the after-tail cut (beforeSeq === null, or a seq not on the

@@ -5,12 +5,12 @@
  * otherwise transmission-stateless — the comparison baseline is the log's own
  * folded header (`Session.requestHeader()`), so resume and fork need no
  * special path: a fresh loop instance simply logs a `'resume'` snapshot on
- * its first request and deltas from there.
+ * its first request and full changed-header snapshots from there.
  *
  * @module dsh-agent-loop/request-log
  */
 
-import { diffHeader, headerEquals, applyHeaderDelta } from '@deepseek-ai/dsh-session'
+import { headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
 import type { Message } from '@deepseek-ai/dsh-llm'
 
@@ -38,7 +38,7 @@ export function createTransmissionLog(): TransmissionLog {
 
 /**
  * Append whatever header event this request owes the log, so folding the log
- * reproduces the header the request was built under. Exactly one of four
+ * reproduces the header the request was built under. Exactly one of three
  * things happens:
  *
  * 1. This loop instance has not logged a header yet → a full `request/header`
@@ -48,11 +48,7 @@ export function createTransmissionLog(): TransmissionLog {
  *    snapshot is appended even when nothing changed).
  * 2. The header equals the folded baseline → nothing; the log already
  *    explains this request.
- * 3. It differs and the delta round-trips (`applyHeaderDelta` on the baseline
- *    reproduces the header exactly) → a `request/header-delta`.
- * 4. It differs and the delta encoding cannot express the change (a pure tool
- *    reordering) → a full snapshot with reason `'fallback'`; deltas are an
- *    encoding optimization, never a correctness dependency.
+ * 3. It differs → a full snapshot with reason `'change'`.
  *
  * @param session - the session whose log explains the request.
  * @param state - this loop instance's bookkeeping (mutated on first log).
@@ -69,12 +65,5 @@ export function recordRequestHeader(session: Session, state: TransmissionLog, he
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const baseline = session.requestHeader()!
   if (headerEquals(baseline, header)) return
-  const delta = diffHeader(baseline, header)
-  /* v8 ignore next -- headerEquals false ⟹ diffHeader defined: both compare the same four parts */
-  if (delta === undefined) return
-  if (headerEquals(applyHeaderDelta(baseline, delta), header)) {
-    session.append('request/header-delta', delta)
-  } else {
-    session.append('request/header', { header, reason: 'fallback' })
-  }
+  session.append('request/header', { header, reason: 'change' })
 }

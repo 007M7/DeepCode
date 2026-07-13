@@ -35,7 +35,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'config-options', hasModelTurn: false, recorded: false },
   // The runtime mode-switching arc, and NECESSARILY the pinned-header
   // scenario: an approval-policy switch rewrites its prompt section, and the
-  // resulting request/header-delta is legal only in the pinning scenario
+  // resulting changed request/header is legal only in the pinning scenario
   // (the factory's uniformity guard). The pin commits this composition's
   // full header — persona, tool schemas WITH the escalation fields — plus
   // the approval delta and its "changed by the user" notice verbatim. The
@@ -43,9 +43,9 @@ const SCENARIOS: Scenario[] = [
   // sandbox RFC's visibility asymmetry): the recorded arc proves it by
   // BEHAVIOR, a confined write landing under the switched mode with no
   // header change.
-  { name: 'mode-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1 },
+  { name: 'mode-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1 },
   // The approval wire end-to-end, under the DEFAULT read-only/ask (a switch
-  // would emit a header-delta the uniformity guard forbids here): the
+  // would emit a changed header the uniformity guard forbids here): the
   // escalating bash call streams, session/request_permission attaches to it
   // (allow-once / reject-once), and the scripted answer drives each branch —
   // an approved run executes CONFINED under the granted workspace-write; a

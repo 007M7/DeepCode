@@ -89,7 +89,7 @@ Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/t
 
 ### `agent/request` — waterfall
 
-Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble`, or the header-logged session prefix via agent/session-prefix — never through request mutation, and the loop records whatever config the request actually uses as a `request/header*` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
+Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble`, or the header-logged session prefix via agent/session-prefix — never through request mutation, and the loop records whatever config the request actually uses as a `request/header` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
 
 ```ts cordis-catalog
 'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
@@ -251,7 +251,7 @@ A session was created in the store. A synchronous listener throw vetoes publicat
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:52`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:51`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -261,7 +261,7 @@ A previously announced session left the store. Emitted exactly once on normal de
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:63`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -273,7 +273,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:82`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -283,7 +283,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:100`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 

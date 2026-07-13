@@ -1,7 +1,7 @@
 /**
  * Loop-level reconstructability: every request the loop sends is a pure
  * function of the session log — messages are the derivation at the step/start
- * boundary, the header is the fold of request/header* events — and every
+ * boundary, the header is the latest request/header snapshot — and every
  * request is an append-extension of its predecessor unless a logged event
  * (compaction replace, header change) explains the difference. The requests
  * recorded by the mock adapter are the observable; the offline-rebuild test
@@ -87,7 +87,7 @@ describe('request stability across the loop', () => {
       expect(Object.isFrozen(request.messages)).toBe(true)
     }
     // One anchoring header snapshot; no further header events (nothing changed).
-    const headerEvents = agent.session.events.filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+    const headerEvents = agent.session.events.filter(e => e.type === 'request/header')
     expect(headerEvents).toHaveLength(1)
     expect(headerEvents[0]?.type === 'request/header' && headerEvents[0].data.reason).toBe('initial')
   })
@@ -124,8 +124,8 @@ describe('request stability across the loop', () => {
         content: [{ type: 'text', text: '[summary of turn 1]' }],
         source: { kind: 'plugin', plugin: 'test-compact' },
       }, {
-        surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq },
-        sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq],
+        surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+        sourceEventSeqs: [nodes[0]!, nodes[1]!],
       })
     })
 
@@ -139,7 +139,7 @@ describe('request stability across the loop', () => {
     expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
   })
 
-  it('a real system-prompt change is a logged header delta; a stable prompt logs nothing', async () => {
+  it('a real system-prompt change is a full changed-header snapshot; a stable prompt logs nothing', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two'), textResponse('three')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -149,14 +149,15 @@ describe('request stability across the loop', () => {
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     // Identical assembly re-rendered per step is NOT a change.
-    expect(agent.session.events.filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
 
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'new guidance' })
     send(agent, 'third')
     await waitForIdle(ctx, agent)
 
-    const deltas = agent.session.events.filter(e => e.type === 'request/header-delta')
-    expect(deltas).toHaveLength(1)
+    const snapshots = agent.session.events.filter(e => e.type === 'request/header')
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[1]?.data.reason).toBe('change')
     expect(adapter.requests[2]!.system).toContain('new guidance')
     // History is preserved across the change — only the header moved.
     expect(adapter.requests[2]!.messages.length).toBeGreaterThan(adapter.requests[1]!.messages.length)
@@ -262,9 +263,9 @@ describe('request stability across the loop', () => {
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
-    // No delta was logged (nothing really changed), and the session's own
+    // No changed snapshot was logged (nothing really changed), and the session's own
     // fold is immutable state.
-    expect(agent.session.events.filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
     expect(Object.isFrozen(agent.session.requestHeader())).toBe(true)
     expect(adapter.requests[1]!.temperature).toBeUndefined()
   })
@@ -298,7 +299,7 @@ describe('request stability across the loop', () => {
       const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
-      // Header: the fold of request/header* events up to this step's dispatch
+      // Header: the latest request/header snapshot up to this step's dispatch
       // (its header event sits between step/start and the first chunk).
       const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!

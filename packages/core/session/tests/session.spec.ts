@@ -1171,8 +1171,8 @@ describe('todo/write event', () => {
     session.append('todo/write', { todos: [{ content: 'a task', status: 'pending' }] })
     // The todo event must not add a message to the derived history…
     expect(session.deriveMessages()).toHaveLength(before)
-    // …and must not appear on the surface linked list.
-    expect(session.surface.nodes.some(node => node.seq === session.seq - 1)).toBe(false)
+    // …and must not appear on the ordered surface.
+    expect(session.surface.nodes).not.toContain(session.seq - 1)
   })
 
   it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {

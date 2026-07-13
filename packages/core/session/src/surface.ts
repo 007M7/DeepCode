@@ -1,6 +1,6 @@
 /**
- * Surface layer on top of the session event log: a derived, cached linked list
- * of events that produce LLM messages. Rebuilt deterministically from
+ * Surface layer on top of the session event log: a derived, cached sequence
+ * list of events that produce LLM messages. Folded deterministically from
  * `surfaceOp` markers in the log — the log is the source of truth; the surface
  * is a view.
  *
@@ -10,7 +10,7 @@
 import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
 /**
- * The set of event type strings that are eligible for the surface linked list.
+ * The set of event type strings that are eligible for the surface sequence.
  * Mirrors the {@link SurfaceEventType} union; kept as a runtime set so the
  * type guard can check membership without a chain of string comparisons.
  */
@@ -51,28 +51,16 @@ export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   return true
 }
 
-/** One node in the surface linked list. */
-export interface SurfaceNode {
-  /** The event seq of this surface node. */
-  seq: number
-  /** The previous surface node's seq, or null if this is the head. */
-  prev: number | null
-  /** The next surface node's seq, or null if this is the tail. */
-  next: number | null
-}
-
 /**
- * Maintains a cached linked list of surface nodes, rebuilt lazily from
+ * Maintains a cached ordered list of surface event sequences, folded lazily from
  * `surfaceOp` markers in the event log. Because the log is append-only, it
  * processes only the delta since the last rebuild — new events are folded
  * into the existing surface in O(new events) rather than rescanning the
  * whole log.
  */
 export class SurfaceManager {
-  /** Surface nodes in linked-list order (head to tail). Empty until first access. */
-  private _nodes: SurfaceNode[] = []
-  /** Map from event seq → node. */
-  private _nodeBySeq = new Map<number, SurfaceNode>()
+  /** Surface event sequences in head-to-tail order. Empty until first access. */
+  private _nodes: number[] = []
   /** The last processed seq. -1 folds the seeded log on first access. */
   private _lastProcessedSeq = -1
 
@@ -95,15 +83,15 @@ export class SurfaceManager {
     return this._replaceGeneration
   }
 
-  /** The surface nodes in linked-list order (head to tail). */
-  get nodes(): readonly SurfaceNode[] {
+  /** Surface event sequences in head-to-tail order. */
+  get nodes(): readonly number[] {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
     return this._nodes
   }
 
   /**
    * Process events from `_lastProcessedSeq + 1` through the end of the log,
-   * folding new surface markers into the existing linked list.
+   * folding new surface markers into the existing sequence list.
    */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
@@ -116,11 +104,7 @@ export class SurfaceManager {
       if (!isSurfaceEvent(event)) continue
 
       if (event.surfaceOp === 'append') {
-        const tail = this._nodes.length > 0 ? this._nodes[this._nodes.length - 1] : undefined
-        const node: SurfaceNode = { seq: event.seq, prev: tail?.seq ?? null, next: null }
-        if (tail) tail.next = event.seq
-        this._nodes.push(node)
-        this._nodeBySeq.set(event.seq, node)
+        this._nodes.push(event.seq)
       } else {
         this._replace(event.seq, event.surfaceOp)
       }
@@ -133,38 +117,21 @@ export class SurfaceManager {
     newSeq: number,
     op: Extract<SurfaceOp, { op: 'replace' }>,
   ): void {
-    const startNode = this._nodeBySeq.get(op.start)
-    if (!startNode) {
+    const startIdx = this._nodes.indexOf(op.start)
+    if (startIdx === -1) {
       throw new Error(`surface replace: start seq ${op.start} not found in surface`)
     }
-    const endNode = this._nodeBySeq.get(op.end)
-    if (!endNode) {
+    const endIdx = this._nodes.indexOf(op.end)
+    if (endIdx === -1) {
       throw new Error(`surface replace: end seq ${op.end} not found in surface`)
     }
-    const startIdx = this._nodes.indexOf(startNode)
-    const endIdx = this._nodes.indexOf(endNode)
     if (startIdx > endIdx) {
       throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
     }
 
     // Remove shadowed nodes from `[startIdx, endIdx]` inclusive.
     const count = endIdx - startIdx + 1
-    const removed = this._nodes.splice(startIdx, count)
-    for (const r of removed) this._nodeBySeq.delete(r.seq)
-
-    // Insert the new node where the removed range was.
-    const prevNode = startIdx > 0 ? this._nodes[startIdx - 1] : undefined
-    const nextNode = startIdx < this._nodes.length ? this._nodes[startIdx] : undefined
-
-    const newNode: SurfaceNode = {
-      seq: newSeq,
-      prev: prevNode?.seq ?? null,
-      next: nextNode?.seq ?? null,
-    }
-    if (prevNode) prevNode.next = newSeq
-    if (nextNode) nextNode.prev = newSeq
-    this._nodes.splice(startIdx, 0, newNode)
-    this._nodeBySeq.set(newSeq, newNode)
+    this._nodes.splice(startIdx, count, newSeq)
     this._replaceGeneration += 1
   }
 }

@@ -7,7 +7,7 @@
  * the same way out of caution. It is per-conversation state recorded in the
  * session log (the reconstructability RFC), never a silently-drifting
  * per-call knob: the `agent/request` waterfall proposes a replacement, and
- * the loop logs a real change as a `request/header-delta` event.
+ * the loop logs a real change as a `request/header` snapshot.
  *
  * @module dsh-llm/call-config
  */
@@ -27,7 +27,7 @@ export interface LlmCallConfig {
 /**
  * Field-wise equality over {@link LlmCallConfig} — the comparison a caller
  * runs to decide whether a proposed configuration is a real change (worth a
- * logged header delta) or the held one restated.
+ * logged header snapshot) or the held one restated.
  * @param a - one configuration.
  * @param b - the other.
  * @returns whether every field (including the `stop` list, element-wise) matches.

@@ -9,9 +9,8 @@ import {
   childFixturePaths,
   fixtureContext,
   formatSystemPromptSnapshot,
-  headerDeltaCount,
+  headerChangeCount,
   normalizedHeaders,
-  normalizedSystemPromptDeltas,
   normalizedSystemPrompts,
   refreshFixtureReplacements,
   stabilizeRefreshLog,
@@ -51,7 +50,7 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // is what this suite can exercise; the real overlay boot is the acp-agent
 // example's code-mode scenarios).
 const REPLAY_SCENARIOS: Scenario[] = [
-  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
+  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
@@ -132,7 +131,9 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe([
       'SYS PROMPT',
       '',
-      '<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->',
+      '<!-- request/header change 1 -->',
+      '',
+      'SYS PROMPT',
       '',
       'NEW PROMPT LINE',
       '',
@@ -247,46 +248,30 @@ describe('normalizedSystemPrompts', () => {
   })
 })
 
-describe('normalizedSystemPromptDeltas', () => {
-  it('extracts and normalizes well-formed system edits', () => {
-    const log = [
-      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":["work in /w"]}}}',
-      '{"type":"request/header-delta","data":{"tools":{"replace":[]}}}',
-      '{"type":"request/header-delta","data":{"system":{"keepStart":"1","keepEnd":0,"insert":[]}}}',
-      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":[null]}}}',
-      '',
-    ].join('\n')
-    expect(normalizedSystemPromptDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
-      { keepStart: 1, keepEnd: 0, insert: ['work in {{cwd}}'] },
-    ])
-  })
-})
-
 describe('formatSystemPromptSnapshot', () => {
   it('adds a missing terminal newline without changing an existing one', () => {
     expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
     expect(formatSystemPromptSnapshot('prompt\n')).toBe('prompt\n')
   })
 
-  it('renders readable system-prompt delta sections', () => {
-    expect(formatSystemPromptSnapshot('prompt', [
-      { keepStart: 1, keepEnd: 0, insert: ['new', 'lines'] },
-    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\nnew\nlines\n')
+  it('renders readable changed-prompt sections', () => {
+    expect(formatSystemPromptSnapshot('prompt', ['new\nlines']))
+      .toBe('prompt\n\n<!-- request/header change 1 -->\n\nnew\nlines\n')
   })
 
-  it('does not double the newline of a delta insert with a trailing blank line', () => {
-    expect(formatSystemPromptSnapshot('prompt\n', [
-      { keepStart: 2, keepEnd: 1, insert: ['tail', ''] },
-    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=2, keepEnd=1 -->\n\ntail\n')
+  it('does not double the newline of a changed prompt', () => {
+    expect(formatSystemPromptSnapshot('prompt\n', ['changed\n']))
+      .toBe('prompt\n\n<!-- request/header change 1 -->\n\nchanged\n')
   })
 })
 
-describe('headerDeltaCount', () => {
-  it('counts request/header-delta events, ignoring blanks and other lines', () => {
-    const delta = JSON.stringify({ type: 'request/header-delta', seq: 2, time: 9, data: {} })
-    const other = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: {} })
-    expect(headerDeltaCount(`${other}\n\n${delta}\n${delta}\n`)).toBe(2)
-    expect(headerDeltaCount(`${other}\n`)).toBe(0)
+describe('headerChangeCount', () => {
+  it('counts changed request headers, ignoring anchors, blanks, and other lines', () => {
+    const change = JSON.stringify({ type: 'request/header', seq: 2, time: 9, data: { reason: 'change' } })
+    const anchor = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: { reason: 'initial' } })
+    const other = JSON.stringify({ type: 'turn/start', seq: 1, time: 9, data: {} })
+    expect(headerChangeCount(`${anchor}\n${other}\n\n${change}\n${change}\n`)).toBe(2)
+    expect(headerChangeCount(`${anchor}\n`)).toBe(0)
   })
 })
 

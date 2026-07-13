@@ -142,12 +142,12 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
       // scan reached the neighbouring step's assistant/message.
       const nodes = agent.session.surface.nodes
       for (const cp of checkpoints) {
-        const node = nodes.find(n => n.seq === cp.seq)
-        if (!node) continue // shadowed by a later checkpoint — no longer an edge.
-        expect(isToolPairingBalanced(nodes, events, node.seq),
-          `checkpoint seq ${node.seq} must be a balanced region START`).toBe(true)
-        expect(isToolPairingBalanced(nodes, events, node.next),
-          `checkpoint seq ${node.seq} must be a balanced region END`).toBe(true)
+        const index = nodes.indexOf(cp.seq)
+        if (index === -1) continue // shadowed by a later checkpoint — no longer an edge.
+        expect(isToolPairingBalanced(nodes, events, cp.seq),
+          `checkpoint seq ${cp.seq} must be a balanced region START`).toBe(true)
+        expect(isToolPairingBalanced(nodes, events, nodes[index + 1] ?? null),
+          `checkpoint seq ${cp.seq} must be a balanced region END`).toBe(true)
       }
     } finally {
       await ctx.fiber.dispose()

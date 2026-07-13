@@ -455,11 +455,11 @@ export class BasicCompactService extends CompactService {
     // position, so the surface order (head→tail) no longer tracks seq order —
     // `[newSummarySeq, olderRetainedSeq, …]` is normal. Indexing into the
     // ordered node list and slicing it is the only correct way to read a range;
-    // a `node.seq >= start && node.seq <= end` interval test would mis-collect
+    // a `seq >= start && seq <= end` interval test would mis-collect
     // nodes (and `start > end` would falsely reject) once that happens.
     const nodes = session.surface.nodes
-    const startIdx = nodes.findIndex(n => n.seq === start)
-    const endIdx = nodes.findIndex(n => n.seq === end)
+    const startIdx = nodes.indexOf(start)
+    const endIdx = nodes.indexOf(end)
     if (startIdx === -1) throw new Error(`compactRegion: start seq ${start} not found in surface`)
     if (endIdx === -1) throw new Error(`compactRegion: end seq ${end} not found in surface`)
     if (startIdx > endIdx) {
@@ -480,8 +480,7 @@ export class BasicCompactService extends CompactService {
     }
     // The cut after `end` is named by `end`'s surface successor, or `null` when
     // `end` is the tail.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const afterEnd: number | null = nodes[endIdx]!.next
+    const afterEnd = nodes[endIdx + 1] ?? null
     if (!isToolPairingBalanced(nodes, events, afterEnd)) {
       throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
     }
@@ -503,7 +502,7 @@ export class BasicCompactService extends CompactService {
     }
     // Slice the ordered surface nodes [startIdx, endIdx] inclusive — the
     // shadowed range is positional, so this is the set the replace op covers.
-    const shadowedSeqs = nodes.slice(startIdx, endIdx + 1).map(n => n.seq)
+    const shadowedSeqs = nodes.slice(startIdx, endIdx + 1)
 
     // --- Acquire lock ---
     const startEvent = session.append('compact/start', { turn: openTurn })
@@ -639,9 +638,9 @@ export class BasicCompactService extends CompactService {
     let keepFromIdx = nodes.length // nothing retained yet
     for (let i = nodes.length - 1; i >= 0; i--) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const node = nodes[i]!
-      const event = events[node.seq]
-      /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
+      const seq = nodes[i]!
+      const event = events[seq]
+      /* v8 ignore next -- seq is a surface event sequence, always a valid log index by construction */
       if (event) accumulated += this.estimateEventTokens(event)
       keepFromIdx = i
       if (accumulated >= retainBudget) break
@@ -660,16 +659,16 @@ export class BasicCompactService extends CompactService {
     // step — retry once it closes).
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
+      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!)) break
       keepFromIdx -= 1
     }
     if (keepFromIdx === 0) return null
 
     // The compacted range is [head … keepFromIdx - 1], anchored at the head.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const firstSeq = nodes[0]!.seq
+    const firstSeq = nodes[0]!
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
+    const cutoffSeq = nodes[keepFromIdx - 1]!
     return { start: firstSeq, end: cutoffSeq }
   }
 

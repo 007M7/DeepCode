@@ -22,10 +22,9 @@ export * from './types.ts'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
-export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
-export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -197,6 +196,9 @@ function assertSurfaceMetadataShape(
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
+  if (event['type'] === 'request/header-delta') {
+    throw new Error(`seed event at index ${index} uses unsupported legacy request/header-delta format`)
+  }
   const allowed = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
   if (Object.keys(event).some(key => !allowed.has(key))
     || !Object.hasOwn(event, 'type') || typeof event['type'] !== 'string'
@@ -262,7 +264,7 @@ export class Session {
   private log: SessionEvent[] = []
 
   /**
-   * Derived surface — a cached linked list of message-producing events.
+   * Derived surface — a cached order of message-producing event sequences.
    * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
    * events (delta) on each access — the log is append-only, so prior events
    * never change.
@@ -270,7 +272,7 @@ export class Session {
    */
   private _surface: SurfaceManager | undefined
 
-  /** The surface linked list over this session's event log. */
+  /** The ordered surface over this session's event log. */
   get surface(): SurfaceManager {
     if (!this._surface) this._surface = new SurfaceManager(this.log)
     return this._surface
@@ -354,7 +356,7 @@ export class Session {
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the surface linked list; `sourceEventSeqs` records provenance (the seq
+   *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
    *   declare how it joins the surface, the sole source of derived history) and
@@ -463,8 +465,8 @@ export class Session {
   private derivedGeneration = 0
 
   /**
-   * Derive the LLM message history by walking the session surface — the linked
-   * list of message-producing events maintained by `surfaceOp` markers. The
+   * Derive the LLM message history by walking the ordered sequences of
+   * message-producing events maintained by `surfaceOp` markers. The
    * surface is the single source of derived history: every message-producing
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
@@ -488,11 +490,11 @@ export class Session {
       this.derivedNodes = 0
       this.derivedGeneration = generation
     }
-    for (const node of nodes.slice(this.derivedNodes)) {
-      // Surface nodes are built from this.log — node.seq is always a valid
+    for (const seq of nodes.slice(this.derivedNodes)) {
+      // Surface sequences are built from this.log — seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const msg = this.deriveEventMessage(this.log[node.seq]!)
+      const msg = this.deriveEventMessage(this.log[seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.

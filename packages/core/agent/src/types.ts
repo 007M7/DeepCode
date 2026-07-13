@@ -464,7 +464,7 @@ declare module 'cordis' {
      * `additionalContext`, prompt sections via `system-prompt/assemble`, or
      * the header-logged session prefix via {@link agent/session-prefix}
      * — never through request mutation, and the loop records whatever config
-     * the request actually uses as a `request/header*` event before dispatch.
+     * the request actually uses as a `request/header` event before dispatch.
      * The step's messages are already snapshotted when this fires (the
      * `step/start` boundary): an `inject()` from a listener here lands in the
      * log but joins the NEXT request. For surface mutation that must precede

@@ -14,18 +14,12 @@ function surfaceSession(): Session {
 }
 
 describe('SurfaceManager', () => {
-  it('rebuilds a linked list from surfaceOp: append markers', () => {
+  it('folds an ordered sequence list from surfaceOp: append markers', () => {
     const s = surfaceSession()
     const nodes = s.surface.nodes
     // Only the user/message and assistant/message carry surfaceOp: 'append'.
     // The turn boundaries do not have surface markers.
-    expect(nodes.length).toBe(2)
-    expect(nodes[0]!.seq).toBe(1) // user/message (turn/start is seq 0)
-    expect(nodes[0]!.prev).toBeNull()
-    expect(nodes[0]!.next).toBe(2) // assistant/message (seq 2)
-    expect(nodes[1]!.seq).toBe(2)
-    expect(nodes[1]!.prev).toBe(1)
-    expect(nodes[1]!.next).toBeNull()
+    expect(nodes).toEqual([1, 2])
   })
 
   it('empty surface yields empty nodes', () => {
@@ -46,9 +40,7 @@ describe('SurfaceManager', () => {
     // Append another surface node
     s.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     expect(s.surface.nodes.length).toBe(3)
-    expect(s.surface.nodes[2]!.seq).toBe(4) // seq 4: after turn/end at seq 3
-    expect(s.surface.nodes[2]!.prev).toBe(2)
-    expect(s.surface.nodes[1]!.next).toBe(4)
+    expect(s.surface.nodes[2]!).toBe(4) // seq 4: after turn/end at seq 3
   })
 
   it('replays identically from a seeded log with surface markers', () => {
@@ -56,7 +48,7 @@ describe('SurfaceManager', () => {
     original.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     const replayed = new Session(SessionId('replay'), [...original.events])
     // Surface rebuilds from the seeded log's markers.
-    expect(replayed.surface.nodes.map(n => n.seq)).toEqual([1, 2, 4])
+    expect(replayed.surface.nodes).toEqual([1, 2, 4])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
   })
 
@@ -70,10 +62,7 @@ describe('SurfaceManager', () => {
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
     // Now the surface should have just the compaction node.
-    expect(s.surface.nodes.length).toBe(1)
-    expect(s.surface.nodes[0]!.seq).toBe(4) // seq of the compaction marker
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([4])
   })
 
   it('replace with both ends at real nodes splices only the range', () => {
@@ -86,12 +75,7 @@ describe('SurfaceManager', () => {
       { turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 1 }, sourceEventSeqs: [0, 1] },
     ) // seq 3
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([3, 2])
-    // Links: 3 ↔ 2
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBe(2)
-    expect(s.surface.nodes[1]!.prev).toBe(3)
-    expect(s.surface.nodes[1]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([3, 2])
   })
 
   it('single-node replacement (start === end)', () => {
@@ -103,9 +87,7 @@ describe('SurfaceManager', () => {
       { turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 2
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([0, 2])
-    expect(s.surface.nodes[0]!.next).toBe(2)
-    expect(s.surface.nodes[1]!.prev).toBe(0)
+    expect(s.surface.nodes).toEqual([0, 2])
   })
 
   it('throws when replace start is not found', () => {
@@ -151,7 +133,7 @@ describe('SurfaceManager', () => {
     expect(logged.sourceEventSeqs).toEqual([10, 20])
   })
 
-  it('replace starting at non-head position links to previous node correctly', () => {
+  it('replace starting at non-head position preserves surrounding order', () => {
     const s = new Session(SessionId('mid-replace'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 1
@@ -161,14 +143,7 @@ describe('SurfaceManager', () => {
       { turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 3
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([0, 3, 2])
-    // Links: 0 → 3 → 2
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBe(3)
-    expect(s.surface.nodes[1]!.prev).toBe(0)
-    expect(s.surface.nodes[1]!.next).toBe(2)
-    expect(s.surface.nodes[2]!.prev).toBe(3)
-    expect(s.surface.nodes[2]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([0, 3, 2])
   })
 
   it('surfaceOp replace object is snapshot so caller mutation is isolated', () => {
@@ -340,7 +315,7 @@ describe('SurfaceManager.replaceGeneration', () => {
     const nodes = s.surface.nodes
     s.append('context/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
     expect(s.surface.replaceGeneration).toBe(1)
   })
 })
