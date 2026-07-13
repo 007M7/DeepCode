@@ -4,6 +4,8 @@ The model-facing bash tools — `bash`, `bash_output`, `bash_kill` — registere
 
 Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); the plugin stays pending until `ctx.bash` exists (`inject: ['tools', 'bash', 'systemPrompt']`).
 
+The package root exposes only the Cordis plugin contract (`name`, `inject`, `apply`); result rendering remains an implementation detail covered by same-package tests.
+
 The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on. Under a sandboxing executor it additionally contributes the per-agent `env:bash-sandbox` section (order 110) stating each session's EFFECTIVE mode, and the pre-step narrator — see [Per-session mode](#per-session-mode-switching-and-visibility).
 
 ## Tools
