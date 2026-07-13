@@ -199,7 +199,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:68`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 

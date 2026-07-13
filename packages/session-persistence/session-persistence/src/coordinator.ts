@@ -27,7 +27,6 @@
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { seedCoversPrefix } from './index.ts'
 
 /**
  * A stored session's durable prefix as read back from a backend: its
@@ -143,6 +142,15 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
   return errors
 }
 
+/** Whether a live session seed reproduces a persisted prefix exactly. */
+function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
+  return prefix.length <= seed.length
+    && prefix.every((event, index) => {
+      const seedEvent = seed[index]
+      return seedEvent !== undefined && JSON.stringify(seedEvent) === JSON.stringify(event)
+    })
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -171,11 +179,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Session reusing the same id (HMR, an ACP reconnect), and an id-keyed cache
    * would hand the new object the old object's init promise.
    *
-   * Public (readonly) so a backend can expose it for white-box tests that await
-   * a specific session's init (there is no public API to await one init); the
-   * coordinator itself only ever mutates it internally.
+   * Flush is the public observation boundary for initialization; callers do
+   * not inspect this bookkeeping directly.
    */
-  readonly inits = new Map<Session, Promise<void>>()
+  private inits = new Map<Session, Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()

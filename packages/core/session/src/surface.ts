@@ -73,7 +73,7 @@ export class SurfaceManager {
   private _nodes: SurfaceNode[] = []
   /** Map from event seq → node. */
   private _nodeBySeq = new Map<number, SurfaceNode>()
-  /** The last processed seq. -1 forces a full rebuild on first access. */
+  /** The last processed seq. -1 folds the seeded log on first access. */
   private _lastProcessedSeq = -1
 
   /** Rewrite generation — see {@link replaceGeneration}. */
@@ -82,22 +82,8 @@ export class SurfaceManager {
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
-   * Reset to unprocessed state. Call after the log has been replaced
-   * wholesale (e.g. after Session seed). Not needed for normal appends —
-   * those are picked up incrementally.
-   */
-  invalidate(): void {
-    this._lastProcessedSeq = -1
-    this._nodes = []
-    this._nodeBySeq.clear()
-    // A wholesale rebuild is a rewrite: bump the generation so incremental
-    // consumers (the session's derived-message cache) discard their view.
-    this._replaceGeneration += 1
-  }
-
-  /**
-   * The surface's rewrite generation: bumped by every folded `replace` op and
-   * by {@link invalidate}. A replace is the ONE operation that rewrites the
+   * The surface's rewrite generation, bumped by every folded `replace` op.
+   * A replace is the ONE operation that rewrites the
    * surface non-monotonically, so an incremental consumer of {@link nodes}
    * (the session's derived-message cache) compares this between visits — an
    * unchanged generation guarantees every node it has not seen is a pure tail

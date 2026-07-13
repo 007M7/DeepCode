@@ -26,7 +26,7 @@ import {
   SessionPersistence, PersistenceCoordinator,
   type PersistenceBackend, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
 } from './format.ts'
@@ -107,14 +107,6 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   // listing (no per-id serialization, no cursor), so it would just call back into
   // this same method; routing it through the coordinator would recurse. Defined
   // once, in the "PersistenceBackend hooks" section.
-
-  /**
-   * The per-session init promises, exposed for white-box tests that await a
-   * specific session's onCreated (there is no public API to await one init).
-   */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
-  }
 
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 

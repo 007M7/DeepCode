@@ -26,7 +26,7 @@ import {
   SessionPersistence, PersistenceCoordinator,
   type PersistenceBackend, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -125,14 +125,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   // one method (the SELECT below). The coordinator adds no orchestration for
   // listing, so routing it through the coordinator would just recurse. Defined
   // once, in the "PersistenceBackend hooks" section.
-
-  /**
-   * The per-session init promises, exposed for white-box tests that await a
-   * specific session's onCreated (there is no public API to await one init).
-   */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
-  }
 
   // --- PersistenceBackend hooks (the SQLite storage primitives) ---
 
