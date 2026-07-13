@@ -194,6 +194,32 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
+  it('reaps a child whose session/new response omits the session id', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-malformed-session-'))
+    const flushed = join(tmp, 'flushed')
+    try {
+      await expect(startAcpRun(request(), {
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: {
+          MOCK_MISSING_SESSION_ID: '1',
+          MOCK_FLUSH_ON_EOF: flushed,
+          MOCK_FLUSH_DELAY_MS: '20',
+          TSX_TSCONFIG_PATH: repoTsconfig,
+        },
+        disposeEofGraceMs: 1000,
+        disposeGraceMs: 100,
+      })).rejects.toThrow('ACP child published without a session id')
+      // Startup rejects only after its private child reaches quiescence. The
+      // marker proves rollback closed stdin and allowed the child's EOF flush.
+      expect(existsSync(flushed)).toBe(true)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('dispose escalates SIGTERM → SIGKILL for a child that traps SIGTERM (bounded quiescence)', async () => {
     // The child traps SIGTERM and keeps its event loop alive, so a graceful
     // term alone would hang dispose forever. With a short grace, dispose must
