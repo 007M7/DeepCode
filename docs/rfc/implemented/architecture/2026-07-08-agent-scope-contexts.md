@@ -135,12 +135,6 @@ flowchart TB
   detach --> revoke["Dispose the agent scope"]
 ```
 
-### Subagent controls are an independent feature
-
-In-process subagents consume agent scope by installing their local composition during unpublished setup. Their optional persona, live global-tool filter, and absolute depth cap are not intrinsic scope semantics; the [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) defines those controls, provider capability checks, and dynamic tool behavior.
-
-`inheritsParentContext` describes conversation-history seeding only. It says nothing about Cordis scope, injected services, tools, or authority.
-
 ## Security and authority are non-goals
 
 Agent scopes compose trusted same-process registrations. They do not sandbox plugins, define a parent-to-child authority lattice, freeze grants at creation, or guarantee that a child can do no more than its parent.

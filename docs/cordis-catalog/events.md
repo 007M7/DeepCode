@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:606`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:605`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -165,15 +165,15 @@ Source: [`packages/core/agent/src/types.ts:570`](../../packages/core/agent/src/t
 
 ### `agent/turn-stop` — serial
 
-Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded. A listener returns `{ action: 'stop' }` to make this turn terminal, or `undefined` to abstain. Terminal stop is monotonic: listener order and steering cannot resume the turn, and pending steering is discarded rather than becoming another step or turn. A malformed non-undefined result fails the turn closed.
+Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded. A listener returns `{ action: 'stop' }` to make this turn terminal, or `undefined` to abstain. Terminal stop is monotonic: listener order and steering cannot resume the turn, and pending steering is discarded rather than becoming another step or turn.
 
 ```ts cordis-catalog
-'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
+'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:589`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:588`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -419,12 +419,12 @@ Types: [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:101`](../../packages/core/tools/src/index.ts)
 
-### `tools/result` — parallel
+### `tools/result` — emit
 
-Awaited notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization. Unlike the three waterfalls, this seam cannot transform the result: each listener receives the now-frozen execution object and a deep-frozen result snapshot; listener failures are contained and logged, and ToolRegistry.execute still returns the outcome. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`, using the same carrier as the pipeline.
+Synchronous notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization. Unlike the three waterfalls, this seam cannot transform the result: each listener receives the now-frozen execution object and a deep-frozen result snapshot; listener failures are contained and logged, and ToolRegistry.execute still returns the outcome. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`, using the same carrier as the pipeline.
 
 ```ts cordis-catalog
-'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<void> | void
+'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
 ```
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)

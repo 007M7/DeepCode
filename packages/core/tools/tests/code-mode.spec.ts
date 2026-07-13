@@ -171,7 +171,7 @@ describe('mode-aware wire contribution', () => {
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: 'echo' }])
 
-    await lift()
+    lift()
     const unrestricted = await systemPrompt.assemble({ scope: agent })
     expect(unrestricted.tools.map(tool => tool.name)).toEqual(mode === 'code'
       ? [RUN_CODE_NAME]
