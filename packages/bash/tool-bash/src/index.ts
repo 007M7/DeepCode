@@ -12,7 +12,7 @@
  * `bash_output`.
  *
  * Task ownership: a background task's OWNER is an opaque token — the owning
- * agent's `session.header.id` — passed to the executor at spawn
+ * agent's shared `id` — passed to the executor at spawn
  * (`resolve({ …, owner })`) and stored ON THE TASK inside the executor
  * (`@deepseek-ai/dsh-bash`'s `ownerOf(id)` seam), NOT in a plugin-local map.
  * `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token
@@ -414,16 +414,12 @@ export function apply(ctx: Context): void {
   })
 
   /**
-   * The caller's owner TOKEN — the owning agent's `session.header.id`, or
-   * `undefined` for a non-agent caller. Read `session.header.id` (NOT
-   * `session.id`): every other subsystem keys off the header id (the ACP bridge,
-   * both persistence backends), and the sibling `resolveWorkdir` already reads
-   * `session.header.cwd`, so using `session.id` here would be the asymmetry smell
-   * the conventions flag. The two are equal in production, but the header is the
-   * canonical identity.
+   * The caller's owner TOKEN — the owning agent's shared registry/session id,
+   * or `undefined` for a non-agent caller. Agent and Session deliberately have
+   * one live identity; workdir remains separate session metadata.
    */
   const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
-    exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
+    exec.agent ? OwnerToken(exec.agent.id) : undefined
 
   /**
    * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
@@ -443,18 +439,16 @@ export function apply(ctx: Context): void {
   }
 
   // Background completion → inject a notice into the owning agent's session.
-  // Find the live agent by its session id token via the agent registry, read
+  // Find the live agent by its shared registry/session token, read
   // opportunistically with `ctx.get('agents')` (NOT `ctx.agents`/static inject):
   // this listener runs from `task.done.then` on the bash fiber — a foreign
   // fiber — where the `ctx.agents` property proxy would throw through the
   // traceable shadow; `ctx.get(name)` is the topology-independent lookup. No
-  // registry mounted (`undefined`) → drop the notice. Match on
-  // `agent.session.header.id`, NOT the registry key: a config agent's id differs
-  // from its session id, and the owner token IS the session id.
+  // registry mounted (`undefined`) → drop the notice.
   ctx.bash.onTaskDone((task) => {
     const ownerToken = ctx.bash.ownerOf(task.id)
     if (ownerToken === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.session.header.id) === ownerToken)
+    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.id) === ownerToken)
     if (!agent) return
     try {
       agent.inject(
