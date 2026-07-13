@@ -29,7 +29,7 @@ Thirteen scenarios under `examples/acp-agent/tests/snapshots/`, naming `hook-<di
 
 Each hook command emits only FIXED LITERAL strings (no timestamps/pids/`$RANDOM`/cwd echoes); the snapshot normalizer scrubs the one volatile field a `hook/result` carries (`durationMs`). The `Stop` scenarios self-limit with a marker file (`.stop_fired`) so the force-continue does not loop — the `stop_hook_active` loop-guard is still a bridge `TODO`, so an unconditional Stop hook would force-continue every step.
 
-The `PostToolUse` block scenarios also self-limit: their prompts require exactly one tool call and then a verbatim report of whatever result the hook supplies. Each golden therefore pins one blocked call and the model's reaction without recording repeated retry cycles.
+The `PostToolUse` block scenarios self-limit at the mechanism they prove. The Claude hook persists a workspace marker after its first rejection, so one recovery call is allowed; the Codex prompt makes one call and reports the injected result. Each golden pins one blocked call without repeated block/retry cycles.
 
 ### Three hook points are deliberately NOT snapshotted
 
