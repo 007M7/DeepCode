@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-`inject: ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`; `tools` lets a tool own how its calls render (`presentCall`/`presentResult`) — the bridge looks the definition up by name and falls back to a generic presentation when a tool declares none (see Tool-call presentation). `userInteraction` lets agent-owned `ask_user_question` calls become ACP form elicitations routed to the owning session.
+`inject: ['agents', 'sessionPersistence', 'tools', 'userInteraction']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`; `tools` lets a tool own how its calls render (`presentCall`/`presentResult`) — the bridge looks the definition up by name and falls back to a generic presentation when a tool declares none (see Tool-call presentation). `userInteraction` lets agent-owned `ask_user_question` calls become ACP form elicitations routed to the owning session.
 
 ### Config
 
@@ -36,7 +36,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 
 ## Multi-session
 
-The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so agent-scoped approval events demultiplex in O(1). Every `session/event` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. Permission prompts follow the same ownership: the `approval/request` answerer resolves the owning session through the reverse map and prompts only there.
+The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` keyed by the shared agent/session id. Agent-scoped events derive that id from `agent.session.id` and verify the record owns the exact agent object, so a foreign same-id object cannot claim the bridge's session. Every `session/event` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. Permission prompts follow the same ownership and prompt only the matching session.
 
 ## Session config options
 

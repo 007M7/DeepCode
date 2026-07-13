@@ -90,9 +90,12 @@ describe('acp bridge — approval answerer', () => {
     await harness.ctx.plugin(ApprovalService)
     harness.onPermission = () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } })
 
-    // Not created through the bridge: no bySession entry, so the answerer must
-    // call next() — nobody else answers, so the seam fails closed.
-    const foreign = { session: { events: [{ type: 'turn/start' }], append: () => ({}) } } as unknown as Agent
+    const { agent } = await ownedAgentRequest(harness)
+    // Even an impostor that claims the bridge-owned session id must delegate:
+    // ownership requires the exact Agent object stored in the session record.
+    const foreign = {
+      session: { id: agent.session.id, events: [{ type: 'turn/start' }], append: () => ({}) },
+    } as unknown as Agent
     await expect(harness.ctx.approval.request({ agent: foreign, toolName: 'echo', callId: CallId('c') }))
       .resolves.toBe('unavailable')
     expect(harness.permissionRequests).toHaveLength(0)

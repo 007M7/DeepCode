@@ -18,12 +18,11 @@
  *                      turn about to start) + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
- * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
- * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
- * `session/event` and `agent/*` event is routed strictly to its owning session
- * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. Permission prompts ride the same ownership
- * map: the bridge answers `approval/request` for its own agents over
+ * its own `ReactLoopAgent`. Sessions are keyed by their shared agent/session id;
+ * every `session/event` and `agent/*` event is routed strictly to its owning
+ * session record, so two sessions streaming at once never interleave their
+ * `session/update` notifications. Permission prompts use the same identity: the
+ * bridge answers `approval/request` for its own agents over
  * `session/request_permission` (see the approval answerer below) — whether a
  * call ASKS is policy (a hook or plugin returning `ask`), not the bridge's.
  *
@@ -106,9 +105,7 @@ export const name = 'acp'
 // because `initialize` advertises `loadSession: true`. `tools` lets a tool own
 // how its calls render (`presentCall`/`presentResult`); the bridge looks up the
 // definition by name and falls back to a generic presentation when absent.
-// TODO(acp-session-inject): drop `sessions`; this bridge never reads
-// ctx.sessions, and agent/session ownership is already behind ctx.agents.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
+export const inject = ['agents', 'sessionPersistence', 'tools', 'userInteraction']
 
 /**
  * Build an ACP "invalid params" error whose human detail rides in the message.
@@ -268,7 +265,6 @@ export const Config: Schema<AcpConfig> = Schema.object({
  * map keyed by id (RFC 011 multi-session).
  */
 interface SessionRecord {
-  sessionId: SessionId
   agent: Agent
   /**
    * The owned-agent disposer (from the {@link AgentHandle} the factory returned).
@@ -353,15 +349,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
-  // TODO(derive-acp-session-id): derive an event's id from agent.session and
-  // verify sessions.get(id)?.agent === agent; then remove this reverse map and
-  // SessionRecord.sessionId, whose sole read duplicates the same identity.
-  // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
-  // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
-  // The forward record and weak reverse entry are installed together; removing
-  // the record releases its strong Agent reference, so the WeakMap entry expires.
+  // Live sessions keyed by their shared agent/session id (RFC 011 multi-session).
   const sessions = new Map<SessionId, SessionRecord>()
-  const bySession = new WeakMap<Agent, SessionId>()
   // Session ids whose `session/load` is mid-`resume()` (the slot is reserved
   // before the async resume so a pipelined load/new for the SAME id can't create
   // two agents). Distinct ids load concurrently; a given id loads once at a time.
@@ -382,20 +371,26 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // `notify` never observes it unset — no undefined guard needed.
   let conn: AgentSideConnection
 
+  /** Return the bridge-owned record for an agent, rejecting same-id impostors. */
+  const ownedRecord = (agent: Agent): SessionRecord | undefined => {
+    const rec = sessions.get(agent.session.id)
+    return rec?.agent === agent ? rec : undefined
+  }
+
   userInteraction.registerProvider({
     async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
       if (request.agent === undefined) {
         throw new UserInteractionError('ACP user questions must come from an agent-owned request', 'NO_AGENT')
       }
-      const sessionId = bySession.get(request.agent)
-      if (sessionId === undefined) {
+      const rec = ownedRecord(request.agent)
+      if (rec === undefined) {
         throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
       }
       const answers: AskUserQuestionAnswerItem[] = []
       for (const question of request.questions) {
         const options = question.options ?? []
         const response = await withAbort(conn.unstable_createElicitation(
-          elicitationForQuestion(sessionId, question, options),
+          elicitationForQuestion(rec.agent.session.id, question, options),
         ), request.signal).catch((error: unknown) => {
           if (error instanceof UserInteractionError) throw error
           throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
@@ -496,7 +491,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
     try {
-      streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
+      streamSessionEventUpdate(rec.agent.session.id, event, notify, rec.presenter, {
         enabled: rec.terminalEnabled,
         cwd: session.header.cwd,
       }, { includeUserMessages: false })
@@ -527,12 +522,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // allow_always is a grant-storage design the approval RFC defers, so the
   // prompt never offers a durable grant the harness could not honor.
   ctx.on('approval/request', (req, next) => {
-    const sessionId = bySession.get(req.agent)
+    const rec = ownedRecord(req.agent)
     // The protocol requires `toolCall` (the prompt renders attached to it), so
     // a request without a callId has nothing to attach to — delegate.
-    if (sessionId === undefined || req.callId === undefined) return next()
+    if (rec === undefined || req.callId === undefined) return next()
     return conn.requestPermission({
-      sessionId,
+      sessionId: rec.agent.session.id,
       toolCall: { toolCallId: req.callId },
       options: [
         { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
@@ -639,8 +634,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // turn) leaves the switch pending — it runs no step, so nothing executes
   // or assembles under a stale value.
   ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
-    const sessionId = bySession.get(agent)
-    const rec = sessionId === undefined ? undefined : sessions.get(sessionId)
+    const rec = ownedRecord(agent)
     if (rec !== undefined) flushPendingSwitches(rec)
     return next()
   })
@@ -699,9 +693,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           await handle.dispose()
           throw internalError('connection closed during session/new')
         }
-        bySession.set(handle.agent, sessionId)
         sessions.set(sessionId, {
-          sessionId,
           agent: handle.agent,
           dispose: () => handle.dispose(),
           presenter: makePresenter(handle.agent),
@@ -773,13 +765,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw invalidParams('connection closed during session/load')
           }
           const agent = handle.agent
-          bySession.set(agent, sessionId)
           // Snapshot the terminal capability ONCE for this session (used by both
           // the replay below and the post-load live stream) so a later
           // `initialize` can't desync the call/result of a tool card.
           const terminalEnabled = terminalOutputCap
           const record: SessionRecord = {
-            sessionId,
             agent,
             dispose: () => handle.dispose(),
             presenter: makePresenter(agent),

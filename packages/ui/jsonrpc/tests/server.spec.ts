@@ -272,6 +272,9 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir, parentSession: SessionId('main') },
         agentOptions: { model: 'deepseek' },
       })
+      // The backend may dispose the child before publishing its run outcome;
+      // only the cached parent lineage should be needed at this point.
+      await handle.dispose()
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('child-session'),
@@ -292,7 +295,6 @@ describe('HarnessSdkServer', () => {
         },
       })
 
-      await handle.dispose()
       await parentHandle.dispose()
       await server.shutdown()
     } finally {
@@ -301,7 +303,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('falls back to live agent lineage for uncached subagent end events', async () => {
+  it('falls back to live lineage and treats the shared id as the child session id', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined
@@ -365,10 +367,16 @@ describe('HarnessSdkServer', () => {
           stopReason: 'error',
         },
       })
-      expect(transport.notifications.some(n =>
-        n.method === 'subagent.finished'
-        && n.params?.agentId === 'missing-child-agent',
-      )).toBe(false)
+      expect(transport.notifications).toContainEqual({
+        method: 'subagent.finished',
+        params: {
+          provider: 'fork',
+          agentId: 'missing-child-agent',
+          childSessionId: 'missing-child-agent',
+          status: 'error',
+          stopReason: 'error',
+        },
+      })
 
       await server.shutdown()
     } finally {

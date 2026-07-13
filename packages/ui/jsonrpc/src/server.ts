@@ -58,11 +58,6 @@ interface SessionRecord {
   activePrompt: boolean
 }
 
-interface SubagentRecord {
-  childSessionId: string
-  parentSessionId: string | undefined
-}
-
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
  * the context's `session/event`, `session/created`, `agent/created`, and
@@ -76,7 +71,7 @@ export class HarnessSdkServer {
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
-  private readonly subagentSessions = new Map<string, SubagentRecord>()
+  private readonly subagentParents = new Map<SessionId, SessionId>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -100,29 +95,22 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // Cache agent → session lineage on creation: by the time `subagent/end`
-    // fires the child agent may already be disposed and gone from the registry.
+    // Cache parent lineage on creation: by the time `subagent/end` fires the
+    // child agent may already be disposed and gone from the registry. The child
+    // session id needs no cache because it is the shared agent/session id.
     this.disposers.push(ctx.on('agent/created', (agent) => {
-      this.subagentSessions.set(String(agent.id), {
-        childSessionId: String(agent.session.id),
-        parentSessionId: agent.session.header.parentSession === undefined
-          ? undefined
-          : String(agent.session.header.parentSession),
-      })
+      const parentSessionId = agent.session.header.parentSession
+      if (parentSessionId !== undefined) this.subagentParents.set(agent.id, parentSessionId)
     }))
     this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
-      const rec = this.subagentSessions.get(String(info.id))
       const agent = this.ctx.agents.get(info.id)
-      const childSessionId = rec?.childSessionId ?? (agent === undefined ? undefined : String(agent.session.id))
-      const parentSessionId = rec?.parentSessionId ?? (
-        agent?.session.header.parentSession === undefined ? undefined : String(agent.session.header.parentSession)
-      )
-      if (childSessionId === undefined) return
+      const parentSessionId = this.subagentParents.get(info.id) ?? agent?.session.header.parentSession
+      this.subagentParents.delete(info.id)
       this.transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
-        ...(parentSessionId === undefined ? {} : { parentSessionId }),
-        childSessionId,
+        ...(parentSessionId === undefined ? {} : { parentSessionId: String(parentSessionId) }),
+        childSessionId: String(info.id),
         status: info.stopReason === 'completed' ? 'ok' : 'error',
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
@@ -195,7 +183,7 @@ export class HarnessSdkServer {
     this.sessionCreations.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
-    this.subagentSessions.clear()
+    this.subagentParents.clear()
     const failures: unknown[] = []
     while (this.disposers.length > 0) {
       try {

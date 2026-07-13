@@ -205,7 +205,8 @@ describe('acp bridge', () => {
 
     await expect(harness.ctx.userInteraction.ask({ questions: [{ id: 'x', question: 'No agent?' }] }))
       .rejects.toMatchObject({ name: 'UserInteractionError', code: 'NO_AGENT' })
-    await expect(harness.ctx.userInteraction.ask({ agent: { id: 'other' } as typeof agent, questions: [{ id: 'x', question: 'No session?' }] }))
+    const impostor = { session: { id: agent.session.id } } as typeof agent
+    await expect(harness.ctx.userInteraction.ask({ agent: impostor, questions: [{ id: 'x', question: 'No session?' }] }))
       .rejects.toMatchObject({ code: 'NO_SESSION' })
 
     harness.onElicitation = () => ({ action: 'cancel' })

@@ -4,7 +4,7 @@ The **SDK server plugin** (`jsonrpc`): mounting it serves a stdio JSON-RPC serve
 
 ## Wiring
 
-`inject: ['agents']` — the server creates one agent per SDK `sessionId` (get-or-create on `session/prompt`) and demuxes `subagent/end` through the registry. The LLM seam is read opportunistically via `ctx.get('llm')` (not injected): when `initialize.model` has no registered adapter, the plugin mounts `dsh-llm-deepseek` for it (credentials from `$DEEPSEEK_API_KEY` / `$DEEPSEEK_BASE_URL`); a config-registered adapter for the model wins. Everything else — persistence, the tool stacks, the adapter set — comes from the surrounding `cordis.yml`.
+`inject: ['agents']` — the server creates one agent per SDK `sessionId` (get-or-create on `session/prompt`). A subagent's shared agent/session id supplies `subagent.finished.childSessionId` directly; the server caches only parent lineage because the child may be disposed before `subagent/end`. The LLM seam is read opportunistically via `ctx.get('llm')` (not injected): when `initialize.model` has no registered adapter, the plugin mounts `dsh-llm-deepseek` for it (credentials from `$DEEPSEEK_API_KEY` / `$DEEPSEEK_BASE_URL`); a config-registered adapter for the model wins. Everything else — persistence, the tool stacks, the adapter set — comes from the surrounding `cordis.yml`.
 
 ## Config
 
