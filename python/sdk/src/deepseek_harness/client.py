@@ -350,10 +350,19 @@ class HarnessClient:
             params = message.get("params")
             notification = Notification(method=method, payload=params if isinstance(params, dict) else {})
             with self._lock:
-                subscribers = list(self._notification_subscribers.values())
+                subscribers = list(self._notification_subscribers.items())
             delivered = False
-            for subscriber, predicate in subscribers:
-                if predicate is None or predicate(notification):
+            for subscription_id, (subscriber, predicate) in subscribers:
+                try:
+                    matches = predicate is None or predicate(notification)
+                except BaseException as exc:
+                    with self._lock:
+                        current = self._notification_subscribers.get(subscription_id)
+                        if current is not None and current[0] is subscriber:
+                            self._notification_subscribers.pop(subscription_id, None)
+                    subscriber.put(exc)
+                    continue
+                if matches:
                     subscriber.put(notification)
                     delivered = True
             if not delivered:

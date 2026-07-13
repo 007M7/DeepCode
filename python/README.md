@@ -37,7 +37,8 @@ For an interactive check (needs `DEEPSEEK_API_KEY` in the environment or the rep
 
 ```python
 from deepseek_harness import DeepSeekHarness
-print(DeepSeekHarness().run("say hi").final_response)   # auto-resolution picks the bundled exe
+with DeepSeekHarness() as harness:
+    print(harness.run("say hi").final_response)   # auto-resolution picks the bundled exe
 ```
 
 ## Running the SDK against the Node source (no executable)

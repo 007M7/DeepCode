@@ -20,4 +20,4 @@ The plugin owns the PROTOCOL-level exit: a `shutdown` request is answered first 
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). Persistence roots and the deployment persona come from `cordis.yml`; the wire exposes only parameters the server applies.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). A session accepts at most one in-flight `session/prompt`; an overlapping prompt for the same `sessionId` fails immediately through the standard handler-error response, while other sessions remain independent and the same session can be reused after the active prompt settles. Persistence roots and the deployment persona come from `cordis.yml`; the wire exposes only parameters the server applies.

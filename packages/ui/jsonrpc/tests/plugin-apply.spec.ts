@@ -28,6 +28,7 @@ import * as jsonrpc from '../src/index.ts'
 /** One ordered observation on the plugin's outward-facing seams: a JSON-RPC frame written to `output`, or an `exit(code)` call. */
 type WireEvent =
   | { kind: 'frame'; frame: Record<string, unknown> }
+  | { kind: 'write-complete'; ids: (string | number)[] }
   | { kind: 'exit'; code: number }
 
 interface ApplyHarness {
@@ -36,6 +37,7 @@ interface ApplyHarness {
   fiber: Awaited<ReturnType<Context['plugin']>>
   /** Every output frame and exit call, in observation order — ordering assertions read this. */
   events: WireEvent[]
+  outputErrors: Error[]
   send(frame: Record<string, unknown>): void
   sendRaw(text: string): void
   frames(): Record<string, unknown>[]
@@ -65,7 +67,10 @@ async function settle(): Promise<void> {
  * server.spec recipe) and mount the jsonrpc plugin on it through the real
  * namespace mount path, with in-memory seams standing in for stdio/exit.
  */
-async function mountPlugin(storageDir: string): Promise<ApplyHarness> {
+async function mountPlugin(
+  storageDir: string,
+  options: { writeDelayMs?: number; failFlush?: boolean } = {},
+): Promise<ApplyHarness> {
   const ctx = new Context()
   await ctx.plugin(agentCore)
   await ctx.plugin(SessionPersistenceJsonl, { root: storageDir })
@@ -73,22 +78,39 @@ async function mountPlugin(storageDir: string): Promise<ApplyHarness> {
 
   const input = new PassThrough()
   const events: WireEvent[] = []
+  const outputErrors: Error[] = []
   let pendingOutput = ''
-  // A hand-rolled Writable (not a PassThrough): _write records each decoded
-  // frame synchronously, so `events` preserves the true frame-vs-exit order.
+  // A hand-rolled Writable (not a PassThrough): _write records frames on
+  // admission and write-complete only when its callback fires, so a delayed
+  // output proves exit waits for the transport's flush barrier.
   const output = new Writable({
     write(chunk: Buffer, _encoding, callback) {
+      const ids: (string | number)[] = []
       pendingOutput += chunk.toString('utf8')
       for (;;) {
         const newline = pendingOutput.indexOf('\n')
         if (newline < 0) break
         const line = pendingOutput.slice(0, newline).trim()
         pendingOutput = pendingOutput.slice(newline + 1)
-        if (line) events.push({ kind: 'frame', frame: JSON.parse(line) as Record<string, unknown> })
+        if (line) {
+          const frame = JSON.parse(line) as Record<string, unknown>
+          events.push({ kind: 'frame', frame })
+          if (typeof frame.id === 'string' || typeof frame.id === 'number') ids.push(frame.id)
+        }
       }
-      callback()
+      const complete = (): void => {
+        if (options.failFlush === true && chunk.length === 0) {
+          callback(new Error('flush callback failed'))
+          return
+        }
+        events.push({ kind: 'write-complete', ids })
+        callback()
+      }
+      if ((options.writeDelayMs ?? 0) > 0) setTimeout(complete, options.writeDelayMs)
+      else complete()
     },
   })
+  output.on('error', (error: Error) => { outputErrors.push(error) })
   const exit = (code: number): void => { events.push({ kind: 'exit', code }) }
 
   const fiber = await ctx.plugin(jsonrpc, { input, output, exit })
@@ -99,6 +121,7 @@ async function mountPlugin(storageDir: string): Promise<ApplyHarness> {
     ctx,
     fiber,
     events,
+    outputErrors,
     send: (frame) => { input.write(`${JSON.stringify(frame)}\n`) },
     sendRaw: (text) => { input.write(text) },
     frames,
@@ -199,7 +222,7 @@ describe('dsh-jsonrpc plugin apply', () => {
 
   it('answers shutdown before exiting 0 exactly once, even against a racing second shutdown', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-shutdown-'))
-    const harness = await mountPlugin(storageDir)
+    const harness = await mountPlugin(storageDir, { writeDelayMs: 10 })
     try {
       // Two shutdown frames in ONE chunk: both are dispatched from the same
       // read-loop pass, so both setImmediate exit callbacks get scheduled and
@@ -211,15 +234,21 @@ describe('dsh-jsonrpc plugin apply', () => {
       await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit recorder call')
       expect(harness.exits()).toEqual([0])
 
-      // Response-then-exit ordering: both shutdown responses were flushed to
-      // output BEFORE exit(0) ran (the setImmediate in the request handler).
+      // Response-then-exit ordering: both response write callbacks and the
+      // empty flush barrier complete before exit(0), even on delayed output.
       const exitIndex = harness.events.findIndex(event => event.kind === 'exit')
       const firstResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-1')
       const secondResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-2')
+      const firstComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-1'))
+      const secondComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-2'))
+      const flushComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.length === 0)
       expect(firstResponse).toBeGreaterThanOrEqual(0)
       expect(secondResponse).toBeGreaterThanOrEqual(0)
-      expect(exitIndex).toBeGreaterThan(firstResponse)
-      expect(exitIndex).toBeGreaterThan(secondResponse)
+      expect(firstComplete).toBeGreaterThan(firstResponse)
+      expect(secondComplete).toBeGreaterThan(secondResponse)
+      expect(flushComplete).toBeGreaterThan(firstComplete)
+      expect(flushComplete).toBeGreaterThan(secondComplete)
+      expect(exitIndex).toBeGreaterThan(flushComplete)
 
       // Idempotent: the racing second shutdown never produces a second exit.
       await settle()
@@ -228,6 +257,27 @@ describe('dsh-jsonrpc plugin apply', () => {
       // The plugin fiber is disposed: the transport reads no further frames.
       const before = harness.frames().length
       harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      await settle()
+      expect(harness.frames().length).toBe(before)
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('still disposes and exits once when the flush callback fails', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-flush-failure-'))
+    const harness = await mountPlugin(storageDir, { failFlush: true })
+    try {
+      harness.send({ jsonrpc: '2.0', id: 'sd-fail', method: 'shutdown' })
+
+      await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit after flush failure')
+      await settle()
+      expect(harness.exits()).toEqual([0])
+      expect(harness.outputErrors.map(error => error.message)).toEqual(['flush callback failed'])
+
+      const before = harness.frames().length
+      harness.send({ jsonrpc: '2.0', id: 'after-flush-failure', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
       await settle()
       expect(harness.frames().length).toBe(before)
     } finally {

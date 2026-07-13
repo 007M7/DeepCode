@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Readable, Writable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 
 type JsonRpcId = string | number
 type RequestHandler = (method: string, params: Record<string, unknown>) => Promise<unknown>
@@ -56,6 +57,7 @@ interface PendingRequest {
  */
 export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   private buffer = ''
+  private readonly decoder = new StringDecoder('utf8')
   private started = false
   private requestHandler: RequestHandler | undefined
   private notificationHandler: NotificationHandler | undefined
@@ -122,8 +124,27 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.write(params === undefined ? { jsonrpc: '2.0', method } : { jsonrpc: '2.0', method, params })
   }
 
+  /**
+   * Wait until every frame written before this call has reached the output's
+   * write callback. The empty queued write is a barrier and emits no protocol
+   * bytes.
+   * @returns a promise that settles with the output write callback.
+   */
+  flush(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.output.write('', (error) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+  }
+
   private readonly onData = (chunk: Buffer | string): void => {
-    this.buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+    this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk)
+    this.drainLines()
+  }
+
+  private drainLines(): void {
     for (;;) {
       const newline = this.buffer.indexOf('\n')
       if (newline < 0) break
@@ -139,6 +160,8 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   }
 
   private readonly onInputEnd = (): void => {
+    this.buffer += this.decoder.end()
+    this.drainLines()
     this.failPending(new Error('JSON-RPC input closed'))
   }
 

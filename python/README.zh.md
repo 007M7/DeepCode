@@ -37,7 +37,8 @@ uv run --project python/sdk pytest                                            # 
 
 ```python
 from deepseek_harness import DeepSeekHarness
-print(DeepSeekHarness().run("say hi").final_response)   # auto-resolution picks the bundled exe
+with DeepSeekHarness() as harness:
+    print(harness.run("say hi").final_response)   # auto-resolution picks the bundled exe
 ```
 
 ## 对着 Node 源码运行 SDK（不用可执行文件）

@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import { JsonRpcLineTransport } from '../src/index.ts'
 
@@ -120,6 +120,64 @@ describe('JsonRpcLineTransport', () => {
       { method: 'string-chunk', params: {} },
     ])
     b.close()
+  })
+
+  it('preserves multibyte UTF-8 characters split across Buffer chunks', async () => {
+    const input = new PassThrough()
+    const output = new PassThrough()
+    const transport = new JsonRpcLineTransport(input, output)
+    const notifications: Record<string, unknown>[] = []
+    transport.onNotification((method, params) => { notifications.push({ method, params }) })
+    transport.start()
+
+    const frame = Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', method: 'message', params: { text: '你好' } })}\n`)
+    const character = Buffer.from('你')
+    const characterStart = frame.indexOf(character)
+    expect(characterStart).toBeGreaterThanOrEqual(0)
+    input.write(frame.subarray(0, characterStart + 1))
+    input.write(frame.subarray(characterStart + 1))
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(notifications).toEqual([{ method: 'message', params: { text: '你好' } }])
+    transport.close()
+  })
+
+  it('flush waits for all earlier output writes', async () => {
+    const events: string[] = []
+    const output = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        const label = chunk.length === 0 ? 'barrier' : 'frame'
+        events.push(`start:${label}`)
+        setTimeout(() => {
+          events.push(`finish:${label}`)
+          callback()
+        }, 5)
+      },
+    })
+    const transport = new JsonRpcLineTransport(new PassThrough(), output)
+
+    transport.notify('tick')
+    await transport.flush()
+
+    expect(events).toEqual([
+      'start:frame',
+      'finish:frame',
+      'start:barrier',
+      'finish:barrier',
+    ])
+    transport.close()
+  })
+
+  it('reports an output callback failure from flush', async () => {
+    const output = {
+      write(_chunk: string, callback?: (error?: Error) => void) {
+        callback?.(new Error('flush failed'))
+        return true
+      },
+    }
+    const transport = new JsonRpcLineTransport(new PassThrough(), output as never)
+
+    await expect(transport.flush()).rejects.toThrow('flush failed')
   })
 
   it('rejects pending requests when the input closes', async () => {

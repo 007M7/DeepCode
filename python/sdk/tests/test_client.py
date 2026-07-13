@@ -356,6 +356,48 @@ def test_client_keeps_unmatched_notifications_available_globally_while_subscribe
         assert notification.payload["sessionId"] == "other"
 
 
+def test_client_contains_notification_filter_failure_to_its_subscription(tmp_path: Path) -> None:
+    script = tmp_path / "fake_bridge.py"
+    script.write_text(
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method in {"emit-first", "emit-second"}:
+        print(json.dumps({"jsonrpc": "2.0", "method": "tick", "params": {"source": method}}), flush=True)
+    elif method == "session/prompt":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    def broken_filter(_notification: object) -> bool:
+        raise RuntimeError("bad notification filter")
+
+    with HarnessClient(HarnessConfig(launch_args_override=(sys.executable, str(script)))) as client:
+        client.initialize(cwd="/workspace", model="dsagent")
+        with (
+            client.subscribe_notifications(broken_filter) as broken,
+            client.subscribe_notifications(lambda notification: notification.method == "tick") as healthy,
+        ):
+            client.notify("emit-first")
+            with pytest.raises(RuntimeError, match="bad notification filter"):
+                broken.next()
+            assert healthy.next().payload == {"source": "emit-first"}
+            assert client._notifications.qsize() == 0
+
+            client.session_prompt("main", [{"type": "text", "text": "reader still works"}])
+            client.notify("emit-second")
+            assert healthy.next().payload == {"source": "emit-second"}
+
+
 def test_client_rejects_unaccepted_session_prompt_response(tmp_path: Path) -> None:
     script = tmp_path / "fake_bridge.py"
     script.write_text(

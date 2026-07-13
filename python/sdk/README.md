@@ -13,8 +13,11 @@ Installing `deepseek-harness` installs the exact same-version `deepseek-harness-
 ```py
 from deepseek_harness import DeepSeekHarness
 
-result = DeepSeekHarness().run("Say hi.")
+with DeepSeekHarness() as harness:
+    result = harness.run("Say hi.")
 ```
+
+`DeepSeekHarness` keeps its lazily started runtime subprocess for reuse across calls. Use it as a context manager, as above, or call `close()` explicitly when finished.
 
 By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executable from the `deepseek-harness-runtime-bin` package and injects that package's default configuration (the stdio JSON-RPC server, agent core, preloaded DeepSeek adapter, JSONL session persistence, local bash) via `DSH_CORDIS_CONFIG`. To run a plugin composition of your own, keep the `@deepseek-ai/dsh-jsonrpc` entry in the config and pass the Cordis config path.
 

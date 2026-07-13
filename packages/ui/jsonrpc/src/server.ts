@@ -36,7 +36,10 @@ export interface InitializeResult {
   serverInfo: { name: string; version: string }
 }
 
-/** Parameters of a `session/prompt` request (one user turn on one SDK session). */
+/**
+ * Parameters of a `session/prompt` request: one user turn on one SDK session,
+ * with at most one in flight per session.
+ */
 export interface SessionPromptParams {
   /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
   sessionId: string
@@ -53,6 +56,7 @@ export interface SessionPromptResult {
 interface SessionRecord {
   handle: AgentHandle
   lastTurnEnd: TurnEndReason | undefined
+  activePrompt: boolean
 }
 
 interface SubagentRecord {
@@ -147,22 +151,30 @@ export class HarnessSdkServer {
   /**
    * Handle `session/prompt`: get-or-create the session's agent, send the
    * content as the user message, await turn settle (quiescence), then notify
-   * `session.finished` with the settled turn's outcome.
+   * `session.finished` with the settled turn's outcome. A session accepts at
+   * most one prompt at a time; an overlapping request fails immediately while
+   * other sessions remain independent.
    * @param params - the target session id and prompt content.
    * @returns `{ accepted: true }` after the turn settled.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
-    rec.lastTurnEnd = undefined
-    rec.handle.agent.send(params.contentBlocks)
-    await rec.handle.agent.whenIdle()
-    const status = this.finishedStatus(rec.lastTurnEnd)
-    this.transport.notify('session.finished', {
-      sessionId: params.sessionId,
-      status,
-      reason: rec.lastTurnEnd,
-    })
-    return { accepted: true }
+    if (rec.activePrompt) throw new Error(`session already has an active prompt: ${params.sessionId}`)
+    rec.activePrompt = true
+    try {
+      rec.lastTurnEnd = undefined
+      rec.handle.agent.send(params.contentBlocks)
+      await rec.handle.agent.whenIdle()
+      const status = this.finishedStatus(rec.lastTurnEnd)
+      this.transport.notify('session.finished', {
+        sessionId: params.sessionId,
+        status,
+        reason: rec.lastTurnEnd,
+      })
+      return { accepted: true }
+    } finally {
+      rec.activePrompt = false
+    }
   }
 
   /**
@@ -248,7 +260,7 @@ export class HarnessSdkServer {
       meta: { cwd: this.cwd },
       agentOptions: { model: this.model },
     })
-    const rec: SessionRecord = { handle, lastTurnEnd: undefined }
+    const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
     this.sessions.set(sessionId, rec)
     return rec
   }

@@ -83,8 +83,9 @@ export const Config: Schema<JsonRpcConfig> = Schema.object({})
  * detaches the event subscriptions) and `transport.close()`.
  *
  * The `shutdown` request's process-exit semantics live HERE, because the
- * plugin owns the server and transport: the request is answered first
- * (`setImmediate` lets the response frame flush), then the plugin disposes its
+ * plugin owns the server and transport: the request is answered first, an
+ * explicit output-write barrier confirms the response frame flushed, then the
+ * plugin disposes its
  * OWN fiber and calls `exit(0)`. Own-fiber disposal is sufficient — the
  * request's `server.shutdown()` already brought every SDK-created agent to
  * quiescence (their session logs are flushed by the awaited agent-handle
@@ -109,24 +110,25 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const server = new HarnessSdkServer(ctx, transport)
 
   // The shutdown-request exit path, exactly once (a second `shutdown` frame
-  // racing the dispose must not re-enter). `exit(0)` runs even if the dispose
-  // throws — the client was already answered, so exiting is the honest outcome.
-  let exiting = false
-  const disposeAndExit = async (): Promise<void> => {
-    if (exiting) return
-    exiting = true
-    try {
-      await fiber.dispose()
-    } finally {
+  // racing the dispose shares the same task). Flush and disposal failures are
+  // settled independently: once shutdown was answered, process exit is still
+  // the honest outcome and neither failure may prevent the next teardown step.
+  let exitTask: Promise<void> | undefined
+  const disposeAndExit = (): Promise<void> => {
+    exitTask ??= (async () => {
+      await Promise.allSettled([Promise.resolve().then(() => transport.flush())])
+      await Promise.allSettled([Promise.resolve().then(() => fiber.dispose())])
       exit(0)
-    }
+    })()
+    return exitTask
   }
 
   transport.onRequest(async (method, params) => {
     const result = await server.handleRequest(method, params)
     if (method === 'shutdown') {
-      // Answer the request first (setImmediate lets the response frame
-      // flush), then dispose this plugin's fiber and exit 0 (see apply's doc).
+      // The transport writes the returned result after this handler resolves.
+      // Schedule the explicit flush barrier after that write, then dispose this
+      // plugin's fiber and exit 0 (see apply's doc).
       setImmediate(() => { void disposeAndExit() })
     }
     return result

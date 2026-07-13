@@ -43,7 +43,12 @@ class TurnResult:
 
 
 class DeepSeekHarness:
-    """Synchronous high-level SDK for running DeepSeek Harness agent turns."""
+    """Reusable synchronous SDK for running DeepSeek Harness agent turns.
+
+    The runtime subprocess starts lazily and remains owned by this instance
+    across calls to :meth:`run`. Use the instance as a context manager, or call
+    :meth:`close` explicitly when finished, so the subprocess is always reaped.
+    """
 
     def __init__(self, config: DeepSeekHarnessConfig | None = None, **kwargs: object) -> None:
         if config is not None and kwargs:

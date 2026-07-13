@@ -152,6 +152,57 @@ describe('HarnessSdkServer', () => {
     }
   })
 
+  it('rejects overlapping prompts for one session without serializing other sessions', async () => {
+    let releaseMain: (() => void) | undefined
+    const firstMainIdle = new Promise<void>((resolve) => { releaseMain = resolve })
+    const mainWhenIdle = vi.fn<() => Promise<void>>()
+      .mockReturnValueOnce(firstMainIdle)
+      .mockResolvedValue(undefined)
+    const mainSend = vi.fn()
+    const mainAgent = {
+      send: mainSend,
+      whenIdle: mainWhenIdle,
+    } as unknown as Agent
+    const otherSend = vi.fn()
+    const otherAgent = {
+      send: otherSend,
+      whenIdle: vi.fn(() => Promise.resolve()),
+    } as unknown as Agent
+    const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
+    const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async (options: { agentId: AgentId }) =>
+      String(options.agentId) === 'main' ? mainHandle : otherHandle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const prompt = (sessionId: string, text: string) => server.prompt({
+      sessionId,
+      contentBlocks: [{ type: 'text', text }],
+    })
+
+    const first = prompt('main', 'first')
+    await vi.waitFor(() => { expect(mainSend).toHaveBeenCalledOnce() })
+
+    await expect(prompt('main', 'overlap')).rejects.toThrow('session already has an active prompt: main')
+    await expect(prompt('other', 'independent')).resolves.toEqual({ accepted: true })
+    releaseMain?.()
+    await expect(first).resolves.toEqual({ accepted: true })
+    await expect(prompt('main', 'sequential')).resolves.toEqual({ accepted: true })
+
+    mainWhenIdle.mockRejectedValueOnce(new Error('turn wait failed'))
+    await expect(prompt('main', 'failing')).rejects.toThrow('turn wait failed')
+    await expect(prompt('main', 'after failure')).resolves.toEqual({ accepted: true })
+
+    expect(mainSend).toHaveBeenCalledTimes(4)
+    expect(otherSend).toHaveBeenCalledOnce()
+    await server.shutdown()
+    expect(mainHandle.dispose).toHaveBeenCalledOnce()
+    expect(otherHandle.dispose).toHaveBeenCalledOnce()
+  })
+
   it('notifies the host when a child session is created with parent lineage', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-'))
     const ctx = await makeHarness(storageDir)
@@ -490,11 +541,11 @@ describe('HarnessSdkServer', () => {
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined }>
+      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined; activePrompt: boolean }>
       shutdown(): Promise<Record<string, never>>
     }
-    server.sessions.set('first', { handle: { agent: {} as Agent, dispose: firstDispose }, lastTurnEnd: undefined })
-    server.sessions.set('second', { handle: { agent: {} as Agent, dispose: secondDispose }, lastTurnEnd: undefined })
+    server.sessions.set('first', { handle: { agent: {} as Agent, dispose: firstDispose }, lastTurnEnd: undefined, activePrompt: false })
+    server.sessions.set('second', { handle: { agent: {} as Agent, dispose: secondDispose }, lastTurnEnd: undefined, activePrompt: false })
 
     await expect(server.shutdown()).rejects.toThrow('SDK server teardown failed')
     expect(firstDispose).toHaveBeenCalledOnce()
