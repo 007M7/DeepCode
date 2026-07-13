@@ -10,7 +10,7 @@ A `ToolSchema` (the model-facing fields) plus the `execute` function and optiona
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -97,6 +97,19 @@ interface ToolExecution {
 }
 ```
 
+A tool body receives the runtime extension. `deferContext()` is the composite-tool channel: it records nested-dispatch context without injecting inside the still-open outer call.
+
+```ts type-equiv
+interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source, envelope, and
+   * metadata and are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+```
+
 ```ts type-equiv
 interface ToolExecutionResult {
   callId: CallId
@@ -109,16 +122,14 @@ interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Extra model-facing context a `tools/post-execute` listener attached for the
-   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
-   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
-   * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * Extra model-facing contexts deferred by a composite tool or attached by
+   * `tools/post-execute` listeners for the NEXT request. They are NOT part of
+   * this call's `content`: the loop buffers every context and appends them only
+   * AFTER all `tool/result`s for the step, preserving tool-call/result
+   * adjacency. The array preserves each context's source, envelope, metadata,
+   * and production order instead of flattening mixed plugin provenance.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -140,8 +151,8 @@ type PreToolDecision =
 
 ```ts type-equiv
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 ```
 
 Call `next()` to delegate to the default (allow / accept-unchanged), or return a decision to short-circuit. A `pre-execute` `deny` (or `ask`, which degrades to deny until the permission system lands) skips dispatch and yields an `isError` result; input rewrite is deliberately NOT offered on `PreToolDecision` (it would desync the pre-execution audit/history/UI from what ran — its own proposed RFC). A `post-execute` `accept` may replace the model-facing `content` (clean, because `tool/result` is logged after `execute()` returns); a `block` turns the call into an `isError` whose content is the corrective `feedback`. Core dispatch sits between the waterfalls as plain code; the tool body keeps its own try/catch so a thrown tool still reaches `post-execute` as an `isError`. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.

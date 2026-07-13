@@ -70,7 +70,7 @@ forever:
       each tool-call: session('tool/call')
         → tools.execute() [waterfall tools/pre-execute → dispatch → tools/post-execute]
         → session('tool/result')
-      append buffered post-execute additionalContext as session('context/message')(s)
+      append buffered deferred/post-execute additionalContexts as session('context/message')(s)
       drain steering → session('steering/message')
       cont = waterfall agent/turn-continuation → ContinuationDecision
         ({action:'continue', reason?} records reason as next-step steering)

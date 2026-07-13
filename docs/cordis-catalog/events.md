@@ -375,7 +375,7 @@ Source: [`packages/core/tools/src/index.ts:114`](../../packages/core/tools/src/i
 
 ### `tools/post-execute` — waterfall
 
-Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. Core tool dispatch runs earlier as the base `next()` of the `tools/execute` waterfall, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
+Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContexts` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. Core tool dispatch runs earlier as the base `next()` of the `tools/execute` waterfall, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
 
 ```ts cordis-catalog
 'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>

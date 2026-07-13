@@ -134,6 +134,17 @@ const SCENARIOS: Scenario[] = [
   // overlay config, composes a different header by construction, and
   // therefore pins its own class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
+  // A nested fs dispatch inside run_code discovers workspace instructions. The
+  // context/message must follow the outer result while retaining workspace
+  // provenance, which proves Code Mode carries deferred tool context end to end.
+  {
+    name: 'code-mode-workspace-context',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'code-workspace-context',
+    configPath: CODE_MODE_CONFIG,
+  },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
 ]
 

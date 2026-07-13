@@ -18,7 +18,7 @@ flowchart TD
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
   owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
-  context["Buffered additionalContext<br/>context/message after all tool results"]
+  context["Buffered additionalContexts<br/>context/message after all tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
   presentResult["UI completed card<br/>presentResult(args, result)"]
   model --> toolCall

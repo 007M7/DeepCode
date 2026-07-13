@@ -709,7 +709,7 @@ function renderToolPipeline(): string {
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
     `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
-    '  context["Buffered additionalContext<br/>context/message after all tool results"]',
+    '  context["Buffered additionalContexts<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
     '  model --> toolCall',

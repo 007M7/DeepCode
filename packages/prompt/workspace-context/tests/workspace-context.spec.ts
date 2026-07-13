@@ -139,15 +139,22 @@ function blocksText(blocks: { type: string; text?: string }[] | undefined): stri
   return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
 }
 
-function appendAdditionalContext(agent: Agent, result: { additionalContext?: HookContext }): number | undefined {
-  const context = result.additionalContext
-  if (context === undefined) return undefined
-  return agent.session.append('context/message', {
-    content: context.content,
-    source: context.source,
-    ...context.envelope !== undefined ? { envelope: context.envelope } : {},
-    ...context.meta !== undefined ? { meta: context.meta } : {},
-  }, { surfaceOp: 'append' }).seq
+function workspaceContextOf(result: { additionalContexts?: HookContext[] }): HookContext | undefined {
+  return result.additionalContexts?.find(context =>
+    context.source.kind === 'plugin' && context.source.plugin === 'workspace-context')
+}
+
+function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: HookContext[] }): number | undefined {
+  let lastSeq: number | undefined
+  for (const context of result.additionalContexts ?? []) {
+    lastSeq = agent.session.append('context/message', {
+      content: context.content,
+      source: context.source,
+      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+      ...context.meta !== undefined ? { meta: context.meta } : {},
+    }, { surfaceOp: 'append' }).seq
+  }
+  return lastSeq
 }
 
 const composedPrefixes = new WeakMap<object, Message[]>()
@@ -763,7 +770,7 @@ describe('workspace context request injection', () => {
         kind: 'block',
         feedback: [{ type: 'text', text: 'blocked by policy' }],
       })
-      expect(blocked.additionalContext).toBeUndefined()
+      expect(blocked.additionalContexts).toBeUndefined()
 
       // The same read, when the downstream accepts, DOES surface the nested
       // instructions — proving the block branch above is what suppressed them,
@@ -772,8 +779,8 @@ describe('workspace context request injection', () => {
         kind: 'accept' as const,
       }))
       expect(accepted.kind).toBe('accept')
-      expect(accepted.additionalContext?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(blocksText(accepted.additionalContext?.content)).toContain('nested package rule')
+      expect(workspaceContextOf(accepted)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(blocksText(workspaceContextOf(accepted)?.content)).toContain('nested package rule')
     } finally {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
@@ -891,11 +898,11 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-change'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(result.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.meta).toMatchObject({
         changes: [{ action: 'replace', scope: '.', path: 'AGENTS.md' }],
       })
-      expect(blocksText(result.additionalContext?.content)).toContain('Updated instructions from: AGENTS.md')
-      expect(blocksText(result.additionalContext?.content)).toContain('new root rule with more detail')
+      expect(blocksText(workspaceContextOf(result)?.content)).toContain('Updated instructions from: AGENTS.md')
+      expect(blocksText(workspaceContextOf(result)?.content)).toContain('new root rule with more detail')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -919,10 +926,10 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-remove'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(result.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.meta).toMatchObject({
         changes: [{ action: 'remove', scope: '.', path: 'AGENTS.md' }],
       })
-      expect(blocksText(result.additionalContext?.content)).toContain('Instructions removed: AGENTS.md')
+      expect(blocksText(workspaceContextOf(result)?.content)).toContain('Instructions removed: AGENTS.md')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -945,7 +952,7 @@ describe('workspace context request injection', () => {
       })
 
       expect(derivedText(agent).match(/shared root and global rule/g)).toHaveLength(1)
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -1361,9 +1368,9 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(result.additionalContext?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(result.additionalContext?.envelope).toBe('raw')
-      expect(result.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(workspaceContextOf(result)?.envelope).toBe('raw')
+      expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
         version: 1,
         changes: [{
@@ -1372,7 +1379,7 @@ describe('dynamic nested workspace context injection', () => {
           path: 'pkg/AGENTS.md',
         }],
       })
-      const meta = result.additionalContext?.meta
+      const meta = workspaceContextOf(result)?.meta
       const firstChange = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
         ? meta.changes[0]
         : undefined
@@ -1380,7 +1387,7 @@ describe('dynamic nested workspace context injection', () => {
         ? firstChange.digest
         : undefined
       expect(changeDigest).toMatch(/^[a-f0-9]{40}$/)
-      const text = blocksText(result.additionalContext?.content)
+      const text = blocksText(workspaceContextOf(result)?.content)
       expect(text).toBe([
         '<system-reminder>',
         'Additional instructions from: pkg/AGENTS.md',
@@ -1420,7 +1427,7 @@ describe('dynamic nested workspace context injection', () => {
         agent: stubAgent(root),
       })
 
-      const text = blocksText(result.additionalContext?.content)
+      const text = blocksText(workspaceContextOf(result)?.content)
       expect(text).toContain('Additional instructions from: pkg/CLAUDE.local.md')
       expect(text).toContain('local package rule')
       expect(text).not.toContain('native package rule')
@@ -1454,8 +1461,8 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      expect(first.additionalContext).toBeDefined()
-      expect(second.additionalContext).toBeUndefined()
+      expect(first.additionalContexts).toBeDefined()
+      expect(second.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1476,17 +1483,17 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       await write(join(root, 'pkg/AGENTS.md'), 'new package rule with more detail')
       const changed = await ctx.tools.execute({
         callId: CallId('read-after-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
 
-      expect(changed.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(changed)?.meta).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'replace', scope: 'pkg', path: 'pkg/AGENTS.md' }],
       })
-      expect(blocksText(changed.additionalContext?.content)).toBe([
+      expect(blocksText(workspaceContextOf(changed)?.content)).toBe([
         '<system-reminder>',
         'Updated instructions from: pkg/AGENTS.md',
         '',
@@ -1516,25 +1523,25 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
       const changed = await ctx.tools.execute({
         callId: CallId('read-after-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, changed)
+      appendAdditionalContexts(agent, changed)
       const unchanged = await ctx.tools.execute({
         callId: CallId('read-after-logged-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
 
-      expect(changed.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(changed)?.meta).toMatchObject({
         changes: [{
           action: 'replace', scope: 'pkg', path: 'pkg/CLAUDE.md', previousPath: 'pkg/AGENTS.md',
         }],
       })
-      expect(blocksText(changed.additionalContext?.content)).toContain('Updated instructions from: pkg/CLAUDE.md')
-      expect(blocksText(changed.additionalContext?.content)).toContain('The instructions previously loaded from `pkg/AGENTS.md` no longer apply. Use the following content for `pkg` instead.')
-      expect(blocksText(changed.additionalContext?.content)).toContain('fallback package rule')
-      expect(unchanged.additionalContext).toBeUndefined()
+      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('Updated instructions from: pkg/CLAUDE.md')
+      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('The instructions previously loaded from `pkg/AGENTS.md` no longer apply. Use the following content for `pkg` instead.')
+      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('fallback package rule')
+      expect(unchanged.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1555,18 +1562,18 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-remove'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
       const removed = await ctx.tools.execute({
         callId: CallId('read-after-remove'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
 
-      expect(removed.additionalContext?.meta).toEqual({
+      expect(workspaceContextOf(removed)?.meta).toEqual({
         kind: 'workspace-instructions',
         version: 1,
         changes: [{ action: 'remove', scope: 'pkg', path: 'pkg/AGENTS.md' }],
       })
-      expect(blocksText(removed.additionalContext?.content)).toBe([
+      expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
         '<system-reminder>',
         'Instructions removed: pkg/AGENTS.md',
         '',
@@ -1593,23 +1600,23 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
       const removed = await ctx.tools.execute({
         callId: CallId('read-to-create-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, removed)
+      appendAdditionalContexts(agent, removed)
       await write(join(root, 'pkg/AGENTS.md'), 'restored package rule')
 
       const restored = await ctx.tools.execute({
         callId: CallId('read-after-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
 
-      expect(restored.additionalContext?.meta).toMatchObject({
+      expect(workspaceContextOf(restored)?.meta).toMatchObject({
         changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
       })
-      expect(blocksText(restored.additionalContext?.content)).toContain('Additional instructions from: pkg/AGENTS.md')
-      expect(blocksText(restored.additionalContext?.content)).toContain('restored package rule')
+      expect(blocksText(workspaceContextOf(restored)?.content)).toContain('Additional instructions from: pkg/AGENTS.md')
+      expect(blocksText(workspaceContextOf(restored)?.content)).toContain('restored package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1635,14 +1642,14 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-provider-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
       const duringFailure = await ctx.tools.execute({
         callId: CallId('read-during-provider-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       })
 
-      expect(first.additionalContext).toBeDefined()
-      expect(duringFailure.additionalContext).toBeUndefined()
+      expect(first.additionalContexts).toBeDefined()
+      expect(duringFailure.additionalContexts).toBeUndefined()
     } finally {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
@@ -1666,7 +1673,7 @@ describe('dynamic nested workspace context injection', () => {
         arguments: { file_path: 'pkg/deep/file.txt' },
         agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
       const resumed = {
         ...agent,
         session: new Session(agent.session.id, [...agent.session.events], agent.session.header),
@@ -1679,8 +1686,8 @@ describe('dynamic nested workspace context injection', () => {
         agent: resumed,
       })
 
-      expect(first.additionalContext).toBeDefined()
-      expect(afterResume.additionalContext).toBeUndefined()
+      expect(first.additionalContexts).toBeDefined()
+      expect(afterResume.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1700,7 +1707,7 @@ describe('dynamic nested workspace context injection', () => {
       const first = await ctx.tools.execute({
         callId: CallId('read-before-offline-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: original,
       })
-      appendAdditionalContext(original, first)
+      appendAdditionalContexts(original, first)
       await write(join(root, 'pkg/AGENTS.md'), 'new nested rule after resume')
       const resumed = stubAgent(root, [...original.session.events])
 
@@ -1733,7 +1740,7 @@ describe('dynamic nested workspace context injection', () => {
         arguments: { file_path: 'pkg/deep/file.txt' },
         agent,
       })
-      const contextSeq = appendAdditionalContext(agent, first)!
+      const contextSeq = appendAdditionalContexts(agent, first)!
       const visibleBeforeCompact = await ctx.tools.execute({
         callId: CallId('read-while-visible'),
         name: 'read',
@@ -1753,10 +1760,10 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      expect(first.additionalContext).toBeDefined()
-      expect(visibleBeforeCompact.additionalContext).toBeUndefined()
-      expect(afterCompact.additionalContext).toBeDefined()
-      expect(blocksText(afterCompact.additionalContext?.content)).toContain('nested package rule')
+      expect(first.additionalContexts).toBeDefined()
+      expect(visibleBeforeCompact.additionalContexts).toBeUndefined()
+      expect(afterCompact.additionalContexts).toBeDefined()
+      expect(blocksText(workspaceContextOf(afterCompact)?.content)).toContain('nested package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1781,7 +1788,7 @@ describe('dynamic nested workspace context injection', () => {
         arguments: { file_path: 'pkg/file.txt' },
         agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
 
       const second = await ctx.tools.execute({
         callId: CallId('read-subtree'),
@@ -1790,8 +1797,8 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      expect(blocksText(first.additionalContext?.content)).toContain('package note')
-      expect(blocksText(second.additionalContext?.content)).toContain('subtree rule')
+      expect(blocksText(workspaceContextOf(first)?.content)).toContain('package note')
+      expect(blocksText(workspaceContextOf(second)?.content)).toContain('subtree rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1816,7 +1823,7 @@ describe('dynamic nested workspace context injection', () => {
         arguments: { file_path: 'pkg/sub/file.txt' },
         agent,
       })
-      appendAdditionalContext(agent, first)
+      appendAdditionalContexts(agent, first)
 
       const second = await ctx.tools.execute({
         callId: CallId('read-parent-after-omit'),
@@ -1825,11 +1832,11 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      const firstText = blocksText(first.additionalContext?.content)
+      const firstText = blocksText(workspaceContextOf(first)?.content)
       expect(firstText).toContain('omitted pkg/AGENTS.md')
       expect(firstText).not.toContain('## pkg/AGENTS.md')
       expect(firstText).toContain('subtree rule')
-      expect(blocksText(second.additionalContext?.content)).toContain('parent rule')
+      expect(blocksText(workspaceContextOf(second)?.content)).toContain('parent rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1886,7 +1893,7 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      expect(blocksText(result.additionalContext?.content)).toContain('nested package rule')
+      expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1918,8 +1925,8 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      expect(rootResult.additionalContext).toBeUndefined()
-      expect(blocksText(absoluteResult.additionalContext?.content)).toContain('nested package rule')
+      expect(rootResult.additionalContexts).toBeUndefined()
+      expect(blocksText(workspaceContextOf(absoluteResult)?.content)).toContain('nested package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1982,7 +1989,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
       await chmod(nested, 0o600)
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -1990,7 +1997,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('folds nested instruction context with downstream post-execute content and context', async () => {
+  it('preserves nested and downstream post-execute contexts as separate entries', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -2002,10 +2009,10 @@ describe('dynamic nested workspace context injection', () => {
       ctx.on('tools/post-execute', async () => ({
         kind: 'accept' as const,
         content: [{ type: 'text' as const, text: 'downstream replacement' }],
-        additionalContext: {
+        additionalContexts: [{
           content: [{ type: 'text' as const, text: 'downstream context' }],
           source: { kind: 'plugin' as const, plugin: 'downstream' },
-        },
+        }],
       }))
 
       const result = await ctx.tools.execute({
@@ -2016,17 +2023,22 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(blocksText(result.content)).toBe('downstream replacement')
-      expect(result.additionalContext?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(result.additionalContext?.envelope).toBe('raw')
-      expect(result.additionalContext?.meta).toMatchObject({
+      expect(result.additionalContexts).toHaveLength(2)
+      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(workspaceContextOf(result)?.envelope).toBe('raw')
+      expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
       })
-      expect(blocksText(result.additionalContext?.content)).toContain('nested package rule')
-      expect(blocksText(result.additionalContext?.content)).toContain('downstream context')
+      expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
+      expect(blocksText(workspaceContextOf(result)?.content)).not.toContain('downstream context')
+      expect(result.additionalContexts?.[1]).toEqual({
+        content: [{ type: 'text', text: 'downstream context' }],
+        source: { kind: 'plugin', plugin: 'downstream' },
+      })
       const agent = stubAgent(root)
-      appendAdditionalContext(agent, result)
-      expect(blocksText(agent.session.deriveMessages()[0]?.content)).toContain('<context source="plugin">\ndownstream context\n</context>')
+      appendAdditionalContexts(agent, result)
+      expect(blocksText(agent.session.deriveMessages()[1]?.content)).toContain('<context source="plugin">\ndownstream context\n</context>')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2058,7 +2070,7 @@ describe('dynamic nested workspace context injection', () => {
       // should reach the model, and the block feedback must survive unchanged.
       expect(result.isError).toBe(true)
       expect(blocksText(result.content)).toBe('blocked downstream')
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2122,7 +2134,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2146,7 +2158,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(true)
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2172,7 +2184,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(result.additionalContext).toBeUndefined()
+      expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

@@ -206,12 +206,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             ...exec.agent ? { agent: exec.agent } : {},
             signal: runController.signal,
           })
+          for (const context of result.additionalContexts ?? []) {
+            exec.deferContext(context)
+          }
           const text = textOf(result.content)
-          // Sub-call `additionalContext` is deliberately DROPPED here: the
-          // loop's buffering (append after the step's tool/results) has no
-          // safe analogue from inside a running run_code — injecting now
-          // would break tool-call/result adjacency. Deferred until a real
-          // hook needs it through Code Mode.
           exec.agent?.session.append('tool/code-dispatch', {
             parentCallId: exec.callId,
             subCallId,

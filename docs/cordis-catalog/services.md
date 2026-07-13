@@ -268,12 +268,12 @@ Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop e
 register(definition: ToolDefinition): () => void
 get(name: string): ToolDefinition | undefined
 schemas(): ToolSchema[]
-async execute(exec: ToolExecution): Promise<ToolExecutionResult>
+async execute(request: ToolExecution): Promise<ToolExecutionResult>
 ```
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:349`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:361`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

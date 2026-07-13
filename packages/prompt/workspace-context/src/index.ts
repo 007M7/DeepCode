@@ -20,7 +20,6 @@ import {
 } from './files.ts'
 import {
   baselineInstructionChanges,
-  concatContext,
   dynamicInstructionContext,
   name,
   reconcileInstructionContext,
@@ -114,7 +113,7 @@ export function apply(ctx: Context, config: Config): void {
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(context, downstream.additionalContext),
+      additionalContexts: [context, ...downstream.additionalContexts ?? []],
     }
   })
 }

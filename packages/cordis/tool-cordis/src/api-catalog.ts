@@ -200,7 +200,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'register(definition: ToolDefinition): () => void',
       'get(name: string): ToolDefinition | undefined',
       'schemas(): ToolSchema[]',
-      'async execute(exec: ToolExecution): Promise<ToolExecutionResult>',
+      'async execute(request: ToolExecution): Promise<ToolExecutionResult>',
     ],
   },
   {
@@ -416,7 +416,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
+    summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContexts` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
   },
   {
     name: 'tools/pre-execute',
@@ -906,7 +906,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
@@ -922,7 +922,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolResult',
@@ -935,6 +935,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolResultView',
     declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+  },
+  {
+    name: 'ToolRunContext',
+    declaration: 'export interface ToolRunContext extends ToolExecution {\n    deferContext(context: HookContext): void;\n}',
   },
   {
     name: 'ToolSchema',

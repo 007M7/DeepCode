@@ -115,7 +115,7 @@ declare module 'cordis' {
     /**
      * Waterfall AFTER a tool runs — where hook plugins inspect the result and
      * accept it (optionally REPLACING the model-facing content, and/or attaching
-     * `additionalContext` for the next request) or block it with corrective
+     * `additionalContexts` for the next request) or block it with corrective
      * `feedback` (Claude Code's `PostToolUse`). Listeners receive
      * `(exec, result, next)`: call `next()` to delegate to the default (accept
      * unchanged), or return a {@link PostToolDecision} to override. Core tool
@@ -154,7 +154,7 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -209,6 +209,21 @@ export interface ToolExecution {
   signal?: AbortSignal
 }
 
+/**
+ * Runtime context handed to a tool implementation after the registry has
+ * accepted a {@link ToolExecution}. A composite tool uses
+ * {@link deferContext} to ferry context produced by nested dispatches back to
+ * the outer result; the loop appends it only after the outer `tool/result`.
+ */
+export interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source, envelope, and
+   * metadata and are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
   name: string
@@ -240,17 +255,14 @@ export interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-  /**
-   * Extra model-facing context a `tools/post-execute` listener attached for the
-   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
-   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
-   * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * Extra model-facing contexts deferred by a composite tool or attached by
+   * `tools/post-execute` listeners for the NEXT request. They are NOT part of
+   * this call's `content`: the loop buffers every context and appends them only
+   * AFTER all `tool/result`s for the step, preserving tool-call/result
+   * adjacency. The array preserves each context's source, envelope, metadata,
+   * and production order instead of flattening mixed plugin provenance.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -287,14 +299,14 @@ export type PreToolDecision =
  * - `accept` keeps the call successful; optional `content` REPLACES the
  *   model-facing result (clean: `tool/result` is logged AFTER `execute()`
  *   returns, so a replaced result is the single source of truth for both derived
- *   history and UI). Optional `additionalContext` rides to the next request.
+ *   history and UI). Optional `additionalContexts` ride to the next request.
  * - `block` turns the call into an `isError` result whose content is the
  *   corrective `feedback` (the model is told the call was rejected and why),
- *   optionally also attaching `additionalContext`.
+ *   optionally also attaching `additionalContexts`.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -484,11 +496,18 @@ export class ToolRegistry extends Service {
    * tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
    * structured error. A thrown {@link HarnessError} surfaces its `{ name, code }`
    * on the result.
-   * @param exec - the call to run (name, parsed arguments, caller agent, signal).
+   * @param request - the call to run (name, parsed arguments, caller agent, signal).
    * @returns the final result after every waterfall; failures resolve as
    *   `isError` results, never rejections.
    */
-  async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
+  async execute(request: ToolExecution): Promise<ToolExecutionResult> {
+    const deferredContexts: HookContext[] = []
+    const exec: ToolRunContext = {
+      ...request,
+      deferContext(context): void {
+        deferredContexts.push(context)
+      },
+    }
     try {
       // --- Gate: tools/pre-execute. An `ask` resolves through the approval
       // seam (or degrades) to allow/deny before the shared deny path. ---
@@ -531,7 +550,16 @@ export class ToolRegistry extends Service {
         },
       )
 
-      return await this.postExecute(exec, result)
+      const resultWithDeferredContexts: ToolExecutionResult = deferredContexts.length === 0
+        ? result
+        : {
+          ...result,
+          additionalContexts: [
+            ...deferredContexts,
+            ...result.additionalContexts ?? [],
+          ],
+        }
+      return await this.postExecute(exec, resultWithDeferredContexts)
     } catch (error: unknown) {
       // Outer backstop: a throwing pre/post-execute listener (or the waterfall
       // machinery) becomes an isError result, never a turn failure.
@@ -581,8 +609,11 @@ export class ToolRegistry extends Service {
    * Run the `tools/post-execute` waterfall over a dispatched `result` and apply
    * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
    * `content` when given), `block` turns it into an `isError` whose content is
-   * the corrective `feedback`. Either decision may attach `additionalContext`,
-   * which is ferried on the returned result for the loop's per-step buffer.
+   * the corrective `feedback`. Either decision may attach `additionalContexts`,
+   * which are ferried on the returned result for the loop's per-step buffer.
+   * Context deferred by the tool body survives an accepted result but is
+   * discarded when the outer call is blocked; a block exposes only context the
+   * blocking decision explicitly supplied.
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -602,25 +633,32 @@ export class ToolRegistry extends Service {
       isError: result.isError,
       ...result.error ? { error: result.error } : {},
       ...result.meta !== undefined ? { meta: result.meta } : {},
+      ...result.additionalContexts !== undefined
+        ? { additionalContexts: [...result.additionalContexts] }
+        : {},
     }
     const decision = await this.ctx.waterfall(
       this, 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
     )
-    const additionalContext = decision.additionalContext
+    const decisionContexts = decision.additionalContexts ?? []
     if (decision.kind === 'block') {
       return {
         callId: dispatched.callId,
         content: decision.feedback,
         isError: true,
-        ...additionalContext ? { additionalContext } : {},
+        ...decisionContexts.length > 0 ? { additionalContexts: decisionContexts } : {},
       }
     }
     // accept: replace content if supplied, preserve the dispatched isError/error.
+    const additionalContexts = [
+      ...dispatched.additionalContexts ?? [],
+      ...decisionContexts,
+    ]
     return {
       ...dispatched,
       ...decision.content ? { content: decision.content } : {},
-      ...additionalContext ? { additionalContext } : {},
+      ...additionalContexts.length > 0 ? { additionalContexts } : {},
     }
   }
 }

@@ -522,6 +522,35 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
   })
 
+  it('keeps bridge and downstream PostToolUse contexts as separate sourced events', async () => {
+    const d = dir()
+    const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"bridge-note"}}\'\n')
+    const path = hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(path, adapter)
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept' as const,
+      additionalContexts: [{
+        content: [{ type: 'text' as const, text: 'downstream-note' }],
+        source: { kind: 'plugin' as const, plugin: 'policy' },
+        envelope: 'raw' as const,
+        meta: { owner: 'policy' },
+      }],
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    const contexts = events(agent).filter(event => event.type === 'context/message')
+    expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'hooks-claude' },
+      { kind: 'plugin', plugin: 'policy' },
+    ])
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
+  })
+
   it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
     // The bridge hook only adds context; a later post-execute listener blocks the
     // result. The block wins AND carries the bridge context (concatContext on the

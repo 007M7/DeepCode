@@ -176,7 +176,7 @@ export interface LoopHandle {
  *         session('tool/call'); ctx.tools.execute()   ⟵ tools/pre-execute (allow/deny/ask)
  *                                                        → dispatch → tools/post-execute
  *         session('tool/result')
- *       append buffered post-execute additionalContext → session('context/message')(s)
+ *       append buffered deferred/post-execute contexts → session('context/message')(s)
  *       drain steering → session('steering/message')
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
@@ -870,13 +870,13 @@ async function runStep(
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
   // If this becomes parallel, audit post-execute plugins that keep per-step
-  // pending state before their returned additionalContext is appended.
+  // pending state before their returned contexts are appended.
   // ToolRegistry.execute converts tool failures (including aborts) into
   // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
-  // Per-step buffer of `additionalContext` attached by tools/post-execute
-  // listeners. Appended as context/message(s) only AFTER every tool/result for
-  // the step, so a multi-call step keeps tool-call/result adjacency
+  // Per-step buffer of contexts deferred by composite tools or attached by
+  // tools/post-execute listeners. Appended as context/message(s) only AFTER
+  // every tool/result for the step, so a multi-call step keeps adjacency
   // (interleaving context between a call's result and the next call's would
   // break the pairing the next model request relies on).
   const pendingContext: HookContext[] = []
@@ -919,8 +919,8 @@ async function runStep(
       // persisted so a UI bridge reproduces the card on replay.
       ...result.meta !== undefined ? { meta: result.meta } : {},
     }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    // Buffer (don't append yet) any post-execute additionalContext for this call.
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
+    // Buffer (don't append yet) every context carried by this call.
+    pendingContext.push(...result.additionalContexts ?? [])
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
     /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */

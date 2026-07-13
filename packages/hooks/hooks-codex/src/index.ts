@@ -177,9 +177,9 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   /**
-   * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
-   * call sites) with a downstream listener's optional one, so folding our
-   * additionalContext onto a delegated decision drops neither. The merged block
+   * Concatenate this bridge's prompt {@link HookContext} with a downstream
+   * prompt listener's optional one, so folding additionalContext drops neither.
+   * The merged block
    * carries a single `source` — this bridge's — because a `HookContext` holds one
    * `MessageSource` and the seam cannot represent mixed provenance; the rendered
    * `context/message` only distinguishes by `source.kind` ('plugin'), so a
@@ -188,6 +188,11 @@ export function apply(ctx: Context, config: Config): void {
   function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
     if (!theirs) return ours
     return { content: [...ours.content, ...theirs.content], source: ours.source }
+  }
+
+  /** Prepend one post-tool context without flattening downstream provenance. */
+  function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+    return [ours, ...theirs ?? []]
   }
 
   // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
@@ -235,19 +240,19 @@ export function apply(ctx: Context, config: Config): void {
     const merged = await runPoint('PostToolUse', exec.name, postToolPayload(exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
-      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
+      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
     }
     // Context alone is not a veto: DELEGATE, then fold our context onto the
     // downstream decision (a downstream block carries it too).
     const downstream = await next()
     if (!context) return downstream
     if (downstream.kind === 'block') {
-      return { ...downstream, additionalContext: concatContext(context, downstream.additionalContext) }
+      return { ...downstream, additionalContexts: prependContext(context, downstream.additionalContexts) }
     }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(context, downstream.additionalContext),
+      additionalContexts: prependContext(context, downstream.additionalContexts),
     }
   })
 

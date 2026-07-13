@@ -6,7 +6,7 @@
 
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import { renderContextContent, type JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
@@ -63,23 +63,6 @@ function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[
  */
 export function workspaceContextMessage(text: string): Message {
   return { role: 'user', content: [{ type: 'text', text }] }
-}
-
-/**
- * Preserve workspace state ownership while folding a downstream context contribution.
- * @param ours - workspace raw context and structured metadata.
- * @param theirs - optional downstream context with its own envelope semantics.
- * @returns one workspace-owned context containing both model-visible contributions.
- */
-export function concatContext(ours: WorkspaceHookContext, theirs: HookContext | undefined): WorkspaceHookContext {
-  if (theirs === undefined) return ours
-  return {
-    ...ours,
-    content: [
-      ...ours.content,
-      ...renderContextContent(theirs.content, theirs.source, theirs.envelope),
-    ],
-  }
 }
 
 function filePathFromExecution(exec: ToolExecution): string | undefined {

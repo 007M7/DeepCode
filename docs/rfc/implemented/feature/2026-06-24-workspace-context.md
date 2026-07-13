@@ -36,7 +36,7 @@ The baseline is a user-role `<system-reminder>` with `Instructions from: <path>`
 
 ### Dynamic Discovery And Refresh
 
-After a successful first-party `read`, `write`, or `edit` call, the `tools/post-execute` listener reconciles the touched descendant chain and every scope already known to the session. A newly reached scope is returned as `additionalContext` for the next request using an `Additional instructions from: <path>` system-reminder.
+After a successful first-party `read`, `write`, or `edit` call, the `tools/post-execute` listener reconciles the touched descendant chain and every scope already known to the session. A newly reached scope is returned through `additionalContexts` for the next request using an `Additional instructions from: <path>` system-reminder. Under Code Mode, `run_code` defers sub-dispatch contexts onto its outer result, so the same update is appended only after the parent result rather than being injected mid-call.
 
 A content edit appends `Updated instructions from: <path>`, states that the new content replaces the previous content, and includes the complete current file. If precedence changes from one candidate to another, the message also names the previous path and says it no longer applies. If no candidate remains, the plugin appends `Instructions removed: <path>` and states that the previously loaded instructions no longer apply.
 
@@ -48,7 +48,7 @@ Shell commands are not discovery triggers. Local bash calls start fresh shells, 
 
 Every dynamic workspace context event stores versioned metadata with `{ action, scope, path, previousPath?, digest? }`, where `digest` is SHA-1 over the loaded content. The model-facing prompt has no HTML comments, hidden markers, or headings that are parsed back into state.
 
-At reconciliation time the plugin scans plugin-owned `context/message` events and derives the latest state for each visible scope. A short per-session pending map covers the interval after `tools/post-execute` returns `additionalContext` but before the loop appends that context to the log. Once an equal event appears at or after the pending sequence boundary, the pending entry is removed.
+At reconciliation time the plugin scans plugin-owned `context/message` events and derives the latest state for each visible scope. A short per-session pending map covers the interval after `tools/post-execute` returns an `additionalContexts` entry but before the loop appends that context to the log. Once an equal event appears at or after the pending sequence boundary, the pending entry is removed.
 
 An unchanged path and digest is suppressed. A logged removal is a tombstone, so a reappearing candidate becomes a new `set`. Resume works from persisted metadata. If compaction removes an instruction event from the visible surface, that state no longer suppresses a later load, matching the fact that the model can no longer see it. Only changes actually included under the byte budget enter metadata or pending state, so an omitted file remains eligible on a later touch.
 
@@ -76,7 +76,7 @@ Each discovered candidate is read and identified by normalized absolute path, th
 
 ## Consequences
 
-Workspace guidance is isolated per session and shared by both product front doors. Initial instructions benefit from stable prefix caching, while nested and changed content remains durable and replayable. The generic session/agent context contract includes optional raw framing and JSON metadata, both propagated through prompt-submit and post-tool `additionalContext` paths.
+Workspace guidance is isolated per session and shared by both product front doors and every tool presentation mode. Initial instructions benefit from stable prefix caching, while nested and changed content remains durable and replayable. The generic session/agent context contract includes optional raw framing and JSON metadata, both propagated through prompt-submit `additionalContext` and post-tool `additionalContexts` paths.
 
 Repository text remains untrusted input. Lower-authority user-role framing, explicit precedence language, delimiter escaping, and symlink rejection reduce risk but do not eliminate prompt injection. Permission and sandbox layers treat workspace files as data rather than authority.
 
