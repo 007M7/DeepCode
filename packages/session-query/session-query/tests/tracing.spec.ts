@@ -390,6 +390,23 @@ describe('session event tracing', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_PROVENANCE'))
   })
 
+  it('rejects surfaceOp on a non-surface event as an invalid surface', async () => {
+    const durable = header('invalid-non-surface-op')
+    const events = [{
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      surfaceOp: 'append',
+    }] as unknown as SessionEvent[]
+    TracePersistence.reset([{ meta: durable, events }])
+    const ctx = await queryContext()
+    await ctx.plugin(TracePersistence)
+
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
+  })
+
   it('keeps listEvents tolerant of malformed provenance alone', async () => {
     const durable = header('list-regression')
     TracePersistence.reset([{ meta: durable, events: [appendEvent(0), appendEvent(1, [0, 0])] }])

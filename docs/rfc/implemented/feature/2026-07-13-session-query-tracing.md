@@ -16,7 +16,7 @@ Session relationships are encoded across immutable headers, positional surface o
 
 ## Validation boundary
 
-Event tracing checks target existence before surface analysis. Before returning a trace it validates the whole loaded log through `dsh-session`'s shared provenance checker: only surface event types carry provenance, present arrays are nonempty and duplicate-free, every source is a known earlier seq, and every positional replacement names all surface nodes it removed. Provenance failures use `SESSION_QUERY_INVALID_PROVENANCE`; positional fold failures keep `SESSION_QUERY_INVALID_SURFACE`. `listEvents()` remains a surface-classification operation and does not acquire trace-specific provenance rejection.
+Event tracing checks target existence before surface analysis. Before returning a trace it validates the whole loaded log through `dsh-session`'s shared surface-metadata checker: surface markers obey event-type eligibility, provenance belongs only to surface event types, present arrays are nonempty and duplicate-free, every source is a known earlier seq, and every positional replacement names all surface nodes it removed. Surface-marker and positional-fold failures use `SESSION_QUERY_INVALID_SURFACE`; provenance failures use `SESSION_QUERY_INVALID_PROVENANCE`. `listEvents()` remains a surface-classification operation and does not acquire trace-specific provenance rejection.
 
 All returned records and arrays are detached. A known live event trace never consults persistence; persisted event traces preserve the exact-read list/load consistency check. Session lineage is necessarily a cross-corpus operation and therefore preserves cross-corpus persistence failure semantics.
 

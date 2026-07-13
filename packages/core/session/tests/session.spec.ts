@@ -313,10 +313,13 @@ describe('Session', () => {
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
   })
 
-  it('adds seed context when surface validation throws a non-Error value', () => {
+  it.each([
+    ['an Error', new Error('validator failed'), 'validator failed'],
+    ['a non-Error value', 'validator failed', 'invalid surface metadata'],
+  ] as const)('adds seed context when surface validation throws %s', (_name, failure, expected) => {
     const originalHasOwn = Object.hasOwn
     const hasOwn = vi.spyOn(Object, 'hasOwn').mockImplementation((object: object, property: PropertyKey): boolean => {
-      if ((object as Record<string, unknown>)['op'] === 'replace') throw 'validator failed'
+      if ((object as Record<string, unknown>)['op'] === 'replace') throw failure
       return originalHasOwn(object, property)
     })
     const seed = [{
@@ -329,7 +332,7 @@ describe('Session', () => {
 
     try {
       expect(() => new Session(SessionId('seed-non-error-metadata-failure'), seed))
-        .toThrow('invalid seed event at index 0: invalid surface metadata')
+        .toThrow(`invalid seed event at index 0: ${expected}`)
     } finally {
       hasOwn.mockRestore()
     }
@@ -468,7 +471,7 @@ describe('Session', () => {
       'turn/start',
       { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       { surfaceOp: 'append' },
-    )).toThrow(/not surface-eligible and cannot carry surface metadata/)
+    )).toThrow(/not surface-eligible and cannot carry surfaceOp/)
     expect(() => new Session(SessionId('non-surface-metadata-seed'), [{
       type: 'turn/start',
       seq: 0,

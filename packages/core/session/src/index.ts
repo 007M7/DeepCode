@@ -15,7 +15,7 @@ import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { SurfaceManager, validateSurfaceMetadata } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
@@ -23,7 +23,7 @@ export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceFoldReplacement, SurfaceFoldResult, SurfaceNode } from './surface.ts'
-export { foldSurface, isSurfaceEvent, isSurfaceEligibleType, validateSurfaceProvenance } from './surface.ts'
+export { foldSurface, isSurfaceEvent, isSurfaceEligibleType, validateSurfaceMetadata } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
 export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
@@ -157,43 +157,6 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   return deepFreeze(record as unknown as SessionHeader)
 }
 
-/** Validate the runtime shape of surface metadata after its JSON snapshot. */
-function assertSurfaceMetadataShape(
-  type: string,
-  surfaceOp: unknown,
-  sourceEventSeqs: unknown,
-): void {
-  const eligible = isSurfaceEligibleType(type)
-  if (!eligible) {
-    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
-      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
-    }
-    return
-  }
-  if (surfaceOp === undefined) {
-    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
-  }
-  if (surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
-    }
-  }
-  if (sourceEventSeqs !== undefined) {
-    if (!Array.isArray(sourceEventSeqs)
-      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
-      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
-    }
-  }
-}
-
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
@@ -312,11 +275,14 @@ export class Session {
         // this at compile time via its typed overload; a seed arrives as raw
         // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
         // runtime here rather than silently resuming with empty history.
-        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        let violation: ReturnType<typeof validateSurfaceMetadata>
         try {
-          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+          violation = validateSurfaceMetadata(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
+        }
+        if (violation !== undefined) {
+          throw new Error(`invalid seed event at index ${index}: ${violation.message}`)
         }
         return deepFreeze(snapshot)
       })
@@ -392,11 +358,12 @@ export class Session {
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
-    assertSurfaceMetadataShape(
+    const surfaceViolation = validateSurfaceMetadata({
       type,
-      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
-      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
-    )
+      seq: this.log.length,
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+    })
+    if (surfaceViolation !== undefined) throw new Error(surfaceViolation.message)
 
     const entry = attachments.get(this)
     if (entry?.appending) {

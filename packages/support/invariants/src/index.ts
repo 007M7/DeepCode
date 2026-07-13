@@ -26,8 +26,7 @@ import {
   Session,
   SessionId,
   foldRequestHeader,
-  isSurfaceEligibleType,
-  validateSurfaceProvenance,
+  validateSurfaceMetadata,
 } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 
@@ -131,9 +130,8 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
   // CHECK whether surface metadata is present, not assume it.
   const se = event as SessionEvent<SurfaceEventType>
-  if (!isSurfaceEligibleType(event.type) && se.surfaceOp !== undefined) {
-    throw new InvariantError(`${event.type} cannot carry surfaceOp (non-surface event)`)
-  }
+  const metadataViolation = validateSurfaceMetadata(event)
+  if (metadataViolation !== undefined) throw new InvariantError(metadataViolation.message)
 
   // Fold this event into the tracked surface linked list, validating the
   // replace contract as we go. `append` adds a tail node; `replace` shadows a
@@ -160,13 +158,13 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
     }
   }
 
-  const provenanceViolation = validateSurfaceProvenance(
+  const provenanceViolation = validateSurfaceMetadata(
     event,
     trace.knownSeqs,
     shadowed,
   )
   if (provenanceViolation !== undefined) {
-    throw new InvariantError(provenanceViolation)
+    throw new InvariantError(provenanceViolation.message)
   }
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —

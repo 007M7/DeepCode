@@ -6,7 +6,7 @@ import {
   foldSurface,
   isSurfaceEligibleType,
   isSurfaceEvent,
-  validateSurfaceProvenance,
+  validateSurfaceMetadata,
 } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
@@ -31,11 +31,11 @@ function provenanceEvent(seq: number, sourceEventSeqs: unknown): SessionEvent {
   } as unknown as SessionEvent
 }
 
-describe('validateSurfaceProvenance', () => {
+describe('validateSurfaceMetadata', () => {
   it('accepts absent or valid provenance and complete replacement coverage', () => {
-    expect(validateSurfaceProvenance(provenanceEvent(0, undefined), new Set()))
+    expect(validateSurfaceMetadata(provenanceEvent(0, undefined), new Set()))
       .toBeUndefined()
-    expect(validateSurfaceProvenance(provenanceEvent(2, [0, 1]), new Set([0, 1]), [1]))
+    expect(validateSurfaceMetadata(provenanceEvent(2, [0, 1]), new Set([0, 1]), [1]))
       .toBeUndefined()
   })
 
@@ -47,28 +47,33 @@ describe('validateSurfaceProvenance', () => {
       data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       sourceEventSeqs: [0],
     } as unknown as SessionEvent
-    expect(validateSurfaceProvenance(event, new Set([0])))
-      .toMatch(/cannot carry sourceEventSeqs/)
+    expect(validateSurfaceMetadata(event, new Set([0])))
+      .toEqual({
+        kind: 'provenance',
+        message: 'turn/start cannot carry sourceEventSeqs (non-surface event)',
+      })
   })
 
   it.each([
     ['a non-array', 1, 'invalid', new Set([0]), [], /must be an array/],
     ['an empty array', 1, [], new Set([0]), [], /must not be empty/],
     ['duplicates', 1, [0, 0], new Set([0]), [], /must not contain duplicates/],
-    ['a non-number', 1, ['0'], new Set([0]), [], /invalid seq 0/],
-    ['a fractional number', 1, [0.5], new Set([0]), [], /invalid seq 0\.5/],
-    ['a negative number', 1, [-1], new Set([0]), [], /invalid seq -1/],
+    ['a non-number', 1, ['0'], new Set([0]), [], /non-negative safe integers/],
+    ['a fractional number', 1, [0.5], new Set([0]), [], /non-negative safe integers/],
+    ['a negative number', 1, [-1], new Set([0]), [], /non-negative safe integers/],
     ['a self reference', 1, [1], new Set([0]), [], /must reference earlier events/],
     ['an unknown earlier seq', 2, [1], new Set([0]), [], /references unknown seq 1/],
     ['incomplete replacement coverage', 2, [0], new Set([0, 1]), [0, 1], /missing 1/],
   ] as const)(
     'returns the first violation for %s',
     (_name, seq, sources, knownSeqs, shadowedSeqs, expected) => {
-      expect(validateSurfaceProvenance(
+      const violation = validateSurfaceMetadata(
         provenanceEvent(seq, sources),
         knownSeqs,
         shadowedSeqs,
-      )).toMatch(expected)
+      )
+      expect(violation?.kind).toBe('provenance')
+      expect(violation?.message).toMatch(expected)
     },
   )
 })
@@ -124,7 +129,20 @@ describe('SurfaceManager', () => {
     }
 
     expect(() => foldSurface([malformed]))
-      .toThrow(/surface event "user\/message" \(seq 0\) carries no surfaceOp marker/)
+      .toThrow(/surface-eligible and requires a surfaceOp marker/)
+  })
+
+  it('foldSurface rejects surfaceOp on a non-surface event', () => {
+    const malformed = {
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      surfaceOp: 'append',
+    } as unknown as SessionEvent
+
+    expect(() => foldSurface([malformed]))
+      .toThrow(/not surface-eligible and cannot carry surfaceOp/)
   })
 
   it('rebuilds a linked list from surfaceOp: append markers', () => {

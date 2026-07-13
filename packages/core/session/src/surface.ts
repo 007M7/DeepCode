@@ -82,46 +82,110 @@ export interface SurfaceFoldResult {
 }
 
 /**
- * Validate one event's logged provenance against the preceding log and the
- * surface nodes it actually shadows.
- * @param event - event whose optional `sourceEventSeqs` is being checked.
- * @param knownSeqs - seqs preceding `event` in the same log.
+ * Validate one event's surface metadata through the canonical structural and
+ * provenance contract. Structural validation always runs; when `knownSeqs` is
+ * supplied, provenance must additionally name unique known earlier events and
+ * cover every shadowed surface node. The tagged result lets callers retain
+ * their own surface-versus-provenance error taxonomy.
+ * @param event - event whose `surfaceOp` and `sourceEventSeqs` are being checked.
+ * @param knownSeqs - seqs preceding `event`, or `undefined` for local shape validation only.
  * @param shadowedSeqs - surface nodes directly removed by this event.
- * @returns the first contract violation, or `undefined` when provenance is valid.
+ * @returns the first tagged contract violation, or `undefined` when valid.
  */
-export function validateSurfaceProvenance(
-  event: SessionEvent,
-  knownSeqs: ReadonlySet<number>,
+export function validateSurfaceMetadata(
+  event: Pick<SessionEvent, 'type' | 'seq'> & {
+    surfaceOp?: unknown
+    sourceEventSeqs?: unknown
+  },
+  knownSeqs?: ReadonlySet<number>,
   shadowedSeqs: readonly number[] = [],
-): string | undefined {
-  const sources = (event as SessionEvent & { sourceEventSeqs?: unknown }).sourceEventSeqs
-  if (sources !== undefined && !isSurfaceEligibleType(event.type)) {
-    return `${event.type} cannot carry sourceEventSeqs (non-surface event)`
+): { kind: 'surface' | 'provenance'; message: string } | undefined {
+  const eligible = isSurfaceEligibleType(event.type)
+  const surfaceOp = event.surfaceOp
+  const sources = event.sourceEventSeqs
+
+  if (!eligible && surfaceOp !== undefined) {
+    return {
+      kind: 'surface',
+      message: `session event "${event.type}" is not surface-eligible and cannot carry surfaceOp`,
+    }
+  }
+  if (eligible && surfaceOp === undefined) {
+    return {
+      kind: 'surface',
+      message: `session event "${event.type}" is surface-eligible and requires a surfaceOp marker`,
+    }
+  }
+  if (surfaceOp !== undefined && surfaceOp !== 'append') {
+    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
+      return {
+        kind: 'surface',
+        message: `session event "${event.type}" carries an invalid surfaceOp`,
+      }
+    }
+    const op = surfaceOp as Record<string, unknown>
+    const keys = Object.keys(op)
+    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
+      || op['op'] !== 'replace'
+      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
+      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
+      return {
+        kind: 'surface',
+        message: `session event "${event.type}" carries an invalid replace surfaceOp`,
+      }
+    }
+  }
+
+  if (sources !== undefined && !eligible) {
+    return {
+      kind: 'provenance',
+      message: `${event.type} cannot carry sourceEventSeqs (non-surface event)`,
+    }
   }
   if (sources !== undefined && !Array.isArray(sources)) {
-    return `sourceEventSeqs on event at seq ${event.seq} must be an array when present`
+    return {
+      kind: 'provenance',
+      message: `sourceEventSeqs on event at seq ${event.seq} must be an array when present`,
+    }
   }
-  if (Array.isArray(sources) && sources.length === 0) {
-    return 'sourceEventSeqs must not be empty when present'
+  if (Array.isArray(sources)
+    && sources.some(source => typeof source !== 'number' || !Number.isSafeInteger(source) || source < 0)) {
+    return {
+      kind: 'provenance',
+      message: `session event "${event.type}" sourceEventSeqs must contain non-negative safe integers`,
+    }
+  }
+  if (knownSeqs === undefined) return
+
+  const sourceSeqs = sources as number[] | undefined
+  if (sourceSeqs !== undefined && sourceSeqs.length === 0) {
+    return { kind: 'provenance', message: 'sourceEventSeqs must not be empty when present' }
   }
 
-  const unique = new Set<unknown>()
-  for (const source of sources ?? []) {
-    if (unique.has(source)) return 'sourceEventSeqs must not contain duplicates'
+  const unique = new Set<number>()
+  for (const source of sourceSeqs ?? []) {
+    if (unique.has(source)) {
+      return { kind: 'provenance', message: 'sourceEventSeqs must not contain duplicates' }
+    }
     unique.add(source)
-    if (typeof source !== 'number' || !Number.isInteger(source) || source < 0) {
-      return `sourceEventSeqs contains invalid seq ${String(source)}`
-    }
     if (source >= event.seq) {
-      return `sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`
+      return {
+        kind: 'provenance',
+        message: `sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`,
+      }
     }
-    if (!knownSeqs.has(source)) return `sourceEventSeqs references unknown seq ${source}`
+    if (!knownSeqs.has(source)) {
+      return { kind: 'provenance', message: `sourceEventSeqs references unknown seq ${source}` }
+    }
   }
 
-  const sourceSet = new Set(sources ?? [])
+  const sourceSet = new Set(sourceSeqs ?? [])
   const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
   if (missing.length > 0) {
-    return `surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`
+    return {
+      kind: 'provenance',
+      message: `surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`,
+    }
   }
   return undefined
 }
@@ -147,25 +211,26 @@ function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
 ): SurfaceFoldReplacement | undefined {
+  const violation = validateSurfaceMetadata(event)
+  if (violation?.kind === 'surface') throw new Error(violation.message)
   if (!isSurfaceEligibleType(event.type)) return
-  if (!isSurfaceEvent(event)) {
-    throw new Error(`surface event "${event.type}" (seq ${event.seq}) carries no surfaceOp marker`)
-  }
+  // The canonical metadata validation above proves this runtime shape.
+  const surfaceEvent = event as SurfaceEvent
 
-  if (event.surfaceOp === 'append') {
+  if (surfaceEvent.surfaceOp === 'append') {
     const tail = state.nodes.length > 0 ? state.nodes[state.nodes.length - 1] : undefined
-    const node: SurfaceNode = { seq: event.seq, prev: tail?.seq ?? null, next: null }
-    if (tail) tail.next = event.seq
+    const node: SurfaceNode = { seq: surfaceEvent.seq, prev: tail?.seq ?? null, next: null }
+    if (tail) tail.next = surfaceEvent.seq
     state.nodes.push(node)
-    state.nodeBySeq.set(event.seq, node)
+    state.nodeBySeq.set(surfaceEvent.seq, node)
     return
   }
 
   return {
-    seq: event.seq,
-    start: event.surfaceOp.start,
-    end: event.surfaceOp.end,
-    shadowedSeqs: replaceSurface(state, event.seq, event.surfaceOp),
+    seq: surfaceEvent.seq,
+    start: surfaceEvent.surfaceOp.start,
+    end: surfaceEvent.surfaceOp.end,
+    shadowedSeqs: replaceSurface(state, surfaceEvent.seq, surfaceEvent.surfaceOp),
   }
 }
 
@@ -215,7 +280,7 @@ function replaceSurface(
  * models cannot disagree with `deriveMessages()` about replacement ranges.
  * @param events - session events in contiguous seq order.
  * @returns the current surface and every positional replacement.
- * @throws when a surface-eligible event lacks its mandatory `surfaceOp`, or a
+ * @throws when an event violates the `surfaceOp` type/marker contract, or a
  * replacement names nodes that are absent or reversed on the current surface.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {

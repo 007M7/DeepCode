@@ -1,6 +1,6 @@
 /** One-shot session-lineage and event-relationship tracing helpers. */
 
-import { foldSurface, validateSurfaceProvenance } from '@deepseek-ai/dsh-session'
+import { foldSurface, validateSurfaceMetadata } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from './config.ts'
 import type {
@@ -53,14 +53,14 @@ export function traceEventLog(
   const analysis = analyzeEventLog(sessionId, events)
   const knownSeqs = new Set<number>()
   for (const event of events) {
-    const violation = validateSurfaceProvenance(
+    const violation = validateSurfaceMetadata(
       event,
       knownSeqs,
       analysis.replacedEventSeqs.get(event.seq),
     )
     if (violation !== undefined) {
       throw new SessionQueryError(
-        `invalid session provenance: ${violation}`,
+        `invalid session provenance: ${violation.message}`,
         'SESSION_QUERY_INVALID_PROVENANCE',
       )
     }
