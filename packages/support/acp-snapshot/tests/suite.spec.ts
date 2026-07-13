@@ -6,13 +6,13 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
 import {
-  childFixturePaths,
   fixtureContext,
   formatSystemPromptSnapshot,
   headerChangeCount,
   normalizedHeaders,
   normalizedSystemPrompts,
   refreshFixtureReplacements,
+  sessionFixtureNames,
   stabilizeRefreshLog,
 } from '../src/suite.ts'
 
@@ -51,7 +51,7 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // example's code-mode scenarios).
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
+  { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
@@ -59,7 +59,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
 
 const RECORD_SCENARIOS: Scenario[] = [
   { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
-  { name: 'rec-child', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'rec-child', hasModelTurn: true, recorded: true },
   // recorded:false in record mode → registered but skipped (never re-recorded).
   { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
@@ -180,13 +180,41 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
   })
 })
 
-describe('childFixturePaths', () => {
-  it('yields one sibling path per child, 1-based', () => {
-    expect(childFixturePaths('/snap/s', 2)).toEqual(['/snap/s/session.1.jsonl', '/snap/s/session.2.jsonl'])
+describe('sessionFixtureNames', () => {
+  it('orders the primary and contiguous child fixtures while ignoring other files', () => {
+    expect(sessionFixtureNames([
+      'stdout.golden.jsonl',
+      'session.2.jsonl',
+      'session.jsonl',
+      'session.1.jsonl',
+      'input.json',
+    ])).toEqual(['session.jsonl', 'session.1.jsonl', 'session.2.jsonl'])
   })
 
-  it('yields nothing for a single-session scenario', () => {
-    expect(childFixturePaths('/snap/s', 0)).toEqual([])
+  it('accepts a primary-only scenario', () => {
+    expect(sessionFixtureNames(['session.jsonl'])).toEqual(['session.jsonl'])
+  })
+
+  it('rejects a directory without the primary fixture', () => {
+    expect(() => sessionFixtureNames(['session.1.jsonl'])).toThrow('missing session.jsonl')
+  })
+
+  it('rejects gapped child fixtures', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.2.jsonl']))
+      .toThrow('expected session.1.jsonl, found session.2.jsonl')
+  })
+
+  it.each(['session.0.jsonl', 'session.child.jsonl', 'session.01.jsonl'])(
+    'rejects invalid child fixture name %s',
+    (name) => {
+      expect(() => sessionFixtureNames(['session.jsonl', name]))
+        .toThrow(`invalid child session fixture name: ${name}`)
+    },
+  )
+
+  it('rejects duplicate child indexes', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.1.jsonl', 'session.1.jsonl']))
+      .toThrow('expected session.2.jsonl, found session.1.jsonl')
   })
 })
 
