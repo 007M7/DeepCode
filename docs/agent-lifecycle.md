@@ -39,6 +39,7 @@ sequenceDiagram
   Tools-->>Session: tool-owned events when applicable
   Driver->>Session: <code>tool/result</code> and <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
+  Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint
   Driver->>Session: <code>turn/end</code>
   Driver->>Persistence: <code>session/flush</code> parallel checkpoint
   Driver-->>SDK: <code>agent/status</code> idle

@@ -27,7 +27,7 @@ The mode is part of the event's public contract. New harness events document it 
 
 `ctx.waterfall` is around-middleware. A listener receives `(...args, next)`. Call `next()` to delegate the possibly wrapped result to the next service; return without `next()` to short-circuit. Values propagate through `next()`'s return value.
 
-Cooperative listeners usually mutate a shared request or decision object and then delegate. A listener can also choose to repalce the result entirely and downstream listeners will only see the result after replacement. Use `prepend: true` only when the listener must run before ordinary registrations.
+Cooperative listeners usually mutate a shared request or decision object and then delegate. A listener can also choose to replace the result entirely and downstream listeners will only see the result after replacement. Use `prepend: true` only when the listener must run before ordinary registrations.
 
 For single-decision events, short-circuiting is the design. A policy listener can return without `next()` when it owns the decision, while a listener that only annotates or observes must delegate.
 

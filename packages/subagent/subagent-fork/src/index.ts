@@ -32,7 +32,7 @@ export const name = 'subagent-fork'
 // per-run structured runtime gates its capture-tool registration on `tools`
 // itself, so this backend's apply timing (and the delegation tool's position
 // in the model-visible tool list) is unchanged by structured output.
-export const inject = ['subagents', 'agents']
+export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */
 export interface Config {
@@ -64,20 +64,19 @@ export function completedTurnPrefix(parent: Agent): SessionEvent[] {
 
 /**
  * The fork provider. Supports `depthLimit` and `outputSchema` (via the shared
- * in-process structured runtime); NOT `toolFilter` this cut (the service
- * rejects a request needing it before `start` runs).
+ * in-process structured runtime), plus `toolFilter`/`persona` (scoped
+ * restrict() and a scoped shadowing persona section).
  */
 class ForkProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 
-  constructor(readonly name: string, private readonly ctx: Context) {}
+  constructor(readonly name: string) {}
 
   start(request: SubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
-    return startInProcessRun(this.ctx, request, {
-      providerName: this.name,
+    return startInProcessRun(request, {
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
@@ -86,5 +85,5 @@ class ForkProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx))
+  ctx.subagents.registerProvider(new ForkProvider(config.providerName))
 }

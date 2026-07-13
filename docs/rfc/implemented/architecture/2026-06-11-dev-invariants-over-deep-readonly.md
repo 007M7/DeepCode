@@ -1,29 +1,58 @@
-# RFC: Dev-mode invariants over compile-time deep-readonly
+# RFC: Source-owned session immutability and dev-mode invariants
 
 Status: implemented
 
 ## Problem
 
-The session log is append-only by contract, but the types don't enforce it: `session.events` returns `readonly SessionEvent[]` whose *elements* are mutable, and `deriveMessages()` handed the logged `content` arrays/blocks out by reference. The loop then passes those derived messages into the `agent/request` waterfall and on to adapters, where mutating the request is sanctioned — so a request middleware could reach back and rewrite history, silently breaking replay equivalence and the derived-history guarantee. Separately, the event taxonomy (turn/step nesting, seq monotonicity, tool-call/result pairing, legal status transitions) was asserted only where individual tests happened to look.
+The session log needs two different protections: immutable ownership of each stored fact, and checks for relationships among facts across time and service seams. Conflating them in an optional development plugin would leave production history vulnerable; trying to express both through TypeScript readonly types would not create a runtime boundary or describe relational rules.
 
-Two ways to defend the log: make immutability part of the type (`DeepReadonly<SessionEvent>` on the way out), or catch corruption at runtime in dev. The runtime-validation proposal took the runtime route; [the deep-readonly proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md) took the type route.
+The session log is the durable source of truth for replay, request reconstruction, persistence, and user-visible history. Code outside the session package must be able to inspect that history without retaining a reference that can rewrite it later, and inputs accepted from callers must not remain connected to caller-owned mutable objects.
+
+Immutability of individual values is only half of the contract. A log can contain perfectly immutable records whose sequence, turn/step nesting, tool-call pairing, scoped delivery, or reconstructed model request is wrong. Those rules relate multiple records or services and cannot be established by freezing one object.
+
+TypeScript readonly types are not a sufficient runtime boundary. They disappear when the program runs, a cast can bypass them, and a recursive `DeepReadonly<T>` would spread through every log and message consumer even though some downstream request-processing APIs intentionally work with mutable values.
 
 ## Decision
 
-Reject the pervasive `DeepReadonly<T>` type flip. Instead:
+Responsibility is split between an always-on storage boundary and optional development assertions.
 
-1. **Always-on:** `deriveMessages()` deep-clones the content it emits (one `structuredClone` per derived message). In-flight mutation of a request can no longer reach the log — this is the real fix, and it costs nothing meaningful next to a model call.
-2. **Dev-mode:** a new `dsh-invariants` plugin (pure listeners, off in production, on in tests and demos) asserts the event contract and `Object.freeze`s logged event data so any *other* code that mutates a logged event throws instead of corrupting silently. Seeded sessions are frozen and checked on `session/created` (the constructor copies the seed without emitting `session/event`).
+### Session owns immutable history
 
-The invariants encode the *real* contract, not an idealized one: a `tool/call` may have no `tool/result` (a thrown tool-execution pipeline step ends the turn), and both `idle→disposed` and `running→disposed` are legal.
+`Session` accepts an event only after one recursive pass has materialized a lossless JSON snapshot. That pass rejects unsupported values and produces the exact detached record that enters the log, so validation and storage cannot observe different values from a stateful getter or retain caller-owned nested references.
+
+The accepted event and all of its descendants are deep-frozen before publication. `append()` returns that owned frozen event, `session/event` observers receive the same record, and `session.events` returns a frozen array snapshot. A previously returned array does not grow after a later append. Seed records pass through the same validation, snapshot, and freeze boundary before construction succeeds.
+
+This guarantee belongs in `Session`, not in an optional listener, because every composition relies on trustworthy history. A production deployment, a focused test, or a custom embedding receives the same storage semantics whether or not development support plugins are registered.
+
+### Derived requests remain detached
+
+`deriveMessages()` projects logged surface events into detached, deep-frozen `Message` objects and returns a fresh array snapshot. Request assembly can therefore combine derived history with other inputs without exposing a path back into the log. The cache reuses safe immutable projections rather than recloning the complete history for each model call.
+
+### The invariants plugin checks relationships
+
+`dsh-invariants` is a pure-listener development plugin. It does not freeze records and has no configuration; disposal removes only its assertions. It checks rules that require trace state or observation of another seam, including monotonic sequence numbers, turn and step nesting, tool-call/result pairing, legal agent-status transitions, subject-correct scoped dispatch, and equality between a loop-built request and the request reconstructed from its session-log prefix.
+
+When the plugin attaches to an existing or seeded session, it replays the immutable log to rebuild trace state. This makes hot reload safe in the middle of a turn without giving the plugin ownership of session storage.
 
 ## Alternatives considered
 
-**The pervasive `DeepReadonly<T>` type flip** ([the rejected proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md)) — compile-time only (a plugin casts straight through it), high type-noise across every log/message consumer and adapter, and it would force readonly types through code where mutation is the sanctioned API. The clone draws the mutable/immutable boundary exactly at "logged vs in-flight" without any of that noise.
+### Pervasive deep-readonly types
+
+[The rejected immutable-public-surfaces proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md) would apply a recursive readonly type across public log and message surfaces. That provides editor feedback but not a runtime guarantee: TypeScript types are erased and plugin code can cast through them. It also pushes readonly types into consumers where mutation is intentional. Runtime ownership at the `Session` boundary protects every caller without that type propagation.
+
+### Development-only freezing
+
+Freezing history only when an invariants plugin is installed would make the core guarantee composition-dependent. Code could pass development tests and still corrupt history in production or in a focused composition that omits the plugin. Storage immutability is therefore always on, while the more expensive relational checks remain opt-in development support.
+
+### Clone only when deriving messages
+
+Detaching `deriveMessages()` would protect the most common request path but leave other readers of `session.events`, append return values, and session-event observers able to mutate durable history. The log must protect its own boundary; derived projections are an additional isolation boundary, not a substitute.
 
 ## Consequences
 
-- History corruption is caught loudly in tests and demos, at zero production cost and zero type noise. The trade-off is that the guarantee is dynamic (a dev-mode tripwire) rather than static.
-- The invariants plugin doubles as executable documentation of the event taxonomy — the assertions are the contract.
-- `Session.events` keeps its `readonly SessionEvent[]` type; no consumer churn.
-- This folds in [the deep-readonly proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md) — there is no separate deep-readonly record; this records the decision to *not* pursue that approach. `InvariantError` is a plain `Error` with a `code` for now; a later taxonomy change can promote it.
+- Every accepted live or seeded session event is detached from caller-owned inputs and deeply immutable before any observer can receive it.
+- `session.events` exposes stable immutable snapshots instead of the private growing array.
+- Request-side mutation cannot reach stored history through derived messages.
+- Development builds can enable relational assertions without changing storage behavior, and disposing or omitting the plugin does not weaken log immutability.
+- `dsh-invariants` has no `Config` surface because it has no behavior to tune.
+- The runtime boundary carries a recursive snapshot-and-freeze cost once per accepted event; later readers and cached projections reuse the owned immutable records.

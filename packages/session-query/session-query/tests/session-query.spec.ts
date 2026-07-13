@@ -90,7 +90,7 @@ describe('session-query exact reads', () => {
     const records = await ctx.sessionQuery.listSessions()
     expect(records.map(record => record.header.id)).toEqual([SessionId('a'), SessionId('z'), older.id])
     expect(records.every(record => record.live && !record.persisted)).toBe(true)
-    records[2]!.header.createdAt = 99
+    Object.assign(records[2]!.header, { createdAt: 99 })
     expect(older.header.createdAt).toBe(1)
   })
 
@@ -131,7 +131,7 @@ describe('session-query exact reads', () => {
     const result = await ctx.sessionQuery.readEvent({ sessionId: session.id, seq: 1, before: 1, after: 1 })
     expect([result.startSeq, result.endSeq, result.target.seq]).toEqual([0, 2, 1])
     expect(result.session).toEqual(session.header)
-    result.session.createdAt = -1
+    Object.assign(result.session, { createdAt: -1 })
     if (result.events[0]?.type !== 'user/message') throw new Error('expected user message')
     result.events[0].data.content = []
     expect(session.header.createdAt).not.toBe(-1)
@@ -172,7 +172,8 @@ describe('session-query exact reads', () => {
     await expect(ctx.sessionQuery.readEvent({ sessionId: durable.id, seq: 0 }))
       .resolves.toMatchObject({ session: durable })
 
-    TestPersistence.entries.get(shared.id)!.meta.cwd = '/conflict'
+    const sharedEntry = TestPersistence.entries.get(shared.id)!
+    sharedEntry.meta = { ...sharedEntry.meta, cwd: '/conflict' }
     await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
     await persistence.dispose()
     await expect(ctx.sessionQuery.listSessions()).resolves.toEqual([
@@ -213,9 +214,11 @@ describe('session-query exact reads', () => {
     await expect(ctx.sessionQuery.listEvents(durable.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     TestPersistence.loadFailure = undefined
-    TestPersistence.entries.get(durable.id)!.meta.cwd = '/changed-after-list'
+    const durableEntry = TestPersistence.entries.get(durable.id)!
+    durableEntry.meta = { ...durableEntry.meta, cwd: '/changed-after-list' }
     TestPersistence.afterList = () => {
-      TestPersistence.entries.get(durable.id)!.meta.cwd = '/changed-during-read'
+      const listedEntry = TestPersistence.entries.get(durable.id)!
+      listedEntry.meta = { ...listedEntry.meta, cwd: '/changed-during-read' }
     }
     await expect(ctx.sessionQuery.listEvents(durable.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))

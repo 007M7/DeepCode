@@ -448,7 +448,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter) // NB: no projectDir
     // The factory create() path honors meta.cwd (the plain agentLoop.create() does not).
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const handle = ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { model: 'mock' } })
+    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
     expect(events(handle.agent as ReactLoopAgent).some(e => e.type === 'context/message'
@@ -613,7 +613,7 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
 
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const handle = ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
+    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
 
@@ -649,7 +649,7 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
 
     // Register a live child on its own session cwd; emit subagent/end with its id.
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const childHandle = ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { model: 'mock' } })
+    const childHandle = await ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { model: 'mock' } })
     ctx.emit('subagent/end', { provider: 'inproc', id: childHandle.agent.id, stopReason: 'completed' })
 
     await waitFor(() => existsSync(marker))

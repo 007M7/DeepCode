@@ -101,11 +101,13 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Limit the report to one section. Omit for all sections.',
       },
     },
-    execute(args): Promise<{ type: 'text'; text: string }[]> {
+    execute(args, exec): Promise<{ type: 'text'; text: string }[]> {
       const sections: [heading: string, body: () => string[]][] = [
         ['services', () => describeServices(ctx)],
         ['plugins', () => describePlugins(ctx)],
-        ['tools', () => describeTools(ctx)],
+        // The calling agent's view: scoped/shadowed tools included, restricted
+        // globals absent — "what you can call", not the global registry.
+        ['tools', () => describeTools(ctx, exec.agent)],
         ['dynamic', () => describeDynamic(ctx, mounts)],
         ['api', () => describeApi(ctx)],
         ['events', () => describeEvents()],

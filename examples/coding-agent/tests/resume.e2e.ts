@@ -39,11 +39,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // dispose the whole context (simulating process exit) so only the JSONL
     // log on disk survives.
     ctx = await codingHarness(process.cwd(), { persona: SYSTEM_PROMPT, persistenceRoot: root })
-    const first = ctx.agents.create({
+    const first = (await ctx.agents.create({
       agentId: AgentId('resume-1'),
       sessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash' },
-    }).agent as ReactLoopAgent
+    })).agent as ReactLoopAgent
     first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()

@@ -66,26 +66,21 @@ describe('dsh-workflow (interface)', () => {
     ])
   })
 
-  it('gives each listener its OWN payload snapshot: mutation corrupts neither peers nor the caller', async () => {
+  it('contains an asynchronously rejected listener without starving peers', async () => {
     const ctx = new Context()
     await ctx.plugin(StubEngine)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => ctx.logger)
     const seen: string[] = []
-    ctx.on('workflow/agent-start', (info, agent) => {
-      agent.label = 'HACKED'
-      info.meta.name = 'HACKED'
-      seen.push('mutator')
-    })
-    ctx.on('workflow/agent-start', (info, agent) => {
-      seen.push(`${info.meta.name}/${agent.label}`)
-    })
+    // Runtime listeners may return thenables even though the declaration's observable result is void.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exercises rejected-listener containment
+    ctx.on('workflow/agent-start', async () => { throw new Error('async observer failed') })
+    ctx.on('workflow/agent-start', (_info, agent) => { seen.push(agent.label) })
     const engine = ctx.workflows as StubEngine
-    const info: WorkflowRunInfo = { id: WorkflowRunId('run-2'), meta: { name: 'w', description: 'd' } }
     const payload = { seq: 1, label: 'original', childId: 'c' }
-    engine.emit('workflow/agent-start', info, payload)
-    expect(seen).toEqual(['mutator', 'w/original'])
-    // The caller's own objects are pristine too — no listener ever saw them.
-    expect(info.meta.name).toBe('w')
-    expect(payload.label).toBe('original')
+    engine.emit('workflow/agent-start', INFO, payload)
+    await Promise.resolve()
+    expect(seen).toEqual(['original'])
+    expect(String(warn.mock.calls[0]![0])).toContain('listener rejected')
   })
 
   it('contains a throwing listener PER LISTENER: later listeners still run, nothing propagates', async () => {

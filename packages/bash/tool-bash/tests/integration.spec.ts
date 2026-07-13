@@ -119,36 +119,29 @@ describe('bash tool through the agent loop', () => {
   it('background: start → poll → completion notice lands as context/message', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true }),
-      toolCallResponse('call-2', 'bash_output', {}, undefined),
+      // Each harness owns a fresh BashLocal service, whose first task id is
+      // deterministically bash-1. Keep the scripted call faithful to what the
+      // model sent; tool arguments are immutable once execution policy begins.
+      toolCallResponse('call-2', 'bash_output', { task_id: 'bash-1' }, undefined),
       textResponse('Background task finished.'),
     ])
-    // The second tool call needs the REAL task id from the first result;
-    // a tools/pre-execute listener rewrites the scripted arguments. (This uses
-    // the low-level capability to mutate `exec` before dispatch — the
-    // unadvertised mechanism behind a future first-class input-rewrite decision;
-    // here it is a test shim to thread the generated id, not a product feature.)
     let taskId = ''
 
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('it-bg'), { model: 'mock' })
 
-    // Intercept the first tool result to capture the generated task id, then
-    // rewrite the second scripted call's arguments to use it.
+    // Capture the generated id so the deterministic fixture is checked against
+    // the real executor instead of silently assuming it.
     ctx.on('session/event', (_session, event) => {
       if (event.type === 'tool/result' && taskId === '') {
         const match = /task (bash-\d+)/.exec(resultText(event))
         if (match) taskId = match[1]!
       }
     })
-    ctx.on('tools/pre-execute', async (exec, next) => {
-      if (exec.name === 'bash_output') {
-        exec.arguments = { task_id: taskId }
-      }
-      return next()
-    })
-
     agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)
+
+    expect(taskId).toBe('bash-1')
 
     // Wait for the background task itself (completion may race turn end).
     const task = ctx.bash.get(BashTaskId(taskId))

@@ -10,7 +10,8 @@
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -19,6 +20,7 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
+import type { Inbox } from './inbox.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
@@ -107,6 +109,8 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
  * loop testable without a real agent.
  */
 export interface LoopHandle {
+  /** Native-private agent inbox handed to the driver only at internal startup. */
+  readonly inbox: Inbox
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
@@ -155,12 +159,13 @@ export interface LoopHandle {
  *     every prompt blocked → 'turn/end'(rejected), 0 steps
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       assembly = ctx.systemPrompt.assemble({agent}) ⟵ waterfall system-prompt/assemble; renderPrompt
+ *       assembly = ctx.systemPrompt.assemble(assembleContextFor(agent)) ⟵ waterfall system-prompt/assemble
+ *                                                        (scope-filtered; scoped sections/tools join); renderPrompt
  *                                                        (persona section + {{variables}}) IS the full prompt
- *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first step): frozen
+ *       prefix ??= waterfall agent/session-prefix    ⟵ once per loop instance (first step): frozen
  *                                                        session prefix; logged on the header, never
- *                                                        session history
- *       await ctx.serial('agent/pre-step', …, prefix) ⟵ surface mutation (compaction) OUTSIDE the step;
+ *                                                        session history (scope-filtered, fused dispatch)
+ *       await events.serial('agent/pre-step', …, prefix) ⟵ surface mutation (compaction) OUTSIDE the step;
  *                                                        pressure gates see the prefix the request carries
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
@@ -183,9 +188,12 @@ export interface LoopHandle {
  *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
  *         recorded as next-step steering
  *       if action==stop && steering arrived (step/end/continuation listeners): continue anyway
+ *       terminal = serial agent/turn-stop              ⟵ stop or abstain; after all ordinary
+ *                                                        continuation and steering folding
+ *       if terminal: discard pending steering and break
  *       if action==stop: break
  *     session('turn/end')                             ⟵ durable turn boundary (no agent/* mirror)
- *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
+ *     await ctx.sessions.flush(session)               ⟵ durability checkpoint (store-owned carrier)
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
  *   idle (emit agent/status) unless more queued
  * ```
@@ -202,9 +210,13 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
   const transmission = createTransmissionLog()
 
   const { session } = agent
+  // The fused agent-subject dispatcher: every agent/* dispatch below carries
+  // the agent's scope (an `agent.ctx` listener hears only this agent) with
+  // the subject injected — one spelling, checked by the dev invariants.
+  const events = agentEvents(ctx, agent)
 
   while (!handle.isDisposed()) {
-    await agent.inbox.waitForQueued(handle.disposed)
+    await handle.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
     // Pre-step cancel (window 1): a `cancel()` landed after a `send()` woke the
@@ -222,7 +234,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     //     resolve before it runs (the quiescence contract).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      if (!agent.inbox.hasQueued) {
+      if (!handle.inbox.hasQueued) {
         handle.settleIdle()
         continue
       }
@@ -244,7 +256,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     //     is still queued and unrun (the same early-resolve race window 1 fixes).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      if (!agent.inbox.hasQueued) {
+      if (!handle.inbox.hasQueued) {
         handle.setStatus('idle')
         continue
       }
@@ -255,8 +267,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     // the loop waits above, so the next real turn must continue from whatever
     // turn number is actually last in the log — a stale counter would collide.
     const turn = lastTurnNumber(session) + 1
+    let terminalStopped = false
     try {
-      await runTurn(ctx, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
     } catch (error: unknown) {
       // Backstop: runTurn rethrows only a PRE-turn throw (the invariant guard
       // before turn/start) — no turn/start was appended, so no turn is open and
@@ -264,10 +277,13 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
       // the previous turn/end), where the persistence backend drops it as a
       // crash tail (the turn-enclosure RFC). Report via agent/error + the logger only; the
       // driver survives and moves on.
+      // Acceptance and internal dispatch validation can reject before
+      // turn/start commits. Report that supported pre-turn failure without
+      // inventing a turn/end for a turn that never opened.
       const err = toError(error)
       ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
       try {
-        ctx.emit('agent/error', agent, turn, 0, err)
+        events.emit('agent/error', turn, 0, err)
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
     }
 
@@ -280,27 +296,30 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     // cancelled.
     handle.clearCancel()
 
-    // Steering that arrived too late to join this turn (turn-end listeners,
-    // flush) becomes a queued message — it must never be stranded. (A cancelled
-    // turn already cleared its steering, so there is nothing to re-enqueue.)
-    for (const message of agent.inbox.drainSteering()) {
-      agent.inbox.enqueue(message)
+    // Steering that arrived too late to join an ordinary turn (turn-end
+    // listeners, flush) becomes queued input so it is never stranded. A
+    // terminal-stop owner is the deliberate exception: discard the steering
+    // again after the close + flush window so terminal policy cannot be undone
+    // after its in-turn drain. Ordinary queued sends live in a separate FIFO and
+    // remain untouched.
+    for (const message of handle.inbox.drainSteering()) {
+      if (!terminalStopped) handle.inbox.enqueue(message)
     }
 
-    if (!agent.inbox.hasQueued) handle.setStatus('idle')
+    if (!handle.inbox.hasQueued) handle.setStatus('idle')
   }
 }
 
 async function runTurn(
-  ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
-): Promise<void> {
+  ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+): Promise<boolean> {
   const { session } = agent
 
   // --- Pre-turn. A throw here (the invariant guard) is owed NO turn/end —
   // turn/start has not been appended — so it propagates to runLoop's backstop
   // untouched. The queued messages are drained here but appended AFTER
   // turn/start (below), so every event in the log lives inside a turn.
-  const queued = agent.inbox.drainQueued()
+  const queued = handle.inbox.drainQueued()
   const first = queued[0]
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
@@ -310,35 +329,16 @@ async function runTurn(
   let step = 0
   let stepOpen = false
   let errorReported = false
+  let terminalStopped = false
 
-  // Close the open step exactly once (idempotent via stepOpen). Step boundaries
-  // are durable session events only — there is no agent/* step emit to mirror
-  // them (see the agent event-domain rule). A throwing step/end session-event
-  // listener must not abort finalization and strand the turn open (turn/end
-  // balance > notifying one bad listener); it is contained and surfaced as a
-  // turn error below.
-  const closeStep = (): boolean => {
-    if (!stepOpen) return false
+  // Close the open step exactly once (idempotent via stepOpen). Post-commit
+  // session/event observers are contained by Session; a pre-commit validator
+  // failure still escapes so the outer recovery path may retry the boundary or
+  // fail loudly without pretending an uncommitted step/end exists.
+  const closeStep = (): void => {
+    if (!stepOpen) return
+    session.append('step/end', { turn, step })
     stepOpen = false
-    // Session.append pushes step/end BEFORE notifying session/event listeners,
-    // so a throwing listener leaves step/end in the log (balance holds) but
-    // would otherwise abort finalization. Contain it and surface it as a turn
-    // error below.
-    let failure: unknown
-    try {
-      session.append('step/end', { turn, step })
-    } catch (error: unknown) {
-      failure = error
-    }
-    // A throwing step/end session-event listener surfaces as a turn error via
-    // failTurn (idempotent). This prevents a throwing listener from producing a
-    // silent "completed" turn when the step itself succeeded, AND keeps
-    // finalization going when closeStep runs from the outer catch.
-    if (failure !== undefined) {
-      failTurn(toError(failure))
-      return true
-    }
-    return false
   }
 
   // Record a step/turn failure exactly once: set the error reason (carrying the
@@ -350,45 +350,29 @@ async function runTurn(
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    // The turn is always still open here: the only failure that can reach
-    // failTurn once turn/end is appended would be a throwing turn-boundary
-    // listener, and turn boundaries are durable session events with no agent/*
-    // mirror to throw. A throwing `turn/end` session-event listener is already
-    // contained inside closeTurn (append pushes before notifying, so the
-    // boundary is durable). So set the error reason for closeTurn to append.
+    // The turn is still open here. Post-commit observers cannot escape append,
+    // and a pre-commit turn/end veto leaves no closing boundary to overwrite.
+    // Set the reason that the next successful closeTurn will append.
     reason = { kind: 'error', step, ...errorData(err) }
     try {
-      ctx.emit('agent/error', agent, turn, step, err)
+      events.emit('agent/error', turn, step, err)
     } catch {
       // contained: the error is already captured on `reason`; a throwing
       // agent/error listener must not prevent the turn from closing.
     }
   }
 
-  // Close the turn. Called exactly once per turn — the normal loop exit and the
-  // outer catch are mutually exclusive paths, and this never throws (the append
-  // is contained below), so there is no re-entry to guard against (unlike
-  // closeStep, which the cancel branches and the outer catch can both reach).
-  // Turn boundaries are durable session events only — there is no agent/* turn
-  // emit to mirror them (see the agent event-domain rule).
+  // Close the turn. Post-commit observer failures are contained by Session;
+  // pre-commit validation failures escape to recovery instead of being mistaken
+  // for a committed boundary. Turn boundaries are durable session events only.
   const closeTurn = (): void => {
-    // Session.append pushes turn/end BEFORE notifying session/event listeners,
-    // so a throwing listener leaves turn/end in the log (the turn is balanced)
-    // but would otherwise escape — from the outer catch it would propagate to
-    // the runLoop backstop. Contain it: the boundary is durable either way, and
-    // finalization must not abort on a bad listener.
-    try {
-      session.append('turn/end', { turn, reason })
-    } catch (error: unknown) {
-      ctx.logger.warn(`agent "${agent.id}": session/event listener threw on turn/end at turn ${turn}: ${toError(error).message}`)
-    }
+    session.append('turn/end', { turn, reason })
   }
 
   try {
     // --- Turn boundary. Once turn/start is appended, a turn/end is owed no
-    // matter what throws below; the catch + closeTurn guarantee it (the catch
-    // decides "owed" from the log via isTurnOpen, so even a throwing turn/start
-    // listener — append pushes before notifying — still gets its turn/end).
+    // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
+    // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
     // Each drained queued message runs the `agent/prompt-submit` waterfall before
     // it becomes a `user/message` — a hook can rewrite the prompt or block it.
@@ -402,8 +386,8 @@ async function runTurn(
     // batch always reports the last vetoing reason.
     let lastBlockReason = 'prompt blocked by hook'
     for (const message of queued) {
-      const decision = await ctx.waterfall(
-        'agent/prompt-submit', agent, message.content, message.source,
+      const decision = await events.waterfall(
+        'agent/prompt-submit', message.content, message.source,
         () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
       )
       if (decision.kind === 'block') {
@@ -443,7 +427,7 @@ async function runTurn(
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(agent, turn)
+      drainSteering(agent, handle.inbox, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -458,9 +442,9 @@ async function runTurn(
       // against the system prompt (it counts toward the budget). runStep reuses
       // this same assembly for the request, so the prompt is assembled once per
       // step. renderPrompt IS the full prompt — the persona is the order-0
-      // section (registered by the AgentLoop plugin) and `{{variable}}`
+      // section (owned by dsh-system-prompt) and `{{variable}}`
       // interpolation happens in the render, so there is no separate join.
-      const assembly = await ctx.systemPrompt.assemble({ agent })
+      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
       const fullSystemPrompt = renderPrompt(assembly)
 
       // Interruption landing after assembly: dispose() or cancel() in a
@@ -497,8 +481,8 @@ async function runTurn(
       // CURRENT request.
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
-        const composed = await ctx.waterfall(
-          'agent/session-prefix', agent, emptyPrefix, abort.signal,
+        const composed = await events.waterfall(
+          'agent/session-prefix', emptyPrefix, abort.signal,
           () => Promise.resolve(emptyPrefix),
         )
 
@@ -533,7 +517,7 @@ async function runTurn(
       // pre-step plugin ends the turn, not the loop. The composed session
       // prefix rides along so token-pressure listeners count everything the
       // request will actually carry.
-      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
+      await events.serial('agent/pre-step', turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
@@ -546,20 +530,19 @@ async function runTurn(
       // messages are snapshotted HERE, in the same synchronous frame as the
       // step/start append directly below — so the snapshot is exactly the
       // derivation over the log prefix strictly before step/start's seq.
-      // Anything appended later — by a step/start session/event listener, an
-      // agent/request-window inject(), any concurrent task — lands after the
-      // boundary and joins the NEXT request. An external reconstructor
+      // Anything appended later by the request-window inject seam or a
+      // concurrent task lands after the boundary and joins the NEXT request.
+      // session/event itself is observe-only: append reentrancy is rejected
+      // until the current callback list drains. An external reconstructor
       // recovers these exact messages by folding the surface over
       // events[0..stepStartSeq).
       const boundaryMessages = session.deriveMessages()
 
-      // Mark the step open BEFORE the append: Session.append pushes the event
-      // to the log before notifying session/event listeners, so a THROWING
-      // step/start listener leaves step/start in the log. Setting stepOpen first
-      // means the outer catch's closeStep() then appends the balancing step/end
-      // (turn stays enclosed) instead of stranding an open step under turn/end.
-      stepOpen = true
       session.append('step/start', { turn, step })
+      // Only a committed step/start creates a balancing obligation. A
+      // pre-commit veto throws before this assignment; post-commit observers
+      // are contained inside Session.append().
+      stepOpen = true
 
       // Cancel landing in the step-start window: a synchronous `session/event`
       // step/start listener can cancel after the step is already open. Check
@@ -574,7 +557,8 @@ async function runTurn(
 
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
-        stepOutcome = await runStep(ctx, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+        stepOutcome = await runStep(
+          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -609,15 +593,15 @@ async function runTurn(
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(agent, turn)
+      const steered = drainSteering(agent, handle.inbox, turn)
 
-      if (closeStep()) break
+      closeStep()
 
       const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
       let decision: ContinuationDecision
       try {
-        decision = await ctx.waterfall(
-          'agent/turn-continuation', agent, turn, defaultDecision,
+        decision = await events.waterfall(
+          'agent/turn-continuation', turn, defaultDecision,
           () => Promise.resolve(defaultDecision),
         )
       } catch (error: unknown) {
@@ -631,14 +615,38 @@ async function runTurn(
       // iteration drains it before its request — the typed twin of the /goal
       // step/end-steer pattern.
       if (decision.action === 'continue' && decision.reason) {
-        agent.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
+        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
       }
       let shouldContinue = decision.action === 'continue'
 
       // Steering from step/end session-event or continuation listeners (the
       // /goal pattern) demands the model see it — it overrides a stop decision;
       // the next iteration's drain records it.
-      if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
+      if (!shouldContinue && handle.inbox.hasSteering) shouldContinue = true
+
+      // Terminal policy runs only AFTER the extensible continuation waterfall,
+      // its optional reason, and late steering have all been folded. Unlike the
+      // waterfall, this serial seam is monotonic: the first stop bail wins, and
+      // no later listener or steering override can resurrect the turn.
+      let terminalStop = false
+      try {
+        const stop = await events.serial('agent/turn-stop', turn)
+        terminalStop = stop !== undefined
+      } catch (error: unknown) {
+        // A broken terminal policy is an ordinary continuation failure: fail
+        // this turn closed while leaving the driver alive for later turns.
+        failTurn(toError(error))
+        break
+      }
+      if (terminalStop) {
+        terminalStopped = true
+        // A continuation reason or listener may have queued steering before the
+        // terminal checkpoint. Discard only steering (never ordinary queued
+        // prompts) so it cannot become a next step or be re-enqueued as a fresh
+        // turn by runLoop's late-steering fallback.
+        handle.inbox.drainSteering()
+        shouldContinue = false
+      }
 
       // A cancel that landed during the continuation window — after the step's
       // AbortController was cleared (setAbort(undefined)) but before the next
@@ -660,21 +668,10 @@ async function runTurn(
     // Normal / inline-error loop exit: close the turn.
     closeTurn()
   } catch (error: unknown) {
-    // Decide whether this turn was ever opened from the LOG, not a flag.
-    // Session.append pushes the event BEFORE notifying session/event listeners,
-    // so a throwing listener on the `turn/start` append leaves turn/start in the
-    // log even though execution never reached the lines after that append.
-    // Gating on a "turn started" boolean would skip turn/end and leave a
-    // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
-    // check the log for THIS turn's turn/start: present means a turn/end is owed
-    // and the normal-exit `closeTurn()` did NOT run (we are here because a throw
-    // preceded it — the two `closeTurn()` sites are on mutually exclusive paths),
-    // so this catch appends turn/end with the disposed/error reason chosen below.
-    // `closeStep()` IS idempotent (guarded by `stepOpen`) — it may have run
-    // already in a step branch, so running it again is a safe no-op. Absent
-    // turn/start means the append threw BEFORE its push (a non-serializable
-    // trigger — impossible for our fixed trigger); nothing was opened, so rethrow
-    // to the runLoop backstop.
+    // Decide whether this turn opened from the LOG, not a speculative flag. A
+    // pre-commit validator or acceptance failure leaves no turn/start and owes
+    // no turn/end, so it propagates to runLoop's backstop. Once turn/start is
+    // present, this path balances any committed step and records the failure.
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()
@@ -694,8 +691,9 @@ async function runTurn(
 
   // Durability checkpoint: persistence plugins drain write-behind buffers.
   // A failing persistence plugin is reported but doesn't kill the agent.
+  // Through the store's flush (the carrier owner), never a raw parallel.
   try {
-    await ctx.parallel('session/flush', session)
+    await ctx.sessions.flush(session)
   } catch (error: unknown) {
     // The turn is already closed (turn/end appended above) and flush must run
     // AFTER turn/end to be a checkpoint — so there is no in-turn position left
@@ -707,16 +705,17 @@ async function runTurn(
     const err = toError(error)
     ctx.logger.warn(`agent "${agent.id}": session/flush failed at turn ${turn}: ${err.message}`)
     try {
-      ctx.emit('agent/error', agent, turn, step, err)
+      events.emit('agent/error', turn, step, err)
     } catch {
       // contained: a throwing agent/error listener must not escape the loop.
     }
   }
+  return terminalStopped
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
-  const messages = agent.inbox.drainSteering()
+function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boolean {
+  const messages = inbox.drainSteering()
   for (const message of messages) {
     agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
   }
@@ -732,6 +731,7 @@ function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
  * the surface prefix at step/start and already reflects any compaction. */
 async function runStep(
   ctx: Context,
+  events: AgentEventDispatch,
   agent: ReactLoopAgent,
   turn: number,
   step: number,
@@ -764,7 +764,7 @@ async function runStep(
   // model-visible content flows through the log channels). The header event
   // below records whatever the request ACTUALLY uses, so a listener's switch
   // is a logged, reconstructable fact, never silent drift.
-  const config = await ctx.waterfall('agent/request', agent, turn, step, seedConfig, () => Promise.resolve(seedConfig))
+  const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
   if (!config.model) {
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
@@ -823,7 +823,7 @@ async function runStep(
 
   if (assembler.finish.kind === 'max-tokens') {
     let message: Message = withoutToolCalls(assembler.message())
-    message = withoutToolCalls(await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message)))
+    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
     // Fire the assistant/message when there is content OR usage: a max-tokens
     // step can be cut off with empty content but still carry token accounting,
     // and assistant/message is the only host for usage (there is no standalone
@@ -846,7 +846,7 @@ async function runStep(
   // source of truth for derived history and replay) records the message that
   // tool dispatch actually uses.
   let message: Message = assembler.message()
-  message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
+  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
 
   // Same content-or-usage guard as the max-tokens branch: a step that finishes
   // with neither assembled content nor usage (e.g. a bare `stop` finish that
