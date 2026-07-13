@@ -52,7 +52,7 @@ The read rendering (line windowing + output formatting) lives in `src/read-rende
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt | Visible agents receive three short sections explaining line-windowed reads, whole-file writes, literal edits, and the default read-before-mutate habit. | Fixed guidance cost per request while the tools are visible. |
+| System prompt | Every request in this plugin's registration scope receives three short sections explaining line-windowed reads, whole-file writes, literal edits, and the default read-before-mutate habit. Scoped tool restrictions can hide schemas without removing these independently registered sections. | Fixed guidance cost per request while the plugin is active, even when a restriction hides one or more tools. |
 | Tool schemas | The model sees `read`, `write`, and `edit` with their snake_case arguments. Scoped tool restrictions can remove any definition for one agent. | Fixed schema cost on every request in that tool view. |
 | Tool-call history and results | Read returns numbered UTF-8 lines and a pagination or cap footer; write and edit return concise success text or structured errors. The model-emitted write or edit content also remains in the assistant tool-call arguments. | Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`. Call arguments and results are resent until compaction, so large write payloads can dominate history even though the success result is small. |
 

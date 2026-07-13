@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-workflow
 
-The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. Pure schema + lifecycle shaping over [`ctx.workflows`](../workflow/README.md) — script parsing, execution, caps, and cancellation live behind the seam, so a hardened engine swaps in without touching what the model sees.
+The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. This package owns schema and lifecycle shaping over [`ctx.workflows`](../workflow/README.md); script parsing, execution, caps, and cancellation live behind the seam, while the consumer retains ownership of the parent-facing schema and result envelope.
 
 ## What the model sees
 
@@ -25,7 +25,8 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt and tool schema | The parent model receives a short use-only-for-large-orchestration section plus the `workflow` schema. The schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial but fixed per-request guidance and schema cost while visible. |
+| System prompt | Every parent request in this plugin's registration scope receives a short use-only-for-large-orchestration section. A scoped tool restriction can hide the schema without removing this independently registered guidance. | Small fixed guidance cost per request while the plugin is active. |
+| Tool schema | When visible, the `workflow` schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial fixed schema cost on each request where the tool is visible. |
 | Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. The result contains the workflow name, child count, and final JSON value or a shaped error; intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
 
 ## Known Limitations and Deferred Work

@@ -11,7 +11,7 @@ This package is the interface quarter of the bash capability, split so each conc
 | `@deepseek-ai/dsh-bash-sandbox` | an implementation: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
 | `@deepseek-ai/dsh-tool-bash` | the model-facing tool schemas over `ctx.bash` |
 
-The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface, tool schemas untouched; a containerized or remote executor slots in the same way.
+The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface; the consumer detects its `sandboxMode` capability and adds escalation fields without importing the implementation. A containerized or remote executor slots in the same way.
 
 ## Service API (`ctx.bash`)
 

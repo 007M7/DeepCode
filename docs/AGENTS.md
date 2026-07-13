@@ -40,7 +40,7 @@ Every package README ends with this table immediately before `## Known Limitatio
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 
-Rows state what reaches which model and classify token cost or lifetime; zero-direct rows name the indirect path. `verify-package-readme-model-experience` gates shape and order, while review owns accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
+Rows state what reaches which model and classify token cost or lifetime. Treat prompt text and tool schemas separately when their visibility conditions differ; zero-direct rows name the indirect path. `verify-package-readme-model-experience` gates shape and order, while review owns accuracy ([rationale](rfc/implemented/process/2026-07-12-package-model-experience-contract.md)).
 
 ## Wordcount Budgets
 

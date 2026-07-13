@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-bash-sandbox
 
-Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — the model-facing tool layer (`dsh-tool-bash`) is untouched; that swap is exactly what the seams exist for.
+Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
 
 Every command is confined by handing the provider the exact `['bash', '-c', command]` argv this executor is about to spawn and spawning the returned (wrapped) argv instead. WHICH platform runner confines it — and whether one is usable at all (fail closed with a structured `SANDBOX_UNAVAILABLE` error, never a silent unconfined run) — is the provider's concern; this package owns the bash side only.
 
@@ -36,7 +36,7 @@ The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landloc
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt, indirectly | By advertising a confining `sandboxMode`, this backend makes `dsh-tool-bash` state the calling session's effective mode and expose escalation fields. The backend itself adds no prose. | Small fixed per-request cost through the consumer, plus a retained notice when the session mode changes. |
+| Bash tool schema, indirectly | By advertising a confining `sandboxMode`, this backend makes `dsh-tool-bash` expose `sandbox_permissions` and `justification`. The backend adds no prompt prose, and the session's effective mode remains unstated. | Small fixed schema increment on requests where `bash` is visible; mode switches add no context tokens. |
 | Bash tool result, indirectly | The model sees ordinary bounded command output plus denial markers, the mode used, and sandbox-unavailable failures shaped by `dsh-tool-bash`; runner details stay internal. | Zero additional tokens on an unremarkable allowed run beyond ordinary output. Denial or failure adds a small conditional marker or error retained until compaction. |
 
 ## Known Limitations and Deferred Work

@@ -10,14 +10,39 @@ import { relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
-const HEADING_PATTERN = /^## Model Experience$/gm
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
 const TABLE_HEADER = '| Context surface | What the model sees | Token effect |'
 const TABLE_DIVIDER = '|---|---|---|'
+const H2_HEADING = /^## .+$/
 
 interface Failure {
   path: string
   message: string
+}
+
+interface Line {
+  index: number
+  raw: string
+}
+
+/** Split Markdown into prose lines, excluding fenced code that may quote the contract. */
+function proseLines(text: string): Line[] {
+  let fence: { marker: '`' | '~'; length: number } | undefined
+  const kept: Line[] = []
+  text.split('\n').forEach((raw, i) => {
+    const token = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1]
+    if (token !== undefined) {
+      const marker = token[0] as '`' | '~'
+      if (fence === undefined) {
+        fence = { marker, length: token.length }
+      } else if (marker === fence.marker && token.length >= fence.length) {
+        fence = undefined
+      }
+      return
+    }
+    if (fence === undefined) kept.push({ index: i + 1, raw })
+  })
+  return kept
 }
 
 const failures: Failure[] = []
@@ -31,25 +56,20 @@ for (const packageJson of packageJsons) {
     continue
   }
 
-  const source = readFileSync(abs, 'utf8')
-  const matches = [...source.matchAll(HEADING_PATTERN)]
-  if (matches.length !== 1) {
+  const lines = proseLines(readFileSync(abs, 'utf8'))
+  const h2Headings = lines.filter(line => H2_HEADING.test(line.raw))
+  const modelHeadings = h2Headings.filter(line => line.raw === HEADING)
+  if (modelHeadings.length !== 1) {
     failures.push({
       path: readme,
-      message: matches.length === 0 ? `missing ${HEADING}` : `contains ${matches.length} copies of ${HEADING}`,
+      message: modelHeadings.length === 0 ? `missing ${HEADING}` : `contains ${modelHeadings.length} copies of ${HEADING}`,
     })
     continue
   }
 
-  const match = matches[0]
-  if (match?.index === undefined) {
-    failures.push({ path: readme, message: `could not locate ${HEADING}` })
-    continue
-  }
-  const headingIndex = match.index
-  const h2Headings = [...source.matchAll(/^## .+$/gm)]
-  const modelH2Index = h2Headings.findIndex(heading => heading.index === headingIndex)
-  const limitationsH2Index = h2Headings.findIndex(heading => heading[0] === LIMITATIONS_HEADING)
+  const modelHeading = modelHeadings[0] as Line
+  const modelH2Index = h2Headings.indexOf(modelHeading)
+  const limitationsH2Index = h2Headings.findIndex(heading => heading.raw === LIMITATIONS_HEADING)
   if (limitationsH2Index >= 0) {
     if (modelH2Index !== h2Headings.length - 2 || limitationsH2Index !== h2Headings.length - 1) {
       failures.push({
@@ -63,25 +83,30 @@ for (const packageJson of packageJsons) {
     continue
   }
 
-  const bodyStart = headingIndex + HEADING.length
-  const nextHeadingOffset = source.slice(bodyStart).search(/^## /m)
-  const section = source.slice(bodyStart, nextHeadingOffset < 0 ? undefined : bodyStart + nextHeadingOffset)
-  const lines = section.split('\n')
-  const headerIndex = lines.indexOf(TABLE_HEADER)
-  if (headerIndex < 0 || lines[headerIndex + 1] !== TABLE_DIVIDER) {
+  const body = lines.slice(lines.indexOf(modelHeading) + 1)
+  const nextH2 = body.findIndex(line => H2_HEADING.test(line.raw))
+  const section = nextH2 < 0 ? body : body.slice(0, nextH2)
+  const headers = section.filter(line => line.raw === TABLE_HEADER)
+  const header = headers[0]
+  const headerIndex = header === undefined ? -1 : section.indexOf(header)
+  if (headers.length !== 1 || headerIndex < 0 || section[headerIndex + 1]?.raw !== TABLE_DIVIDER) {
     failures.push({ path: readme, message: `must contain the exact table header ${TABLE_HEADER}` })
     continue
   }
 
-  const rows = lines.slice(headerIndex + 2).filter(line => line.startsWith('|'))
+  const rows: Line[] = []
+  for (const line of section.slice(headerIndex + 2)) {
+    if (!line.raw.startsWith('|')) break
+    rows.push(line)
+  }
   if (rows.length === 0) {
     failures.push({ path: readme, message: 'Model Experience table must contain at least one data row' })
     continue
   }
   for (const row of rows) {
-    const cells = row.split('|').slice(1, -1).map(cell => cell.trim())
+    const cells = row.raw.split('|').slice(1, -1).map(cell => cell.trim())
     if (cells.length !== 3 || cells.some(cell => cell.length === 0)) {
-      failures.push({ path: readme, message: `invalid three-column Model Experience row: ${row}` })
+      failures.push({ path: readme, message: `line ${row.index}: invalid three-column Model Experience row: ${row.raw}` })
     }
   }
 }

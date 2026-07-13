@@ -38,8 +38,8 @@ The tool never calls a provider's `status()` and never enumerates providers — 
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt | Each enabled tool adds one short section: search guidance says to discover current sources and follow with fetch; fetch guidance says to retrieve a specific HTTP(S) URL and cite it. | Fixed guidance cost per request for each enabled tool. |
-| Tool schemas | According to config, the model sees `web_search(query)`, `web_fetch(url)`, or both. Result-count and timeout budgets are deployment settings, not model arguments. | Fixed schema cost per request; disabling a tool removes its schema and guidance. |
+| System prompt | Each config-enabled tool adds one short section: search guidance says to discover current sources and follow with fetch; fetch guidance says to retrieve a specific HTTP(S) URL and cite it. A scoped tool restriction does not remove these independently registered sections. | Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema. |
+| Tool schemas | According to config and scoped restrictions, the model sees `web_search(query)`, `web_fetch(url)`, or both. Result-count and timeout budgets are deployment settings, not model arguments. | Fixed schema cost per request; config disablement removes both schema and guidance, while a scoped restriction removes only the schema. |
 | Tool-call history and results | Search returns an optional answer and bounded source entries; fetch returns status plus decoded text or markdown-shaped HTML, or a structured error. Queries and URLs remain in call history. | Data-dependent results are resent until compaction. Search sources are capped by `searchMaxResults`; fetch providers cap body size, and timeout policy can replace a late result with a short error. |
 
 ## Known Limitations and Deferred Work

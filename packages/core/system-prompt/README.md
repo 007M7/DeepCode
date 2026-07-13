@@ -45,7 +45,7 @@ Design rationale: [the prompt-variables RFC](../../../docs/rfc/implemented/archi
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | System prompt | Every assembly starts with `You are an AI agent powered by the DeepSeek Harness SDK.`, then the configured persona and ordered plugin sections after strict variable interpolation. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The final `system-prompt/assemble` waterfall result is authoritative, so an expert listener's changes determine the delivered prompt and tool schemas. | Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content. |
-| Tool schemas | The model receives the collected, per-agent-visible tool names, descriptions, and JSON schemas in configured or lexicographic order after restrictions and assembly interception. | Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent; reordering changes cache shape but not semantic content. |
+| Tool schemas | The model receives the collected, per-agent-visible tool names, descriptions, and JSON schemas in configured or lexicographic order after restrictions and assembly interception. Sections and schema providers are separate assembly inputs, so a tool restriction does not remove independently registered guidance. | Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent but not a separate prompt section; reordering changes cache shape but not semantic content. |
 
 ## Known Limitations and Deferred Work
 

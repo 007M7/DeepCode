@@ -56,7 +56,7 @@ Keep package-specific service API, config, events, extension points, and design 
 - **Consumer-visible gap** — exact boundary or deliberately deferred work.
 ```
 
-Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and its indirect path. Every package participates, including type-only libraries and backend seams. A package with genuinely no limitations joins the justified allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
+Fill [Model Experience](../AGENTS.md#package-model-experience) from the implementation: name every direct request contribution and token-growth condition, or state zero direct tokens and its indirect path. Do not infer prompt visibility from tool-schema visibility; independently registered guidance can remain after a scoped tool restriction. Every package participates, including type-only libraries and backend seams. A package with genuinely no limitations joins the justified allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience.
 
 ## 5. Verify
 

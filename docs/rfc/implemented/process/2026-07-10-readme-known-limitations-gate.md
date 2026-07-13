@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-The [documentation standard](../../../AGENTS.md) assigns limitations to the package-README tier ("the per-package contract: config, semantics, limitations, extension points"), but nothing enforced that the section exists or shares a shape. Ten READMEs carried the content under five ad-hoc headings — "What is NOT here (TODO)", "What is NOT here", "Deferred (faithful-but-degraded)", "Limitations (MVP, documented deliberately)", "Known limitations (tracked TODOs)" — and the other forty-odd carried nothing, so a reader could not distinguish "this package has no known limitations" from "nobody wrote them down", and no grep could enumerate the repo's known gaps.
+The [documentation standard](../../../AGENTS.md) assigns limitations to the package-README tier ("the per-package contract: config, semantics, limitations, extension points"). Without a required shared shape, variant headings and omissions make "this package has no known limitations" indistinguishable from "nobody wrote them down", and no single grep can enumerate the repo's known gaps.
 
 ## Decision
 
@@ -16,13 +16,13 @@ The gate checks presence, shape, and the whitelist; the bullets' truthfulness an
 
 ## Alternatives considered
 
-- **Free-form headings, gate only that "something limitations-like" exists** — keeps the five variants, stays un-greppable, and needs the same near-miss heuristics anyway without buying uniformity.
+- **Free-form headings, gate only that "something limitations-like" exists** — preserves variant headings, stays un-greppable, and needs the same near-miss heuristics anyway without buying uniformity.
 - **Require the section in ALL READMEs, allowing an empty body or "None."** — boilerplate "None" rots silently as a package gains real limitations; the whitelist inversion turns "nothing declared" into an explicit, lintable claim that review can challenge.
 - **A word-count ceiling on the section** — limitation lists are legitimately variable in length; package READMEs are deliberately unbudgeted (per the [budget policy](../../../AGENTS.md)) and review governs their prose.
 
 ## Consequences
 
 - A new package cannot ship without either declaring its gaps or explicitly claiming it has none; a missing, drifted, or empty section fails `doc-sync` locally (pre-push) and in CI (`readme-limitations` in the run-gates doc-sync leaf set).
-- The pre-existing variant sections are normalized to the canonical heading, and every package README now answers the limitations question one way or the other.
+- Every package README answers the limitations question through the canonical heading or an explicit no-limitations allowlist entry.
 - One more fast tsx script in the `doc-sync` chain; no new dependency (plain `node:fs` glob + line scan).
 - The canonical heading is enforced verbatim, so renaming it later is a mechanical one-script-plus-all-READMEs change guarded by the same gate.
