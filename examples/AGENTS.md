@@ -13,7 +13,7 @@ Each example must have **both** kinds of end-to-end smoke, because they catch di
 
 **Exception — keyless-by-nature examples.** An example whose model is itself a mock/deterministic stand-in (no real provider) has no meaningful with-key smoke; the keyless smoke is the complete requirement. State the exception inline in the test.
 
-A keyless smoke that spawns the example from a temp cwd must set `TSX_TSCONFIG_PATH` to the repo-root tsconfig (the unbuilt `paths` map is found by searching UP from cwd), and pass `--expose-internals` when the `cordis.yml` loads the HMR plugin (mirror the `demo:*` script).
+A keyless stdio smoke uses `@deepseek-ai/dsh-loader-smoke`, which owns the isolated cwd and DSH homes, repo tsconfig pin, `--expose-internals`, subprocess deadline, EOF, captured diagnostics, forced kill, and cleanup. The example test supplies only its absolute bin/config/tsconfig paths, environment overrides, stdin lines, and output assertions.
 
 ## Current state
 
