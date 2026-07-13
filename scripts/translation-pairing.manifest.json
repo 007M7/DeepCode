@@ -1,5 +1,5 @@
 {
-  "requiredSince": "2026-07-05",
+  "requiredSince": "2026-07-14",
   "required": [
     "README.md",
     "docs/development.md",

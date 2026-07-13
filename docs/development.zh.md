@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Node.js 24 或更新版本。仓库声明 `node >=24`；CI 在 Node 24 和 26 上运行矩阵测试。
+- Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP agent 演示和真实 API 的 e2e 测试。
@@ -63,26 +63,13 @@ lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点�
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
-这些钩子并不与 CI 完全一致。特别是：`pre-push` 运行不带覆盖率的单元测试，而 CI 运行 `pnpm run test:coverage`；CI 还会运行 echo-agent 和 built-bin 冒烟测试，并在 Node 24 和 26 上运行矩阵。
+这些钩子并不与 CI 完全一致。特别是：`pre-push` 运行不带覆盖率的单元测试，而 CI 运行 `pnpm run test:coverage`；CI 还会运行 echo-agent 和 built-bin 冒烟测试，并在 Node 22.19、24 和 26 上执行兼容性矩阵。
 
 ## CI 门禁
 
-GitHub 工作流在每个 Pull Request 上运行以下门禁：
+无密钥 GitHub 工作流共有八个任务：五条 Node 24 车道分别运行静态门禁、lint、覆盖率、快照回放与产物门禁；三个兼容性任务在 Node 22.19、24 和 26 上运行 `pnpm run check:node-compat`。车道调度器从 `package.json` 展开相互独立的门禁：constraints、typecheck、lint、覆盖率、快照回放、`doc-sync` 各成员、module-graph 新鲜度、`knip`，以及 echo-agent 冒烟测试。
 
-- `pnpm install --frozen-lockfile`
-- `pnpm run constraints`
-- `pnpm run typecheck`
-- `pnpm run lint`
-- `pnpm run doc-sync`
-- `pnpm run verify-module-graph`
-- `pnpm run test:coverage`
-- `pnpm run test:snapshot`
-- `pnpm run build`
-- `pnpm run hygiene`
-- 一个 echo-agent 冒烟测试，检查演示的工具调用、工具结果和 JSONL 输出
-- built-bin 冒烟测试，用纯 `node` 运行发布产物 `lib/bin.js` 入口
-
-`pnpm run hygiene` 是 `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types` 的本地简写；CI 还会将 `pnpm run constraints` 作为更早的快速失败步骤单独运行一次，然后在 `pnpm run build` 之后运行完整的 hygiene 脚本。
+`pnpm run build` 供给产物车道；`publint`、`verify-node-next-types` 与 built-bin 冒烟测试等待构建产出。独立的真实 API 工作流使用密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=14`。
 
 ## 日常命令
 
@@ -98,6 +85,7 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
+pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
