@@ -61,9 +61,15 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 ### Conversation history
 
-**What the model sees**: Before a step whose estimated envelope and history exceed the threshold, the conversation model receives the exact [checkpoint preamble](#conversation-checkpoint-preamble), a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. This one checkpoint replaces the selected older range and is followed by the retained recent units.
+**What the model sees**: Before a step whose estimated envelope and history exceed the threshold, the conversation model receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. This one checkpoint replaces the selected older range and is followed by the retained recent units.
 
 **Token effect**: The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
+
+#### Conversation checkpoint preamble
+
+```markdown
+This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
+```
 
 ### Auxiliary summarizer user message
 
@@ -73,17 +79,9 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 ### Auxiliary summarizer system prompt
 
-**What the model sees**: The summarization model receives the exact [checkpoint-writing instruction](#auxiliary-summarizer-system-prompt).
+**What the model sees**: The summarization model receives the checkpoint-writing instruction below.
 
 **Token effect**: Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
-
-### Verbatim model-visible text
-
-#### Conversation checkpoint preamble
-
-```markdown
-This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
-```
 
 #### Auxiliary summarizer system prompt
 

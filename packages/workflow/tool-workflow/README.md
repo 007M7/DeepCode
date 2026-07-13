@@ -25,13 +25,19 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 
 ### System prompt
 
-**What the model sees**: Every parent request in this plugin's registration scope receives the exact [workflow guidance](#workflow-guidance). A scoped tool restriction can hide the schema without removing this independently registered guidance.
+**What the model sees**: Every parent request in this plugin's registration scope receives the workflow guidance below. A scoped tool restriction can hide the schema without removing this independently registered guidance.
 
 **Token effect**: Small fixed guidance cost per request while the plugin is active.
 
+#### Workflow guidance
+
+```markdown
+Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
+```
+
 ### Tool schema
 
-**What the model sees**: When visible, the `workflow` schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args.
+**What the model sees**: When visible, the generated default [`workflow` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-workflow) carries the complete JavaScript hook and metadata contract; `toolName` can rename the definition, and the model submits script, metadata, and optional args.
 
 **Token effect**: Substantial fixed schema cost on each request where the tool is visible.
 
@@ -40,14 +46,6 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 **What the model sees**: The full model-written script, metadata, and args remain in the assistant tool call. Success is exactly `workflow "<name>" completed (<count> agent<optional-s>).`, newline, `Return value:`, newline, and pretty-printed data-dependent JSON; a cap adds `… [truncated: <omitted> more characters]` on a new line. Failures are exactly `Error: workflow run was cancelled`, optionally suffixed ` (<error>)`, `Error: workflow run failed: <error-or-unknown error>`, or defensively `Error: workflow run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: workflow tool requires a calling agent (exec.agent was undefined)`. Intermediate child messages are omitted.
 
 **Token effect**: Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context.
-
-### Verbatim model-visible text
-
-#### Workflow guidance
-
-```markdown
-Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
-```
 
 ## Known Limitations and Deferred Work
 

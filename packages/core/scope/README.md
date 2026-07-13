@@ -21,11 +21,7 @@ Handing out a scoped context hands out the minting plugin's service-resolution s
 
 ## Model Experience
 
-### Per-agent visibility control
-
-**What the model sees**: This package emits no text or schema. It routes scoped prompt sections, variables, tools, restrictions, and listeners to one agent: scoped registrations can shadow same-named globals, while restrictions filter global tool schemas and Code Mode bindings before scope-local tools are merged. Restrictions do not filter independently registered prompt sections. All scoped state disappears with that agent. This is request composition, not authority confinement.
-
-**Token effect**: Zero direct tokens. Scoped registrations can add or replace whole contributions for one agent; restrictions remove schema entries or SDK bindings and reduce that agent's repeated envelope cost without changing another agent's request.
+None, as this scoping primitive emits no model-bound text, schema, or message; it only routes registrations and restrictions owned by other plugins.
 
 ## Known Limitations and Deferred Work
 

@@ -23,7 +23,7 @@ This is the consumer package for the user-interaction seam. It does not render U
 
 ### Tool schema
 
-**What the model sees**: The model sees `ask_user_question` with question ids, prompts, headings, options, and multi-select flags.
+**What the model sees**: The model sees the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user), including question ids, prompts, headings, options, and multi-select flags.
 
 **Token effect**: Fixed schema cost on every request where the tool is visible.
 

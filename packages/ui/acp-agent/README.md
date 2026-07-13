@@ -48,11 +48,7 @@ All diagnostics go to **stderr** — stdout is the protocol.
 
 ## Model Experience
 
-### Composed ACP agent request
-
-**What the model sees**: Through `dsh-agent-core`, an ACP-created agent receives the harness identity, configured persona, skill catalog, visible tools, and its own ACP prompt history. This app adds no extra prompt prose and omits `ask_user_question` unless a leaf opts in.
-
-**Token effect**: Per-request cost is the sum of the composed child packages. ACP framing, JSON-RPC, persistence, and UI rendering add zero model tokens.
+Indirectly, through `dsh-agent-core` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
 
 ## Known Limitations and Deferred Work
 

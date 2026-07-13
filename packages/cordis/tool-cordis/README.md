@@ -36,7 +36,7 @@ Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no defau
 
 ### Tool schemas
 
-**What the model sees**: The conversation model sees `cordis_inspect`, `cordis_mount`, and `cordis_unmount` whenever this plugin is visible.
+**What the model sees**: The conversation model sees the generated [`cordis_inspect`, `cordis_mount`, and `cordis_unmount` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
 
 **Token effect**: Fixed schema cost on every request in that tool view.
 

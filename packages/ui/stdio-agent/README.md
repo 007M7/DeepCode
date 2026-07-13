@@ -70,7 +70,7 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 ### Composed terminal agent request
 
-**What the model sees**: Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the `ask_user_question` schema. Each readline submission becomes a user message.
+**What the model sees**: Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each readline submission becomes a user message.
 
 **Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens.
 

@@ -62,13 +62,19 @@ Under a sandboxing executor this plugin makes the session's standing mode overri
 
 ### System prompt
 
-**What the model sees**: Every request in this plugin's registration scope contains exactly `Check the [exit code: N] marker on every bash result; investigate failures before moving on.` A sandboxing executor adds no mode statement or switch notice. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+**What the model sees**: Every request in this plugin's registration scope contains the bash guidance below. A sandboxing executor adds no mode statement or switch notice. Scoped tool restrictions can hide the schemas without removing this independently registered section.
 
 **Token effect**: Small fixed input cost per request while the plugin is active, unchanged by sandbox mode or mode switches.
 
+#### Bash guidance
+
+```markdown
+Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+```
+
 ### Tool schemas
 
-**What the model sees**: The model sees `bash`, `bash_output`, and `bash_kill`; their full descriptions and JSON schemas are the exact output of the definitions in `src/index.ts`. `sandbox_permissions` and `justification` appear on `bash` only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definitions for that agent.
+**What the model sees**: The model sees the generated [`bash`, `bash_output`, and `bash_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash). `sandbox_permissions` and `justification` augment `bash` only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definitions for that agent.
 
 **Token effect**: Fixed schema cost on every request where the tools are visible; sandbox support adds the escalation fields and its conditional description paragraph.
 

@@ -40,23 +40,21 @@ Unit suites drive a real agent loop against a mock adapter (no network) and cove
 
 ### First-threshold context message
 
-**What the model sees**: At the first configured consecutive-repeat threshold, that agent receives the exact [gentle reminder](#first-threshold-reminder). No tool schema or normal-call text is added.
+**What the model sees**: At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
 
 **Token effect**: Zero tokens before the threshold. The reminder is retained history for that agent.
-
-### Later-threshold context message
-
-**What the model sees**: A later threshold receives the exact [detailed reminder template](#later-threshold-reminder). A capped argument preview ends exactly `… (+<omitted> more chars)`.
-
-**Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
-
-### Verbatim model-visible text
 
 #### First-threshold reminder
 
 ```markdown
 You are repeating the exact same tool call with identical arguments. Carefully analyze the previous result before calling again: if the task is not complete, try a different approach or different arguments instead of repeating the call.
 ```
+
+### Later-threshold context message
+
+**What the model sees**: A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
+
+**Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
 
 #### Later-threshold reminder
 

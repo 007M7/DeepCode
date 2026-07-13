@@ -31,35 +31,15 @@ A non-`completed` stop reason becomes an `isError` tool result; partial child ou
 
 ### Standalone-provider schema
 
-**What the model sees**: While a fresh-context provider exists, the configured tool uses the exact [standalone tool](#standalone-provider-tool-description) and [`prompt` parameter](#standalone-provider-prompt-description) descriptions.
+**What the model sees**: While a fresh-context provider exists, the configured tool uses the generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent); the catalog also records how `toolName` changes the visible name.
 
 **Token effect**: Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema.
 
 ### Inherited-context-provider schema
 
-**What the model sees**: A provider that seeds completed turns uses the exact [inherited-context tool](#inherited-context-provider-tool-description) and [`prompt` parameter](#inherited-context-provider-prompt-description) descriptions. Both variants describe `description` exactly as `A short (3-5 word) description of the delegated task, for display.`
+**What the model sees**: Relative to the generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent), a provider that seeds completed turns replaces only the tool and `prompt` parameter descriptions with the text below; the shape and `description` parameter stay unchanged.
 
 **Token effect**: Fixed schema cost per parent request while mounted. Exposing multiple providers adds one independently named schema per load.
-
-### Tool-call history and result
-
-**What the model sees**: The task description and full prompt remain in the parent assistant tool call. Success contains only the child's data-dependent final text. Other stop reasons become exactly `Error: subagent run was cancelled`, `Error: subagent run failed`, `Error: subagent run hit its token limit before finishing`, `Error: subagent declined the task`, or `Error: subagent run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: subagent tool requires a calling agent (exec.agent was undefined)`. Intermediate child steps never enter the parent.
-
-**Token effect**: Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent.
-
-### Verbatim model-visible text
-
-#### Standalone-provider tool description
-
-```markdown
-Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation.
-```
-
-#### Standalone-provider prompt description
-
-```markdown
-The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.
-```
 
 #### Inherited-context-provider tool description
 
@@ -72,6 +52,12 @@ Delegate a task to a subagent that INHERITS this conversation: a child agent see
 ```markdown
 The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new.
 ```
+
+### Tool-call history and result
+
+**What the model sees**: The task description and full prompt remain in the parent assistant tool call. Success contains only the child's data-dependent final text. Other stop reasons become exactly `Error: subagent run was cancelled`, `Error: subagent run failed`, `Error: subagent run hit its token limit before finishing`, `Error: subagent declined the task`, or `Error: subagent run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: subagent tool requires a calling agent (exec.agent was undefined)`. Intermediate child steps never enter the parent.
+
+**Token effect**: Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent.
 
 ## Known Limitations and Deferred Work
 

@@ -16,9 +16,22 @@ Answerers today: the ACP bridge ([`@deepseek-ai/dsh-acp`](../../ui/acp/)) forwar
 
 ### System prompt and policy notice
 
-**What the model sees**: Under `ask`, every agent request carries exactly `<!-- dsh-user-approval-policy:ask -->`. Under `never`, it carries exactly ``Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).`` followed by a newline and `<!-- dsh-user-approval-policy:never -->`. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
+**What the model sees**: Under `ask`, every agent request carries the ask-policy prompt section below. Under `never`, it carries the never-policy prompt section below. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
 
 **Token effect**: Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
+
+#### Ask-policy prompt section
+
+```markdown
+<!-- dsh-user-approval-policy:ask -->
+```
+
+#### Never-policy prompt section
+
+```markdown
+Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
+<!-- dsh-user-approval-policy:never -->
+```
 
 ### Tool outcome
 

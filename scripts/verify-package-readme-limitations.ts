@@ -29,7 +29,7 @@
  * canonical section and a second competing section cannot coexist with it.
  *
  * Checker, not fixer: it reports and never rewrites.
- * Run: `tsx scripts/verify-readme-limitations.ts`.
+ * Run: `tsx scripts/verify-package-readme-limitations.ts`.
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
@@ -93,7 +93,7 @@ const failures: string[] = []
 
 for (const [entry, reason] of Object.entries(NO_LIMITATIONS)) {
   if (!scannedPackages.has(entry)) {
-    failures.push(`whitelist entry ${entry} does not name a scanned package — renamed or removed? update NO_LIMITATIONS in scripts/verify-readme-limitations.ts in the same change`)
+    failures.push(`whitelist entry ${entry} does not name a scanned package — renamed or removed? update NO_LIMITATIONS in scripts/verify-package-readme-limitations.ts in the same change`)
   }
   if (reason.trim().length === 0) {
     failures.push(`whitelist entry ${entry} has no justification — state why a limitations section would be empty boilerplate`)
@@ -119,7 +119,7 @@ for (const pkg of scannedPackages) {
 
   const heading = limitations.at(0)
   if (heading === undefined) {
-    failures.push(`${readme}: missing the \`${CANONICAL}\` section (a package with genuinely nothing to declare joins NO_LIMITATIONS in scripts/verify-readme-limitations.ts instead)`)
+    failures.push(`${readme}: missing the \`${CANONICAL}\` section (a package with genuinely nothing to declare joins NO_LIMITATIONS in scripts/verify-package-readme-limitations.ts instead)`)
     continue
   }
   if (limitations.length > 1) {
@@ -140,9 +140,9 @@ for (const pkg of scannedPackages) {
 }
 
 if (failures.length > 0) {
-  console.error('verify-readme-limitations: violations found:')
+  console.error('verify-package-readme-limitations: violations found:')
   for (const failure of failures) console.error(`  ${failure}`)
   process.exit(1)
 }
 
-console.log(`verify-readme-limitations: ${scannedPackages.size} package READMEs checked (${Object.keys(NO_LIMITATIONS).length} whitelisted), all conform.`)
+console.log(`verify-package-readme-limitations: ${scannedPackages.size} package READMEs checked (${Object.keys(NO_LIMITATIONS).length} whitelisted), all conform.`)

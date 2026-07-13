@@ -48,11 +48,17 @@ A clean turn that never commits the required structured value reports `error`; t
 
 **Token effect**: Child input is isolated from the parent and grows through the child's own steps. A persona changes repeated prompt text; filtering changes schema or generated SDK cost but not independently registered guidance.
 
-### Structured child request and results
+### Structured-output system prompt, schema, and results
 
-**What the model sees**: A structured run adds the exact [structured-output instruction](#structured-output-instruction). The tool description is exactly `Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.` with the requested schema. Success returns `Structured output recorded.`; a later call becomes ``Error: structured output already recorded: the run is complete, so `<tool>` is not executed``.
+**What the model sees**: A structured run adds the structured-output instruction below. It also adds a child-scoped `structured_output` definition with exact description `Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.` and the requested schema. This runtime-only definition is outside the generated shipped [tool package map](../../../docs/tool-catalog.md#tool-package-map). Success returns `Structured output recorded.`; a later call becomes ``Error: structured output already recorded: the run is complete, so `<tool>` is not executed``.
 
 **Token effect**: Fixed instruction and capability tokens are paid only by that child. Result text enters the child history, while the captured value alone becomes the parent result.
+
+#### Structured-output instruction
+
+```markdown
+When you have your final answer, you MUST report it by calling the `structured_output` tool with arguments matching its parameter schema exactly. Do not finish with a plain text answer: only the tool call counts as your result.
+```
 
 ### Parent start error, indirectly
 
@@ -65,14 +71,6 @@ A clean turn that never commits the required structured value reports `error`; t
 **What the model sees**: The driver extracts only the child's own last assistant output or captured structured value; seeded parent messages and intermediate child work do not become the result.
 
 **Token effect**: The parent receives one data-dependent result through the consumer; all other child tokens stay in the child session.
-
-### Verbatim model-visible text
-
-#### Structured-output instruction
-
-```markdown
-When you have your final answer, you MUST report it by calling the `structured_output` tool with arguments matching its parameter schema exactly. Do not finish with a plain text answer: only the tool call counts as your result.
-```
 
 ## Known Limitations and Deferred Work
 

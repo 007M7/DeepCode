@@ -50,17 +50,7 @@ Two adapters implement `LlmAdapter` against this vocabulary, deliberately built 
 
 ## Model Experience
 
-### Provider request transport
-
-**What the model sees**: This service adds no system text, schema, or message. It routes the already-assembled frozen `GenerateOptions` to one adapter, while `llm/stream` listeners may cache, retry, or replace the stream without mutating that request.
-
-**Token effect**: Zero direct context tokens. The selected adapter and provider tokenizer determine billing, cache accounting, and serialization overhead for the existing content.
-
-### Streamed model output
-
-**What the model sees**: Text, reasoning, and tool-call chunks are exposed to the loop, which decides what becomes retained assistant history.
-
-**Token effect**: Output usage is provider-reported; later input cost arises only after the loop records assembled content.
+None, as this adapter registry forwards an already assembled request without adding or changing any model-bound text, schema, or message.
 
 ## Known Limitations and Deferred Work
 

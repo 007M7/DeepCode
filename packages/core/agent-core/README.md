@@ -51,19 +51,10 @@ A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only
 
 ## Model Experience
 
-### Composed system prompt and session prefix
-
-**What the model sees**: Through its children, the bundle supplies the harness identity, configured persona, and the local skill catalog when skills exist.
-
-**Token effect**: The bundle adds no wrapper prose; input cost is exactly the sum of the child contributions, repeated on each request according to their lifecycles.
-
-### Composed tool surface
-
-**What the model sees**: The `skill` schema is present, and the three bash schemas appear when a bash executor activates `dsh-tool-bash`; `tools` config can select normal, Code Mode, or both.
-
-**Token effect**: Fixed per-request schema or SDK cost for the visible composition. Tool results add data-dependent retained history.
+Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
 
 ## Known Limitations and Deferred Work
 
+- **FIXME: package name and location imply product core** — rename `dsh-agent-core` to `dsh-demo-bundle` and move it under `packages/support/`; it is a demo composition bundle, not the product spine.
 - **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
 - **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.

@@ -1,9 +1,10 @@
 /**
  * Doc-sync gate: require every workspace package README to explain its exact
  * model-visible context surface and token behavior. Most packages require the
- * canonical context-surface blocks plus an optional linked long-literal
- * appendix; an audited allowlist requires one concise zero-effect or
- * indirect-only sentence instead.
+ * canonical context-surface blocks with optional nested verbatim H4 blocks.
+ * Direct system-prompt surfaces must contain exact `markdown` blocks,
+ * tool-schema surfaces must link generated catalog sections, local subsection
+ * links are rejected, and an audited allowlist uses one concise sentence.
  *
  * Run: `tsx scripts/verify-package-readme-model-experience.ts`.
  */
@@ -14,7 +15,6 @@ import { relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
-const VERBATIM_HEADING = '### Verbatim model-visible text'
 const MODEL_VIEW_LABEL = '**What the model sees**'
 const TOKEN_EFFECT_LABEL = '**Token effect**'
 const H2_HEADING = /^## .+$/
@@ -36,9 +36,12 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/bash/bash-local': { kind: 'indirect', reason: 'The executor backend delegates model rendering to dsh-tool-bash.' },
   'packages/code-runtime/code-runtime': { kind: 'indirect', reason: 'The service interface delegates model rendering to Code Mode in dsh-tools.' },
   'packages/code-runtime/code-runtime-worker': { kind: 'indirect', reason: 'The worker backend delegates model rendering to Code Mode in dsh-tools.' },
+  'packages/core/agent-core': { kind: 'indirect', reason: 'The bundle only mounts model-facing child plugins.' },
+  'packages/core/scope': { kind: 'none', reason: 'The routing primitive emits no model-bound content.' },
   'packages/fs/fs': { kind: 'indirect', reason: 'The service interface delegates model rendering to dsh-tool-fs.' },
   'packages/fs/fs-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
   'packages/hooks/hook-protocol': { kind: 'indirect', reason: 'Only the hook bridge plugins render decoded hook output to a model.' },
+  'packages/llm/llm': { kind: 'none', reason: 'The adapter registry forwards already-assembled requests unchanged.' },
   'packages/sandbox/sandbox': { kind: 'indirect', reason: 'Sandbox consumers render enforcement and availability facts.' },
   'packages/sandbox/sandbox-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-bash-sandbox and dsh-tool-bash.' },
   'packages/skill/skill': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-skill.' },
@@ -47,6 +50,9 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/subagent/subagent-subprocess': { kind: 'indirect', reason: 'Only process-based subagent backends compose a child model request.' },
   'packages/support/acp-snapshot': { kind: 'none', reason: 'The test harness observes and normalizes transcripts without changing live requests.' },
   'packages/support/invariants': { kind: 'none', reason: 'The observer validates requests but never rewrites their context.' },
+  'packages/support/llm-replay': { kind: 'none', reason: 'The keyless adapter invokes no provider model.' },
+  'packages/support/subagent-mock': { kind: 'indirect', reason: 'Only dsh-tool-subagent renders its configured test outcome.' },
+  'packages/ui/acp-agent': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-core and dsh-acp.' },
   'packages/ui/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
   'packages/ui/user-interaction': { kind: 'indirect', reason: 'Model-facing consumers render provider answers and seam errors.' },
   'packages/util/brand': { kind: 'none', reason: 'The type-only primitive is erased at compile time.' },
@@ -65,6 +71,14 @@ interface Failure {
 interface Line {
   index: number
   raw: string
+}
+
+interface ContextSurface {
+  heading: Line
+  modelView: Line
+  tokenEffect: Line
+  title: string
+  verbatimBlocks: number
 }
 
 /** Split Markdown into prose lines, excluding fenced code that may quote the contract. */
@@ -87,50 +101,63 @@ function proseLines(text: string): Line[] {
   return kept
 }
 
-/** Validate the optional long-form literal appendix after the context blocks. */
-function validateVerbatimTail(raw: readonly string[]): { blocks: number; titles: string[]; error?: string } {
+/** Validate H4-plus-markdown literals nested after one context surface's fields. */
+function validateNestedVerbatim(raw: readonly string[]): { blocks: number; error?: string } {
   let cursor = 0
   while (raw[cursor]?.trim().length === 0) cursor += 1
-  if (cursor === raw.length) return { blocks: 0, titles: [] }
-  if (raw[cursor] !== VERBATIM_HEADING) {
-    return { blocks: 0, titles: [], error: `content after the context surfaces must begin with ${VERBATIM_HEADING}` }
-  }
-  cursor += 1
+  if (cursor === raw.length) return { blocks: 0 }
 
   let blocks = 0
-  const titles: string[] = []
+  const fragments = new Set<string>()
   while (true) {
     while (raw[cursor]?.trim().length === 0) cursor += 1
     if (cursor === raw.length) break
     if (!/^#### \S/.test(raw[cursor] ?? '')) {
-      return { blocks, titles, error: `${VERBATIM_HEADING} entries require a non-empty H4 title` }
+      return { blocks, error: 'content after Token effect must be a titled H4 verbatim block' }
     }
     const title = (raw[cursor] as string).slice('#### '.length)
     const fragment = headingFragment(title)
-    if (fragment.length === 0) return { blocks, titles, error: 'verbatim H4 title must produce a non-empty link fragment' }
-    if (titles.some(existing => headingFragment(existing) === fragment)) {
-      return { blocks, titles, error: `verbatim H4 link fragment ${JSON.stringify(fragment)} is duplicated` }
+    if (fragment.length === 0) return { blocks, error: 'verbatim H4 title must be non-empty' }
+    if (fragments.has(fragment)) {
+      return { blocks, error: `verbatim H4 title ${JSON.stringify(title)} is duplicated within its context surface` }
     }
-    titles.push(title)
+    fragments.add(fragment)
     cursor += 1
     while (raw[cursor]?.trim().length === 0) cursor += 1
     if (raw[cursor] !== '```markdown') {
-      return { blocks, titles, error: 'each verbatim entry requires an exact ```markdown fence' }
+      return { blocks, error: 'each nested verbatim H4 requires an exact ```markdown fence' }
     }
     cursor += 1
     const contentStart = cursor
     while (cursor < raw.length && raw[cursor] !== '```') cursor += 1
-    if (cursor === raw.length) return { blocks, titles, error: 'unterminated verbatim ```markdown fence' }
-    if (cursor === contentStart) return { blocks, titles, error: 'verbatim ```markdown fence must not be empty' }
+    if (cursor === raw.length) return { blocks, error: 'unterminated nested ```markdown fence' }
+    if (cursor === contentStart) return { blocks, error: 'nested ```markdown fence must not be empty' }
     cursor += 1
     blocks += 1
   }
-  return blocks > 0 ? { blocks, titles } : { blocks, titles, error: `${VERBATIM_HEADING} requires at least one entry` }
+  return { blocks }
 }
 
 /** GitHub-style fragment for the simple ASCII H4 titles allowed by this contract. */
 function headingFragment(title: string): string {
   return title.toLowerCase().replaceAll('`', '').replaceAll(/[^a-z0-9 _-]/g, '').trim().replaceAll(/\s+/g, '-')
+}
+
+/** A direct stable system-prompt contribution, as named by the README contract. */
+function isDirectSystemPromptSurface(title: string): boolean {
+  return /\bsystem prompt\b/i.test(title)
+}
+
+/** Anchored generated-catalog links in one model-view field. */
+function toolCatalogLinkFragments(text: string): string[] {
+  return [...text.matchAll(/\]\(\.\.\/\.\.\/\.\.\/docs\/tool-catalog\.md#([a-z0-9_-]+)\)/g)]
+    .map(match => match[1] as string)
+}
+
+const toolCatalogFragments = new Set<string>()
+for (const line of readFileSync(resolve(root, 'docs/tool-catalog.md'), 'utf8').split('\n')) {
+  const title = /^## (.+)$/.exec(line)?.[1]
+  if (title !== undefined) toolCatalogFragments.add(headingFragment(title))
 }
 
 const failures: Failure[] = []
@@ -141,6 +168,8 @@ let contextSurfaceCount = 0
 let noneCount = 0
 let indirectCount = 0
 let verbatimBlockCount = 0
+let systemPromptSurfaceCount = 0
+let toolSchemaSurfaceCount = 0
 
 for (const [pkg, contract] of Object.entries(SENTENCE_MODEL_EXPERIENCE)) {
   if (!scannedPackages.has(pkg)) {
@@ -215,24 +244,26 @@ for (const packageJson of packageJsons) {
     continue
   }
 
-  const appendixIndex = content.findIndex(line => line.raw === VERBATIM_HEADING)
-  const surfaceContent = appendixIndex < 0 ? content : content.slice(0, appendixIndex)
-  if (surfaceContent.length === 0 || surfaceContent.length % 3 !== 0) {
+  const surfaceStarts = content
+    .map((line, index) => ({ line, index }))
+    .filter(entry => /^### \S/.test(entry.line.raw))
+  if (surfaceStarts.length === 0 || surfaceStarts[0]?.index !== 0) {
     failures.push({ path: readme, message: 'must contain one or more complete context-surface blocks' })
     continue
   }
 
-  const surfaces: Array<{ heading: Line; modelView: Line; tokenEffect: Line }> = []
+  const surfaces: ContextSurface[] = []
   const surfaceFragments = new Set<string>()
-  let previousTokenEffect: Line | undefined
   let surfaceError = false
-  for (let index = 0; index < surfaceContent.length; index += 3) {
-    const heading = surfaceContent[index] as Line
-    const modelView = surfaceContent[index + 1] as Line
-    const tokenEffect = surfaceContent[index + 2] as Line
-    const fragment = /^### \S/.test(heading.raw) && heading.raw !== VERBATIM_HEADING
-      ? headingFragment(heading.raw.slice('### '.length))
-      : ''
+  for (let surfaceIndex = 0; surfaceIndex < surfaceStarts.length; surfaceIndex += 1) {
+    const start = surfaceStarts[surfaceIndex] as { line: Line; index: number }
+    const end = surfaceStarts[surfaceIndex + 1]?.index ?? content.length
+    const entries = content.slice(start.index, end)
+    const heading = entries[0] as Line
+    const modelView = entries[1]
+    const tokenEffect = entries[2]
+    const title = heading.raw.slice('### '.length)
+    const fragment = headingFragment(title)
     if (fragment.length === 0) {
       failures.push({ path: readme, message: `line ${heading.index}: each context surface requires a non-empty H3 heading` })
       surfaceError = true
@@ -243,53 +274,92 @@ for (const packageJson of packageJsons) {
       surfaceError = true
       break
     }
-    if (!modelView.raw.startsWith(`${MODEL_VIEW_LABEL}: `) || modelView.raw.slice(`${MODEL_VIEW_LABEL}: `.length).trim().length === 0) {
-      failures.push({ path: readme, message: `line ${modelView.index}: context surface requires non-empty ${MODEL_VIEW_LABEL}: text` })
+    if (modelView === undefined || !modelView.raw.startsWith(`${MODEL_VIEW_LABEL}: `) || modelView.raw.slice(`${MODEL_VIEW_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${modelView?.index ?? heading.index}: context surface requires non-empty ${MODEL_VIEW_LABEL}: text` })
       surfaceError = true
       break
     }
-    if (!tokenEffect.raw.startsWith(`${TOKEN_EFFECT_LABEL}: `) || tokenEffect.raw.slice(`${TOKEN_EFFECT_LABEL}: `.length).trim().length === 0) {
-      failures.push({ path: readme, message: `line ${tokenEffect.index}: context surface requires non-empty ${TOKEN_EFFECT_LABEL}: text` })
+    if (tokenEffect === undefined || !tokenEffect.raw.startsWith(`${TOKEN_EFFECT_LABEL}: `) || tokenEffect.raw.slice(`${TOKEN_EFFECT_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${tokenEffect?.index ?? heading.index}: context surface requires non-empty ${TOKEN_EFFECT_LABEL}: text` })
       surfaceError = true
       break
     }
-    const expectedHeadingLine = previousTokenEffect?.index === undefined ? modelHeading.index + 2 : previousTokenEffect.index + 2
-    if (heading.index !== expectedHeadingLine || modelView.index !== heading.index + 2 || tokenEffect.index !== modelView.index + 2) {
+    if ((surfaceIndex === 0 && heading.index !== modelHeading.index + 2)
+      || rawLines[heading.index - 2]?.trim().length !== 0
+      || modelView.index !== heading.index + 2
+      || tokenEffect.index !== modelView.index + 2) {
       failures.push({ path: readme, message: `line ${heading.index}: context-surface heading and fields require one blank line between each element` })
       surfaceError = true
       break
     }
+    const unexpected = entries.slice(3).find(line => !/^#### \S/.test(line.raw))
+    if (unexpected !== undefined) {
+      failures.push({ path: readme, message: `line ${unexpected.index}: content after ${TOKEN_EFFECT_LABEL} must be a titled H4 plus \`markdown\` fence inside this context surface` })
+      surfaceError = true
+      break
+    }
+    const nextHeadingLine = surfaceStarts[surfaceIndex + 1]?.line.index ?? nextH2Line
+    const verbatim = validateNestedVerbatim(rawLines.slice(tokenEffect.index, nextHeadingLine - 1))
+    if (verbatim.error !== undefined) {
+      failures.push({ path: readme, message: `line ${tokenEffect.index}: ${verbatim.error}` })
+      surfaceError = true
+      break
+    }
+    if (entries.length - 3 !== verbatim.blocks) {
+      failures.push({ path: readme, message: `line ${tokenEffect.index}: every nested H4 must own exactly one \`markdown\` fence` })
+      surfaceError = true
+      break
+    }
+    if (/\]\(#[^)]+\)/.test(modelView.raw) || /\]\(#[^)]+\)/.test(tokenEffect.raw)) {
+      failures.push({ path: readme, message: `line ${heading.index}: Model Experience fields must not link between local subsections; nest the H4 in its owning H3` })
+      surfaceError = true
+      break
+    }
     surfaceFragments.add(fragment)
-    surfaces.push({ heading, modelView, tokenEffect })
-    previousTokenEffect = tokenEffect
+    surfaces.push({ heading, modelView, tokenEffect, title, verbatimBlocks: verbatim.blocks })
   }
   if (surfaceError) continue
 
-  const lastSurface = surfaces.at(-1) as { heading: Line; modelView: Line; tokenEffect: Line }
-  if (appendixIndex >= 0 && (content[appendixIndex] as Line).index !== lastSurface.tokenEffect.index + 2) {
-    failures.push({ path: readme, message: `${VERBATIM_HEADING} must follow the final context surface after one blank line` })
+  const promptWithoutVerbatim = surfaces.find(surface => isDirectSystemPromptSurface(surface.title)
+    && surface.verbatimBlocks === 0)
+  if (promptWithoutVerbatim !== undefined) {
+    failures.push({ path: readme, message: `line ${promptWithoutVerbatim.heading.index}: system-prompt surface must contain a titled H4 plus verbatim \`markdown\` block` })
     continue
   }
-
-  const rawTail = rawLines.slice(lastSurface.tokenEffect.index, nextH2Line - 1)
-  const verbatim = validateVerbatimTail(rawTail)
-  if (verbatim.error !== undefined) {
-    failures.push({ path: readme, message: verbatim.error })
+  const hasConcreteLiteral = surfaces.some(surface => surface.verbatimBlocks > 0
+    || surface.modelView.raw.includes('`')
+    || surface.tokenEffect.raw.includes('`')
+    || toolCatalogLinkFragments(surface.modelView.raw).length > 0)
+  if (!hasConcreteLiteral) {
+    failures.push({ path: readme, message: 'structured Model Experience must ground at least one surface with inline code, a nested `markdown` block, or an anchored tool-catalog link' })
     continue
   }
-  const modelViewText = surfaces.map(surface => surface.modelView.raw).join('\n')
-  const unlinked = verbatim.titles.find(title => !modelViewText.includes(`](#${headingFragment(title)})`))
-  if (unlinked !== undefined) {
-    failures.push({ path: readme, message: `verbatim entry ${JSON.stringify(unlinked)} must be linked from a context surface's ${MODEL_VIEW_LABEL} field` })
-    continue
+  let catalogError = false
+  for (const surface of surfaces) {
+    if (!/\bschemas?\b/i.test(surface.title)) continue
+    const fragments = toolCatalogLinkFragments(surface.modelView.raw)
+    if (fragments.length === 0) {
+      failures.push({ path: readme, message: `line ${surface.heading.index}: tool-schema surface must link an anchored section of ../../../docs/tool-catalog.md` })
+      catalogError = true
+      break
+    }
+    const invalid = fragments.find(fragment => !toolCatalogFragments.has(fragment))
+    if (invalid !== undefined) {
+      failures.push({ path: readme, message: `line ${surface.modelView.index}: tool-catalog link fragment ${JSON.stringify(invalid)} does not name an H2 section` })
+      catalogError = true
+      break
+    }
   }
-  verbatimBlockCount += verbatim.blocks
+  if (catalogError) continue
+  verbatimBlockCount += surfaces.reduce((total, surface) => total + surface.verbatimBlocks, 0)
   contextSurfaceCount += surfaces.length
+  systemPromptSurfaceCount += surfaces.filter(surface => isDirectSystemPromptSurface(surface.title)).length
+  toolSchemaSurfaceCount += surfaces.filter(surface => /\bschemas?\b/i.test(surface.title)).length
   structuredCount += 1
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${noneCount} none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${noneCount} none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 

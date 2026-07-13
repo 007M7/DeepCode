@@ -36,7 +36,7 @@ The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landloc
 
 ### Bash tool schema, indirectly
 
-**What the model sees**: By advertising a confining `sandboxMode`, this backend makes `dsh-tool-bash` expose `sandbox_permissions` with enum `workspace-write` | `danger-full-access` and `justification`. The backend adds no prompt prose, and the session's effective mode remains unstated.
+**What the model sees**: The generated [`dsh-tool-bash` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash) are the baseline. By advertising a confining `sandboxMode`, this backend augments `bash` with `sandbox_permissions` using enum `workspace-write` | `danger-full-access` and with `justification`. The backend adds no prompt prose, and the session's effective mode remains unstated.
 
 **Token effect**: Small fixed schema increment on requests where `bash` is visible; mode switches add no context tokens.
 

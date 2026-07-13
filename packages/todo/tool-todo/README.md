@@ -28,7 +28,7 @@ A function/namespace plugin: it exports `name` / `inject` / `apply` and NO defau
 
 ### Tool schema
 
-**What the model sees**: The model sees `todo_write` with the exact [tool description](#todo_write-tool-description). The `todos` parameter says `The COMPLETE task list, replacing any previous list.`; each item uses `What the task is — a short imperative line.` and `pending (not started) | in_progress (now) | completed (done).`
+**What the model sees**: The model sees the generated [`todo_write` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-todo).
 
 **Token effect**: Fixed schema cost on every request where the tool is visible.
 
@@ -37,14 +37,6 @@ A function/namespace plugin: it exports `name` / `inject` / `apply` and NO defau
 **What the model sees**: Each assistant tool call retains the entire replacement list in its arguments. Success returns exactly `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` Stable failures are ``Error: invalid todo: `content` must be a non-empty string``, `Error: invalid todos: duplicate content "<content>"`, `Error: invalid todos: at most one task may be in_progress, got <count>`, and `Error: todo_write requires an owning agent session`. The full `todo/write` session event is UI and replay state, not a second model message.
 
 **Token effect**: Token growth scales with every full list the model submits, and those call arguments remain until compaction. The result itself is small and fixed-shape.
-
-### Verbatim model-visible text
-
-#### `todo_write` tool description
-
-```markdown
-Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` at a time; while work remains, exactly one active task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished).
-```
 
 ## Known Limitations and Deferred Work
 

@@ -52,13 +52,31 @@ The read rendering (line windowing + output formatting) lives in `src/read-rende
 
 ### System prompt
 
-**What the model sees**: Every request in this plugin's registration scope receives the exact independently registered [read](#read-guidance), [write](#write-guidance), and [edit](#edit-guidance) sections. Scoped tool restrictions can hide schemas without removing these sections.
+**What the model sees**: Every request in this plugin's registration scope receives the independently registered read, write, and edit guidance below. Scoped tool restrictions can hide schemas without removing these sections.
 
 **Token effect**: Fixed guidance cost per request while the plugin is active, even when a restriction hides one or more tools.
 
+#### Read guidance
+
+```markdown
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+```
+
+#### Write guidance
+
+```markdown
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-policy requires it) and prefer edit for targeted changes.
+```
+
+#### Edit guidance
+
+```markdown
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-policy requires it), unless you just created or edited it in this session.
+```
+
 ### Tool schemas
 
-**What the model sees**: The model sees the exact `read`, `write`, and `edit` descriptions and JSON schemas from their definitions, with snake_case arguments. Scoped tool restrictions can remove any definition for one agent.
+**What the model sees**: The model sees the generated [`read`, `write`, and `edit` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs), with snake_case arguments. Scoped tool restrictions can remove any definition for one agent.
 
 **Token effect**: Fixed schema cost on every request in that tool view.
 
@@ -79,26 +97,6 @@ The read rendering (line windowing + output formatting) lives in `src/read-rende
 **What the model sees**: Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs.
 
 **Token effect**: Only a failing call adds these retained tokens.
-
-### Verbatim model-visible text
-
-#### Read guidance
-
-```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
-```
-
-#### Write guidance
-
-```markdown
-Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-policy requires it) and prefer edit for targeted changes.
-```
-
-#### Edit guidance
-
-```markdown
-Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-policy requires it), unless you just created or edited it in this session.
-```
 
 ## Known Limitations and Deferred Work
 

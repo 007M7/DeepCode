@@ -8,7 +8,7 @@ The [documentation standard](../../../AGENTS.md) assigns limitations to the pack
 
 ## Decision
 
-Every package manifest under `packages/<group>/<pkg>/package.json` has a sibling README carrying a canonical `## Known Limitations and Deferred Work` section: a condensed bullet list of consumer-visible gaps (unimplemented features, platform caveats, deliberate MVP cuts) and consciously postponed work (TODO markers, RFC deferrals still open). A `doc-sync` gate, `verify-readme-limitations` ([scripts/verify-readme-limitations.ts](../../../../scripts/verify-readme-limitations.ts)), derives the package set from those manifests, rejects a missing README, and enforces the shape per README: exactly one limitations-like heading, byte-equal to the canonical h2, with at least one top-level bullet. Near-miss headings at any level ("Limitations", "Deferred", "What is NOT here", "Non-goals", …) fail the gate, so variant sections cannot creep back beside — or instead of — the canonical one.
+Every package manifest under `packages/<group>/<pkg>/package.json` has a sibling README carrying a canonical `## Known Limitations and Deferred Work` section: a condensed bullet list of consumer-visible gaps (unimplemented features, platform caveats, deliberate MVP cuts) and consciously postponed work (TODO markers, RFC deferrals still open). A `doc-sync` gate, `verify-package-readme-limitations` ([scripts/verify-package-readme-limitations.ts](../../../../scripts/verify-package-readme-limitations.ts)), derives the package set from those manifests, rejects a missing README, and enforces the shape per README: exactly one limitations-like heading, byte-equal to the canonical h2, with at least one top-level bullet. Near-miss headings at any level ("Limitations", "Deferred", "What is NOT here", "Non-goals", …) fail the gate, so variant sections cannot creep back beside — or instead of — the canonical one.
 
 A package with genuinely nothing to declare is whitelisted (`NO_LIMITATIONS` in the script) and must NOT carry the section. The inverted check keeps the whitelist honest in both directions: an empty or boilerplate section cannot satisfy the gate, and giving a whitelisted package real limitations forces the whitelist edit in the same change. Whitelist entries are validated against the scanned package set, so a package rename or removal fails loud instead of silently un-gating a README.
 
@@ -22,7 +22,7 @@ The gate checks presence, shape, and the whitelist; the bullets' truthfulness an
 
 ## Consequences
 
-- A new package cannot ship without either declaring its gaps or explicitly claiming it has none; a missing, drifted, or empty section fails `doc-sync` locally (pre-push) and in CI (`readme-limitations` in the run-gates doc-sync leaf set).
+- A new package cannot ship without either declaring its gaps or explicitly claiming it has none; a missing, drifted, or empty section fails `doc-sync` locally (pre-push) and in CI (`package-readme-limitations` in the run-gates doc-sync leaf set).
 - Every package README answers the limitations question through the canonical heading or an explicit no-limitations allowlist entry.
 - One more fast tsx script in the `doc-sync` chain; no new dependency (plain `node:fs` glob + line scan).
 - The canonical heading is enforced verbatim, so renaming it later is a mechanical one-script-plus-all-READMEs change guarded by the same gate.
