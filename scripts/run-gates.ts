@@ -151,6 +151,7 @@ function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'pre-push':
       return [
+        pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('test', 'test'),
         pnpmScript('snapshot', 'test:snapshot'),
         pnpmScript('build', 'build'),
@@ -163,6 +164,7 @@ function gatesForMode(selected: Mode): Gate[] {
 
 function ciPrimaryGates(): Gate[] {
   return [
+    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
@@ -184,6 +186,7 @@ function ciPrimaryGates(): Gate[] {
 
 function ciStaticGates(): Gate[] {
   return [
+    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     demoSmokeGate(),
     ...docSyncLeafGates(),

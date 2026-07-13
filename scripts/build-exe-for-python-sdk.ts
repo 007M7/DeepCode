@@ -81,6 +81,8 @@ const OUT_DIR = 'dist-exe'
 const PYTHON_RUNTIME_DIR = 'python/sdk-runtime/src/deepseek_harness_runtime/runtime'
 /** Subdir of {@link PYTHON_RUNTIME_DIR} carrying the staged closure for node-mode execution. */
 const PYTHON_NODE_SUBDIR = 'node'
+/** Deploy-root documentation is not runtime input and violates the generated-directory i18n exclusion if retained. */
+const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
 
 /**
  * Whole-tree asset globs. The cordis Loader dynamic-imports bare package names
@@ -295,6 +297,11 @@ class SingleExeBuild {
 
   constructor(private readonly cli: BuildCli) {}
 
+  /** Gate the manifest before spending time compiling or packaging it. */
+  async verifyClosure(): Promise<void> {
+    await this.run('runtime dependency closure', pnpmBin(), ['run', 'verify-runtime-closure'])
+  }
+
   /** Step 1: `pnpm run build` — all packages emit `lib/` (skipped via --skip-build). */
   async build(): Promise<void> {
     if (this.cli.skipBuild) {
@@ -322,6 +329,11 @@ class SingleExeBuild {
       '--config.link-workspace-packages=true',
       this.staging,
     ])
+    if (this.cli.dryRun) {
+      for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
+    } else {
+      await Promise.all(DEPLOY_ONLY_DOCS.map(name => rm(join(this.staging, name), { force: true })))
+    }
   }
 
   /** Step 3: patch the staged package.json with the bin entry + pkg asset globs. */
@@ -445,6 +457,7 @@ async function main(): Promise<void> {
   const pipeline = new SingleExeBuild(cli)
   console.log(`build-exe-for-python-sdk: targets: ${cli.targets.map(target => target.spec).join(', ')}`)
   console.log(`build-exe-for-python-sdk: staging: ${pipeline.staging}`)
+  await pipeline.verifyClosure()
   await pipeline.build()
   await pipeline.deployStaging()
   await pipeline.injectPkgConfig()
