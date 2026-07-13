@@ -28,7 +28,7 @@ The config-driven path keeps `agents[].id` as a stable configuration label, not 
 
 - Agent create/resume and subagent creation carry one identity, and `Session` stores it in one place.
 - The creation transaction retains final-entry collision, exact-entry detach, rollback, and quiescence coverage without identity-specific lifecycle state.
-- ACP, stdio, hooks, bash ownership, persistence, and lineage use the shared `SessionId` directly. The ACP subagent backend uses the child server's returned session id as its run id; the ACP bridge verifies exact `Agent` ownership from the forward session map; and JSON-RPC caches only disposable-child parent lineage.
+- ACP, stdio, hooks, bash ownership, persistence, and lineage use the shared `SessionId` directly. The ACP subagent backend uses the child server's returned session id as its run id; the ACP bridge verifies exact `Agent` ownership from the forward session map; and JSON-RPC caches only local disposable-child parent lineage while leaving remote runs outside its local-session notification pair.
 - The config-driven resume-or-create policy is explicit and covered across a durable restart.
 - A production listener search kept `agent/created`/`agent/disposed` and their publication semantics.
 - Typecheck, coverage, snapshots, doc-sync, module-graph verification, build, and hygiene pass.
