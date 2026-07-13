@@ -436,7 +436,7 @@ export class SystemPrompt extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  section(section: PromptSection): () => Promise<void> | void {
+  section(section: PromptSection): () => void {
     if (!Number.isFinite(section.order)) {
       throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
@@ -483,8 +483,9 @@ export class SystemPrompt extends Service {
     // effect that owns a teardown ORDER must be able to yield THIS function —
     // cordis nests a disposer out of the fiber's concurrent sibling list by
     // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -504,7 +505,7 @@ export class SystemPrompt extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void {
+  tools(provider: (context: AssembleContext) => ToolProviderResult): () => void {
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -529,8 +530,9 @@ export class SystemPrompt extends Service {
     // effect that owns a teardown ORDER must be able to yield THIS function —
     // cordis nests a disposer out of the fiber's concurrent sibling list by
     // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -552,7 +554,7 @@ export class SystemPrompt extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void {
+  variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void {
     if (!VARIABLE_NAME.test(name)) {
       throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
     }
@@ -583,8 +585,9 @@ export class SystemPrompt extends Service {
     // effect that owns a teardown ORDER must be able to yield THIS function —
     // cordis nests a disposer out of the fiber's concurrent sibling list by
     // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 

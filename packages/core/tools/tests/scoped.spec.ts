@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import type { Events } from 'cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -50,6 +51,14 @@ async function run(ctx: Context, name: string, agent?: Agent): Promise<string> {
 }
 
 describe('scoped tool registration', () => {
+  it('keeps final-result observers synchronous', () => {
+    type ToolResultListener = Events['tools/result']
+    type AsyncToolResultListener = () => Promise<void>
+
+    expectTypeOf<AsyncToolResultListener>().not.toExtend<ToolResultListener>()
+    expectTypeOf<ReturnType<ToolResultListener>>().toEqualTypeOf<undefined>()
+  })
+
   it('files a scoped tool in its layer: visible/executable for that scope only', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
@@ -177,7 +186,7 @@ describe('restrict()', () => {
     const liftAllow = scope.ctx.tools.restrict({ allow: ['a', 'b'] })
     scope.ctx.tools.restrict({ deny: ['b'] })
     expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['a'])
-    await liftAllow()
+    liftAllow()
     // The deny remains after the allow-list is lifted.
     expect(ctx.tools.schemas(key).map(t => t.name).sort()).toEqual(['a', 'c'])
   })
@@ -257,7 +266,7 @@ describe('scoped execution dispatch', () => {
     expect(await run(ctx, 't', other)).toBe('ran:t')
     expect(bodyCalls).toBe(1)
 
-    await liftFirst()
+    liftFirst()
     expect(await run(ctx, 't', key)).toBe('Error: terminal policy')
     await scope.dispose()
     expect(await run(ctx, 't', key)).toBe('ran:t')
@@ -607,7 +616,7 @@ describe('scoped execution dispatch', () => {
     const result = await ctx.tools.execute({ callId: CallId('final'), name: 't', arguments: {}, agent: key })
     expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'outer failure' }] })
     expect(seen).toEqual([true, true])
-    expect(dispatchModes).toEqual(['parallel'])
+    expect(dispatchModes).toEqual(['emit'])
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]?.[0])).toContain('<unprintable thrown value>')
   })

@@ -677,7 +677,7 @@ describe('ToolRegistry', () => {
     const dispose = ctx.tools.register({ ...echoTool, name: 'disposable' })
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo', 'disposable'])
 
-    await dispose()
+    dispose()
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
   })
 
@@ -698,7 +698,7 @@ describe('ToolRegistry', () => {
     // exposed exactly once (the duplicate-name check is not wedged).
     const dispose = ctx.tools.register(echoTool)
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
-    await dispose()
+    dispose()
     expect(ctx.tools.get('echo')).toBeUndefined()
   })
 

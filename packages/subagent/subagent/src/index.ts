@@ -134,8 +134,9 @@ export class SubagentService extends Service {
    * @param provider - the trusted provider implementation.
    * @returns the exact Cordis effect disposer.
    */
-  registerProvider(provider: SubagentProvider): () => Promise<void> | void {
+  registerProvider(provider: SubagentProvider): () => void {
     const name = provider.name
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return this.ctx.effect(function* (this: SubagentService) {
       if (this.providers.has(name)) {
         throw new SubagentError(`a subagent provider named "${name}" is already registered`, 'DUPLICATE_PROVIDER')

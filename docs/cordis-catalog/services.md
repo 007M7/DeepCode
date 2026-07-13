@@ -26,10 +26,10 @@ Source: [`packages/core/agent-loop/src/index.ts:338`](../../packages/core/agent-
 Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
-setFactory(factory: AgentFactory): () => Promise<void> | void
+setFactory(factory: AgentFactory): () => void
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
-register(agent: Agent): () => Promise<void> | void
+register(agent: Agent): () => void
 enter(agent: Agent): () => void
 announce(agent: Agent): void
 get(id: AgentId): Agent | undefined
@@ -225,8 +225,8 @@ Source: [`packages/core/session/src/index.ts:591`](../../packages/core/session/s
 Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
-registerProvider(provider: SkillProvider): () => Promise<void> | void
-register(skill: SkillRegistration): () => Promise<void> | void
+registerProvider(provider: SkillProvider): () => void
+register(skill: SkillRegistration): () => void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
@@ -238,7 +238,7 @@ Source: [`packages/skill/skill/src/index.ts:158`](../../packages/skill/skill/src
 Named provider registry and capability-checked start surface.
 
 ```ts cordis-catalog
-registerProvider(provider: SubagentProvider): () => Promise<void> | void
+registerProvider(provider: SubagentProvider): () => void
 getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
@@ -251,9 +251,9 @@ Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/
 Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, named prompt variables, and owner-final contributions; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
-section(section: PromptSection): () => Promise<void> | void
-tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void
-variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void
+section(section: PromptSection): () => void
+tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
+variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
@@ -266,9 +266,9 @@ Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop e
 Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One private visibility resolver feeds prompt assembly, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so what the model is shown, what a presenter renders, what a program can call, and what dispatches can never disagree.
 
 ```ts cordis-catalog
-register(definition: ToolDefinition): () => Promise<void> | void
-restrict(filter: ToolRestriction): () => Promise<void> | void
-guard(guard: ToolGuard): () => Promise<void> | void
+register(definition: ToolDefinition): () => void
+restrict(filter: ToolRestriction): () => void
+guard(guard: ToolGuard): () => void
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 schemas(scope?: ScopeKey): ToolSchema[]
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>

@@ -147,7 +147,7 @@ declare module 'cordis' {
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * Awaited notification of the authoritative FINAL tool outcome, after the
+     * Synchronous notification of the authoritative FINAL tool outcome, after the
      * complete pre/execute/post pipeline, final lossless-JSON validation, and
      * outer error normalization.
      * Unlike the three waterfalls, this seam cannot transform the result: each
@@ -158,9 +158,9 @@ declare module 'cordis' {
      * `exec.agent`, using the same carrier as the pipeline.
      * @param exec - the execution object that traversed the pipeline.
      * @param result - a deep-frozen snapshot of the final returned result.
-     * @mode parallel
+     * @mode emit
      */
-    'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<void> | void
+    'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
     /**
      * A tool was registered or unregistered, or a scoped restriction changed
      * (the available tool set changed — possibly for one scope only). An
@@ -623,7 +623,7 @@ export class ToolRegistry extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  register(definition: ToolDefinition): () => Promise<void> | void {
+  register(definition: ToolDefinition): () => void {
     const scope = scopeOf(this.ctx)
     const name = definition.name
     const timeoutMs = definition.timeoutMs
@@ -669,8 +669,9 @@ export class ToolRegistry extends Service {
     // effect that owns a teardown ORDER must be able to yield THIS function —
     // cordis nests a disposer out of the fiber's concurrent sibling list by
     // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -697,7 +698,7 @@ export class ToolRegistry extends Service {
    *   Cordis effect disposer (single-shot): composite (generator) effects may
    *   yield it directly — exact identity nests the teardown in order.
    */
-  restrict(filter: ToolRestriction): () => Promise<void> | void {
+  restrict(filter: ToolRestriction): () => void {
     const scope = scopeOf(this.ctx)
     if (scope === undefined) {
       throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
@@ -737,8 +738,9 @@ export class ToolRegistry extends Service {
     // effect that owns a teardown ORDER must be able to yield THIS function —
     // cordis nests a disposer out of the fiber's concurrent sibling list by
     // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Fire-and-forget callers may still
-    // discard the (always-resolved) promise.
+    // (the agents.register() lesson). Cleanup is synchronous because this
+    // registration installs only synchronous state and notifications.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -752,7 +754,7 @@ export class ToolRegistry extends Service {
    * @param guard - synchronous check; a returned string denies the execution.
    * @returns the exact disposer that unregisters the guard.
    */
-  guard(guard: ToolGuard): () => Promise<void> | void {
+  guard(guard: ToolGuard): () => void {
     const scope = scopeOf(this.ctx)
     const registration = { guard }
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
@@ -763,6 +765,7 @@ export class ToolRegistry extends Service {
         if (scope !== undefined && layer.size === 0) this.scopedGuards.delete(scope)
       }
     }.bind(this), 'tools.guard()')
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -939,7 +942,7 @@ export class ToolRegistry extends Service {
     } catch (error: unknown) {
       execution = { ...base, arguments: undefined }
       const result = this.materializeFinalResult(toolErrorResult(callId, error))
-      await this.notifyResult(execution, result)
+      this.notifyResult(execution, result)
       return result
     }
     let result: ToolExecutionResult
@@ -950,7 +953,7 @@ export class ToolRegistry extends Service {
       // waterfall machinery becomes an isError result, never a turn failure.
       result = this.materializeFinalResult(toolErrorResult(execution.callId, error))
     }
-    await this.notifyResult(execution, result)
+    this.notifyResult(execution, result)
     return result
   }
 
@@ -1018,20 +1021,20 @@ export class ToolRegistry extends Service {
   }
 
   /** Notify final-result observers without giving them a mutation/error channel into the outcome. */
-  private async notifyResult(exec: ToolExecution, result: ToolExecutionResult): Promise<void> {
+  private notifyResult(exec: ToolExecution, result: ToolExecutionResult): void {
     // The pipeline is over: freeze the remaining mutable signal slot so every
     // observer sees the SAME WeakMap-keyable execution without a mutation race.
     Object.freeze(exec)
-    const callbacks = this.ctx.events.dispatch('parallel', [
+    const callbacks = this.ctx.events.dispatch('emit', [
       scopeTarget(this, exec.agent), 'tools/result', exec, result,
     ])
-    await Promise.all(callbacks.map(async (callback) => {
+    for (const callback of callbacks) {
       try {
-        await callback(exec, result)
+        callback(exec, result)
       } catch (error: unknown) {
         this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): tools/result observer failed: ${errorMessage(error)}`)
       }
-    }))
+    }
   }
 
   /**
