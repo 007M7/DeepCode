@@ -245,7 +245,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           const events = [
             { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: bad } },
           ] as unknown as SessionEvent[]
-          await expect(persistence.append(mi.id, events)).rejects.toThrow(/user\/message/)
+          await expect(persistence.append(mi.id, events)).rejects.toThrow(/losslessly JSON-serializable/)
         }
       } finally {
         await dispose()

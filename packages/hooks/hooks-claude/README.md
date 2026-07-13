@@ -39,7 +39,7 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `deny` → `PreToolDecision.deny`; `ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue`, feeding its reason as next-step steering |
-| `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into the live child |
+| `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into a live in-process child; a remote child has no local injection target |
 | `SubagentStop` | `subagent/end` (emit) | observe-only |
 
 The three emit points run detached — no seam awaits a `SessionStart`/`SubagentStart`/`SubagentStop` hook. Each run chain is tracked, and disposing the bridge aborts still-running hook processes, then drains the continuations before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).

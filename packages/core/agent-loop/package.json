@@ -11,7 +11,6 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
@@ -24,6 +23,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-scope": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
@@ -37,6 +37,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-scope": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",

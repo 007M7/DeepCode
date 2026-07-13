@@ -4,12 +4,15 @@ The session log, system-prompt assembly, tool registry, agent vocabulary, and co
 
 | Package | Role | ctx key |
 |---|---|---|
+| `scope/` | Scoped-context registration primitive (scope tags, scope-filtered dispatch) | (library — no ctx key) |
 | `session/` | Event-sourced session log + in-memory store | `ctx.sessions` |
 | `system-prompt/` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
-| `tools/` | Tool registry + `tools/pre-execute`/`tools/post-execute` pipeline | `ctx.tools` |
+| `tools/` | Scoped tool registry + pre-policy, guards, around-dispatch, post-policy, and final-result observation | `ctx.tools` |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | The concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | Bundle plugin: the default executor-less/UI-less spine as code | (loads the spine) |
+
+`scope/` is the one non-service package here: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) the registries and the loop build per-agent scoping on — it sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle.
 
 `agent-loop` is the one concrete implementation of the `agent` seam and lives here because it is the harness's default product loop; everything else in `core/` is interface/vocabulary. Plugins depend on the `agent` vocabulary, never on `agent-loop` directly, so the loop stays swappable.
 

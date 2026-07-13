@@ -1,43 +1,61 @@
 # @deepseek-ai/dsh-subagent
 
-The **subagent seam**: an abstract `SubagentService` (`ctx.subagents`) for an agent delegating work to another agent. A *subagent* is a child agent; a `SubagentProvider` is one transport for running it.
+The subagent seam lets one agent delegate work to a child through a named provider. Callers use one service API (`ctx.subagents`); providers decide whether the child runs in this process, in another process, or through a future transport.
 
-This package is the interface third of the capability seam, split so each concern evolves (and swaps) independently:
+## Package roles
+
+The family separates the stable interface from implementations and model-facing tools:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-subagent` (this) | the interface: registry service + vocabulary types |
-| `@deepseek-ai/dsh-subagent-spawn` | an implementation: fresh in-process child |
-| `@deepseek-ai/dsh-subagent-fork` | an implementation: in-process child seeded from the parent's log |
-| `@deepseek-ai/dsh-subagent-acp` | an implementation: ACP client driving another process |
-| `@deepseek-ai/dsh-tool-subagent` | the model-facing tool over `ctx.subagents` |
+| `@deepseek-ai/dsh-subagent` | Provider registry, request/result types, and lifecycle events. |
+| `@deepseek-ai/dsh-subagent-spawn` | Fresh in-process child. |
+| `@deepseek-ai/dsh-subagent-fork` | In-process child seeded with completed parent turns. |
+| `@deepseek-ai/dsh-subagent-acp` | Fresh out-of-process ACP child. |
+| `@deepseek-ai/dsh-tool-subagent` | Model-facing tool over one configured provider. |
 
-Unlike the bash seam (one executor per context, second load throws), **multiple providers coexist** here. Each registers under a unique name and a caller picks one by name — the shape mirrors the LLM adapter registry (`LlmService.registerAdapter`), not the single-service bash executor. This is the requirement that rules out the bash shape: an agent may want an in-process child for a cheap subtask and an out-of-process ACP child for an isolated one, in the same runtime.
+Multiple providers may coexist under different names. This lets a deployment expose, for example, a cheap in-process child and an isolated ACP child without changing the service contract.
 
-## Service API (`ctx.subagents`)
+## Service API
 
-| Member | Semantics |
+`SubagentService` has four main operations:
+
+| Member | Meaning |
 |---|---|
-| `registerProvider(provider)` | Register under `provider.name`. Throws `SubagentError('DUPLICATE_PROVIDER')` on a name clash. Effect-scoped (HMR-safe); returns the disposer. |
-| `getProvider(name)` | Look up a provider (`undefined` if absent). |
-| `list()` | Registered provider names (insertion order). |
-| `start(name, request)` | Resolve the provider (`NO_PROVIDER` if absent), validate every requested START-TIME capability (`UNSUPPORTED_CAPABILITY` for the first unmet one — before any child is created), then delegate to `provider.start` and emit `subagent/start` / `subagent/end` around the run. |
+| `registerProvider(provider)` | Register one trusted same-process implementation by name. Registration is effect-scoped; removing it prevents new starts but does not revoke runs already returned to callers. Duplicate names fail loud. |
+| `getProvider(name)` | Return the provider, or `undefined` when absent. |
+| `list()` | Return provider names in insertion order. |
+| `start(name, request)` | Validate requested capabilities and semantic values, then await the provider until a real child is ready. Fulfillment returns a holder-owned `SubagentRun`; rejection means the provider has already cleaned every partial startup resource. |
 
-## Capabilities: two kinds, discovered two ways
+`SubagentStartRequest.signal` is required and is the canonical cancellation channel. An abort before publication makes `start()` reject after rollback; an abort after publication cancels the live child. The request may also select a model, require structured output, cap delegation depth, restrict child tools, or set a child persona.
 
-- **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`) are a static `provider.capabilities` descriptor, checked by the service BEFORE a run exists. A request that needs one the provider lacks is **rejected loud** (`UNSUPPORTED_CAPABILITY`), never accepted-then-ignored.
-- **Runtime features** (steering, resume) are **optional methods** on `SubagentRun` (`sendMessage?`, `resume?`). The method's presence IS the capability; TS narrowing is the discovery mechanism — a consumer cannot call an absent method without narrowing first, so there is no silent degradation path.
+Same-process requests, descriptors, results, and event payloads are trusted typed values borrowed as immutable. The service does not clone or freeze them; serialization and hostile-input validation belong at actual process, worker, persistence, and model boundaries.
 
-Beside `capabilities` sits one DESCRIPTIVE fact, not validated by the service: `provider.inheritsParentContext` — whether a child sees the parent conversation (`fork`: true — seeded with the completed-turn prefix; `spawn`/`acp`: false). The model-facing consumer (`dsh-tool-subagent`) derives truthful tool wording from it.
+## Capabilities
 
-## Run lifecycle
+Start-time features are advertised in `provider.capabilities` because the service must reject an unsupported request before child creation:
 
-`provider.start(request)` returns a `SubagentRun`: a handle with a `result` promise, `cancel()`, `dispose()`, and the optional runtime methods. `result` resolves with a `SubagentResult` (`output`, optional `structured`, `stopReason`) — it does **not** reject on a child-level failure (a model/transport failure resolves with `stopReason: 'error'`), so the consumer maps a non-`completed` reason to an `isError` tool result. The consumer MUST `dispose()` on every path (success, error, abort) to reach child quiescence and avoid leaking an idle child / session.
+- `outputSchema` — enforce a structured final result.
+- `depthLimit` — enforce `maxDepth`.
+- `toolFilter` — apply the requested child tool restriction.
+- `persona` — apply a per-child persona.
 
-The service also announces provider lifecycle: `subagent/provider-added` (the live provider) fires after a registration and `subagent/provider-removed` (the name) after an unregistration, so a consumer deriving state from a named provider (the model-facing tool wording) mirrors registry membership instead of assuming load order — the cordis Loader starts sibling plugins concurrently, so "listed earlier" does not mean "registered earlier". The service emits `subagent/start` (payload `SubagentRunInfo`) and `subagent/end` (payload `SubagentRunEndInfo`) around the run — both **observe-only** (plain `emit`s; `subagent/end` fires from a detached `.then` and awaits no listener). `subagent/end` carries `lastAssistantMessage` (a deep clone of the child's final `output`) on the settle path, absent when the run rejected at the infrastructure level. The clone keeps the surface observe-only: the end emit fires from a detached `.then` before the caller's `await run.result` resumes, so a shared reference would let a mutating listener corrupt the caller's result. A `subagent/start` listener can still reach the live child via `ctx.agents.get(info.id)`; a `subagent/end` listener can only observe (the run has settled). Any run-affecting decision (continuation, injection that changes the run) is out of scope for this observe-only surface.
+Runtime features are optional methods on `SubagentRun`: `sendMessage?` steers a live child, while `resume?` asynchronously creates a continuation run. Method presence is the capability check.
 
-## Scope (first cut)
+`inheritsParentContext` is descriptive rather than enforceable. It says only whether the child sees completed parent conversation history (`fork` does; `spawn` and ACP do not), not whether it inherits tools, services, or authority.
 
-The consumer collects **synchronously**: it starts a run and awaits `result`. Steering (`sendMessage`) is part of the contract but intentionally unused. Background / poll / spill semantics are deferred to a future redesign unifying long-running-tool handling across subagents and bash. See the RFC: [docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
+## Ownership and lifecycle
 
-See `src/types.ts` for the full contracts.
+`provider.start(request): Promise<SubagentRun>` is the ownership-transfer boundary. Before fulfillment, the provider owns setup and must cancel, roll back, and quiesce partial resources on every failure. After fulfillment, the caller owns the run and must call `dispose()` on every path.
+
+`SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. `dispose()` is idempotent, cancels remaining work, and waits for the child resources to quiesce.
+
+The service emits `subagent/start` only after `start()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. In-process start observers can resolve the published child through `ctx.agents.get(info.id)`; remote providers need not publish a local agent.
+
+Run events are scoped to the delegating parent. Every listener is independently contained: a synchronous throw or rejected returned promise is logged without starving peer listeners or changing the run.
+
+Provider additions and removals also emit `subagent/provider-added` and `subagent/provider-removed`. Consumers such as the model-facing tool use those events because Cordis may load sibling plugins concurrently; configuration order does not prove registration order.
+
+## Collection model
+
+The current model-facing tool collects synchronously: it awaits the child result and disposes the run before returning. Background collection and polling remain outside this seam. See the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md) and `src/types.ts` for the complete contracts.

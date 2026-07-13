@@ -140,7 +140,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     await writeFile(join(workdir, 'pkg/AGENTS.md'), `If asked for the Code Mode workspace handshake, reply with exactly ${WORKSPACE_PROBE} and nothing else.\n`)
     await writeFile(join(workdir, 'pkg/deep/task.txt'), 'Touch this file to discover the nested instructions.\n')
     ctx = await workspaceCodeModeHarness()
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('e2e-code-mode-workspace'),
       sessionId: SessionId('e2e-code-mode-workspace-session'),
       meta: { cwd: workdir },

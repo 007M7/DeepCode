@@ -6,17 +6,18 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../agent-loop/tests/mock-adapter.ts'
 import type { Message } from '@deepseek-ai/dsh-llm'
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
+  const agent = { session: { header: { cwd } } } as unknown as Agent
   const empty: Message[] = []
-  return await ctx.waterfall(
-    'agent/session-prefix', { session: { header: { cwd } } } as never,
-    empty, new AbortController().signal, () => Promise.resolve(empty),
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, new AbortController().signal,
+    () => Promise.resolve(empty),
   )
 }
 
@@ -157,7 +158,7 @@ describe('dsh-agent-core bundle', () => {
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const handle = ctx.agents.create({
+      const handle = await ctx.agents.create({
         agentId: AgentId('main'),
         sessionId: SessionId('main-session'),
         meta: { cwd: root },
@@ -188,7 +189,7 @@ describe('dsh-agent-core bundle', () => {
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await mount({ workspaceContext: { maxBytes: 0 } })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const handle = ctx.agents.create({
+      const handle = await ctx.agents.create({
         agentId: AgentId('main'),
         sessionId: SessionId('main-disabled-session'),
         meta: { cwd: root },
@@ -245,7 +246,7 @@ describe('dsh-agent-core bundle', () => {
         source: 'runtime',
         content: 'body',
       })
-      const handle = ctx.agents.create({
+      const handle = await ctx.agents.create({
         agentId: AgentId('main'),
         sessionId: SessionId('prefix-order-session'),
         meta: { cwd: root },

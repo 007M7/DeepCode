@@ -27,6 +27,10 @@ const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.m
 /** A throwaway parent Agent — the ACP backend ignores it, but the seam requires one. */
 const fakeParent = { id: 'parent', session: { header: {} } } as unknown as Agent
 
+function request(text = 'p', signal = new AbortController().signal) {
+  return { prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
+}
+
 interface SetupEnv {
   /** Mock-server scripting env: MOCK_TEXT / MOCK_STOP / MOCK_HANG / MOCK_PERMISSION. */
   [key: string]: string
@@ -119,16 +123,18 @@ describe('buildChildEnv', () => {
 describe('dsh-subagent-acp', () => {
   it('drives a child process to completion and returns its streamed output', async () => {
     const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn' })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'do X' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request('do X'))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('hello from acp child')
-    await run.dispose()
+    const disposal = run.dispose()
+    expect(run.dispose()).toBe(disposal)
+    await disposal
   })
 
   it('maps a max_tokens stop reason', async () => {
     const ctx = await setup({ MOCK_TEXT: 'cut off', MOCK_STOP: 'max_tokens' })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('max-tokens')
     await run.dispose()
@@ -136,22 +142,23 @@ describe('dsh-subagent-acp', () => {
 
   it('maps a refusal stop reason', async () => {
     const ctx = await setup({ MOCK_TEXT: '', MOCK_STOP: 'refusal' })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('refusal')
     await run.dispose()
   })
 
-  it('cancelling a running child settles aborted (session/cancel via run.cancel)', async () => {
+  it('aborting the required signal cancels a running child', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'acp-cancel-'))
     const readyFile = join(tmp, 'ready')
     try {
       const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_READY_FILE: readyFile })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      const controller = new AbortController()
+      const run = await ctx.subagents.start('acp', request('p', controller.signal))
       // Wait until the child's prompt is in flight (condition, not a sleep),
       // then cancel — so we exercise the mid-run session/cancel path.
       await waitForFile(readyFile)
-      run.cancel('test')
+      controller.abort('test')
       const result = await run.result
       expect(result.stopReason).toBe('aborted')
       await run.dispose()
@@ -160,7 +167,7 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('settles aborted WITHOUT spawning the child when the signal is already aborted', async () => {
+  it('rejects WITHOUT spawning the child when the signal is already aborted', async () => {
     // A pre-aborted request must not even launch the configured binary. Point
     // the command at one that would create a sentinel file if it ever ran, and
     // assert the sentinel never appears.
@@ -169,17 +176,11 @@ describe('dsh-subagent-acp', () => {
     try {
       const controller = new AbortController()
       controller.abort()
-      const run = startAcpRun(
-        { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal },
+      await expect(startAcpRun(
+        request('p', controller.signal),
         // `touch <sentinel>` — runs only if the process is actually spawned.
         { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
-      )
-      const result = await run.result
-      expect(result.stopReason).toBe('aborted')
-      expect(result.output).toEqual([])
-      // cancel/dispose on the inert run are safe no-ops.
-      run.cancel('noop')
-      await run.dispose()
+      )).rejects.toThrow('aborted before the ACP child started')
       // The binary was never launched — no sentinel.
       expect(existsSync(sentinel)).toBe(false)
     } finally {
@@ -206,7 +207,7 @@ describe('dsh-subagent-acp', () => {
         disposeEofGraceMs: 150,
         disposeGraceMs: 150,
       }
-      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      const run = await startAcpRun(request(), spec)
       // Wait until the child has BOOTED AND ARMED THE TRAP (a condition, not a
       // sleep) — otherwise SIGTERM races the trap install and the default handler
       // terminates the child, never exercising the escalation.
@@ -253,7 +254,7 @@ describe('dsh-subagent-acp', () => {
         disposeEofGraceMs: 2000,
         disposeGraceMs: 50,
       }
-      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      const run = await startAcpRun(request(), spec)
       // Wait until the child is fully booted with its prompt in flight (its ACP
       // stdin reader is attached), so dispose's stdin EOF reaches a live child.
       await waitForFile(ready)
@@ -290,7 +291,7 @@ describe('dsh-subagent-acp', () => {
         disposeEofGraceMs: 150,
         disposeGraceMs: 2000,
       }
-      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      const run = await startAcpRun(request(), spec)
       await waitForFile(ready)
       // Bound it so a hang fails loud rather than stalling the suite.
       await expect(Promise.race([
@@ -305,7 +306,7 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('honors a cancel that races AHEAD of newSession (no session id yet) without running the prompt', async () => {
+  it('rejects after cleanup when the signal aborts during newSession', async () => {
     // Gate the child at newSession: it signals `ready` and blocks until `go`.
     // We cancel WHILE newSession is pending (sessionId still undefined, so the
     // backend cannot send session/cancel) — the `cancelled` flag alone must
@@ -315,14 +316,12 @@ describe('dsh-subagent-acp', () => {
     const go = join(tmp, 'go')
     try {
       const ctx = await setup({ MOCK_NEWSESSION_READY: ready, MOCK_NEWSESSION_GO: go, MOCK_TEXT: 'should not run' })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      const controller = new AbortController()
+      const starting = ctx.subagents.start('acp', request('p', controller.signal))
       await waitForFile(ready) // newSession is now in flight, sessionId undefined
-      run.cancel('early') // sets cancelled; cannot send session/cancel yet
+      controller.abort('early')
       writeFileSync(go, 'go') // let newSession resolve
-      const result = await run.result
-      expect(result.stopReason).toBe('aborted')
-      expect(result.output).toEqual([])
-      await run.dispose()
+      await expect(starting).rejects.toThrow('aborted before the ACP child started')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -334,7 +333,7 @@ describe('dsh-subagent-acp', () => {
     try {
       const controller = new AbortController()
       const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_READY_FILE: readyFile })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal })
+      const run = await ctx.subagents.start('acp', request('p', controller.signal))
       await waitForFile(readyFile)
       controller.abort()
       const result = await run.result
@@ -347,7 +346,7 @@ describe('dsh-subagent-acp', () => {
 
   it('auto-rejects a permission prompt by default (child settles cancelled→aborted)', async () => {
     const ctx = await setup({ MOCK_TEXT: 'x', MOCK_PERMISSION: '1' }, 'reject')
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     // The child asked permission, the backend rejected, the child returned cancelled.
     expect(result.stopReason).toBe('aborted')
@@ -356,7 +355,7 @@ describe('dsh-subagent-acp', () => {
 
   it('auto-approves a permission prompt under the allow policy', async () => {
     const ctx = await setup({ MOCK_TEXT: 'approved answer', MOCK_PERMISSION: '1', MOCK_STOP: 'end_turn' }, 'allow')
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('approved answer')
@@ -367,7 +366,7 @@ describe('dsh-subagent-acp', () => {
     // The child asks permission but offers ONLY reject-shaped options, so an
     // allow-policy client finds nothing to select and must answer cancelled.
     const ctx = await setup({ MOCK_PERMISSION: '1', MOCK_NO_ALLOW: '1' }, 'allow')
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('aborted')
     await run.dispose()
@@ -377,7 +376,7 @@ describe('dsh-subagent-acp', () => {
     // The child streams an agent_thought_chunk before its answer; the backend
     // must consume it but NOT include it in the result output.
     const ctx = await setup({ MOCK_THOUGHT: '1', MOCK_TEXT: 'final answer', MOCK_STOP: 'end_turn' })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     // Only the message text, NOT the thought.
@@ -385,18 +384,11 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
-  it('resolves error (not reject) when the spawn command does not exist', async () => {
-    // Direct startAcpRun with NO onError sink — the catch must still flatten the
-    // spawn failure to `error` (the onError call is optional, covering the
-    // absent-sink branch).
-    const run = startAcpRun(
-      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+  it('rejects a spawn failure after provider-owned cleanup', async () => {
+    await expect(startAcpRun(
+      request(),
       { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
-    )
-    const result = await run.result
-    // The seam contract: a child-level failure resolves error, never rejects.
-    expect(result.stopReason).toBe('error')
-    await run.dispose()
+    )).rejects.toThrow()
   })
 
   it('plugin-config dispose graces reach the run (SIGKILL escalation through the provider)', async () => {
@@ -418,7 +410,7 @@ describe('dsh-subagent-acp', () => {
         disposeEofGraceMs: 150,
         disposeGraceMs: 150,
       })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      const run = await ctx.subagents.start('acp', request())
       await waitForFile(ready)
       await expect(Promise.race([
         run.dispose(),
@@ -440,7 +432,7 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('resolves error via the provider (real load path) when the command does not exist', async () => {
+  it('rejects a startup failure via the provider load path', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(acp, {
@@ -450,26 +442,23 @@ describe('dsh-subagent-acp', () => {
       permission: 'reject',
       env: {},
     })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
-    const result = await run.result
-    expect(result.stopReason).toBe('error')
-    await run.dispose()
+    await expect(ctx.subagents.start('acp', request())).rejects.toThrow()
   })
 
   it('reports a flattened child failure through onError (preserved, not silently lost)', async () => {
     // The seam forbids `result` rejecting, so a child-level failure is flattened
     // to a stop reason — onError must still surface the original error so a real
-    // fault is logged, not swallowed. A nonexistent command triggers the spawn
-    // failure path; the spy records the error + the chosen stop reason.
+    // fault is logged, not swallowed. The child exits after its session is
+    // published but while prompt is in flight.
     const errors: { message: string; stopReason: string }[] = []
-    const run = startAcpRun(
-      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+    const run = await startAcpRun(
+      request(),
       {
-        command: '/nonexistent/acp-agent-binary',
-        args: [],
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: {},
+        env: { MOCK_CRASH_ON_PROMPT: '1', TSX_TSCONFIG_PATH: repoTsconfig },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
         onError: (error, stopReason) => { errors.push({ message: error.message, stopReason }) },
@@ -483,18 +472,31 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
+  it('logs a flattened child failure through the registered provider', async () => {
+    const ctx = await setup({ MOCK_CRASH_ON_PROMPT: '1' })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const run = await ctx.subagents.start('acp', request())
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(warnings).toEqual([
+      expect.stringContaining('subagent-acp "acp": child run failed (error):'),
+    ])
+    await run.dispose()
+  })
+
   it('resolves error (never rejects) even when the onError sink itself throws', async () => {
     // onError is a caller-supplied callback boundary: its own exception must be
     // contained, or it would reject `result` and break the seam's "result never
     // rejects" contract that the flattening above exists to uphold.
-    const run = startAcpRun(
-      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+    const run = await startAcpRun(
+      request(),
       {
-        command: '/nonexistent/acp-agent-binary',
-        args: [],
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: {},
+        env: { MOCK_CRASH_ON_PROMPT: '1', TSX_TSCONFIG_PATH: repoTsconfig },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
         onError: () => { throw new Error('sink boom') },
@@ -514,9 +516,10 @@ describe('dsh-subagent-acp', () => {
     const ready = join(tmp, 'ready')
     try {
       const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_CRASH_ON_CANCEL: '1', MOCK_READY_FILE: ready })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      const controller = new AbortController()
+      const run = await ctx.subagents.start('acp', request('p', controller.signal))
       await waitForFile(ready)
-      run.cancel('crash it')
+      controller.abort('crash it')
       const result = await run.result
       expect(result.stopReason).toBe('aborted')
       await run.dispose()
@@ -525,8 +528,8 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('settles aborted on cancel even when the child IGNORES session/cancel (non-cooperative)', async () => {
-    // The contract: run.cancel() → result settles `aborted`. A child that hangs
+  it('settles aborted on signal even when the child IGNORES session/cancel', async () => {
+    // The signal contract requires `result` to settle `aborted`. A child that hangs
     // its prompt AND ignores session/cancel must not wedge the parent — the
     // backend's own cancel-settle path resolves `aborted` without the child's
     // cooperation, and dispose() still reaps the process.
@@ -534,9 +537,10 @@ describe('dsh-subagent-acp', () => {
     const ready = join(tmp, 'ready')
     try {
       const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_IGNORE_CANCEL: '1', MOCK_READY_FILE: ready })
-      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      const controller = new AbortController()
+      const run = await ctx.subagents.start('acp', request('p', controller.signal))
       await waitForFile(ready)
-      run.cancel('test')
+      controller.abort('test')
       // Bound it: a regression (cancel only notifies the child, which ignores it)
       // would hang result forever — fail loud instead of stalling the suite.
       const result = await Promise.race([
@@ -553,7 +557,7 @@ describe('dsh-subagent-acp', () => {
   it('advertises no start-time capabilities (out-of-process child)', async () => {
     const ctx = await setup()
     const provider = ctx.subagents.getProvider('acp')!
-    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: false, toolFilter: false })
+    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: false, toolFilter: false, persona: false })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {

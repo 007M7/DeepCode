@@ -39,6 +39,8 @@ import z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CallId } from '@deepseek-ai/dsh-llm'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -58,10 +60,14 @@ declare module 'cordis' {
      * not recognize the agent MUST call `next()` so another answerer — or the
      * fail-closed default `'unavailable'` — gets the question. Throwing is
      * contained by the service and yields `'unavailable'`.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a
+     * listener registered through `agent.ctx` receives only that agent's
+     * questions, while a plain-context listener receives every agent's.
+     * `req` is a readonly same-process value borrowed from the caller.
      * @param req - the pending decision (agent, tool identity, reason, signal).
      * @mode waterfall
      */
-    'approval/request'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
+    'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
   }
 }
 
@@ -215,12 +221,16 @@ function hasOpenTurn(events: readonly SessionEvent[]): boolean {
  * THE write path for a session's approval-policy override: appends exactly
  * one `approval/policy` event — the switch IS its event; nothing mutates
  * policy state out of band. Takes effect on the session's next ask and next
- * prompt assembly (the consumers fold on every read).
+ * prompt assembly (the consumers fold on every read). Rejects a value outside
+ * {@link APPROVAL_POLICIES} before appending anything.
  * @param session - the session the override belongs to.
  * @param policy - the policy every subsequent ask for this session resolves
  *   under (until the next switch).
  */
 export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): void {
+  if (!APPROVAL_POLICIES.includes(policy)) {
+    throw new TypeError('approval policy must be one of "ask" or "never"')
+  }
   session.append('approval/policy', { policy })
 }
 
@@ -229,7 +239,9 @@ export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): voi
  * for an answerer to present it and for the audit events to reconstruct what
  * was asked — it deliberately does NOT carry tool arguments: a UI answerer
  * attaches the prompt to the already-streamed tool call via `callId` instead
- * of re-rendering the call.
+ * of re-rendering the call. This is a readonly same-process contract:
+ * `request()` borrows the request and its `agent` and `signal` capabilities
+ * directly rather than treating them as serialized input.
  */
 export interface ApprovalRequest {
   /**
@@ -237,21 +249,21 @@ export interface ApprovalRequest {
    * UI answerer only answers for agents it owns) and receives the audit
    * events on its session log.
    */
-  agent: Agent
+  readonly agent: Agent
   /** The tool the question is about (presentation and audit). */
-  toolName: string
+  readonly toolName: string
   /**
    * The exact tool call being decided, when the asker has one — lets a UI
    * attach the prompt to the tool call it already streamed.
    */
-  callId?: CallId
+  readonly callId?: CallId
   /** The asker's human-readable explanation of WHY it is asking. */
-  reason?: string
+  readonly reason?: string
   /**
    * Aborting withdraws the question: the request settles `'cancelled'`
    * immediately and a late answer from a still-pending answerer is discarded.
    */
-  signal?: AbortSignal
+  readonly signal?: AbortSignal
 }
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -262,7 +274,7 @@ export interface Config {
    * (fail-closed with none); `'never'` auto-rejects every ask without
    * prompting (the deterministic CI/unattended stance).
    */
-  policy?: ApprovalPolicy
+  readonly policy?: ApprovalPolicy
 }
 
 /**
@@ -287,7 +299,7 @@ export class ApprovalService extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'approval')
 
-    const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent)
+    const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent.session)
 
     // Visibility layer 1, scoped on the prompt registry so headless
     // compositions mount the seam without it: state the one deterministic
@@ -335,7 +347,7 @@ export class ApprovalService extends Service {
       }
       // Same fold effectivePolicy performs — override is scanned here anyway
       // for POSITIONAL attribution; the default lives once, in the method.
-      const current = this.effectivePolicy(agent)
+      const current = this.effectivePolicy(session)
       const header = session.requestHeader()
       const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
       narrated.set(session, current)
@@ -351,22 +363,26 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Ask the composed answerers to decide one request. Requires an open turn
-   * on the requesting agent's session — the audit pair below is turn-enclosed
-   * by contract (the turn is the log's commit/replay boundary; an idle append
-   * would be dropped as crash tail on reload) — and throws before appending
-   * anything when called idle; asking outside a turn is a deferred design.
-   * Within that precondition it always resolves to an outcome, never rejects:
-   * an aborted signal yields `'cancelled'`, a missing or throwing answerer
-   * yields `'unavailable'` (fail closed), and a rogue non-vocabulary return
-   * value is normalized to `'unavailable'`. Appends the
-   * `approval/asked`/`approval/decided` audit pair (log-only) around the
-   * decision regardless of outcome.
+   * Ask the composed answerers to decide one readonly same-process request.
+   * The service borrows the request, agent, session, and live signal directly.
+   * The request requires an open turn because the audit pair must be enclosed
+   * by the durable log's commit/replay boundary; an idle ask rejects before
+   * appending anything. The answerer phase always produces an outcome: an
+   * aborted signal yields `'cancelled'`, a missing or throwing answerer yields
+   * `'unavailable'` (fail closed), and a rogue non-vocabulary return value is
+   * normalized to `'unavailable'`. A failure that prevents either audit append
+   * from committing still rejects because returning an unlogged decision would
+   * violate the pair. Session contains post-commit observer failures, so an
+   * authoritative append cannot reject the request or suppress its matching
+   * audit event.
    * @param req - the pending decision (agent, tool identity, reason, signal).
    * @returns the closed outcome; `'allowed-once'` is the only grant.
+   * @throws when no turn is open or either audit event fails before the session
+   *   append commit point.
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
-    if (!hasOpenTurn(req.agent.session.events)) {
+    const session = req.agent.session
+    if (!hasOpenTurn(session.events)) {
       throw new Error(
         'approval.request() outside an open turn: the approval/asked + approval/decided audit pair '
         + 'must be turn-enclosed (a bare event between turns is crash-tail garbage on reload). '
@@ -374,14 +390,14 @@ export class ApprovalService extends Service {
       )
     }
     const id = ApprovalRequestId(randomUUID())
-    req.agent.session.append('approval/asked', {
+    session.append('approval/asked', {
       id,
       toolName: req.toolName,
       ...req.callId !== undefined ? { callId: req.callId } : {},
       ...req.reason !== undefined ? { reason: req.reason } : {},
     })
-    const outcome = await this.decide(req)
-    req.agent.session.append('approval/decided', { id, outcome })
+    const outcome = await this.decide(req, session)
+    session.append('approval/decided', { id, outcome })
     return outcome
   }
 
@@ -389,28 +405,37 @@ export class ApprovalService extends Service {
    * The session's effective policy: its own `approval/policy` fold, else the
    * configured default (the schema already defaulted an omitted policy to
    * `'ask'`; the `??` only narrows the optional-input TYPE).
-   * @param agent - the agent whose session's policy applies.
-   * @returns the policy every ask for this agent resolves under right now.
+   * @param session - the exact accepted session whose policy applies.
+   * @returns the policy every ask for this session resolves under right now.
    */
-  private effectivePolicy(agent: Agent): ApprovalPolicy {
-    return effectiveApprovalPolicy(agent.session.events) ?? this.config.policy ?? 'ask'
+  private effectivePolicy(session: Session): ApprovalPolicy {
+    return effectiveApprovalPolicy(session.events) ?? this.config.policy ?? 'ask'
   }
 
-  /** Dispatch the waterfall, contained and raced against `req.signal`. */
-  private async decide(req: ApprovalRequest): Promise<ApprovalOutcome> {
-    if (req.signal?.aborted) return 'cancelled'
+  /**
+   * Dispatch the waterfall, contained and raced against the request signal.
+   * @param req - the borrowed public request.
+   * @param session - the request agent's session used for policy lookup.
+   * @returns the normalized closed outcome.
+   */
+  private async decide(req: ApprovalRequest, session: Session): Promise<ApprovalOutcome> {
+    const signal = req.signal
+    if (signal?.aborted) return 'cancelled'
     // The 'never' policy is decided HERE, before any dispatch: a listener
     // registered with `prepend: true` after this service mounts would sit
     // ahead of any gate LISTENER, so a listener-shaped gate cannot keep the
     // documented promise that 'never' rejects deterministically regardless
     // of registration order — only the service's own request path can.
-    if (this.effectivePolicy(req.agent) === 'never') return 'rejected'
+    if (this.effectivePolicy(session) === 'never') return 'rejected'
     // Enter the promise chain BEFORE dispatching: a listener that throws
     // SYNCHRONOUSLY (before its first await) must land in the same rejection
     // path as an async one — `Promise.resolve(call())` would let it escape
     // the containment into the caller.
     const answer: Promise<ApprovalOutcome> = Promise.resolve().then(
-      () => this.ctx.waterfall(this, 'approval/request', req, () => Promise.resolve<ApprovalOutcome>('unavailable')),
+      () => this.ctx.waterfall(
+        scopeTarget(this, req.agent), 'approval/request', req,
+        () => Promise.resolve<ApprovalOutcome>('unavailable'),
+      ),
     ).then(
       // Normalize a rogue (non-vocabulary) answerer return to the fail-closed
       // outcome instead of leaking it into callers' closed-union switches.
@@ -419,10 +444,12 @@ export class ApprovalService extends Service {
       // tool call open — the seam contains its callbacks.
       () => 'unavailable',
     )
-    const signal = req.signal
     if (signal === undefined) return answer
     return await new Promise<ApprovalOutcome>((resolve) => {
-      const onAbort = () => { resolve('cancelled') }
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort)
+        resolve('cancelled')
+      }
       signal.addEventListener('abort', onAbort, { once: true })
       void answer.then((outcome) => {
         signal.removeEventListener('abort', onAbort)

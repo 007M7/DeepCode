@@ -23,6 +23,7 @@ import type {
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   discoverBaselineInstructionFiles,
@@ -116,6 +117,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
   const id = SessionId('s1')
   const session = new Session(id, seed, cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
   return {
+    ctx: new Context(),
     id: AgentId('a1'),
     options: {},
     session,
@@ -132,6 +134,13 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     },
     cancel() {},
     whenIdle: () => Promise.resolve(),
+  }
+}
+
+function stubToolExecution(input: Omit<ToolExecution, 'token'>): ToolExecution {
+  return {
+    token: Symbol('workspace-context-test-execution') as ToolExecutionToken,
+    ...input,
   }
 }
 
@@ -712,12 +721,12 @@ describe('workspace context request injection', () => {
     try {
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
 
-      const decision = await ctx.waterfall('tools/post-execute', {
+      const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
         callId: CallId('no-fs-post-execute'),
         name: 'read',
         arguments: { file_path: 'pkg/file.txt' },
         agent: stubAgent('/virtual/repo'),
-      }, {
+      }), {
         callId: CallId('no-fs-post-execute'),
         isError: false,
         content: [{ type: 'text', text: 'file content' }],
@@ -748,12 +757,12 @@ describe('workspace context request injection', () => {
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
 
-      const exec = {
+      const exec = stubToolExecution({
         callId: CallId('read-blocked-post-execute'),
         name: 'read',
         arguments: { file_path: 'pkg/file.txt' },
         agent,
-      }
+      })
       const result = {
         callId: CallId('read-blocked-post-execute'),
         isError: false,
@@ -1951,14 +1960,14 @@ describe('dynamic nested workspace context injection', () => {
         isError: false,
       }
 
-      const failedStat = await ctx.waterfall('tools/post-execute', {
+      const failedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
         callId: CallId('provider-stat-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
-      }, result, async () => ({ kind: 'accept' as const }))
+      }), result, async () => ({ kind: 'accept' as const }))
       fs.throwOnStat.clear()
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'directory' })
-      const mismatchedStat = await ctx.waterfall('tools/post-execute', {
+      const mismatchedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
         callId: CallId('provider-stat-mismatch'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
-      }, result, async () => ({ kind: 'accept' as const }))
+      }), result, async () => ({ kind: 'accept' as const }))
 
       expect(failedStat).toEqual({ kind: 'accept' })
       expect(mismatchedStat).toEqual({ kind: 'accept' })
@@ -2102,12 +2111,12 @@ describe('dynamic nested workspace context injection', () => {
       ]
 
       for (const item of cases) {
-        const decision = await ctx.waterfall('tools/post-execute', {
+        const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
           callId: CallId(`manual-${item.name}-${cases.indexOf(item)}`),
           name: item.name,
           arguments: item.arguments,
           ...item.agent === undefined ? {} : { agent: item.agent },
-        }, result, async () => ({ kind: 'accept' as const }))
+        }), result, async () => ({ kind: 'accept' as const }))
         expect(decision).toEqual({ kind: 'accept' })
       }
     } finally {

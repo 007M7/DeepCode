@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import * as acpAgent from '../src/index.ts'
@@ -36,10 +37,11 @@ async function isolatedSkillsConfig(catalogDescriptionMaxLength?: number): Promi
 }
 
 async function composePrefix(ctx: Context): Promise<Message[]> {
+  const agent = { session: { header: { cwd: '/tmp' } } } as unknown as Agent
   const empty: Message[] = []
-  return await ctx.waterfall(
-    'agent/session-prefix', { session: { header: { cwd: '/tmp' } } } as never,
-    empty, new AbortController().signal, () => Promise.resolve(empty),
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, new AbortController().signal,
+    () => Promise.resolve(empty),
   )
 }
 

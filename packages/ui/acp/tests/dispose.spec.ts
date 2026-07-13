@@ -159,8 +159,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   it('the final turn closing events are persisted across an AgentHandle dispose (durability)', async () => {
     // The teardown-ORDER guarantee: a per-agent dispose must stop the loop,
     // AWAIT its exit (so the loop's final `turn/end` + `session/flush` fire
-    // through the still-attached `session.onAppend` → `session/event`), and only
-    // THEN detach onAppend + remove the session. If the order were inverted
+    // through the still-attached store observer → `session/event`), and only
+    // THEN remove its publication hooks and session entry. If the order were inverted
     // (detach first), the closing events would never reach persistence. Drive a
     // CLEAN turn to completion, dispose JUST the bridge, then re-load the
     // persisted log from disk and assert the closing turn/end is on disk — the
@@ -190,7 +190,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     // produced BY the dispose itself. Here the model stream HANGS, so the turn is
     // still open when teardown runs: the composite agent effect stops the loop,
     // the loop unwinds and appends `turn/end {disposed}` + runs its final
-    // `session/flush` — all while `onAppend` is still attached (the session
+    // `session/flush` — all while the store-owned publication hooks are still attached (the session
     // detach is the LAST disposer in the same effect's LIFO chain) — and only
     // THEN is the session detached. If the order were inverted (or the session
     // were a racing SIBLING effect), the abort-produced `turn/end` would never
@@ -229,10 +229,10 @@ describe('acp bridge — disposal & HMR safety', () => {
     // dispose one handle, and assert the other survives, registered and
     // queryable, with its session still in the store.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
-    const handleA = harness.ctx.agents.create({
+    const handleA = await harness.ctx.agents.create({
       agentId: AgentId('sib-a'), sessionId: SessionId('sib-a'), agentOptions: { model: 'mock' },
     })
-    const handleB = harness.ctx.agents.create({
+    const handleB = await harness.ctx.agents.create({
       agentId: AgentId('sib-b'), sessionId: SessionId('sib-b'), agentOptions: { model: 'mock' },
     })
     expect(harness.ctx.agents.get(AgentId('sib-a'))).toBe(handleA.agent)
@@ -255,13 +255,13 @@ describe('acp bridge — disposal & HMR safety', () => {
     // into ONE composite effect whose disposers run as a `.then()` chain. The
     // register disposer emits `agent/disposed`; if a listener throws and the
     // emit is UNCONTAINED, the rejected chain skips the LATER session-detach
-    // disposer — stranding the session in the store with `onAppend` attached (a
+    // disposer — stranding the session in the store with its publication hooks attached (a
     // leak AND a durability hole, since the new design relies on detach
     // running). The emit must be contained. Register a throwing listener, drive
     // a clean turn, dispose, and assert the session was STILL removed.
     const harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
     harness.ctx.on('agent/disposed', () => { throw new Error('boom disposed listener') })
-    const handle = harness.ctx.agents.create({
+    const handle = await harness.ctx.agents.create({
       agentId: AgentId('guard-a'), sessionId: SessionId('guard-a'), agentOptions: { model: 'mock' },
     })
     handle.agent.send([{ type: 'text', text: 'go' }])
@@ -282,7 +282,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     // first call's await agent.done + final flush finished. Every caller must
     // observe the same quiescence boundary.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
-    const handle = harness.ctx.agents.create({
+    const handle = await harness.ctx.agents.create({
       agentId: AgentId('conc-a'), sessionId: SessionId('conc-a'), agentOptions: { model: 'mock' },
     })
     // Drive a turn that hangs in the model stream, so the loop is mid-turn when

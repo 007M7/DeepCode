@@ -158,6 +158,17 @@ describe('SessionPersistence service registration', () => {
     expect(loaded.events).toHaveLength(6)
     await fiber.dispose()
   })
+
+  it('rejects non-JSON session metadata before registering lazy state', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const invalid = { ...meta('invalid-meta'), createdAt: 1n as unknown as number }
+
+    await expect(ctx.sessionPersistence.create(invalid))
+      .rejects.toThrow('session metadata must be losslessly JSON-serializable')
+    await fiber.dispose()
+  })
 })
 
 describe('shared persistence helpers', () => {
@@ -187,10 +198,10 @@ describe('shared persistence helpers', () => {
     expect(() => { assertSerializable(oneTurnLog()) }).not.toThrow()
   })
 
-  it('rejects non-JSON-serializable event data with type and seq context', () => {
+  it('rejects a batch containing non-JSON-serializable event data', () => {
     const bad = [
       { type: 'user/message', seq: 0, time: 1, data: { content: 1n } },
     ] as unknown as SessionEvent[]
-    expect(() => { assertSerializable(bad) }).toThrow(/"user\/message".*seq 0/)
+    expect(() => { assertSerializable(bad) }).toThrow(/batch is not losslessly JSON-serializable/)
   })
 })

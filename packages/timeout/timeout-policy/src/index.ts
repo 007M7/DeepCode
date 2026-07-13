@@ -80,13 +80,17 @@ export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecut
  * when its own timer fired. A tool that declares no budget delegates untouched.
  *
  * The budget source is the tool's own declaration read from the registry
- * (`ctx.tools.get(exec.name)?.timeoutMs`), NOT a plugin config map — `exec.name`
- * is the tool being dispatched, so the lookup always resolves and there is no
- * mistypable tool name and no unknown-name path to warn or throw about.
+ * (`ctx.tools.get(exec.name, exec.agent)?.timeoutMs`), NOT a plugin config map —
+ * `exec.name` is the tool being dispatched, so the lookup always resolves and
+ * there is no mistypable tool name and no unknown-name path to warn or throw
+ * about. Resolution goes through the CALLER's visible view (the `exec.agent`
+ * scope), exactly like dispatch itself: a scoped tool's own `timeoutMs` governs
+ * its calls, and a global name-twin's budget is never misapplied to a shadowing
+ * per-agent variant.
  */
 export function apply(ctx: Context): void {
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-    const timeoutMs = ctx.tools.get(exec.name)?.timeoutMs
+    const timeoutMs = ctx.tools.get(exec.name, exec.agent)?.timeoutMs
     // A tool that declares no budget: no deadline, delegate unchanged.
     if (timeoutMs === undefined) return next()
 
