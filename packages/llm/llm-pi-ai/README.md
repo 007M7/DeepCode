@@ -2,6 +2,8 @@
 
 DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai) (the LLM library behind the pi agent).
 
+The package root exposes the Cordis plugin contract and `PiAiAdapter`; model construction and event-conversion helpers are not part of that root contract.
+
 ## Why a second adapter exists
 
 `@deepseek-ai/dsh-llm-deepseek` already talks to the same endpoint. This package is its **design-verification twin**: same models, same wire protocol, completely different internals — a unified LLM library with its own event vocabulary versus hand-rolled fetch/SSE. Anything the harness `StreamChunk` protocol cannot express for BOTH implementations is a core-vocabulary bug. The differences it exercised on purpose:

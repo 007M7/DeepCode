@@ -4,6 +4,8 @@ DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` 
 
 A second, independent implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai` (library-backed). Same Config shape — pick one per context (registering both for the same model names throws by design).
 
+The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire serialization, SSE parsing, and chunk translation helpers are not part of that root contract.
+
 ## Config
 
 ```yaml

@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { buildModel } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 
 /** Scripted SSE responses, one per request (OpenAI chat-completions shape). */
@@ -245,6 +246,12 @@ describe('PiAiAdapter against a mock server', () => {
 })
 
 describe('option spreads and env fallbacks', () => {
+  it('keeps adapter conversion helpers off the package root', () => {
+    for (const helper of ['buildModel', 'mapStopReason', 'mapUsage', 'toPiContext', 'toStreamChunks']) {
+      expect(LlmPiAi).not.toHaveProperty(helper)
+    }
+  })
+
   it('forwards temperature, maxTokens, and signal', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)

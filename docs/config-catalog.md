@@ -389,7 +389,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:43`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:40`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -420,7 +420,7 @@ export interface Config {
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
 ```
 
-Source: [`packages/llm/llm-pi-ai/src/index.ts:37`](../packages/llm/llm-pi-ai/src/index.ts)
+Source: [`packages/llm/llm-pi-ai/src/index.ts:36`](../packages/llm/llm-pi-ai/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 

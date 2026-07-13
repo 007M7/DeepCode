@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
-import { mapStopReason, mapUsage, toPiContext, toStreamChunks } from '@deepseek-ai/dsh-llm-pi-ai'
+import { mapStopReason, mapUsage, toPiContext, toStreamChunks } from '../src/convert.ts'
 
 function usage(input = 0, output = 0, cacheRead = 0, cacheWrite = 0): Usage {
   return {

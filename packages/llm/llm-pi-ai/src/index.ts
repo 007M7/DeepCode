@@ -22,9 +22,8 @@ import type {} from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from './adapter.ts'
 import type { PiAiReasoning } from './adapter.ts'
 
-export { buildModel, PiAiAdapter } from './adapter.ts'
+export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions, PiAiReasoning } from './adapter.ts'
-export { mapStopReason, mapUsage, toPiContext, toStreamChunks } from './convert.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
