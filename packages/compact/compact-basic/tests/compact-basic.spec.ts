@@ -5,7 +5,7 @@ import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import type { ContentBlock, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter, LlmService } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
+import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
@@ -65,6 +65,20 @@ class TestCompactService extends BasicCompactService {
     const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
     this.summaryOutputs.add(summary)
     return { summary, model }
+  }
+}
+
+/** Expose the backend's protected extension hooks for their focused contract tests. */
+class InspectableCompactService extends BasicCompactService {
+  estimateContent(blocks: readonly ContentBlock[]): number {
+    return this.estimateContentTokens(blocks)
+  }
+
+  summarizeForTest(
+    text: string,
+    agent: Agent,
+  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+    return this.summarize(text, agent)
   }
 }
 
@@ -333,51 +347,6 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
   })
 })
 
-describe('BasicCompactService.estimateEventTokens', () => {
-  it('returns 0 for non-message events (boundary, chunk, step/end, tool/call)', () => {
-    const svc = createTestService()
-    expect(svc.estimateEventTokens({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } })).toBe(0)
-    expect(svc.estimateEventTokens({ type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } })).toBe(0)
-    expect(svc.estimateEventTokens({ type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } } })).toBe(0)
-    expect(svc.estimateEventTokens({ type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } })).toBe(0)
-    expect(svc.estimateEventTokens({ type: 'tool/call', seq: 4, time: 5, data: { turn: 1, step: 1, callId: CallId('c1'), name: 'read', arguments: '{}' } })).toBe(0)
-  })
-
-  it('returns estimate for message-producing events', () => {
-    const svc = createTestService()
-    const userEvent: SessionEvent = { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } } }
-    expect(svc.estimateEventTokens(userEvent)).toBe(10)
-
-    const asstEvent: SessionEvent = { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] } }
-    expect(svc.estimateEventTokens(asstEvent)).toBe(20)
-
-    const toolEvent: SessionEvent = { type: 'tool/result', seq: 2, time: 3, data: { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'output' }], isError: false } }
-    expect(svc.estimateEventTokens(toolEvent)).toBe(10)
-  })
-})
-
-describe('BasicCompactService.estimateTokens', () => {
-  it('sums token estimates across messages', () => {
-    const svc = createTestService()
-    const messages: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'hi' }, { type: 'text', text: 'there' }] },
-    ]
-    // 1 block * 10 + 4 (role) + 2 blocks * 10 + 4 (role) = 10 + 4 + 20 + 4 = 38
-    expect(svc.estimateTokens(messages)).toBe(38)
-  })
-
-  it('includes system prompt in the estimate', () => {
-    const svc = createTestService()
-    const messages: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
-    ]
-    const systemPrompt = 'You are a helpful assistant.'
-    // 1 block * 10 + 4 (role) + ceil(28/4) = 10 + 4 + 7 = 21
-    expect(svc.estimateTokens(messages, systemPrompt)).toBe(21)
-  })
-})
-
 describe('BasicCompactService.compactRegion', () => {
   it('shadows surface nodes and inserts a summary via user/message', async () => {
     const svc = createTestService()
@@ -393,7 +362,7 @@ describe('BasicCompactService.compactRegion', () => {
     expect(result.shadowedSeqs).toEqual([firstSeq, secondSeq])
     expect(result.shadowedRange.start).toBe(firstSeq)
     expect(result.shadowedRange.end).toBe(secondSeq)
-    expect(result.summary).toEqual(svc.mockSummary)
+    expect(result.shadowedTokenCount).toBe(20)
 
     const events = session.events
     const startEvent = events.findLast(e => e.type === 'compact/start')
@@ -405,6 +374,7 @@ describe('BasicCompactService.compactRegion', () => {
     // The provenance record carries the summarize call's envelope, so "which
     // model wrote this summary" is answerable from the log alone.
     expect(summaryEvent?.type === 'compact/summary' && summaryEvent.data.model).toBe('test-model')
+    expect(summaryEvent?.type === 'compact/summary' && summaryEvent.data.summary).toEqual(svc.mockSummary)
 
     // compact/* events are log-only — no surfaceOp (type system enforces this).
     const startRaw = startEvent as unknown as { surfaceOp?: unknown }
@@ -509,10 +479,9 @@ describe('BasicCompactService.compactRegion', () => {
     const session = multiTurnSession(3, 1)
     const nodes = session.surface.nodes
 
-    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')
+    await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')
 
     // Provenance (compact/summary) carries the RAW, unframed summary.
-    expect(result.summary).toEqual([{ type: 'text', text: 'STRUCTURED SUMMARY' }])
     const summaryEvent = session.events.findLast(e => e.type === 'compact/summary')!
     expect(summaryEvent.data).toMatchObject({ summary: [{ type: 'text', text: 'STRUCTURED SUMMARY' }] })
 
@@ -590,7 +559,6 @@ describe('BasicCompactService.compactIfNeeded', () => {
 
     expect(result).not.toBeNull()
     expect(session.events.filter(e => e.type === 'compact/summary')).toHaveLength(1)
-    expect(svc.estimateTokens(session.deriveMessages(), '')).toBeLessThan(70)
   })
 
   it('walks tail→head and retains nodes within token budget', async () => {
@@ -716,7 +684,6 @@ describe('BasicCompactService.compactIfNeeded', () => {
     expect(result).not.toBeNull()
     expect(svc.summarizeCalls).toHaveLength(2)
     expect(session.events.filter(e => e.type === 'compact/summary')).toHaveLength(2)
-    expect(svc.estimateTokens(session.deriveMessages(), '')).toBeLessThan(50)
   })
 
   it('throws after the configured re-compaction attempts still leave the surface above threshold', async () => {
@@ -801,53 +768,51 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
 
 describe('BasicCompactService token estimation (char/4 heuristic)', () => {
   it('estimates text blocks with char/4 + overhead', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
     // 'this is a somewhat longer text block' = 36 → ceil(36/4)+4 = 13; 'short' = 5 → 2+4 = 6
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'this is a somewhat longer text block' },
       { type: 'text', text: 'short' },
     ]
-    expect(svc.estimateContentTokens(blocks)).toBe(19)
+    expect(svc.estimateContent(blocks)).toBe(19)
   })
 
   it('estimates reasoning blocks same as text', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
     // 'thinking about this...' = 22 → ceil(22/4)+4 = 10
-    expect(svc.estimateContentTokens([{ type: 'reasoning', text: 'thinking about this...' }])).toBe(10)
+    expect(svc.estimateContent([{ type: 'reasoning', text: 'thinking about this...' }])).toBe(10)
   })
 
   it('estimates tool-call blocks from name + arguments', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
     // 'bash' = 4 → 1; '{"command":"ls"}' = 16 → 4; + 4 overhead = 9
-    expect(svc.estimateContentTokens([
+    expect(svc.estimateContent([
       { type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{"command":"ls"}' },
     ])).toBe(9)
   })
 
   it('estimates tool-result blocks recursively', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
     // inner text 5 → 2+4 = 6; outer 6 + 4 overhead = 10
-    expect(svc.estimateContentTokens([
+    expect(svc.estimateContent([
       { type: 'tool-result', toolCallId: CallId('c1'), content: [{ type: 'text', text: 'hello' }], isError: false },
     ])).toBe(10)
   })
 
   it('returns 0 for empty content blocks', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
-    expect(svc.estimateContentTokens([])).toBe(0)
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
+    expect(svc.estimateContent([])).toBe(0)
   })
 
   it('honors a configured charsPerToken (fractional densities included)', () => {
     // 'this is a somewhat longer text block' = 36 chars.
     const blocks: ContentBlock[] = [{ type: 'text', text: 'this is a somewhat longer text block' }]
     // charsPerToken 2: ceil(36/2)+4 = 22 — a CJK-density config doubles the estimate.
-    const dense = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 2 }))
-    expect(dense.estimateContentTokens(blocks)).toBe(22)
+    const dense = new InspectableCompactService(new Context(), cfg({ auto: false, charsPerToken: 2 }))
+    expect(dense.estimateContent(blocks)).toBe(22)
     // Fractional density is legal: ceil(36/1.5)+4 = 28.
-    const fractional = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 1.5 }))
-    expect(fractional.estimateContentTokens(blocks)).toBe(28)
-    // The system-prompt term scales with the same knob: 36-char prompt at density 2 → ceil(36/2) = 18.
-    expect(dense.estimateTokens([], 'this is a somewhat longer text block')).toBe(18)
+    const fractional = new InspectableCompactService(new Context(), cfg({ auto: false, charsPerToken: 1.5 }))
+    expect(fractional.estimateContent(blocks)).toBe(28)
   })
 })
 
@@ -1013,17 +978,17 @@ function compactRegion(
   model: string,
   signal?: AbortSignal,
 ) {
-  return svc.compactRegion(session, start, end, stubAgent(session, model), signal)
+  return svc.compactRegion(start, end, stubAgent(session, model), signal)
 }
 
-function summarize(svc: BasicCompactService, text: string, model: string) {
-  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model))
+function summarize(svc: InspectableCompactService, text: string, model: string) {
+  return svc.summarizeForTest(text, stubAgent(new Session(SessionId('summary')), model))
 }
 
 describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
   it('summarizes via the registered adapter and returns its content', async () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
-    const svc = new BasicCompactService(ctx, cfg({ auto: false, maxTokens: 512 }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false, maxTokens: 512 }))
 
     const { summary, model, maxTokens } = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
     expect(summary).toEqual([{ type: 'text', text: 'SUMMARY TEXT' }])
@@ -1041,7 +1006,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
 
   it('uses maxTokens as the summarization provider cap', async () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
-    const svc = new BasicCompactService(ctx, cfg({
+    const svc = new InspectableCompactService(ctx, cfg({
       auto: false,
       maxTokens: 50,
     }))
@@ -1059,7 +1024,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
       // synthesized user/message summary as an orphaned call.
       { type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' },
     ])
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
 
     const { summary } = await summarize(svc, 'User: hi', 'test-model')
 
@@ -1068,26 +1033,26 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
 
   it('throws when no text block remains after filtering', async () => {
     const { ctx } = await ctxWithBlocks([{ type: 'reasoning', text: 'private only' }])
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
 
     await expect(summarize(svc, 'User: hi', 'test-model')).rejects.toThrow(/no text summary content/)
   })
 
   it('throws when no model is provided', async () => {
     const { ctx } = await ctxWithModel('x')
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
     await expect(summarize(svc, 'text', '')).rejects.toThrow(/no model available/)
   })
 
   it('rethrows when the stream ends with a finish-error chunk', async () => {
     const ctx = await ctxWithFinish({ kind: 'error', message: 'provider 401', code: 'UNAUTHORIZED' })
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
     await expect(summarize(svc, 'text', 'test-model')).rejects.toMatchObject({ message: 'provider 401', code: 'UNAUTHORIZED' })
   })
 
   it('rethrows a finish-error chunk without a code (code stays undefined)', async () => {
     const ctx = await ctxWithFinish({ kind: 'error', message: 'opaque failure' })
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
     const error = await summarize(svc, 'text', 'test-model').then(() => null, (e: unknown) => e as Error & { code?: string })
     expect(error?.message).toBe('opaque failure')
     expect(error?.code).toBeUndefined()
@@ -1095,13 +1060,13 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
 
   it('rethrows when the stream ends with a finish-aborted chunk', async () => {
     const ctx = await ctxWithFinish({ kind: 'aborted' })
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
     await expect(summarize(svc, 'text', 'test-model')).rejects.toMatchObject({ message: 'summarization stream aborted', code: 'ABORTED' })
   })
 
   it('fails closed on a max-tokens finish (an incomplete checkpoint must not commit)', async () => {
     const ctx = await ctxWithFinish({ kind: 'max-tokens' })
-    const svc = new BasicCompactService(ctx, cfg({ auto: false }))
+    const svc = new InspectableCompactService(ctx, cfg({ auto: false }))
     await expect(summarize(svc, 'text', 'test-model')).rejects.toMatchObject({ code: 'MAX_TOKENS' })
   })
 
@@ -1129,8 +1094,9 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
 
-    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
-    expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
+    await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
+    const summaryEvent = session.events.findLast(e => e.type === 'compact/summary')!
+    expect(summaryEvent.data.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
     // The raw summary is wrapped in the checkpoint framing on the surface.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'CONDENSED' })
   })
@@ -1392,10 +1358,10 @@ describe('BasicCompactService edge cases', () => {
   })
 
   it('estimates unknown block types via JSON length (default branch)', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
+    const svc = new InspectableCompactService(new Context(), cfg({ auto: false }))
     // A block whose type is none of the known kinds — exercises the default arm.
     const unknown = { type: 'custom-widget', payload: 'some data' } as unknown as ContentBlock
-    expect(svc.estimateContentTokens([unknown])).toBeGreaterThan(0)
+    expect(svc.estimateContent([unknown])).toBeGreaterThan(0)
   })
 
   it('auto-compaction reports bounded retry exhaustion after committing a smaller summary', async () => {
@@ -1604,14 +1570,15 @@ describe('BasicCompactService positional range (surface seqs are not monotonic a
 
     // First compaction: shadow the two oldest surface nodes.
     const nodes0 = session.surface.nodes
-    const first = await compactRegion(svc, session, nodes0[0]!, nodes0[1]!, 'm')
+    await compactRegion(svc, session, nodes0[0]!, nodes0[1]!, 'm')
+    const firstSummarySeq = session.events.findLast(e => e.type === 'compact/summary')!.seq
 
     // The summary node now sits at the head with a seq HIGHER than the
     // retained older nodes that follow it — the non-monotonic surface. (The
     // head is the user/message replace node, appended after the compact/summary
-    // provenance event, so its seq is at least first.summarySeq.)
+    // provenance event.
     const nodes1 = session.surface.nodes
-    expect(nodes1[0]!).toBeGreaterThanOrEqual(first.summarySeq)
+    expect(nodes1[0]!).toBeGreaterThan(firstSummarySeq)
     expect(nodes1[0]!).toBeGreaterThan(nodes1[1]!)
 
     // Second compaction: shadow [summary(head) … turn-2's step end]. The start
@@ -1623,13 +1590,14 @@ describe('BasicCompactService positional range (surface seqs are not monotonic a
     const endSeq = nodes1[2]!
     expect(startSeq).toBeGreaterThan(endSeq)
     const second = await compactRegion(svc, session, startSeq, endSeq, 'm')
+    const secondSummarySeq = session.events.findLast(e => e.type === 'compact/summary')!.seq
 
     // Exactly the three nodes at surface positions [0..2] are shadowed, in
     // surface order — the positional slice, regardless of their seq values.
     expect(second.shadowedSeqs).toEqual([nodes1[0]!, nodes1[1]!, nodes1[2]!])
     // The surface still derives cleanly: a new head replace node + the rest.
     const finalNodes = session.surface.nodes
-    expect(finalNodes[0]!).toBeGreaterThanOrEqual(second.summarySeq)
+    expect(finalNodes[0]!).toBeGreaterThan(secondSummarySeq)
     expect(session.deriveMessages().length).toBe(finalNodes.length)
   })
 
@@ -1679,8 +1647,9 @@ describe('BasicCompactService llm inject (real plugin-load path)', () => {
     const svc = ctx.compact as BasicCompactService
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
-    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
-    expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
+    await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
+    const summaryEvent = session.events.findLast(e => e.type === 'compact/summary')!
+    expect(summaryEvent.data.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
 
     // Tear the fiber down so this test owns no leaked registration; the
     // dedicated cleanup assertion lives in the "HMR safety" suite.

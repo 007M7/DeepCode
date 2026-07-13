@@ -14,7 +14,8 @@
  * implementation (deferred) / consumer (a `/compact` tool, deferred) — modeled
  * on the bash trio. Unlike `dsh-bash`, this interface necessarily
  * depends on `dsh-session` and `dsh-llm`: the contract's verbs are defined over
- * a `Session` and its output is the `ContentBlock` vocabulary. That deviation
+ * an agent-owned `Session` and the durable summary event uses the
+ * `ContentBlock` vocabulary. That deviation
  * from the "interface depends only on cordis" guidance is intentional and
  * recorded in the [compaction capability-seam RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
  *
@@ -132,10 +133,10 @@ export abstract class CompactService extends Service {
    * open (unclosed) tail step is invalid — its tool-calls have no results yet.
    * `dsh-session` exports `isToolPairingBalanced` for this check.
    *
-   * @param session - the session whose surface is mutated.
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
-   * @param agent - agent context used by router-aware summarizers.
+   * @param agent - agent context whose session is mutated and whose routing
+   *   options are used by summarizers.
    * @param signal - optional cancellation signal. A backend that summarizes via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
@@ -146,10 +147,10 @@ export abstract class CompactService extends Service {
    *   prior replace can leave the surface non-monotonic in seq order), or if
    *   either boundary is not a balanced tool-pairing cut (would split a step's
    *   tool-call/result pair).
-   * @returns what the compaction did (the replaced range and its summary node).
+   * @returns the replaced range and its token accounting. The durable
+   *   `compact/summary` event owns the summary and bookkeeping-event identity.
    */
   abstract compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: CompactAgentContext,

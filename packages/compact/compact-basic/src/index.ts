@@ -41,12 +41,11 @@ import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
 import { resolveConfig } from './types.ts'
 
 export type { BasicCompactConfig, ResolvedConfig } from './types.ts'
-export { resolveConfig } from './types.ts'
 
 /** Per-block structural overhead for JSON framing / type tag. */
 const BLOCK_OVERHEAD = 4
 
-/** Role-field framing overhead added per message in {@link BasicCompactService.estimateTokens}. */
+/** Role-field framing overhead added per message in the request estimator. */
 const ROLE_OVERHEAD = 4
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
@@ -222,7 +221,7 @@ export class BasicCompactService extends CompactService {
    *   their JSON-stringified length.
    * @returns the estimated token count.
    */
-  estimateContentTokens(blocks: readonly ContentBlock[]): number {
+  protected estimateContentTokens(blocks: readonly ContentBlock[]): number {
     const { charsPerToken } = this.config
     let tokens = 0
     for (const block of blocks) {
@@ -257,7 +256,8 @@ export class BasicCompactService extends CompactService {
    * @returns the estimated token count of the event's content, or 0 for a
    *   non-message event.
    */
-  estimateEventTokens(event: SessionEvent): number {
+  private estimateEventTokens(event: SessionEvent): number {
+    /* v8 ignore next -- callers traverse surface nodes, whose event types are the five cases below */
     switch (event.type) {
       case 'user/message':
       case 'assistant/message':
@@ -278,7 +278,7 @@ export class BasicCompactService extends CompactService {
    * @param systemPrompt - counted at chars / `charsPerToken` when provided.
    * @returns the estimated token footprint of the whole request.
    */
-  estimateTokens(messages: readonly Message[], systemPrompt?: string): number {
+  private estimateTokens(messages: readonly Message[], systemPrompt?: string): number {
     let total = 0
     for (const msg of messages) {
       total += this.estimateContentTokens(msg.content)
@@ -318,7 +318,7 @@ export class BasicCompactService extends CompactService {
    * @returns the text-only summary blocks plus the call envelope used
    *   (`model`, and `maxTokens` when the summarizer has a cap).
    */
-  async summarize(
+  protected async summarize(
     text: string, agent: Agent, signal?: AbortSignal,
   ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const assembler = new BlockAssembler()
@@ -417,7 +417,7 @@ export class BasicCompactService extends CompactService {
         break
       }
 
-      result = await this.compactRegion(session, range.start, range.end, agent, signal)
+      result = await this.compactRegion(range.start, range.end, agent, signal)
     }
 
     const totalTokens = this.estimatePressure(session, fullSystemPrompt, sessionPrefix)
@@ -439,17 +439,17 @@ export class BasicCompactService extends CompactService {
    * @param sessionPrefix - the instance's composed session prefix (counts toward pressure).
    * @returns the estimated token total the next request will carry.
    */
-  estimatePressure(session: Session, fullSystemPrompt: string, sessionPrefix: readonly Message[]): number {
+  private estimatePressure(session: Session, fullSystemPrompt: string, sessionPrefix: readonly Message[]): number {
     return this.estimateTokens([...sessionPrefix, ...session.deriveMessages()], fullSystemPrompt)
   }
 
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
+    const session = agent.session
     // Resolve the range by surface POSITION, not numeric seq interval. A prior
     // replace lands a fresh high-seq summary node AT the shadowed range's
     // position, so the surface order (head→tail) no longer tracks seq order —
@@ -556,13 +556,9 @@ export class BasicCompactService extends CompactService {
       // compact/start and here leaves a detectable orphaned lock (a compact/start
       // with no matching compact/end) rather than a compact/end that falsely
       // claims compaction finished before the surface replacement landed.
-      const endEvent = session.append('compact/end', { turn: openTurn })
+      session.append('compact/end', { turn: openTurn })
 
       return {
-        startSeq: startEvent.seq,
-        summarySeq: summaryEvent.seq,
-        endSeq: endEvent.seq,
-        summary,
         shadowedRange: { start, end },
         shadowedSeqs,
         shadowedTokenCount,

@@ -1,6 +1,6 @@
 # Compaction
 
-The compaction seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) split like bash: interface ([dsh-compact](../../packages/compact/compact), `ctx.compact`), implementation (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and consumer (a `/compact` tool, deferred). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary (see the [compaction capability-seam RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+The compaction seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) split like bash: interface ([dsh-compact](../../packages/compact/compact), `ctx.compact`), implementation (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and consumer (a `/compact` tool, deferred). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
 
 Source: [`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 
@@ -20,18 +20,10 @@ These variants are merged inside a `declare module '@deepseek-ai/dsh-session'` b
 
 ## `CompactionResult`
 
-What a successful compaction returns to its caller: the seqs of the three appended `compact/*` events, the summary blocks, and the shadowed range/seqs plus the estimated token count.
+What a successful compaction returns to its caller: the shadowed range and seqs plus the estimated token count. The durable `compact/summary` event owns the raw summary and bookkeeping-event identity.
 
 ```ts type-equiv
 interface CompactionResult {
-  /** The seq of the appended `compact/start` event. */
-  startSeq: number
-  /** The seq of the appended `compact/summary` event. */
-  summarySeq: number
-  /** The seq of the appended `compact/end` event. */
-  endSeq: number
-  /** The summary content blocks produced by the backend. */
-  summary: ContentBlock[]
   /**
    * The surface-boundary pair that was shadowed: the seqs of the first
    * (`start`) and last (`end`) surface nodes of the replaced range. A
@@ -50,6 +42,6 @@ interface CompactionResult {
 
 ## The service
 
-`CompactService` (`ctx.compact`, abstract — defined in [`packages/compact/compact/src/index.ts`](../../packages/compact/compact/src/index.ts)) declares two abstract methods: `compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` checks token pressure and compacts an older range if the history is too large (returning `null` when nothing needs it), and `compactRegion(session, start, end, agent, signal?)` forcibly summarizes surface nodes `[start, end]` into a single replacement node. `compactIfNeeded`'s parameters are all required — the loop's `agent/pre-step` checkpoint supplies the agent, the assembled `fullSystemPrompt`, the instance's composed `sessionPrefix` (request-only messages the derived history omits, so the pressure estimate must count them), and the turn `signal`. A backend summarizing via `ctx.llm.stream()` must forward `signal` into the call's `GenerateOptions.signal`, so an abort or dispose tears down the in-flight summarization. The entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
+`CompactService` (`ctx.compact`, abstract — defined in [`packages/compact/compact/src/index.ts`](../../packages/compact/compact/src/index.ts)) declares two abstract methods: `compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` checks token pressure and compacts an older range if the history is too large (returning `null` when nothing needs it), and `compactRegion(start, end, agent, signal?)` forcibly summarizes surface nodes `[start, end]` from `agent.session` into a single replacement node. `compactIfNeeded`'s parameters are all required — the loop's `agent/pre-step` checkpoint supplies the agent, the assembled `fullSystemPrompt`, the instance's composed `sessionPrefix` (request-only messages the derived history omits, so the pressure estimate must count them), and the turn `signal`. A backend summarizing via `ctx.llm.stream()` must forward `signal` into the call's `GenerateOptions.signal`, so an abort or dispose tears down the in-flight summarization. The entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
 
 Auto-compaction runs on the serial `agent/pre-step` loop seam (fired once per step, after `turn/start` and BEFORE the step opens and its request history is derived), not the `agent/request` waterfall: compaction mutates the session surface in place — with its log-only `compact/*` records landing cleanly outside any step — and the loop derives the request from the already-compacted surface. Retention is turn-agnostic — the only structural guard is tool-pairing balance (a compacted region's edges are balanced cuts on the surface, so it never splits a step's tool-calls from their results), so a single runaway turn that alone exceeds the window compacts its own early closed steps rather than being retained verbatim. The backend that ships this (`dsh-compact-basic`) documents the retention walk, summary shrink validation, bounded re-compaction, and the crash/recoverable failure taxonomy.
