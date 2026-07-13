@@ -258,7 +258,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited checkpoint before `step/start` for outside-step surface mutations.',
+    summary: 'Awaited serial checkpoint after prompt assembly and before `step/start`.',
   },
   {
     name: 'agent/prompt-submit',
@@ -282,7 +282,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
-    summary: 'Compose the frozen session-stable request prefix once per loop instance.',
+    summary: 'Compose request-only messages placed before derived history.',
   },
   {
     name: 'agent/session-start',

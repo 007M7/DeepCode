@@ -2,6 +2,9 @@
  * Model-facing `bash`, `bash_output`, and `bash_kill` tools over the executor
  * seam. Background tasks are fenced by owning session, completion injects a
  * durable notice, and confining executors add one-shot approval-based escalation.
+ * Notices do not wake idle agents. Ownership is stored with the executor task so
+ * it survives this plugin's reload; per-call authority is escalation grant,
+ * session override, then executor default. See the package README for the tool contract.
  * @module @deepseek-ai/dsh-tool-bash
  */
 
@@ -104,7 +107,9 @@ const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
 const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
 /**
- * The bash tool's static description.
+ * The bash tool's byte-stable base description. Escalation guidance is added
+ * only when the mounted executor can honor it, as the one exception to the
+ * ordinary no-retry guidance.
  */
 function bashDescription(escalationModes: readonly SandboxMode[]): string {
   const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
@@ -190,7 +195,7 @@ export function renderResult(
   return body + markers.join('\n')
 }
 
-// UI presentation (tool-owned).
+// Pure tool-owned presentation used for both live events and replay.
 
 /**
  * Present foreground calls as terminals and background starts as generic cards.
@@ -337,6 +342,8 @@ export function apply(ctx: Context): void {
   })
 
   // The escalation surface exists whenever the mounted executor confines.
+  // Advertise the closed target vocabulary globally, then enforce strict
+  // widening against each call's effective session mode.
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
@@ -433,9 +440,8 @@ export function apply(ctx: Context): void {
     },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
-      // `description` is display/logging metadata only (surfaced to UIs via the tool/call
-      // session event); it is intentionally not forwarded to ctx.bash and has no effect on
-      // execution.
+      // `description` is display/logging metadata only. Escalation approval
+      // completes before execution; grant > session override > executor default.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)

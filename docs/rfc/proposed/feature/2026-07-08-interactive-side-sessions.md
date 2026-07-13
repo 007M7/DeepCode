@@ -10,12 +10,12 @@ A user may want to explore a question from a live session without changing its m
 
 A **side session** is an ordinary live session forked at the source's last completed turn, attached to its own agent, framed as a read-only advisor, and able to **merge back** one condensed note.
 
-- **Fork and attach:** create the child with the parent's balanced completed-turn prefix and stamp `parentSession` and `seedLength`. This composes `ctx.agents.create({ seed, meta })`; it adds no core service or session-store method.
-- **Advisor framing:** inject one plugin-sourced `context/message` after creation. Keeping the system prompt byte-identical preserves the provider prefix cache.
+- **Fork and attach:** create the child with the parent's balanced completed-turn prefix and stamp `parentSession` and `seedLength` in its metadata. This composes `ctx.agents.create({ seed, meta })`; it adds no core service or session-store method.
+- **Advisor framing:** inject one plugin-sourced `context/message` after creation that tells the child to explain without mutating or continuing the task. Keeping the system prompt byte-identical preserves the provider prefix cache over inherited history.
 - **Merge-back:** ask the child for a length-capped handback, then inject one plugin-sourced `context/message` into the parent. The next parent request sees it at its logged position, preserving replay and [request reconstructability](../../implemented/architecture/2026-07-05-reconstructable-requests.md) without a new session event.
 - **Presentation:** invocation, session switching, and handback rendering belong to the first client-owned surface. This RFC specifies only the surface-independent mechanics.
 
-Rewind productization, session-tree views, a model-facing side-session tool, and `forkName`/`mergedInto` metadata are out of scope. A live-adapter spike has validated source-log isolation, inherited context, a multi-turn child exchange, and merge-back visibility in the parent's next turn.
+Rewind productization, session-tree views, a model-facing side-session tool, and `forkName`/`mergedInto` metadata are out of scope. A live-adapter spike validated source-log isolation, inherited context, a multi-turn child exchange, and merge-back visibility in the parent's next turn.
 
 ## Alternatives considered
 
@@ -27,7 +27,7 @@ Rewind productization, session-tree views, a model-facing side-session tool, and
 ## Acceptance criteria
 
 - Forking leaves the source untouched and creates a child with the balanced completed-turn prefix, `parentSession`, `seedLength`, and a byte-identical system prompt.
-- Advisor framing adds exactly one plugin-sourced `context/message` at the head of the child's appended history.
+- Advisor framing adds exactly one plugin-sourced `context/message` at the head of the child's appended history, rather than changing its system prompt.
 - Merge-back adds exactly one length-capped `context/message` with source `plugin: sidechat`; the next parent request and replay see it at the same position.
 - Parent and child run concurrently without log or stream cross-talk.
 - Unit tests cover fork/attach and merge-back; snapshot coverage lands with the first bound surface.

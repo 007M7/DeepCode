@@ -23,7 +23,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:136`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:139`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent left the registry. AgentLoop emits this after driver quiescence; custom
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:144`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:147`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,11 +47,11 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:266`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
-Awaited checkpoint before `step/start` for outside-step surface mutations. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Awaited serial checkpoint after prompt assembly and before `step/start`. Listeners may mutate the session surface outside the pending step; the loop derives history once afterward, so compaction records and replacements are included without rewriting an assembled request. The prompt and prefix are the exact pressure inputs for that request, and `signal` cancels listener work. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
@@ -59,7 +59,7 @@ Awaited checkpoint before `step/start` for outside-step surface mutations. Scope
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:191`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:200`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -71,7 +71,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:201`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:210`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -83,7 +83,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:166`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -95,11 +95,11 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:213`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:222`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
-Compose the frozen session-stable request prefix once per loop instance. Interrupted composition is discarded; changing context belongs in history. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Compose request-only messages placed before derived history. The frozen result is computed once per loop instance, logged on its anchoring request header, and reused so the provider prefix remains stable. Interrupted composition is discarded. Changing context belongs in history; contributors should prepend to `await next()` to preserve registration order. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
@@ -107,11 +107,11 @@ Compose the frozen session-stable request prefix once per loop instance. Interru
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:235`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
-The session lifecycle began, once before the first turn. Use `agent.inject()` to seed model-facing context.
+The session lifecycle began, once before the first turn. Use `agent.inject()` to seed model-facing context. This is a notification, not a veto; disposal requested by a lifecycle owner is rechecked before the driver starts.
 
 ```ts cordis-catalog
 'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
@@ -119,7 +119,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:174`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:179`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -131,7 +131,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:153`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:156`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -143,7 +143,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:246`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -155,7 +155,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:244`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:256`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -167,7 +167,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded. A
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:253`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 

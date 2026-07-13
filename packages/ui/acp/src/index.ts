@@ -1,7 +1,8 @@
 /**
  * Multi-session ACP server bridge over JSON-RPC stdio. Creates or resumes
  * agents, routes their events, settles prompts by turn, and answers approvals.
- * Stdout is reserved for protocol frames.
+ * Each session keeps independent presentation and prompt-correlation state so
+ * concurrent streams cannot cross. Stdout is reserved for protocol frames.
  * @module @deepseek-ai/dsh-acp
  */
 
@@ -72,7 +73,8 @@ import {
 } from './codec.ts'
 
 export const name = 'acp'
-// Interface services required by advertised load, presentation, and interaction capabilities.
+// Interface services back advertised loading, tool-owned presentation with a generic fallback, and interaction.
+// TODO(acp-session-inject): remove `sessions`; the bridge never reads it, and ownership is already behind `agents`.
 export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /** Build an ACP invalid-params error with visible human detail. */
@@ -227,7 +229,10 @@ interface SessionRecord {
     reject: (error: Error) => void
     turn: number | undefined
   } | undefined
-  /** Idle config changes awaiting a turn-enclosed log anchor; last write wins. */
+  /**
+   * Idle config changes awaiting a turn-enclosed log anchor; last write wins.
+   * Responses overlay them, but a restart before the next turn restores the logged fold.
+   */
   pendingSwitches: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicy }
 }
 
@@ -238,7 +243,7 @@ interface SessionRecord {
  * correlation in a `finally` so presentation failure cannot starve settlement.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // Capture injected services while executing inside this plugin's fiber.
+  // Handlers run later outside this injection scope, so capture services now.
   const agents = ctx.agents
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
@@ -247,7 +252,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // Presenter failures are logged and contained per session or replay.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
-  // Keep forward and reverse session indexes in lockstep.
+  // TODO(derive-acp-session-id): derive event ids from `agent.session`, verify ownership, then remove the reverse map.
+  // Agent events currently carry only the Agent, so retain `SessionRecord.sessionId` and update both indexes together.
+  // Dropping the forward record lets the weak reverse entry expire.
   const sessions = new Map<SessionId, SessionRecord>()
   const bySession = new WeakMap<Agent, SessionId>()
   // Reserve ids across asynchronous resume; distinct ids still load concurrently.
@@ -1025,6 +1032,7 @@ export function streamSessionEventUpdate(
 
 /**
  * Map a whole harness todo list to an ACP plan, assigning medium priority.
+ * Statuses map directly and ACP replaces its whole plan on each update.
  * @param todos - the harness todo list (the whole list, not a diff).
  * @returns the ACP plan body, one entry per todo.
  */
@@ -1045,6 +1053,7 @@ const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined 
 /**
  * Resolve tool-owned call/result views with generic fallbacks. Per-session
  * call-id state supplies the tool name and arguments omitted from result events.
+ * Each entry is consumed by its result; any remainder dies with the session.
  */
 export class ToolPresenter {
   private readonly pending = new Map<CallId, { name: string; args: unknown; card: ToolCallView['card'] }>()

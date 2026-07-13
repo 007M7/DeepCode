@@ -26,9 +26,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract compaction service. Subclass implement the two abstract methods, and load the
- * subclass as a plugin — it registers as `ctx.compact` (one implementation per context;
- * loading a second throws, which is cordis' standard duplicate-service behavior).
+ * Abstract compaction service. Implementations own token estimation, retention,
+ * and summarization, but a successful run must replace the selected surface span
+ * with one summary node and prevent concurrent compaction of the same session.
+ * Load one implementation per context as `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {
@@ -37,12 +38,17 @@ export abstract class CompactService extends Service {
 
   /**
    * Check token pressure and compact if the conversation is too large.
+   * Estimate the next request, including its session prefix, derived history,
+   * and system prompt. Above threshold, compact a head-anchored range ending at
+   * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
+   * Return `null` when no compaction is needed or an open tail leaves no safe
+   * cutoff. A single oversized retained unit or prefix cannot be repaired here.
    *
    * @param agent - agent context owning the session surface and model options.
    * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
    * @param sessionPrefix - the instance's composed session prefix, counted toward the
    *   estimate.
-   * @param signal - cancellation signal.
+   * @param signal - cancellation signal; model-backed implementations must forward it.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
@@ -54,13 +60,18 @@ export abstract class CompactService extends Service {
 
   /**
    * Forcibly compact a range of surface nodes into a single summary node.
+   * `start` and `end` name an inclusive span by surface position, not numeric seq
+   * order; replacements can make visible seqs non-monotonic. Both edges must be
+   * balanced so assistant tool calls remain paired with their results. A model-
+   * backed implementation forwards cancellation and rejects active, missing,
+   * reversed, or unbalanced ranges.
    *
    * @param session - session to mutate.
    * @param start - first surface seq, inclusive.
    * @param end - last surface seq, inclusive.
    * @param agent - summarizer context.
    * @param signal - optional cancellation; model-backed implementations must forward it.
-   * @throws when compaction is active or the range is invalid or unbalanced.
+   * @throws when compaction is active or the range is missing, reversed, or unbalanced.
    * @returns the replaced range and summary.
    */
   abstract compactRegion(

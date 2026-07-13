@@ -86,7 +86,7 @@ Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/co
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
@@ -95,7 +95,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:33`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:34`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -212,7 +212,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:211`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -266,13 +266,13 @@ Source: [`packages/web/web/src/index.ts:78`](../../packages/web/web/src/index.ts
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
 
-Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound.
+Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
 ```ts cordis-catalog
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:157`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

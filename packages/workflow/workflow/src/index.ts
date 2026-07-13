@@ -152,7 +152,9 @@ export function isFatalWorkflowError(error: unknown): boolean {
 /**
  * Workflow execution seam. Invalid requests throw before publication; a live
  * run is holder-owned, its result never rejects, cancellation and disposal are
- * bounded, and disposal waits for child cleanup within that bound.
+ * bounded, and disposal waits for child cleanup within that bound. Lifecycle
+ * listener failures are contained, and `workflow/end` fires exactly once as the
+ * result settles.
  */
 export abstract class WorkflowService extends Service {
   constructor(ctx: Context) {

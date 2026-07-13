@@ -104,14 +104,17 @@ export interface Agent {
 
   /**
    * Append model-facing context without running the model. Idle injection uses
-   * a one-shot turn and durability checkpoint; disposal awaits that checkpoint,
-   * and flush failures are reported through `agent/error`.
+   * a one-shot turn and durability checkpoint, while injection during an open
+   * turn joins it at the current log position. Disposal awaits idle checkpoints;
+   * flush failures are reported through `agent/error`, not thrown to the caller.
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
   /**
    * Clear queued and steering work, including work waiting to start, and abort
-   * the active step. Idle cancellation is a no-op and does not arm a later cancel.
+   * the active step. The supplied reason is preserved across pre-step and active
+   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */
   cancel(reason?: string): void
 
@@ -165,7 +168,9 @@ declare module 'cordis' {
     // ---- session lifecycle (emit) ----
     /**
      * The session lifecycle began, once before the first turn. Use
-     * `agent.inject()` to seed model-facing context.
+     * `agent.inject()` to seed model-facing context. This is a notification, not
+     * a veto; disposal requested by a lifecycle owner is rechecked before the
+     * driver starts.
      * @param agent - the agent whose session lifecycle began.
      * @param source - why the session started (fresh startup, resume, …).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -177,7 +182,11 @@ declare module 'cordis' {
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**
-     * Awaited checkpoint before `step/start` for outside-step surface mutations.
+     * Awaited serial checkpoint after prompt assembly and before `step/start`.
+     * Listeners may mutate the session surface outside the pending step; the loop
+     * derives history once afterward, so compaction records and replacements are
+     * included without rewriting an assembled request. The prompt and prefix are
+     * the exact pressure inputs for that request, and `signal` cancels listener work.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent opening the step.
      * @param turn - the open turn number.
@@ -212,8 +221,11 @@ declare module 'cordis' {
      */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
-     * Compose the frozen session-stable request prefix once per loop instance.
-     * Interrupted composition is discarded; changing context belongs in history.
+     * Compose request-only messages placed before derived history. The frozen
+     * result is computed once per loop instance, logged on its anchoring request
+     * header, and reused so the provider prefix remains stable. Interrupted
+     * composition is discarded. Changing context belongs in history; contributors
+     * should prepend to `await next()` to preserve registration order.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen seed; return an extended replacement.
