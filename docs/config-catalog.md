@@ -365,6 +365,12 @@ export type Config = StdioConfig | StreamableHttpConfig
 export interface StdioConfig {
   /** Transport type: spawn a child process and communicate over stdio. */
   transport: 'stdio'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
   /** Executable to spawn. */
   command: string
   /** Arguments passed to the command. */
@@ -373,8 +379,6 @@ export interface StdioConfig {
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string
-  /** Prefix prepended to each tool name before registration. */
-  toolPrefix: string
   /** Timeout per callTool invocation (ms). */
   toolCallTimeoutMs: number
 }
@@ -383,18 +387,22 @@ export interface StdioConfig {
 export interface StreamableHttpConfig {
   /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
   transport: 'streamable-http'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
   /** MCP server URL. */
   url: string
   /** Extra headers (e.g. auth tokens). */
   headers: Record<string, string>
-  /** Prefix prepended to each tool name before registration. */
-  toolPrefix: string
   /** Timeout per callTool invocation (ms). */
   toolCallTimeoutMs: number
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:66`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:91`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
+import { publicToolName, syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import { createTransport } from '@deepseek-ai/dsh-mcp-client/src/transport.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
@@ -40,11 +40,40 @@ async function mountRegistry(): Promise<Context> {
 }
 
 const defaultOpts: ToolBridgeOptions = {
-  toolPrefix: '',
+  serverName: 'srv',
   toolCallTimeoutMs: 60_000,
 }
 
 // ---- Tests ----
+
+describe('publicToolName', () => {
+  it('joins clean names verbatim', () => {
+    expect(publicToolName('github', 'create_issue')).toBe('mcp__github__create_issue')
+    expect(publicToolName('everything', 'get-sum')).toBe('mcp__everything__get-sum')
+  })
+
+  it('replaces invalid characters and appends an identity hash', () => {
+    const name = publicToolName('srv', 'admin.reset')
+    expect(name).toMatch(/^mcp__srv__admin_reset_[0-9a-f]{12}$/)
+    expect(name.length).toBeLessThanOrEqual(64)
+  })
+
+  it('truncates over-long names and appends an identity hash', () => {
+    const rawName = 'a'.repeat(80)
+    const name = publicToolName('srv', rawName)
+    expect(name).toHaveLength(64)
+    expect(name).toMatch(/_[0-9a-f]{12}$/)
+    expect(name.startsWith('mcp__srv__aaa')).toBe(true)
+  })
+
+  it('is deterministic and collision-free for distinct identities', () => {
+    // Two raw names that normalize to the same base must not collapse.
+    const a = publicToolName('srv', 'admin.reset')
+    const b = publicToolName('srv', 'admin_reset')
+    expect(a).toBe(publicToolName('srv', 'admin.reset'))
+    expect(a).not.toBe(b)
+  })
+})
 
 describe('syncTools', () => {
   let ctx: Context
@@ -53,7 +82,7 @@ describe('syncTools', () => {
     ctx = await mountRegistry()
   })
 
-  it('registers tools from listTools response', async () => {
+  it('registers tools under server-qualified public names', async () => {
     const client = createMockClient([
       { name: 'greet', description: 'Say hello', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
       { name: 'add', description: 'Add numbers', inputSchema: { type: 'object', properties: {} } },
@@ -62,44 +91,85 @@ describe('syncTools', () => {
     const disposers = await syncTools(client as never, ctx, defaultOpts, new Map())
 
     expect(disposers.size).toBe(2)
-    expect(ctx.tools.get('greet')).toBeDefined()
-    expect(ctx.tools.get('add')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__greet')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__add')).toBeDefined()
+    // Raw names are NOT registered.
+    expect(ctx.tools.get('greet')).toBeUndefined()
+    expect(ctx.tools.get('add')).toBeUndefined()
   })
 
-  it('applies toolPrefix to registered names', async () => {
-    const client = createMockClient([
-      { name: 'create_issue', description: 'Create an issue', inputSchema: { type: 'object' } },
-    ])
+  it('lets two servers publish the same raw name side by side', async () => {
+    const clientA = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
+    const clientB = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
 
-    const disposers = await syncTools(client as never, ctx, { ...defaultOpts, toolPrefix: 'gh_' }, new Map())
+    await syncTools(clientA as never, ctx, { ...defaultOpts, serverName: 'github' }, new Map())
+    await syncTools(clientB as never, ctx, { ...defaultOpts, serverName: 'web' }, new Map())
 
-    expect(disposers.size).toBe(1)
-    expect(ctx.tools.get('gh_create_issue')).toBeDefined()
-    expect(ctx.tools.get('create_issue')).toBeUndefined()
+    expect(ctx.tools.get('mcp__github__search')).toBeDefined()
+    expect(ctx.tools.get('mcp__web__search')).toBeDefined()
   })
 
-  it('skips tools with conflicting names and logs warning', async () => {
-    // Pre-register a tool with the same name.
+  it('coexists with a native tool of the same raw name', async () => {
     ctx.tools.register({
-      name: 'existing',
-      description: 'Already here',
+      name: 'search',
+      description: 'Native search',
       parameters: { type: 'object' },
       execute: async () => [{ type: 'text', text: 'native' }],
     })
+    const client = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
 
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+
+    expect(ctx.tools.get('search')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__search')).toBeDefined()
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'search', arguments: {} })
+    expect(result.content[0]).toEqual({ type: 'text', text: 'native' })
+  })
+
+  it('rejects a tool list where one raw name appears twice', async () => {
     const client = createMockClient([
-      { name: 'existing', description: 'Conflicts', inputSchema: { type: 'object' } },
-      { name: 'unique', description: 'No conflict', inputSchema: { type: 'object' } },
+      { name: 'dup', inputSchema: { type: 'object' } },
+      { name: 'dup', inputSchema: { type: 'object' } },
+    ])
+
+    await expect(syncTools(client as never, ctx, defaultOpts, new Map()))
+      .rejects.toThrow(/listed tool "dup" more than once/)
+    // Nothing registered, previous generation untouched (it was empty).
+    expect(ctx.tools.get('mcp__srv__dup')).toBeUndefined()
+  })
+
+  it('keeps the previous generation when the fetch phase fails', async () => {
+    const client = createMockClient([{ name: 'stable', inputSchema: { type: 'object' } }])
+    const first = await syncTools(client as never, ctx, defaultOpts, new Map())
+    expect(ctx.tools.get('mcp__srv__stable')).toBeDefined()
+
+    client.listTools.mockRejectedValue(new Error('network down'))
+    await expect(syncTools(client as never, ctx, defaultOpts, first)).rejects.toThrow('network down')
+
+    // The previous generation is still live.
+    expect(ctx.tools.get('mcp__srv__stable')).toBeDefined()
+  })
+
+  it('rolls back the whole generation when a foreign tool squats on the namespace', async () => {
+    // A foreign registration occupies one of this server's public names.
+    ctx.tools.register({
+      name: 'mcp__srv__taken',
+      description: 'Squatter',
+      parameters: { type: 'object' },
+      execute: async () => [{ type: 'text', text: 'squatter' }],
+    })
+    const client = createMockClient([
+      { name: 'free', inputSchema: { type: 'object' } },
+      { name: 'taken', inputSchema: { type: 'object' } },
     ])
 
     const disposers = await syncTools(client as never, ctx, defaultOpts, new Map())
 
-    // Only the non-conflicting tool registers.
-    expect(disposers.size).toBe(1)
-    expect(ctx.tools.get('unique')).toBeDefined()
-    // Original tool unchanged.
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'existing', arguments: {} })
-    expect(result.content[0]).toEqual({ type: 'text', text: 'native' })
+    // All-or-nothing: the non-conflicting tool is rolled back too.
+    expect(disposers.size).toBe(0)
+    expect(ctx.tools.get('mcp__srv__free')).toBeUndefined()
+    // The squatter is untouched.
+    expect(ctx.tools.get('mcp__srv__taken')).toBeDefined()
   })
 
   it('unregisters previous tools before re-syncing', async () => {
@@ -108,14 +178,14 @@ describe('syncTools', () => {
     ])
 
     const firstDisposers = await syncTools(client as never, ctx, defaultOpts, new Map())
-    expect(ctx.tools.get('old_tool')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__old_tool')).toBeDefined()
 
     // Second sync with different tools should remove old_tool.
     client.listTools.mockResolvedValue({ tools: [{ name: 'new_tool', inputSchema: { type: 'object' } }], nextCursor: undefined })
     const secondDisposers = await syncTools(client as never, ctx, defaultOpts, firstDisposers)
 
-    expect(ctx.tools.get('old_tool')).toBeUndefined()
-    expect(ctx.tools.get('new_tool')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__old_tool')).toBeUndefined()
+    expect(ctx.tools.get('mcp__srv__new_tool')).toBeDefined()
     expect(secondDisposers.size).toBe(1)
   })
 
@@ -128,8 +198,8 @@ describe('syncTools', () => {
     const disposers = await syncTools(client as never, ctx, defaultOpts, new Map())
 
     expect(disposers.size).toBe(2)
-    expect(ctx.tools.get('page1')).toBeDefined()
-    expect(ctx.tools.get('page2')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__page1')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__page2')).toBeDefined()
   })
 })
 
@@ -140,21 +210,40 @@ describe('tool execution', () => {
     ctx = await mountRegistry()
   })
 
-  it('calls MCP callTool and returns text content', async () => {
+  it('calls MCP callTool with the RAW name and returns text content', async () => {
     const client = createMockClient(
       [{ name: 'echo', inputSchema: { type: 'object' } }],
       { content: [{ type: 'text', text: 'hello world' }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { msg: 'hi' } })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__echo', arguments: { msg: 'hi' } })
 
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: 'hello world' }])
+    // The wire sees the raw MCP name, never the public name.
     expect(client.callTool).toHaveBeenCalledWith(
       { name: 'echo', arguments: { msg: 'hi' } },
       undefined,
       expect.objectContaining({ timeout: 60_000 }),
+    )
+  })
+
+  it('sends the raw name for normalized public names', async () => {
+    const client = createMockClient(
+      [{ name: 'admin.reset', inputSchema: { type: 'object' } }],
+      { content: [{ type: 'text', text: 'reset done' }] },
+    )
+
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const publicName = publicToolName('srv', 'admin.reset')
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: publicName, arguments: {} })
+
+    expect(result.isError).toBe(false)
+    expect(client.callTool).toHaveBeenCalledWith(
+      { name: 'admin.reset', arguments: {} },
+      undefined,
+      expect.anything(),
     )
   })
 
@@ -165,7 +254,7 @@ describe('tool execution', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'multi', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__multi', arguments: {} })
 
     expect(result.content).toEqual([{ type: 'text', text: 'line1\nline2' }])
   })
@@ -177,7 +266,7 @@ describe('tool execution', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'img', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__img', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: 'before\n[image: image/png, content discarded]' })
   })
@@ -189,7 +278,7 @@ describe('tool execution', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'fail', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__fail', arguments: {} })
 
     expect(result.isError).toBe(true)
     expect(result.content[0]).toEqual({ type: 'text', text: 'Error: something went wrong' })
@@ -203,7 +292,7 @@ describe('tool execution', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await ctx.tools.execute({ callId: CallId('c1'), name: 'slow', arguments: {}, signal: controller.signal })
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__slow', arguments: {}, signal: controller.signal })
 
     expect(client.callTool).toHaveBeenCalledWith(
       expect.anything(),
@@ -219,7 +308,7 @@ describe('tool execution', () => {
     client.callTool.mockResolvedValue({ toolResult: { key: 'value' } })
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'legacy', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__legacy', arguments: {} })
 
     expect(result.isError).toBe(false)
     expect(result.content[0]).toEqual({ type: 'text', text: '{"key":"value"}' })
@@ -240,7 +329,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'audio_tool', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__audio_tool', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[audio: audio/mp3, content discarded]' })
   })
@@ -252,7 +341,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'res_tool', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__res_tool', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[resource: content discarded]' })
   })
@@ -264,7 +353,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'link_tool', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__link_tool', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[resource: content discarded]' })
   })
@@ -276,7 +365,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'unknown_tool', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__unknown_tool', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[unsupported content type: video]' })
   })
@@ -288,7 +377,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'img2', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__img2', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[image: unknown, content discarded]' })
   })
@@ -300,7 +389,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'audio_no_mime', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__audio_no_mime', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '[audio: unknown, content discarded]' })
   })
@@ -312,7 +401,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'notext', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__notext', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '(notext returned no text content)' })
   })
@@ -324,7 +413,7 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'empty_tool', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__empty_tool', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '(empty_tool returned no text content)' })
   })
@@ -337,7 +426,7 @@ describe('tool execution edge cases', () => {
     client.callTool.mockResolvedValue({})
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'legacy2', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__legacy2', arguments: {} })
 
     expect(result.content[0]).toEqual({ type: 'text', text: '(no output)' })
   })
@@ -349,13 +438,9 @@ describe('tool execution edge cases', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'err_notext', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__err_notext', arguments: {} })
 
     expect(result.isError).toBe(true)
-    // The error message falls back to 'MCP tool error' when content[0] is not text.
-    // But mapContent converts image to text placeholder, so it should use that.
-    // Actually mapContent ALWAYS returns text, so the ternary always takes the truthy branch.
-    // Let me check: mapContent returns [{type:'text', text:'[image: ...]'}], so content[0].type IS 'text'.
     expect(result.content[0]).toEqual({ type: 'text', text: 'Error: [image: image/png, content discarded]' })
   })
 
@@ -366,7 +451,7 @@ describe('tool execution edge cases', () => {
     ])
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const tool = ctx.tools.get('described')
+    const tool = ctx.tools.get('mcp__srv__described')
     expect(tool?.description).toBe('A described tool')
   })
 
@@ -376,7 +461,7 @@ describe('tool execution edge cases', () => {
     ])
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    const tool = ctx.tools.get('nodesc')
+    const tool = ctx.tools.get('mcp__srv__nodesc')
     expect(tool?.description).toBe('')
   })
 })
@@ -385,11 +470,11 @@ describe('createTransport', () => {
   it('creates StdioClientTransport for stdio config', () => {
     const config: Config = {
       transport: 'stdio',
+      serverName: 'srv',
       command: 'node',
       args: ['server.js'],
       env: {},
       cwd: '/tmp',
-      toolPrefix: '',
       toolCallTimeoutMs: 60_000,
     }
     const transport = createTransport(config)
@@ -401,9 +486,9 @@ describe('createTransport', () => {
   it('creates StreamableHTTPClientTransport for http config without headers', () => {
     const config: Config = {
       transport: 'streamable-http',
+      serverName: 'srv',
       url: 'http://localhost:3000/mcp',
       headers: {},
-      toolPrefix: '',
       toolCallTimeoutMs: 60_000,
     }
     const transport = createTransport(config)
@@ -415,9 +500,9 @@ describe('createTransport', () => {
   it('creates StreamableHTTPClientTransport for http config with headers', () => {
     const config: Config = {
       transport: 'streamable-http',
+      serverName: 'srv',
       url: 'http://localhost:3000/mcp',
       headers: { Authorization: 'Bearer token' },
-      toolPrefix: '',
       toolCallTimeoutMs: 60_000,
     }
     const transport = createTransport(config)
@@ -436,11 +521,11 @@ describe('createTransport', () => {
 
       const config: Config = {
         transport: 'stdio',
+        serverName: 'srv',
         command: 'echo',
         args: [],
         env: { EXTRA: 'injected' },
         cwd: '',
-        toolPrefix: '',
         toolCallTimeoutMs: 60_000,
       }
       // createTransport internally calls buildChildEnv; we verify by inspecting
@@ -463,11 +548,11 @@ describe('createTransport', () => {
   it('merges explicit env on top of scrubbed ambient env', () => {
     const config: Config = {
       transport: 'stdio',
+      serverName: 'srv',
       command: 'echo',
       args: [],
       env: { CUSTOM: 'value' },
       cwd: '',
-      toolPrefix: '',
       toolCallTimeoutMs: 60_000,
     }
     const transport = createTransport(config)
@@ -490,7 +575,7 @@ describe('tool execution — non-object args fallback', () => {
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
     // Simulate model emitting `null` as tool arguments (malformed).
-    await ctx.tools.execute({ callId: CallId('c1'), name: 'coerce', arguments: null })
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__coerce', arguments: null })
 
     expect(client.callTool).toHaveBeenCalledWith(
       { name: 'coerce', arguments: {} },
@@ -506,7 +591,7 @@ describe('tool execution — non-object args fallback', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await ctx.tools.execute({ callId: CallId('c1'), name: 'coerce2', arguments: 'bad' })
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'mcp__srv__coerce2', arguments: 'bad' })
 
     expect(client.callTool).toHaveBeenCalledWith(
       { name: 'coerce2', arguments: {} },
@@ -515,4 +600,3 @@ describe('tool execution — non-object args fallback', () => {
     )
   })
 })
-

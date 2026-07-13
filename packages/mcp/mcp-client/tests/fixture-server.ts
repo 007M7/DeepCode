@@ -51,5 +51,15 @@ server.registerTool('image', {
   ],
 }))
 
+// Dotted name: legal in MCP, illegal in the DeepSeek function-name contract.
+// Exercises the bridge's normalize-and-hash public-name path end to end.
+server.registerTool('admin.reset', {
+  title: 'Admin Reset Tool',
+  description: 'Tool with a dotted name (normalization test).',
+  inputSchema: {},
+}, async () => ({
+  content: [{ type: 'text', text: 'reset done' }],
+}))
+
 const transport = new StdioServerTransport()
 await server.connect(transport)
