@@ -69,7 +69,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { BashTaskId, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
 import type { BashTask } from '@deepseek-ai/dsh-bash'
-import { renderResult } from './render.ts'
+import { parseExitStatus, renderResult } from './render.ts'
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
@@ -273,39 +273,6 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   // A finished foreground run: RAW output + parsed exit for the terminal card.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
-}
-
-/**
- * Recover the structured exit status from a rendered `renderResult` string — the
- * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
- * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
- * absent both we report `{exitCode:0}` (a clean run appends no marker — and a
- * trapped-timeout run that exits 0 also has none and is accurately exit 0).
- *
- * Why parse rendered text at all: `presentResult` is replay-safe and on a
- * `session/load` the ONLY thing persisted is this content text — the structured
- * `BashRunResult` is long gone — so unless the exit were added to the persisted
- * event schema (deliberately NOT done; see the terminal-rendering RFC), parsing
- * is the only channel. The match is anchored to a LEADING newline + end-of-string
- * because `renderResult` always inserts a `\n` before the marker (line ~124) onto
- * a non-empty body: a real marker is therefore always its own final line. That
- * defeats the common spoof (program output that simply ENDS in `[exit code: 5]`
- * with no trailing newline — a clean exit 0 — no longer reads as a failure).
- *
- * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
- * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
- * or `[killed by signal: SIG]`, printed by the program with nothing after — is
- * still indistinguishable from a real marker and would show a wrong pill. This is
- * display-only (execution and the model-facing text are unaffected) and narrow;
- * the complete fix is to persist a structured exit on the result event, which the
- * RFC names as the escape hatch.
- */
-function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
-  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
-  if (signal?.[1] !== undefined) return { signal: signal[1] }
-  const exit = /\n\[exit code: (\d+)\]$/.exec(text)
-  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
-  return { exitCode: 0 }
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */

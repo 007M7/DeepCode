@@ -68,3 +68,25 @@ export function renderResult(
   if (!body.endsWith('\n')) body += '\n'
   return body + markers.join('\n')
 }
+
+/**
+ * Recover the structured exit status from a rendered {@link renderResult}
+ * string — the inverse of the status markers it appends. A killed marker
+ * yields `signal`; otherwise a non-zero marker yields `exitCode`; absent both
+ * means a clean exit 0.
+ *
+ * Replay only retains the rendered content text, not the original
+ * `BashRunResult`, so terminal presentation must recover the exit pill here.
+ * Requiring a leading newline and the end of the string keeps ordinary output
+ * that merely ends with marker-like text from matching unless the final line
+ * is indistinguishable from a real marker.
+ * @param text - rendered model-facing bash result.
+ * @returns the recovered terminal exit code or signal.
+ */
+export function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
+  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
+  if (signal?.[1] !== undefined) return { signal: signal[1] }
+  const exit = /\n\[exit code: (\d+)\]$/.exec(text)
+  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
+  return { exitCode: 0 }
+}
