@@ -30,10 +30,16 @@ let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  await spawned?.close('SIGKILL')
-  spawned = undefined
-  if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-  workdir = undefined
+  try {
+    await spawned?.close('SIGKILL')
+  } finally {
+    spawned = undefined
+    try {
+      if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
+    } finally {
+      workdir = undefined
+    }
+  }
 })
 
 describe('acp-agent over real stdio (no key required)', () => {
