@@ -149,7 +149,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
   // The capture COMMIT observes the immutable, authoritative result after the
   // complete pipeline and outer error normalization. This notification cannot
   // transform the outcome, so there is no wrapper outside the commit verdict.
-  childCtx.on('tools/result', function (this: unknown, exec, result): void {
+  childCtx.on('tools/result', function (this: unknown, exec, result) {
     if (exec.name === STRUCTURED_OUTPUT_TOOL) {
       const entry = staged.get(exec)
       if (entry === undefined) return

@@ -103,7 +103,7 @@ describe('SkillService registry', () => {
       },
     })).toThrow('reserved')
 
-    await disposeMemory()
+    disposeMemory()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
   })
 
@@ -538,7 +538,7 @@ describe('SkillService registry', () => {
       path: 'memory://runtime-skill',
       metadata: { owner: 'tests' },
     })
-    await disposeRuntime()
+    disposeRuntime()
     await ctx.skills.list({ cwd: '/tmp/first-cache-key' })
     await ctx.skills.list({ cwd: '/tmp/second-cache-key' })
 
@@ -615,7 +615,7 @@ describe('SkillService registry', () => {
 
     const pending = ctx.skills.list()
     await started
-    await dispose()
+    dispose()
     release?.()
 
     expect(await pending).toEqual([])
@@ -673,9 +673,9 @@ describe('SkillService registry', () => {
 
     const disposeFirst = ctx.skills.register({ name: 'same-skill', description: 'First', source: 'runtime', content: 'first' })
     const disposeSecond = ctx.skills.register({ name: 'same-skill', description: 'Second', source: 'runtime', content: 'second' })
-    await disposeSecond()
+    disposeSecond()
     expect((await ctx.skills.get('same-skill'))?.description).toBe('First')
-    await disposeFirst()
+    disposeFirst()
     expect(await ctx.skills.get('same-skill')).toBeUndefined()
   })
 })

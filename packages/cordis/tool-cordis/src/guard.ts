@@ -230,7 +230,7 @@ export function sandboxDefineTool(options: Parameters<typeof defineTool>[0]): To
  * @param tool - a definition produced by {@link sandboxDefineTool}; anything else is rejected.
  * @returns the registry disposer for the registration.
  */
-export function sandboxRegisterTool(ctx: Context, tool: unknown): () => Promise<void> | void {
+export function sandboxRegisterTool(ctx: Context, tool: unknown): () => void {
   assertDynamicTool(tool)
   return ctx.tools.register(tool)
 }
@@ -264,7 +264,7 @@ function sandboxTools(ctx: Context): Record<string, unknown> {
   // view for today's global mounts, its agent's view if a mount ever runs
   // under an agent scope.
   return {
-    register: (tool: unknown): (() => Promise<void> | void) => sandboxRegisterTool(ctx, tool),
+    register: (tool: unknown): (() => void) => sandboxRegisterTool(ctx, tool),
     schemas: () => ctx.tools.schemas(scopeOf(ctx)),
     get: (name: string) => ctx.tools.schemas(scopeOf(ctx)).find(schema => schema.name === name),
   }
