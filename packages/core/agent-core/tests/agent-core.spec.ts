@@ -6,7 +6,7 @@ import { Context, Service } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
@@ -22,10 +22,11 @@ class StubBashService extends Service {
 }
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
+  const agent = { session: { header: { cwd } } } as unknown as Agent
   const empty: Message[] = []
-  return await ctx.waterfall(
-    'agent/session-prefix', { session: { header: { cwd } } } as never,
-    empty, new AbortController().signal, () => Promise.resolve(empty),
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, new AbortController().signal,
+    () => Promise.resolve(empty),
   )
 }
 
@@ -180,6 +181,7 @@ describe('dsh-agent-core bundle', () => {
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
     const execution: ToolExecution = {
+      token: Symbol('agent-core-dsh-home-test') as ToolExecution['token'],
       callId: CallId('agent-core-dsh-home'),
       name: 'bash',
       arguments: { command: 'true' },

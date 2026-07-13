@@ -29,6 +29,14 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
 // the repo, so point it at the repo tsconfig (root is three levels up).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+// The real-API workflow runs up to 14 e2e files at once. Cold tsx/Loader
+// startup can therefore outlive a tight smoke-test deadline before the child
+// emits any output; 30s still detects a wedged process without confusing
+// bounded CI contention with a lifecycle failure.
+const PROCESS_TIMEOUT_MS = 30_000
+// Leave enough room for the process-owned timeout to report captured output
+// before Vitest aborts the test itself.
+const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
 
 let child: ChildProcessWithoutNullStreams | undefined
 let workdir: string | undefined
@@ -70,8 +78,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`cordis-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 30_000)
+      reject(new Error(`cordis-agent did not exit within ${PROCESS_TIMEOUT_MS / 1_000}s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, PROCESS_TIMEOUT_MS)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -90,5 +98,5 @@ describe('cordis-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('cordis-agent ready.')
-  }, 45_000)
+  }, TEST_TIMEOUT_MS)
 })

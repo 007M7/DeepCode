@@ -11,10 +11,12 @@
  * — there is no provider/type parameter in the model-facing schema. The model
  * sees only `{ description, prompt }`.
  *
- * The tool DESCRIPTION is derived from the bound provider's context contract
- * ({@link providerWording}): a fresh-context provider (spawn, ACP) gets the
- * standalone-prompt wording, an inheriting provider (fork) tells the model the
- * child already sees the conversation's completed turns. The tool MIRRORS the
+ * The tool DESCRIPTION is derived from the bound provider's conversation-history
+ * descriptor ({@link providerWording}): a fresh-conversation provider (spawn,
+ * ACP) gets the standalone-prompt wording, while a seeded-conversation provider
+ * (fork) tells the model the child already sees the conversation's completed
+ * turns. This descriptor says nothing about Cordis scope, services, tools, or
+ * authority. The tool MIRRORS the
  * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
  * when the provider is (or becomes) available and unregisters when the
  * provider goes away — so no load-order requirement exists and an HMR reload
@@ -35,6 +37,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent'
@@ -54,19 +57,69 @@ export interface Config {
   toolName?: string
   /**
    * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults. There is no
-   * per-child persona: the deployment persona (the system-prompt plugin's
-   * `persona` config) is a context-wide section every agent shares.
+   * Omitted fields fall back to the child loop's own defaults.
    */
   agentOptions?: AgentOptions
+  /**
+   * Per-child persona applied to every child this tool spawns: a scoped
+   * `deployment:persona` section shadowing the deployment's persona for the
+   * child alone. Requires the bound provider's `persona` capability
+   * (in-process backends support it; a request against one that doesn't is
+   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   */
+  persona?: string
+  /**
+   * Tool scoping applied to every child this tool spawns (see
+   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
+   * the child's prompt AND refuse to execute. Requires the provider's
+   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
+   * child otherwise sees every global tool — including this delegation tool
+   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
+   * bounds recursion.
+   */
+  toolFilter?: {
+    /** Global tool names the child keeps; everything else is removed. */
+    allow?: string[]
+    /** Global tool names removed from the child. */
+    deny?: string[]
+  }
+  /**
+   * Recursion cap applied to every child this tool spawns (see
+   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
+   * than this in the delegation tree is rejected. Requires the provider's
+   * `depthLimit` capability. Must be a non-negative safe integer and is
+   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
+   * deployments that expose this tool to children).
+   */
+  maxDepth?: number
 }
 
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
+  // Omitted-object discipline (see the toolFilter note below): without the
+  // forced default an omitted `agentOptions` materializes `{}`, which reads as
+  // present — the request would carry `agentOptions: {}` and the presence
+  // check in execute() could never be false through config.
   agentOptions: z.object({
     model: z.string(),
-  }),
+  }).default(undefined as unknown as { model: string }),
+  persona: z.string(),
+  // A schemastery object materializes {} (with [] for nested arrays) when the
+  // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
+  // deny-everything, silently. Force the omitted key to stay absent (the same
+  // shape discipline as SystemPrompt's toolOrder); the cast is needed because
+  // .default() expects the object type.
+  // The NESTED arrays get the same treatment as the object itself: a partial
+  // filter ({deny: […]}) must not materialize allow: [] beside it — an empty
+  // allow-list means deny-EVERYTHING, so the materialized default would turn
+  // a deny-one config into deny-all. An EXPLICIT allow: [] (grant-only
+  // children) survives, since only the omitted key defaults to undefined.
+  toolFilter: z.object({
+    allow: z.array(z.string()).default(undefined as unknown as string[]),
+    deny: z.array(z.string()).default(undefined as unknown as string[]),
+  }).default(undefined as unknown as { allow: string[]; deny: string[] }),
+  maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
 })
 
 /**
@@ -103,16 +156,19 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /**
- * Model-facing wording per context contract ({@link SubagentProvider.inheritsParentContext}).
+ * Model-facing wording from the provider's conversation-history descriptor
+ * ({@link SubagentProvider.inheritsParentContext}).
  * A fresh child needs a standalone prompt; a forked child already sees the
  * conversation's completed turns — telling the model to restate everything
  * (or, worse, that the child "does not see this conversation") would be false
  * for a fork. Exported for tests.
- * @param inherits - the bound provider's context contract.
+ * @param inheritsConversation - whether the child's conversation is seeded
+ *   with the parent's completed turns; this says nothing about tool, service,
+ *   scope, or authority inheritance.
  * @returns the tool `description` and the `prompt` parameter description.
  */
-export function providerWording(inherits: boolean): { description: string; promptDescription: string } {
-  if (inherits) {
+export function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
+  if (inheritsConversation) {
     return {
       description:
         'Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all '
@@ -139,6 +195,15 @@ export function providerWording(inherits: boolean): { description: string; promp
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Keep misconfiguration at plugin load even when a caller invokes apply()
+  // directly and bypasses Schemastery's natural/max metadata.
+  assertSubagentMaxDepth(config.maxDepth)
+  // Misconfiguration fails loud AT LOAD (the check is self-contained): an
+  // explicit `toolFilter: {}` would otherwise pass the capability gate and
+  // kill every delegation later, in the child-setup `restrict({})` throw.
+  if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
+    throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
+  }
   // The tool MIRRORS its provider's lifecycle instead of assuming load order:
   // the cordis Loader starts sibling entries concurrently, so "backend listed
   // first in cordis.yml" does not guarantee "provider registered first", and
@@ -177,21 +242,14 @@ export function apply(ctx: Context, config: Config): void {
         const request: SubagentStartRequest = {
           prompt: [{ type: 'text', text: args.prompt }],
           parent,
-          ...exec.signal ? { signal: exec.signal } : {},
-          ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+          signal: exec.signal ?? new AbortController().signal,
+          ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
+          ...config.persona !== undefined ? { persona: config.persona } : {},
+          ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+          ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
         }
 
-        const run: SubagentRun = ctx.subagents.start(config.provider, request)
-
-        // Bridge the tool's abort signal to the run: if the parent step is
-        // aborted while the child is in flight, cancel the child too.
-        const onAbort = (): void => { run.cancel('parent step aborted') }
-        exec.signal?.addEventListener('abort', onAbort, { once: true })
-        // `addEventListener` does NOT fire for a signal already aborted before this
-        // line, so a step cancelled before the tool ran would never reach the
-        // child. Cancel explicitly in that case — the bridge must honor an
-        // already-aborted signal, not lean on each provider re-checking it.
-        if (exec.signal?.aborted) run.cancel('parent step aborted')
+        const run: SubagentRun = await ctx.subagents.start(config.provider, request)
 
         try {
           const result = await run.result
@@ -203,7 +261,6 @@ export function apply(ctx: Context, config: Config): void {
           }
           return [{ type: 'text', text: outputText(result.output) }]
         } finally {
-          exec.signal?.removeEventListener('abort', onAbort)
           // Always reach child quiescence — never leak a live idle child/session.
           await run.dispose()
         }

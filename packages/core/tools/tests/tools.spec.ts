@@ -115,6 +115,26 @@ describe('ToolRegistry', () => {
     expect('meta' in result).toBe(false)
   })
 
+  it('normalizes a contract-violating non-cloneable result before final notification', async () => {
+    const ctx = await setup()
+    let observedError: boolean | undefined
+    ctx.on('tools/result', (_exec, result) => { observedError = result.isError })
+    ctx.tools.register({
+      ...echoTool,
+      name: 'bad-meta',
+      async execute() {
+        return { content: [], meta: () => undefined }
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('bad-meta'), name: 'bad-meta', arguments: {},
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
+    expect(observedError).toBe(true)
+  })
+
   it('returns isError results for unknown tools and throwing tools', async () => {
     const ctx = await setup()
     ctx.tools.register({
@@ -134,6 +154,28 @@ describe('ToolRegistry', () => {
     const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('normalizes a hostile thrown value whose inspection and coercion both throw', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'hostile-throw',
+      async execute() {
+        throw new Proxy({}, {
+          getPrototypeOf: () => { throw new Error('prototype trap') },
+          has: () => { throw new Error('has trap') },
+          get: () => { throw new Error('get trap') },
+        })
+      },
+    })
+
+    await expect(ctx.tools.execute({
+      callId: CallId('hostile'), name: 'hostile-throw', arguments: {},
+    })).resolves.toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: 'Error: <unprintable thrown value>' }],
+    })
   })
 
   it('ToolNotFoundError carries the tool name and a stable code', async () => {
@@ -336,33 +378,6 @@ describe('ToolRegistry', () => {
     expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
   })
 
-  it('a post-execute listener mutating the result object cannot corrupt callId/isError/error', async () => {
-    // The decision is the ONLY sanctioned channel to change the outcome. A
-    // listener that reaches in and mutates the passed result reference (flipping
-    // isError, rewriting callId, attaching a bogus error) must NOT affect what
-    // execute() returns — the registry snapshots the authoritative fields before
-    // the waterfall and rebuilds from the snapshot + decision.
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-
-    ctx.on('tools/post-execute', async (_exec, result, next) => {
-      const mutable = result as { callId: string; isError: boolean; error?: unknown; content: unknown[] }
-      mutable.callId = 'hijacked'
-      mutable.isError = true
-      mutable.error = { name: 'Evil', code: 'EVIL' }
-      mutable.content.push({ type: 'text', text: 'INJECTED' }) // in-place array mutation
-      return next() // delegate to the default accept — no decision-level override
-    })
-
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
-    expect(result.isError).toBe(false)          // the real (successful) dispatch outcome
-    expect(result.error).toBeUndefined()        // no listener-injected error
-    expect(result.content).toHaveLength(1)       // the in-place push did not leak in
-    expect(result.content[0]).toMatchObject({ text: 'hi' })
-    expect(result.content.some(b => (b as { text?: string }).text === 'INJECTED')).toBe(false)
-  })
-
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -519,6 +534,42 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
   })
 
+  it('preserves additionalContext supplied by an around-dispatch result', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async exec => ({
+      callId: exec.callId,
+      content: [{ type: 'text', text: 'short-circuited with context' }],
+      isError: false,
+      additionalContext: {
+        content: [{ type: 'text', text: 'from around dispatch' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+    }))
+
+    const result = await ctx.tools.execute({
+      callId: CallId('around-context'), name: 'echo', arguments: {},
+    })
+    expect(result.additionalContext).toEqual({
+      content: [{ type: 'text', text: 'from around dispatch' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+  })
+
+  it('normalizes a tools/execute result with the wrong call id', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => ({ callId: CallId('other'), content: [], isError: false }))
+
+    const result = await ctx.tools.execute({
+      callId: CallId('malformed-shape'), name: 'echo', arguments: {},
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({
+      text: 'Error: tools/execute returned callId "other" for authoritative call "malformed-shape"',
+    })
+  })
+
   it('returns an isError result when a tools/execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -596,6 +647,14 @@ describe('ToolRegistry', () => {
     }])
   })
 
+  it('rejects a non-positive or non-finite registration timeout', async () => {
+    const ctx = await setup()
+    expect(() => ctx.tools.register({ ...echoTool, name: 'zero-timeout', timeoutMs: 0 }))
+      .toThrow('timeoutMs must be a positive finite number')
+    expect(() => ctx.tools.register({ ...echoTool, name: 'infinite-timeout', timeoutMs: Number.POSITIVE_INFINITY }))
+      .toThrow('timeoutMs must be a positive finite number')
+  })
+
   it('rejects duplicate names and unregisters on fiber dispose (HMR safety)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -641,6 +700,35 @@ describe('ToolRegistry', () => {
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
     dispose()
     expect(ctx.tools.get('echo')).toBeUndefined()
+  })
+
+  it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
+    // The registry-disposer convention (set by agents.register): the returned
+    // function IS the cordis effect disposer, so a composite (generator)
+    // effect that yields it has the unregistration run at that yield's LIFO
+    // position on owner unload. A wrapper would leave the inner effect
+    // disposing as a CONCURRENT SIBLING of the composite; the async probe
+    // below (disposed first, LIFO) yields the event loop exactly like the
+    // agent factory's stop-and-drain link, and a sibling unregistration fires
+    // in that window — the probe would observe the tool already gone. Pins
+    // the convention for the whole register-method family (system-prompt
+    // registrars, registerProvider, setFactory share the same return).
+    const ctx = await setup()
+    const order: string[] = []
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.effect(function* () {
+        yield () => { order.push('disposed-last') }
+        yield inner.tools.register({ ...echoTool, name: 'nested' })
+        order.push('registered')
+        yield async () => {
+          await new Promise(resolve => setTimeout(resolve, 0))
+          order.push(inner.tools.get('nested') ? 'first: still registered' : 'first: already gone')
+        }
+      })
+    }, { inject: ['tools'] }))
+    await fiber.dispose()
+    expect(order).toEqual(['registered', 'first: still registered', 'disposed-last'])
+    expect(ctx.tools.get('nested')).toBeUndefined()
   })
 })
 

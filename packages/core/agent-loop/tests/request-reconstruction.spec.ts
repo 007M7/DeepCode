@@ -222,7 +222,7 @@ describe('request stability across the loop', () => {
     // one's full log (the resume/fork path).
     const adapter2 = new MockAdapter([textResponse('two')])
     const ctx2 = await harness(adapter2)
-    const handle = ctx2.agents.create({
+    const handle = await ctx2.agents.create({
       agentId: AgentId('gen2'),
       sessionId: SessionId('gen2-session'),
       seed: [...agent.session.events],

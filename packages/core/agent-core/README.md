@@ -13,7 +13,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-llm              abstract LLM service + content-block vocabulary
 @deepseek-ai/dsh-session          event-sourced session log + store
 @deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
-@deepseek-ai/dsh-tools            tool registry + tools/pre-execute/post-execute
+@deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary

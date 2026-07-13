@@ -11,6 +11,7 @@ afterEach(() => vi.unstubAllEnvs())
 
 function execution(sessionId?: string): ToolExecution {
   return {
+    token: Symbol('bash-env-test') as ToolExecution['token'],
     callId: CallId('bash-env-call'),
     name: 'bash',
     arguments: { command: 'true' },

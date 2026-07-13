@@ -61,7 +61,7 @@ return { prose, containsFour: judged === null ? null : judged.containsFour }`
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key e2e', () => {
   it('runs a two-phase script in a worker thread over real children, one through the structured runtime', async () => {
     ctx = await harness()
-    const parentHandle = ctx.agents.create({
+    const parentHandle = await ctx.agents.create({
       agentId: AgentId('wf-worker-e2e-parent'),
       sessionId: 'wf-worker-e2e-session' as never,
       agentOptions: { model: 'deepseek-v4-flash' },

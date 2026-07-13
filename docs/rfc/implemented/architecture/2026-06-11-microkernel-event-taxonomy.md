@@ -10,9 +10,10 @@ The product principle is "everything is a plugin": hooks, /goal, /loop, dynamic 
 
 Pure Cordis event taxonomy. The loop's extension seams are typed events with deliberate dispatch modes:
 
-- **waterfall** (around-middleware) where plugins mutate or veto: `agent/prompt-submit`, `agent/request`, `agent/step-result`, `agent/turn-continuation`, `tools/pre-execute`, `tools/post-execute`, `llm/stream`, `system-prompt/assemble`.
-- **emit** (sync fire-and-forget) for notifications: turn/step boundaries, stream chunks, lifecycle, errors.
-- **parallel** (awaited) for the one durability checkpoint: `session/flush`.
+- **waterfall** (around-middleware) where plugins transform, veto, or wrap: `agent/prompt-submit`, `agent/request`, `agent/step-result`, `agent/turn-continuation`, `tools/pre-execute`, `tools/execute`, `tools/post-execute`, `llm/stream`, `system-prompt/assemble`.
+- **serial** (awaited in listener order; a bail value stops later listeners) for ordered checkpoints: every `agent/pre-step` listener runs when all abstain, while the first stop returned from `agent/turn-stop` makes the terminal decision final.
+- **parallel** (awaited fan-out) where every listener must get an independent chance: the `session/flush` durability checkpoint.
+- **emit** (synchronous fire-and-forget) for notifications: turn/step boundaries, stream chunks, lifecycle, errors, and the contained immutable `tools/result` observation.
 
 The event vocabulary lives in interface packages (dsh-agent declares the agent/* events); `@deepseek-ai/dsh-agent-loop` is the only concrete loop plugin and is itself swappable — nothing outside it may depend on it.
 
