@@ -257,7 +257,7 @@ Source: [`packages/core/session/src/types.ts:337`](../packages/core/session/src/
 
 #### `tool/code-dispatch` — log-only
 
-One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized BEFORE dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text. Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter model context; persistence and UIs get every call. Appended inside the parent `run_code`'s execution (the bridge drains its queue before returning), so the turn-enclosure invariant holds by construction.
+One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized BEFORE dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text. Before bounding, occurrences of a non-root session workspace path are normalized to `.` so host-specific absolute path lengths cannot change the summary. Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter model context; persistence and UIs get every call. Appended inside the parent `run_code`'s execution (the bridge drains its queue before returning), so the turn-enclosure invariant holds by construction.
 
 ```ts persistence-catalog
 'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
@@ -265,7 +265,7 @@ One bridged sub-dispatch from a `run_code` program: the parent `run_code` call i
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:36`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:40`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 

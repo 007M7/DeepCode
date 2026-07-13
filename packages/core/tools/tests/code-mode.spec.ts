@@ -70,10 +70,11 @@ function registerEcho(ctx: Context, name = 'echo'): unknown[] {
 }
 
 /** A structural fake of the owning agent: captures session appends. */
-function fakeAgent(): { agent: Agent; events: { type: string; data: unknown }[] } {
+function fakeAgent(options: { cwd?: string } = { cwd: '/workspace' }): { agent: Agent; events: { type: string; data: unknown }[] } {
   const events: { type: string; data: unknown }[] = []
   const agent = {
     session: {
+      header: options.cwd === undefined ? {} : { cwd: options.cwd },
       append: (type: string, data: unknown) => { events.push({ type, data }) },
     },
   } as unknown as Agent
@@ -545,6 +546,52 @@ describe('the run_code dispatch bridge', () => {
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
     expect(dispatch.resultSummary.length).toBe(201)
     expect(dispatch.resultSummary.endsWith('…')).toBe(true)
+  })
+
+  it('normalizes the session workspace root before bounding durable result summaries', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'workspace_path',
+      description: 'Return a path beneath the session workspace.',
+      parameters: {},
+      execute(_args, exec) {
+        const cwd = exec.agent?.session.header.cwd ?? ''
+        return Promise.resolve([{ type: 'text' as const, text: `<path>${cwd}/nested/task.txt</path>\n${'x'.repeat(240)}` }])
+      },
+    }))
+    runtime.behavior = async request => ({
+      logs: [],
+      value: await request.bindings[0]!.functions.workspace_path!({}),
+    })
+
+    const short = fakeAgent({ cwd: '/tmp/workspace' })
+    const long = fakeAgent({ cwd: `/tmp/${'long-segment/'.repeat(30)}workspace` })
+    const shortResult = await runCode(ctx, 'program', { agent: short.agent })
+    const longResult = await runCode(ctx, 'program', { agent: long.agent })
+    const shortDispatch = short.events[0]!.data as SessionEventMap['tool/code-dispatch']
+    const longDispatch = long.events[0]!.data as SessionEventMap['tool/code-dispatch']
+
+    expect(shortResult.content).not.toEqual(longResult.content)
+    expect(shortDispatch.resultSummary).toBe(longDispatch.resultSummary)
+    expect(shortDispatch.resultSummary).toHaveLength(201)
+    expect(shortDispatch.resultSummary).toMatch(/^<path>\.\/nested\/task\.txt<\/path>\n.+…$/)
+  })
+
+  it('leaves result summaries unchanged when a session cwd is absent or is the filesystem root', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    runtime.behavior = async request => ({
+      logs: [],
+      value: await request.bindings[0]!.functions.echo!({ value: '/workspace/value' }),
+    })
+
+    const absent = fakeAgent({})
+    const root = fakeAgent({ cwd: '/' })
+    await runCode(ctx, 'program', { agent: absent.agent })
+    await runCode(ctx, 'program', { agent: root.agent })
+
+    expect((absent.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
+    expect((root.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
   })
 
   it('rejects undefined, JSON-throwing, and JSON-unrepresentable binding arguments BEFORE dispatch', async () => {

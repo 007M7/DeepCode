@@ -11,6 +11,7 @@
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
+import { parse } from 'node:path'
 import { inspect } from 'node:util'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -27,7 +28,10 @@ declare module '@deepseek-ai/dsh-session' {
      * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
      * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
      * so this append can never fail on payload shape — whether the sub-call
-     * errored, and a bounded `resultSummary` of its model-facing text.
+     * errored, and a bounded `resultSummary` of its model-facing text. Before
+     * bounding, occurrences of a non-root session workspace path are
+     * normalized to `.` so host-specific absolute path lengths cannot change
+     * the summary.
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
      * parent `run_code`'s execution (the bridge drains its queue before
@@ -81,9 +85,12 @@ function textOf(content: ContentBlock[]): string {
     .join('\n')
 }
 
-/** Bound a sub-call's model-facing text for the log event's `resultSummary`. */
-function summarize(text: string): string {
-  return text.length > SUMMARY_MAX_CHARS ? `${text.slice(0, SUMMARY_MAX_CHARS)}…` : text
+/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
+function summarize(text: string, cwd: string | undefined): string {
+  const stableText = cwd === undefined || cwd === parse(cwd).root
+    ? text
+    : text.replaceAll(cwd, '.')
+  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
@@ -219,7 +226,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // this record from what it actually received.
             arguments: normalized.logged,
             isError: result.isError,
-            resultSummary: summarize(text),
+            resultSummary: summarize(text, exec.agent.session.header.cwd),
           })
           return { text, isError: result.isError }
         })
