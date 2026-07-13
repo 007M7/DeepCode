@@ -355,11 +355,15 @@ Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/s
 
 Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
 
+Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by `context.scope` — a listener registered through `agent.ctx` fires only for that agent's assemblies; a plain plugin listener fires for every assembly (scope-less ones included, dispatched subject-less).
+
+The returned assembly is authoritative. This is an expert composition seam: a listener that removes or replaces another plugin's protocol contribution owns preserving that protocol's invariants.
+
 ```ts cordis-catalog
 'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:45`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:49`](../../packages/core/system-prompt/src/index.ts)
 
 ### `system-prompt/change` — emit
 
@@ -369,7 +373,7 @@ A section, tool provider, or variable provider was registered or unregistered (t
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:55`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:59`](../../packages/core/system-prompt/src/index.ts)
 
 ## `tools/*`
 

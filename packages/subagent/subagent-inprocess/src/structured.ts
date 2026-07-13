@@ -16,14 +16,11 @@
  *
  * The child scope's registrations enforce the contract:
  *
- * - `ownerFinal: true` on the capture tool and instruction declares that the
- *   owning registrations control their final presence. Prompt assembly restores their canonical state
- *   after EVERY assembly listener. Canonical absence is protected too: pure
- *   Code Mode keeps `structured_output` in the SDK only and never grows a
- *   second native wire tool. Code Mode independently declares its SDK section
- *   and `run_code` transport owner-final. The loop logs the finalized assembly as the
- *   request header, so the demand is reconstructable log state, never a
- *   wire-only mutation.
+ * - The scoped capture tool and instruction are ordinary assembly inputs. The
+ *   loop logs the assembled request header, so the demand is reconstructable
+ *   log state rather than a wire-only mutation. As with every other assembly
+ *   contribution, an expert `system-prompt/assemble` listener that deliberately
+ *   removes or replaces either input owns the resulting composition.
  * - `agent/turn-stop` (serial, scoped): stop the child's turn once its output
  *   is captured. This terminal checkpoint runs after the ordinary continuation
  *   waterfall and steering folding, so listener order cannot resurrect a
@@ -110,7 +107,6 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
 
   childCtx.tools.register({
     ...schemaEntry,
-    ownerFinal: true,
     execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
       const violations = validateStructuredValue(schema, args)
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
@@ -128,7 +124,6 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     name: `tool:${STRUCTURED_OUTPUT_TOOL}`,
     order: 190,
     text: STRUCTURED_OUTPUT_INSTRUCTION,
-    ownerFinal: true,
   })
 
   // Stop the child's turn once its output is captured. This monotonic serial

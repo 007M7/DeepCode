@@ -98,35 +98,6 @@ describe('scoped tool registration', () => {
     expect(() => scope.ctx.tools.register(tool('y'))).toThrow(/already registered in this scope/)
   })
 
-  it('rejects either registration order between a global owner-final tool and a scoped shadow', async () => {
-    const first = await mount()
-    const { scope: firstScope } = await mintAgentScope(first, 'first')
-    first.tools.register({ ...tool('reserved'), ownerFinal: true })
-    expect(() => firstScope.ctx.tools.register(tool('reserved')))
-      .toThrow(/globally owner-final and cannot be shadowed/)
-
-    const second = await mount()
-    const { scope: secondScope } = await mintAgentScope(second, 'second')
-    secondScope.ctx.tools.register(tool('reserved'))
-    expect(() => second.tools.register({ ...tool('reserved'), ownerFinal: true }))
-      .toThrow(/owner-final tool "reserved" cannot be registered while a scoped shadow exists/)
-  })
-
-  it('restores global and scoped owner-final tools removed by assembly middleware', async () => {
-    const ctx = await mount()
-    const { scope, key } = await mintAgentScope(ctx, 'owner-final')
-    ctx.tools.register({ ...tool('required'), ownerFinal: true })
-    scope.ctx.tools.register({ ...tool('scoped-required'), ownerFinal: true })
-    ctx.on('system-prompt/assemble', async assembly => ({
-      ...assembly,
-      tools: assembly.tools.filter(schema => !schema.name.includes('required')),
-    }))
-
-    expect((await ctx.systemPrompt.assemble()).tools.map(schema => schema.name)).toContain('required')
-    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(schema => schema.name))
-      .toEqual(expect.arrayContaining(['required', 'scoped-required']))
-  })
-
   it('disposing the scope unwinds its registrations and leaves no residue', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

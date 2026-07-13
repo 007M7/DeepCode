@@ -12,7 +12,7 @@ The implementation needs enough state to preserve real ownership and settlement 
 
 ## Decision
 
-The runtime uses one mechanism per independent fact. Scope routing has an opaque carrier; each live registry object has one entry record; each create or resume operation has one transaction; typed same-process calls borrow readonly values; real data boundaries materialize once; and worker/process code retains separate terminal and quiescence state only where different owners can genuinely race.
+The runtime uses one mechanism per independent fact. Scope routing has an opaque carrier; each live registry object has one entry record; each create or resume operation has one transaction; typed same-process calls borrow readonly values; real data boundaries materialize once; the cooperative prompt-assembly result is authoritative; and worker/process code retains separate terminal and quiescence state only where different owners can genuinely race.
 
 The design can be skimmed as seven choices:
 
@@ -23,7 +23,7 @@ The design can be skimmed as seven choices:
 | Coordinate create/resume | One `AgentCreationTransaction` |
 | Protect durable, queued, model, or wire data | Materialize once at that boundary |
 | Pass typed values inside one process | Readonly borrowed contract |
-| Preserve an owner's final prompt/tool policy | Contribution-owned finality and one final observer point |
+| Compose the model-visible prompt and tool surface | One shared tool view plus the authoritative assembly-waterfall result |
 | Coordinate subagent, worker, and process shutdown | One cancellation signal plus the independent terminal/quiescence facts of that boundary |
 
 The rest of this RFC expands those choices in dependency order. It first explains the Cordis mechanics, then scope routing, creation and session commit, tools and prompts, subagents and workflows, and finally the checks that make the reasoning executable.
@@ -198,13 +198,13 @@ Tests that fabricate hostile getters, replace typed callbacks after handoff, or 
 
 Callback containment is separate from data ownership. Listeners are arbitrary extension code and can throw even when their arguments are trusted; publication and post-commit paths still contain failures according to their event contract.
 
-## Tools and prompts: one view, one execution identity, explicit finality
+## Tools and prompts: one view, authoritative assembly, committed outcomes
 
-Tool presentation and execution share one private resolver, while prompt/tool owners declare the few contributions that cooperative middleware may not alter finally. No second registry mirrors ownership.
+Tool presentation and execution share one private resolver. Prompt assembly remains trusted cooperative composition: registries supply the ordered input, and the assembly waterfall's returned value is exactly what the loop logs and sends. Execution uses separate one-way boundaries only where policy or outcome settlement must be monotonic.
 
 ### One resolver defines the tool view
 
-The private resolver applies the current presentation mode, live global restrictions, exact local overlay, and local shadowing. Schemas, lookup, execution, Code Mode SDK generation, restriction validation, and owner-final name derivation all use that resolver or its pre-restriction global-name view.
+The private resolver applies the current presentation mode, live global restrictions, exact local overlay, and local shadowing. Schemas, lookup, execution, Code Mode SDK generation, and restriction validation all use that resolver or its pre-restriction global-name view.
 
 The [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md#tool-filtering-is-one-live-global-view-rule) owns the user-visible allow/deny semantics. The implementation requirement is agreement: a filtered-away global cannot remain executable through a different lookup path, and a locally shadowed definition is the same definition presented and executed.
 
@@ -220,21 +220,17 @@ Arguments are materialized once where model/tool JSON enters the pipeline. Pre-,
 
 After the last post-execute listener, the registry materializes and freezes the accepted final result once. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline failure is normalized into a committed error result, so observers can discard staged work against the same authoritative boundary.
 
-### Contribution-owned finality protects only named invariants
+### The assembly waterfall owns the final model-visible composition
 
-Most prompt assembly remains a cooperative waterfall: listeners may reorder, replace, or remove ordinary sections and schemas. A contribution sets `ownerFinal: true` only when its owner must retain final control over that named entry.
+SystemPrompt first resolves the global-plus-agent sections, variables, and tool providers into a deterministic registry contribution. The scope-filtered `system-prompt/assemble` waterfall may then reorder, replace, add, or remove any section, variable, or schema. Its returned assembly is authoritative; there is no later restoration pass and no finality metadata on ordinary prompt sections, tool definitions, or provider results.
 
-Prompt sections carry owner-finality directly. Tool definitions carry it through the tool provider's `ownerFinalNames`, including canonical absence when a presentation mode intentionally omits a tool. `tools:sdk`, `run_code`, and structured-output instruction/schema contributions use this flag.
+This is a trusted same-process extension seam, not an authority boundary. A listener that changes Code Mode's `run_code` schema or `tools:sdk` instructions, or a structured child's capture schema or instruction, owns preserving a coherent protocol in the assembly it returns. ToolRegistry still reserves `run_code` against ordinary tool registration and restriction because those are registry invariants, but assembly middleware remains free to transform the final model-visible surface.
 
-An owner-final name is reserved across the global and scoped layers: a scoped shadow cannot be added beneath a global owner-final contribution, and a global contribution cannot become owner-final while any scoped shadow already exists. This makes the registered owner definition unambiguous before assembly begins.
-
-Assembly takes one private canonical snapshot before the waterfall. After listeners finish, it restores only owner-final names to their canonical presence, absence, definition, and relative anchor among surviving entries. Unrelated listener additions and reordering remain untouched.
-
-Attaching finality to the owning contribution has two benefits. Registration and cleanup cannot drift from a separate protection registry, and the reader can see why a particular prompt/tool entry is special at its definition.
+Scope solves the real isolation problem directly. Structured-output contributions register in the child's exact scope, while Code Mode derives its transport and SDK from the same resolved tool view. A second named-protection system would need another ownership and collision rule across arbitrary schema providers—including providers that intentionally contribute duplicate names—without creating a new trust boundary.
 
 ### Structured output commits only authoritative outcomes
 
-Structured output uses the final prompt/tool boundaries as a two-phase commit. The child-scoped `structured_output` tool and its instruction are owner-final; the tool body validates a candidate and stages it by the current `ToolExecution`, but successful capture is decided only by immutable `tools/result` observations.
+Structured output combines child-scoped composition with a two-phase execution commit. The child registers its `structured_output` tool and instruction before publication; a trusted assembly listener may transform those ordinary contributions and is responsible for preserving the protocol if the child is expected to complete. The tool body validates a candidate and stages it by the current `ToolExecution`, but successful capture is decided only by immutable `tools/result` observations.
 
 For a native call, the observer deletes the stage and commits its value only when that exact execution's final result succeeds. A post-execute block or outer pipeline failure therefore cannot leave a captured value behind.
 
@@ -242,20 +238,19 @@ For a Code Mode SDK call, the inner successful result records `{ parentToken, va
 
 Once a value is pending or committed, a scoped monotonic guard denies later tool calls. After commit, the ordinary serial `agent/turn-stop` listener returns a stop decision after continuation and steering have already folded. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
 
-Pure Code Mode omits `structured_output` from native wire schemas and exposes it through the generated SDK. Contribution-owned finality preserves that canonical absence, preventing an assembly listener from fabricating a second native route while keeping the instruction and SDK declaration intact.
+Pure Code Mode's registry contribution omits `structured_output` from native wire schemas and exposes it through the generated SDK. The assembly waterfall may deliberately change that presentation; execution still validates against the child-scoped definition, and the listener owns the consistency of any alternate model-visible route it creates.
 
-### Four final boundaries have four narrow powers
+### Three execution boundaries are deliberately one-way
 
-Owner-final behavior is not a general priority system. Four domain owners need four different one-way powers after cooperative extension points:
+Prompt assembly is intentionally cooperative, but three execution facts need one-way settlement after their extensible stages:
 
 | Boundary | Final power | Why ordinary listener order is insufficient |
 |---|---|---|
-| Prompt assembly | Restore named canonical contributions | A later listener can remove or replace an invariant schema or instruction |
 | Tool pre-policy | Deny monotonically | A later listener must not re-allow an already denied call |
 | Tool result | Observe the immutable committed outcome | Structured output must commit only the result that actually escaped the pipeline |
 | Turn continuation | Stop after ordinary continuation folding | A committed terminal output must end the turn |
 
-`ToolGuard` remains the monotonic policy registry. Final tool observation is the contained `tools/result` point described above. Terminal structured output listens on the ordinary serial `agent/turn-stop` fold after normal continuation and steering decisions; no public `strictSerial()` dispatcher is needed for the typed listener contract.
+`ToolGuard` is the monotonic policy registry. Committed tool observation is the contained `tools/result` point described above. Terminal structured output listens on the ordinary serial `agent/turn-stop` fold after normal continuation and steering decisions; no public `strictSerial()` dispatcher is needed for the typed listener contract.
 
 ### Skill and approval services trust typed callers
 
@@ -335,7 +330,7 @@ The plugin does not police trusted setup by scanning registries or reject prompt
 
 The event catalog, service catalog, producer/consumer matrix, configuration catalog, module graph, tool catalog, and type-equivalence blocks are generated or freshness-gated from source. `verify-scoped-dispatch` keeps the declared scoped-event set aligned with runtime invariant coverage.
 
-Behavioral tests pin scoped routing and disposal, final-entry collision cleanup, publication rollback, ordered quiescence, durable pre/post-commit behavior, live tool filtering across presentation and execution, owner-final Code Mode and structured output, async subagent startup and signal cancellation, worker terminal arbitration, ACP settlement, and process teardown.
+Behavioral tests pin scoped routing and disposal, final-entry collision cleanup, publication rollback, ordered quiescence, durable pre/post-commit behavior, live tool filtering across presentation and execution, cooperative prompt assembly, structured-output commit in native and Code Mode, async subagent startup and signal cancellation, worker terminal arbitration, ACP settlement, and process teardown.
 
 ## Alternatives considered
 
@@ -361,9 +356,9 @@ Parallel sentinels can all mirror whether one operation is live. One transaction
 
 This splits provider acceptance from readiness and forces every consumer to register a partial run, attach result observation, await readiness, and clean up readiness failure. An async start promise makes provider-to-caller ownership transfer the readiness boundary itself.
 
-### Keep a separate prompt-protection registry
+### Restore selected prompt or tool contributions after assembly
 
-A protection registration mirrors the names and lifetime already owned by prompt sections and tool definitions. `ownerFinal` keeps the exceptional policy on the contribution and lets assembly derive the canonical set directly.
+A post-waterfall restoration pass would create a second composition rule after the documented cooperative seam. Correctly assigning canonical presence or absence would also require provider ownership and collision rules for arbitrary tool-schema providers, whose ordinary output may contain duplicate names. Scoped registration already supplies the required per-agent isolation, and trusted assembly listeners own the protocol consistency of what they return, so named restoration adds machinery without establishing an independent boundary.
 
 ### Remove worker/process lifecycle guards with same-process hardening
 
@@ -379,14 +374,16 @@ The implementation is smaller and its proof follows the same shape as its owners
 - Create and resume expose no partially configured handle; final-entry losers and publication failures clean every prepared resource.
 - Disposal retains scoped listeners and persistence through driver drain and final session work, then revokes the scope.
 - Durable, queued, model, worker, process, and wire values are owned at their real boundary; typed same-process values follow readonly contracts.
-- Tool presentation and execution resolve the same live view, and committed results have one immutable observation point.
-- Owner-final prompt/tool contributions survive cooperative assembly without freezing unrelated middleware behavior.
+- ToolRegistry's presentation, lookup, and execution resolve the same live view before expert assembly transforms, and committed results have one immutable observation point.
+- Registry contributions are deterministic inputs, while the trusted assembly waterfall owns the final model-visible composition.
 - Subagent start returns only a ready run, required signals cancel pending or live work, and disposal reaches the backend's quiescence contract.
 - Worker/process result precedence and cleanup remain correct under death, late messages, and bounded teardown.
 
 ### Costs and limits
 
 Scope-aware services still maintain global and identity-keyed maps, and operations must carry their real agent explicitly. Async create/resume and subagent start require callers to await ownership transfer and dispose returned handles.
+
+A trusted `system-prompt/assemble` listener can remove or replace Code Mode and structured-output protocol pieces. This is deliberate: the listener owns final composition and must preserve any protocol the deployment expects to remain usable.
 
 The design trusts typed plugins in the same process. It does not defend against arbitrary casts, stateful getters, mutation that violates readonly contracts, or a plugin deliberately using ambient service access outside the supported composition API.
 

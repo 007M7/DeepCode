@@ -131,7 +131,6 @@ function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
 export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime): ToolDefinition {
   return defineTool({
     name: RUN_CODE_NAME,
-    ownerFinal: true,
     description:
       'Execute a TypeScript program against the available tools. Write the BODY of an '
       + 'async function (erasable syntax only; top-level `await` and `return` work) and '
