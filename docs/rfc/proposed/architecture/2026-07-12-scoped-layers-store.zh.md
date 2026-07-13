@@ -48,7 +48,7 @@ export class ScopedLayers<L extends ScopeLayer> {
   values<T>(scope: ScopeKey | undefined, pick: (layer: L) => EntryValues<T>): T[]
   keys<T>(scope: ScopeKey | undefined, pick: (layer: L) => NamedEntries<T>): string[]
   some(fn: (layer: L, scope: ScopeKey | undefined) => boolean): boolean
-  effect(ctx: Context, action: (layer: L) => () => void, options: { label: string; silent?: boolean }): () => Promise<void> | void
+  effect(ctx: Context, action: (layer: L) => () => void, options: { label: string; silent?: boolean }): () => void
 }
 
 export interface EntryValues<V> {
@@ -98,7 +98,7 @@ class ToolRegistry extends Service {
     { onChange: () => this.ctx.emit('tools/change') },
   )
 
-  register(definition: ToolDefinition): () => Promise<void> | void {
+  register(definition: ToolDefinition): () => void {
     return this.layers.effect(this.ctx,
       layer => layer.tools.insert(definition.name, definition),
       { label: 'tools.register()' })
