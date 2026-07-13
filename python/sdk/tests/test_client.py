@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import sys
 import threading
 import time
@@ -119,6 +120,45 @@ for line in sys.stdin:
 
     assert result.status == "ok"
     assert seen == ["subagent.started", "session.finished"]
+
+
+def test_relative_cwd_is_absolute_in_process_environment_and_wire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "capture_cwd.py"
+    capture = tmp_path / "cwd.json"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get("method") == "initialize":
+        json.dump({"process": os.getcwd(), "environment": os.environ.get("DSH_CWD"), "wire": msg["params"]["cwd"]}, open(os.environ["CAPTURE"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
+    elif msg.get("method") == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with DeepSeekHarness(
+        cwd=".",
+        runtime_cwd=".",
+        launch_args_override=(sys.executable, str(script)),
+        env={"CAPTURE": str(capture)},
+    ):
+        pass
+
+    expected = str(tmp_path.resolve())
+    assert json.loads(capture.read_text()) == {
+        "process": expected,
+        "environment": expected,
+        "wire": expected,
+    }
 
 
 def test_session_run_includes_subagent_finished_for_parent_session(tmp_path: Path) -> None:
@@ -293,7 +333,7 @@ for line in sys.stdin:
         init = client.initialize(cwd="/workspace", model="dsagent")
         assert init.serverInfo.name == "fake-dsh"
 
-        client.session_prompt("main", [{"type": "text", "text": "fix it"}], profile="build")
+        client.session_prompt("main", [{"type": "text", "text": "fix it"}])
         notification = client.next_notification()
         assert notification.method == "llm/request"
         assert notification.payload["requestId"] == "req-1"
@@ -339,7 +379,7 @@ for line in sys.stdin:
     with HarnessClient(HarnessConfig(launch_args_override=(sys.executable, str(script)))) as client:
         client.initialize(cwd="/workspace", model="dsagent")
         with pytest.raises(ValueError):
-            client.session_prompt("main", [{"type": "text", "text": "fix it"}], profile="build")
+            client.session_prompt("main", [{"type": "text", "text": "fix it"}])
 
 
 def test_client_routes_bridge_requests_and_sends_responses(tmp_path: Path) -> None:
@@ -434,8 +474,11 @@ def test_client_close_times_out_when_shutdown_does_not_respond(tmp_path: Path) -
     script.write_text(
         """
 import json
+import signal
 import sys
 import time
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
 for line in sys.stdin:
     msg = json.loads(line)
@@ -453,10 +496,56 @@ for line in sys.stdin:
         )
     )
     client.start()
+    proc = client._proc
+    assert proc is not None
     client.initialize(cwd="/workspace", model="dsagent")
     start = time.monotonic()
     client.close()
     assert time.monotonic() - start < 2
+    assert proc.poll() is not None
+    assert client._proc is None
+
+
+def test_initialize_failure_reaps_started_runtime(tmp_path: Path) -> None:
+    script = tmp_path / "rejecting_runtime.py"
+    script.write_text(
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get("method") == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32000, "message": "bad initialize"}}), flush=True)
+    elif msg.get("method") == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    client = HarnessClient(HarnessConfig(launch_args_override=(sys.executable, str(script))))
+    client.start()
+    proc = client._proc
+    assert proc is not None
+
+    with pytest.raises(Exception, match="bad initialize"):
+        client.initialize(cwd=".", model="dsagent")
+
+    assert proc.wait(timeout=1) is not None
+    assert client._proc is None
+
+
+def test_public_signatures_omit_unsupported_wire_parameters() -> None:
+    from deepseek_harness import DeepSeekHarnessConfig, Session
+
+    assert "session_root" not in inspect.signature(HarnessClient.initialize).parameters
+    assert "system_prompt" not in inspect.signature(HarnessClient.initialize).parameters
+    assert "profile" not in inspect.signature(HarnessClient.session_prompt).parameters
+    assert "profile" not in inspect.signature(DeepSeekHarness.run).parameters
+    assert "profile" not in inspect.signature(Session.run).parameters
+    assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "client_name" not in HarnessConfig.__dataclass_fields__
+    assert "client_version" not in HarnessConfig.__dataclass_fields__
 
 
 def test_client_close_is_idempotent_before_and_after_start(tmp_path: Path) -> None:

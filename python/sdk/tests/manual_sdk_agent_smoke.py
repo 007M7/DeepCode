@@ -66,7 +66,6 @@ def run_smoke(repo_root: Path, keep_sessions: bool) -> None:
             runtime_cwd=str(repo_root),
             session_root=str(session_root),
             cordis=str(bundled_default_config_path()),
-            system_prompt="You are running a Python SDK smoke test.",
             launch_args_override=("node", "--import", "tsx", str(runtime_entry)),
             env={
                 "DEEPSEEK_BASE_URL": base_url,
@@ -78,7 +77,6 @@ def run_smoke(repo_root: Path, keep_sessions: bool) -> None:
             result = harness.run(
                 "Please reply with a short confirmation and do not call tools.",
                 session_id="sdk-smoke-main",
-                profile="build",
             )
         print(f"turn_status={result.status}")
         print(f"final_response={result.final_response}")

@@ -23,14 +23,11 @@ class DeepSeekHarnessConfig:
     runtime_cwd: str | None = None
     session_root: str | None = None
     cordis: str | None = None
-    system_prompt: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     runtime_bin: str | None = None
     launch_args_override: tuple[str, ...] | None = None
     request_timeout_seconds: float | None = None
     shutdown_timeout_seconds: float | None = 1.0
-    client_name: str = "deepseek_harness_python_sdk"
-    client_version: str = "0.0.0-dev"
     base_url: str | None = None
     api_key: str | None = None
 
@@ -52,8 +49,9 @@ class DeepSeekHarness:
         if config is not None and kwargs:
             raise TypeError("pass either DeepSeekHarnessConfig or keyword options, not both")
         self.config = config or DeepSeekHarnessConfig(**kwargs)
-        cwd = self.config.cwd or str(Path.cwd())
-        runtime_cwd = self.config.runtime_cwd or cwd
+        cwd = str(Path(self.config.cwd or Path.cwd()).resolve())
+        runtime_cwd = str(Path(self.config.runtime_cwd).resolve()) if self.config.runtime_cwd is not None else cwd
+        self._cwd = cwd
         env = dict(self.config.env)
         if self.config.session_root is not None:
             env["DSH_SESSION_ROOT"] = self.config.session_root
@@ -73,8 +71,6 @@ class DeepSeekHarness:
                 env=env,
                 request_timeout_seconds=self.config.request_timeout_seconds,
                 shutdown_timeout_seconds=self.config.shutdown_timeout_seconds,
-                client_name=self.config.client_name,
-                client_version=self.config.client_version,
             )
         )
         self._initialized = False
@@ -95,10 +91,8 @@ class DeepSeekHarness:
             return
         self._client.start()
         self._client.initialize(
-            cwd=self.config.cwd or str(Path.cwd()),
+            cwd=self._cwd,
             model=self.config.model,
-            session_root=self.config.session_root,
-            system_prompt=self.config.system_prompt,
         )
         self._initialized = True
 
@@ -115,10 +109,9 @@ class DeepSeekHarness:
         input: str | list[JsonObject],
         *,
         session_id: str | None = None,
-        profile: str | None = None,
         on_notification: Callable[[Notification], None] | None = None,
     ) -> TurnResult:
-        return self.start_session(session_id).run(input, profile=profile, on_notification=on_notification)
+        return self.start_session(session_id).run(input, on_notification=on_notification)
 
 
 class Session:
@@ -130,7 +123,6 @@ class Session:
         self,
         input: str | list[JsonObject],
         *,
-        profile: str | None = None,
         on_notification: Callable[[Notification], None] | None = None,
     ) -> TurnResult:
         content_blocks = normalize_input(input)
@@ -156,7 +148,6 @@ class Session:
             self.harness.client.session_prompt(
                 self.id,
                 content_blocks,
-                profile=profile,
                 on_notification=collect,
                 notification_subscription=subscription,
             )

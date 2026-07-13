@@ -9,6 +9,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel
@@ -31,8 +32,6 @@ class HarnessConfig:
     env: dict[str, str] | None = None
     request_timeout_seconds: float | None = None
     shutdown_timeout_seconds: float | None = 1.0
-    client_name: str = "deepseek_harness_python_sdk"
-    client_version: str = "0.0.0-dev"
 
 
 class HarnessClient:
@@ -75,7 +74,7 @@ class HarnessClient:
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
-            cwd=self.config.cwd,
+            cwd=None if self.config.cwd is None else str(Path(self.config.cwd).resolve()),
             env=env,
             bufsize=1,
         )
@@ -90,18 +89,22 @@ class HarnessClient:
             self.request("shutdown", None, response_model=_ShutdownResponse, timeout_seconds=self.config.shutdown_timeout_seconds)
         except Exception as exc:
             self._stderr_lines.append(f"shutdown request failed: {exc}")
-        self._proc = None
         if proc.stdin:
             try:
                 proc.stdin.close()
             except Exception as exc:
                 self._stderr_lines.append(f"stdin close failed: {exc}")
-        try:
-            if proc.poll() is None:
+        if proc.poll() is None:
+            try:
                 proc.terminate()
-            proc.wait(timeout=2)
-        except Exception:
+            except ProcessLookupError:
+                pass
+        try:
+            proc.wait(timeout=self.config.shutdown_timeout_seconds)
+        except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
+        self._proc = None
         self._fail_waiters(self._runtime_closed_error("DeepSeek Harness runtime closed"))
         if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=0.5)
@@ -113,35 +116,26 @@ class HarnessClient:
         *,
         cwd: str,
         model: str,
-        session_root: str | None = None,
-        system_prompt: str | None = None,
     ) -> InitializeResponse:
         payload: JsonObject = {
-            "clientInfo": {
-                "name": self.config.client_name,
-                "version": self.config.client_version,
-            },
-            "cwd": cwd,
+            "cwd": str(Path(cwd).resolve()),
             "model": model,
         }
-        if session_root is not None:
-            payload["sessionRoot"] = session_root
-        if system_prompt is not None:
-            payload["systemPrompt"] = system_prompt
-        return self.request("initialize", payload, response_model=InitializeResponse)
+        try:
+            return self.request("initialize", payload, response_model=InitializeResponse)
+        except BaseException:
+            self.close()
+            raise
 
     def session_prompt(
         self,
         session_id: str,
         content_blocks: list[JsonObject],
         *,
-        profile: str | None = None,
         on_notification: Callable[[Notification], None] | None = None,
         notification_subscription: "NotificationSubscription | None" = None,
     ) -> None:
         payload: JsonObject = {"sessionId": session_id, "contentBlocks": content_blocks}
-        if profile is not None:
-            payload["profile"] = profile
         self.request(
             "session/prompt",
             payload,

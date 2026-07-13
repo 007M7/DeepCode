@@ -20,4 +20,4 @@ The plugin owns the PROTOCOL-level exit: a `shutdown` request is answered first 
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). The `initialize` params `sessionRoot`, `systemPrompt`, and `clientInfo`, and the `session/prompt` param `profile`, are accepted for wire compatibility but currently unused — persistence roots and the deployment persona come from the `cordis.yml` (see the TODO in [`src/server.ts`](src/server.ts)).
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). Persistence roots and the deployment persona come from `cordis.yml`; the wire exposes only parameters the server applies.

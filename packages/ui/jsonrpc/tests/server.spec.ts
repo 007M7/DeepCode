@@ -108,15 +108,12 @@ describe('HarnessSdkServer', () => {
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
         model: 'dsagent-model',
-        sessionRoot: storageDir,
-        systemPrompt: 'Custom SDK instructions.',
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
 
       await server.handleRequest('session/prompt', {
         sessionId: 'main',
         contentBlocks: [{ type: 'text', text: 'fix it' }],
-        profile: 'build',
       })
 
       expect(llmServer.requests).toHaveLength(1)
@@ -307,7 +304,7 @@ describe('HarnessSdkServer', () => {
           agentId: 'fallback-child-agent',
           parentSessionId: 'fallback-parent',
           childSessionId: 'fallback-child-session',
-          status: 'ok',
+          status: 'error',
           stopReason: 'max-tokens',
           lastAssistantMessage: [],
         },
@@ -386,7 +383,7 @@ describe('HarnessSdkServer', () => {
       }
 
       expect(server.finishedStatus(undefined)).toBe('error')
-      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('ok')
+      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('error')
       expect(server.finishedStatus({ kind: 'error' })).toBe('error')
       await server.shutdown()
     } finally {
@@ -461,5 +458,64 @@ describe('HarnessSdkServer', () => {
     expect(sharedHandle.dispose).toHaveBeenCalledOnce()
     expect(retryHandle.dispose).toHaveBeenCalledOnce()
     await expect(server.getOrCreateSession('after-shutdown')).rejects.toThrow('SDK server is shutting down')
+  })
+
+  it('resolves a relative cwd before creating the session', async () => {
+    const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
+      .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, get: () => undefined },
+      get: () => ({ models: () => ['model'] }),
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+      initialize(params: { cwd: string; model: string }): Promise<unknown>
+      getOrCreateSession(sessionId: string): Promise<unknown>
+      shutdown(): Promise<Record<string, never>>
+    }
+
+    await server.initialize({ cwd: '.', model: 'model' })
+    await server.getOrCreateSession('relative')
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
+    await server.shutdown()
+  })
+
+  it('settles every teardown and aggregates multiple failures', async () => {
+    const firstDispose = vi.fn(() => { throw new Error('first teardown failed') })
+    const secondDispose = vi.fn(() => Promise.reject(new Error('second teardown failed')))
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined }>
+      shutdown(): Promise<Record<string, never>>
+    }
+    server.sessions.set('first', { handle: { agent: {} as Agent, dispose: firstDispose }, lastTurnEnd: undefined })
+    server.sessions.set('second', { handle: { agent: {} as Agent, dispose: secondDispose }, lastTurnEnd: undefined })
+
+    await expect(server.shutdown()).rejects.toThrow('SDK server teardown failed')
+    expect(firstDispose).toHaveBeenCalledOnce()
+    expect(secondDispose).toHaveBeenCalledOnce()
+  })
+
+  it('continues teardown after a subscription disposer fails', async () => {
+    let subscription = 0
+    const listenerFailure = new Error('listener teardown failed')
+    const on = vi.fn(() => {
+      subscription += 1
+      return subscription === 1 ? () => { throw listenerFailure } : () => undefined
+    })
+    const ctx = {
+      on,
+      agents: { create: vi.fn(), get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport())
+
+    await expect(server.shutdown()).rejects.toBe(listenerFailure)
+    expect(on).toHaveBeenCalledTimes(4)
   })
 })

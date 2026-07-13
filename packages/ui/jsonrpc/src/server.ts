@@ -13,6 +13,7 @@
  */
 
 import type { Context } from 'cordis'
+import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -27,17 +28,6 @@ export interface InitializeParams {
   cwd: string
   /** Model name every SDK-created agent runs on (see {@link HarnessSdkServer.initialize} for adapter fallback). */
   model: string
-  /** Accepted for SDK wire compatibility; unused — persistence roots come from the `cordis.yml`. */
-  sessionRoot?: string
-  /**
-   * Accepted for SDK wire compatibility; currently NOT applied — the deployment
-   * persona comes from the `cordis.yml` system-prompt config. TODO(jsonrpc):
-   * map this onto a per-runtime system-prompt section once a per-agent override
-   * seam exists.
-   */
-  systemPrompt?: string
-  /** Accepted for SDK wire compatibility; unused diagnostic client identity. */
-  clientInfo?: { name?: string; version?: string }
 }
 
 /** Result of the `initialize` request: the server's identity for the SDK handshake. */
@@ -52,8 +42,6 @@ export interface SessionPromptParams {
   sessionId: string
   /** The prompt content blocks, sent verbatim as the user message. */
   contentBlocks: ContentBlock[]
-  /** Accepted for SDK wire compatibility; unused — profiles are not a harness concept. */
-  profile?: string
 }
 
 /** Result of a `session/prompt` request: the prompt ran to turn settle (outcome rides on `session.finished`). */
@@ -132,7 +120,7 @@ export class HarnessSdkServer {
         agentId: String(info.id),
         ...(parentSessionId === undefined ? {} : { parentSessionId }),
         childSessionId,
-        status: info.stopReason === 'completed' || info.stopReason === 'max-tokens' ? 'ok' : 'error',
+        status: info.stopReason === 'completed' ? 'ok' : 'error',
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
       })
@@ -148,7 +136,7 @@ export class HarnessSdkServer {
    * @returns the server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
-    this.cwd = params.cwd
+    this.cwd = resolve(params.cwd)
     this.model = params.model
     if (!this.llmFiber && !this.hasAdapterFor(this.model)) {
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, { models: [this.model] })
@@ -193,12 +181,28 @@ export class HarnessSdkServer {
     this.shuttingDown = true
     const pendingCreations = [...this.sessionCreations.values()]
     await Promise.allSettled(pendingCreations)
+    this.sessionCreations.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
-    await Promise.all(records.map(rec => rec.handle.dispose()))
-    await this.llmFiber?.dispose()
+    this.subagentSessions.clear()
+    const failures: unknown[] = []
+    while (this.disposers.length > 0) {
+      try {
+        this.disposers.pop()?.()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    const teardownResults = await Promise.allSettled([
+      ...records.map(rec => Promise.resolve().then(() => rec.handle.dispose())),
+      ...(this.llmFiber === undefined ? [] : [Promise.resolve().then(() => this.llmFiber?.dispose())]),
+    ])
     this.llmFiber = undefined
-    while (this.disposers.length > 0) this.disposers.pop()?.()
+    failures.push(...teardownResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map(result => result.reason as unknown))
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'SDK server teardown failed')
     return {}
   }
 
@@ -251,7 +255,7 @@ export class HarnessSdkServer {
 
   private finishedStatus(reason: TurnEndReason | undefined): 'ok' | 'error' {
     if (!reason) return 'error'
-    return reason.kind === 'completed' || reason.kind === 'max-tokens' ? 'ok' : 'error'
+    return reason.kind === 'completed' ? 'ok' : 'error'
   }
 
   private hasAdapterFor(model: string): boolean {
