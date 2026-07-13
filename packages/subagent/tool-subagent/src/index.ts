@@ -119,7 +119,8 @@ export function providerWording(inherits: boolean): { description: string; promp
         + 'completed turns so far (it does not see the current in-flight turn), returning only its final '
         + 'result. Use this when the subtask builds on this conversation\'s context — a follow-up analysis, '
         + 'a review, a continuation — without consuming this conversation\'s context for the work itself. '
-        + 'You receive only its final answer, not its intermediate steps.',
+        + 'You receive only its final answer, not its intermediate steps. You may issue several subagent '
+        + 'calls in one message to run independent tasks concurrently when their work scopes do not overlap.',
       promptDescription:
         'The task for the subagent. It already sees this conversation\'s completed turns, so build on them '
         + 'freely and state only what is new.',
@@ -131,7 +132,8 @@ export function providerWording(inherits: boolean): { description: string; promp
       + 'and return its final result. Use this to offload focused, independent work — research, a scoped '
       + 'implementation, an analysis — so it does not consume this conversation\'s context. The subagent '
       + 'runs to completion and you receive only its final answer, not its intermediate steps. Give it a '
-      + 'complete, standalone prompt: it does not see this conversation.',
+      + 'complete, standalone prompt: it does not see this conversation. You may issue several subagent '
+      + 'calls in one message to run independent tasks concurrently when their work scopes do not overlap.',
     promptDescription:
       'The complete, self-contained task for the subagent. It does not share this '
       + 'conversation\'s context, so include everything it needs.',
@@ -165,6 +167,12 @@ export function apply(ctx: Context, config: Config): void {
           description: wording.promptDescription,
         },
       },
+      // Each call starts an independent child run and returns only its final
+      // answer; the tool touches no parent-agent state. SubagentProvider.start()
+      // is contractually safe to call concurrently for independent runs (a
+      // resource-limited provider queues internally), so sibling subagent calls
+      // may run in parallel.
+      isConcurrencySafe: () => true,
       async execute(args, exec): Promise<ContentBlock[]> {
         const parent = exec.agent
         if (!parent) {

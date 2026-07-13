@@ -99,6 +99,9 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
     },
     timeoutMs,
+    // Read-only: fetching a URL returns content and mutates no parent-agent
+    // state — safe to run concurrently with sibling calls.
+    isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(

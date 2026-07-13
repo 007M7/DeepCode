@@ -182,6 +182,19 @@ export interface SubagentProvider {
    * Start a child run. The service has already validated that every requested
    * start-time capability is supported, so an implementation may assume e.g.
    * `request.maxDepth` is honorable when present.
+   *
+   * MUST be safe to call concurrently for independent runs: the `subagent` tool
+   * is parallel-safe, so a parent step may issue several subagent calls at once,
+   * each invoking `start()` before an earlier run settles. An implementation
+   * reads the parent SYNCHRONOUSLY at start (a snapshot — never mutating or
+   * re-reading it during the run) so concurrent starts inside the parent's one
+   * open step all observe the same stable state; the fork backend seeds each
+   * child from the parent's completed-turn prefix, which the open in-flight turn
+   * cannot change. A provider backed by a limited resource may queue internally,
+   * apply its own capacity cap, or return a typed failure for the affected run —
+   * but it must NOT require the parent loop to serialize every `subagent` call.
+   * @param request - the start request (prompt, parent, and any start-time options).
+   * @returns the started {@link SubagentRun}.
    */
   start(request: SubagentStartRequest): SubagentRun
 }

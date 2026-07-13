@@ -29,6 +29,22 @@ declare module 'cordis' {
   }
 }
 
+declare module '@deepseek-ai/dsh-agent' {
+  interface AgentOptions {
+    /**
+     * Maximum tool calls this agent runs concurrently within one assistant step
+     * (a positive integer; defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}).
+     * The loop's rolling pool starts up to this many parallel-safe calls at once
+     * and replenishes as each settles; `1` preserves the fully serial path.
+     * A merge-extensible field — the loop owns it (it neither the agent nor the
+     * subagent seam sets it), read in `runStep` when scheduling a parallel group.
+     */
+    maxParallelToolCalls?: number
+  }
+}
+
+export { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
+
 /**
  * Plugin config: the agents to create — or resume, via `resumeSessionId` —
  * declaratively at startup, so a cordis.yml deployment needs no code.
@@ -40,6 +56,11 @@ export interface Config {
     id: AgentId
     /** Optional workspace cwd for the config-created fresh session. */
     cwd?: string
+    /**
+     * Maximum parallel-safe tool calls to run concurrently within one assistant
+     * step. Must be a positive integer; `1` preserves serial execution.
+     */
+    maxParallelToolCalls?: number
     /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
@@ -81,6 +102,9 @@ export class AgentLoop extends Service implements AgentFactory {
       model: z.string(),
       cwd: z.string(),
       resumeSessionId: z.string(),
+      // A positive integer; a bad value (0, negative, fractional) fails config
+      // validation here rather than being silently dropped from cordis.yml.
+      maxParallelToolCalls: z.number().step(1).min(1),
     })).default([]),
   }) as unknown as z<Config>
 
@@ -144,6 +168,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the running agent, owned by the calling fiber (no handle).
    */
   create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
+    this.validateAgentOptions(options)
     this.assertAgentIdFree(id)
     // Config/programmatic path: prepare the session and let start() fold its
     // lifecycle into the agent's composite effect (so a fiber unload tears the
@@ -168,6 +193,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the handle whose dispose tears down exactly this agent.
    */
   createAgent(options: CreateAgentOptions): AgentHandle {
+    this.validateAgentOptions(options.agentOptions ?? {})
     // Check the agent id BEFORE preparing the session: register() would reject a
     // duplicate id only AFTER the session enters the store, leaving an orphaned
     // live session (and lazy persistence state) that blocks reuse of that id.
@@ -196,6 +222,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the handle for the agent resumed on the reconstructed session.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
+    this.validateAgentOptions(options.agentOptions ?? {})
     // Read the service through `ctx.get('sessionPersistence')` — a direct
     // global-store lookup keyed by the isolate symbol — NOT
     // `this.ctx.sessionPersistence`. AgentLoop deliberately does NOT inject
@@ -228,6 +255,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * AgentLoop's static inject, so they resolve fine).
    */
   private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<AgentHandle> {
+    this.validateAgentOptions(options.agentOptions ?? {})
     this.assertAgentIdFree(options.agentId)
     const { meta, events } = await persistence.load(options.resumeSessionId)
     // Re-check the agent id AFTER the await: the pre-load check above can go
@@ -264,6 +292,14 @@ export class AgentLoop extends Service implements AgentFactory {
   private assertAgentIdFree(id: AgentId): void {
     if (this.ctx.agents.get(id) !== undefined) {
       throw new Error(`agent "${id}" is already registered`)
+    }
+  }
+
+  /** Validate merge-extended options the loop owns before any session is prepared or loaded. */
+  private validateAgentOptions(options: AgentOptions): void {
+    const { maxParallelToolCalls } = options
+    if (maxParallelToolCalls !== undefined && (!Number.isInteger(maxParallelToolCalls) || maxParallelToolCalls < 1)) {
+      throw new Error('maxParallelToolCalls must be a positive integer')
     }
   }
 

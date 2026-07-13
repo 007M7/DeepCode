@@ -549,6 +549,12 @@ export function apply(ctx: Context): void {
     }
   }
 
+  // bash, bash_output, and bash_kill declare no `isConcurrencySafe`, so they
+  // default to exclusive: bash spawns/awaits a real process, bash_output reads a
+  // mutable per-task output cursor (a delta since last read), and bash_kill
+  // mutates task state. They stay exclusive until a bash-OWNED read-only command
+  // classifier can prove which invocations (e.g. `pwd`, `ls`) are side-effect-
+  // free; the loop never infers shell safety from a command string.
   ctx.tools.register(defineTool({
     name: 'bash',
     description: bashDescription(escalationModes),

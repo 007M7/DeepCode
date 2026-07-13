@@ -21,3 +21,7 @@ The tool description and the `prompt` parameter description are DERIVED from the
 `execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
 
 Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+
+## Concurrency
+
+The tool declares `isConcurrencySafe: () => true`: each call starts an independent child run and returns only its final answer, touching no parent-agent state, and `SubagentProvider.start()` is contractually concurrent-safe for independent runs (see [subagent/](../README.md)). So the agent loop may run several `subagent` calls from one assistant step in parallel, and the tool description tells the model it may issue independent tasks together when their work scopes do not overlap. The subagent tool stays synchronous (one result = the child's final answer); background spawning + later collection is separate future work.

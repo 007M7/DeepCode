@@ -92,6 +92,11 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
     },
+    // Read-only. Its one side effect is the synchronous, commutative `fs/observed`
+    // version recorder (a WeakMap write; see below and the fs-policy plugin), so
+    // concurrent same-target reads converge to one observed version. write/edit
+    // stay exclusive barriers and re-check versions in-lock before mutating.
+    isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args, caps.limit)
       const cwd = sessionCwd(exec)

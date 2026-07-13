@@ -125,6 +125,11 @@ export interface Config {
     /** Optional workspace cwd for the config-created fresh session. */
     cwd?: string
     /**
+     * Maximum parallel-safe tool calls to run concurrently within one assistant
+     * step. Must be a positive integer; `1` preserves serial execution.
+     */
+    maxParallelToolCalls?: number
+    /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
      * cordis.yml (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`), so a
@@ -144,7 +149,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:52`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -956,7 +961,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:323`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:389`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

@@ -26,14 +26,15 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 ```ts
 interface Config {
   agents: Array<{
-    id: string                 // required
+    id: string                     // required
     model?: string
-    cwd?: string               // optional workspace cwd for the fresh session
+    cwd?: string                   // optional workspace cwd for the fresh session
+    maxParallelToolCalls?: number  // positive integer; per-agent parallel tool-call cap (default 10)
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. `maxParallelToolCalls` (a positive integer, default `DEFAULT_MAX_PARALLEL_TOOL_CALLS` = `10`) bounds how many parallel-safe calls one assistant step runs at once; `1` restores fully serial execution. It is validated in the schema (`z.number().step(1).min(1)`), so a bad value fails config load rather than being silently dropped. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Classes
 
@@ -67,10 +68,12 @@ forever:
       stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
-      each tool-call: session('tool/call')
-        → tools.execute() [waterfall tools/pre-execute → dispatch → tools/post-execute]
-        → session('tool/result')
-      append buffered post-execute additionalContext as session('context/message')(s)
+      schedule tool-calls: group by tools.executionMode (exclusive call = barrier;
+        run of parallel-safe calls = one rolling-pool group, ≤ maxParallelToolCalls in flight)
+        each STARTED call: session('tool/call')  ⟵ model-order per started call; log positions
+          → ordered tools/pre-execute → pooled dispatch/body → ordered tools/post-execute   may interleave with sibling results as the pool replenishes
+        commit cursor appends session('tool/result') in MODEL order (slot-buffered)
+      append buffered post-execute additionalContext (model call order) as session('context/message')(s)
       drain steering → session('steering/message')
       cont = waterfall agent/turn-continuation → ContinuationDecision
         ({action:'continue', reason?} records reason as next-step steering)
@@ -82,6 +85,8 @@ forever:
 ```
 
 Error containment: a throwing plugin ends the **turn**, never the loop. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`. A step that hits the model's output-token ceiling makes the turn end `max-tokens` (the rule: any `max-tokens` step in the turn surfaces as `max-tokens`; `disposed`/`aborted`/`error` still take precedence) — distinct from a clean `completed` stop.
+
+Tool scheduling: within one assistant step the loop partitions tool calls into ordered groups via `ctx.tools.executionMode` — an exclusive call is its own group (an ordering barrier), a run of consecutive parallel-safe calls is one group. A parallel group runs in a rolling pool: up to `maxParallelToolCalls` calls start in model order, and each settle starts the next until the group drains. Only dispatch/body overlaps — `tools/pre-execute`/`tools/post-execute` run in model call order, each STARTED call appends its own `tool/call` (whose log position may interleave with sibling `tool/result`s), and a model-order commit cursor appends `tool/result` from slot-buffered settlements so derived history stays model-ordered (pairing by the assistant message + `callId`). `additionalContext` from the group is injected in model call order after every result. Abort stops replenishment, drains only already-started calls to results, drops buffered context, and re-raises so `runTurn` owns the end reason; a group not yet started appends no `tool/call`. `maxParallelToolCalls: 1` is byte-for-byte the old serial path.
 
 Cancellation: `agent.cancel()` is the single public stop primitive — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt. (The loop still aborts its own per-step `AbortController` directly on disposal and from `cancel()`; that controller is loop-internal, not a public verb.)
 

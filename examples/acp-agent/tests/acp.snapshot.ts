@@ -49,6 +49,7 @@ const SCENARIOS: Scenario[] = [
   // Its system-prompt.golden.md and JSONL tool list pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'parallel-tool-calls', hasModelTurn: true, recorded: false },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },

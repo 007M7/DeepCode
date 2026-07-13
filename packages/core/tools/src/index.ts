@@ -136,11 +136,6 @@ declare module 'cordis' {
   }
 }
 
-// TODO(review): revisit these shapes when the first real tools and
-// sandbox/permission plugins land (e.g. a concurrency-safety hint for
-// parallel execution — Claude Code partitions read-only tools; phase 1
-// executes sequentially).
-
 /**
  * What a tool's `execute` returns. The bare {@link ContentBlock}`[]` form is the
  * common case (model-facing content only); the object form additionally attaches
@@ -163,6 +158,31 @@ export interface ToolDefinition extends ToolSchema {
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
   timeoutMs?: number
+  /**
+   * Optional synchronous, pure classification: may this call run concurrently
+   * with other tool calls in the same assistant step? The agent-loop scheduler
+   * calls it (via {@link ToolRegistry.executionMode}) to decide whether the call
+   * joins a parallel group or forms an exclusive barrier; a missing declaration,
+   * a thrown check, or any non-`true` return is treated as exclusive. Like
+   * `timeoutMs` it is host-only scheduler metadata — NEVER sent to the model,
+   * since `schemas()` whitelists only name/description/parameters.
+   *
+   * It may inspect the parsed `args` (`unknown` — a hand-rolled definition
+   * receives the raw parsed value; `defineTool` schema-validates first and
+   * returns `false` on invalid args, so an eventual `ToolArgsError` is produced
+   * only if the tool actually executes). The check performs no I/O and receives
+   * no live `Agent` or mutable `ToolExecution`.
+   *
+   * Declaring `true` is a contract: the tool body must NOT mutate the parent
+   * agent's session or other parent-owned async state during `execute` (no
+   * `exec.agent.session.append(...)`, no `agent.inject(...)`). Its only parent-
+   * step outputs are the returned content, `meta`, structured error, and
+   * `additionalContext` carried through the loop's ordered post-execute path.
+   * The narrow exception is a synchronous, side-effect-only recorder whose
+   * updates are commutative for concurrent calls by the same session (the
+   * `fs/observed` version recorder is the worked example).
+   */
+  isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -209,6 +229,53 @@ export interface ToolExecution {
   signal?: AbortSignal
 }
 
+/**
+ * How a single tool call may be scheduled relative to its siblings in one
+ * assistant step, as decided by {@link ToolRegistry.executionMode}. `parallel`
+ * calls may run concurrently within a rolling pool; an `exclusive` call runs
+ * alone and forms an ordering barrier. Object-tagged (rather than a bare
+ * boolean) so a future resource-grouping dimension can extend a variant — e.g.
+ * `{ kind: 'exclusive', group: 'session:...' }` — without a breaking change.
+ */
+export type ToolExecutionMode =
+  | { kind: 'parallel' }
+  | { kind: 'exclusive' }
+
+/**
+ * Internal result of the scheduler-owned `tools/pre-execute` stage. Exported
+ * only so `dsh-agent-loop` can split ordered middleware from concurrent
+ * dispatch without exposing named staged service methods on `ctx.tools`.
+ * @internal
+ */
+export type ScheduledToolPreparation =
+  | { kind: 'dispatch' }
+  | { kind: 'post-result'; result: ToolExecutionResult }
+  | { kind: 'final-result'; result: ToolExecutionResult }
+
+/**
+ * Internal scheduler view of the registry pipeline. `dsh-agent-loop` uses this
+ * symbol-keyed entry point to keep `tools/pre-execute` and `tools/post-execute`
+ * ordered while overlapping only `tools/execute` dispatch/body. Ordinary
+ * callers use {@link ToolRegistry.execute}; this symbol is not a plugin seam.
+ * @internal
+ */
+export interface ToolRegistryScheduler {
+  /** Run the ordered pre-execute gate and decide what stage follows. */
+  prepare(exec: ToolExecution): Promise<ScheduledToolPreparation>
+  /** Run only the around-dispatch/body stage. */
+  dispatch(exec: ToolExecution): Promise<ToolExecutionResult>
+  /** Run ordered post-execute finalization for a dispatch/pre result. */
+  finalize(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult>
+}
+
+/**
+ * Symbol-keyed internal scheduler entry point on {@link ToolRegistry}. The
+ * generated service catalog deliberately skips computed members, so this does
+ * not create a named public staged API.
+ * @internal
+ */
+export const TOOL_REGISTRY_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
   name: string
@@ -239,7 +306,6 @@ export interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
-  /**
   /**
    * Extra model-facing context a `tools/post-execute` listener attached for the
    * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
@@ -352,6 +418,13 @@ export class ToolRegistry extends Service {
   static Config: z<Config> = z.object({
     mode: z.union(['native', 'code', 'both'] as const).default('native'),
   })
+
+  /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
+  readonly [TOOL_REGISTRY_SCHEDULER]: ToolRegistryScheduler = {
+    prepare: exec => this.prepareScheduledExecution(exec),
+    dispatch: exec => this.dispatchScheduledExecution(exec),
+    finalize: (exec, result) => this.finalizeScheduledExecution(exec, result),
+  }
 
   private store = new Map<string, ToolDefinition>()
   private readonly mode: ToolPresentationMode
@@ -472,23 +545,47 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/pre-execute` → `tools/execute`
-   * (around dispatch) → `tools/post-execute` pipeline. `pre-execute` is the gate
-   * (allow/deny), `tools/execute` wraps core dispatch (a timeout/retry/metrics
-   * seam), and `post-execute` is the inspect/transform seam; core dispatch sits
-   * as the base `next()` of the `tools/execute` waterfall. The whole thing is
-   * wrapped in one outer try/catch so a throwing listener (in any waterfall)
-   * becomes an `isError` result instead of failing the turn; the tool body ALSO
-   * keeps its own inner try/catch, so a thrown tool becomes an `isError` result
-   * that `tools/execute` and `post-execute` listeners can still inspect. If the
-   * tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
-   * structured error. A thrown {@link HarnessError} surfaces its `{ name, code }`
-   * on the result.
-   * @param exec - the call to run (name, parsed arguments, caller agent, signal).
-   * @returns the final result after every waterfall; failures resolve as
-   *   `isError` results, never rejections.
+   * Classify how one pending call may be scheduled relative to its siblings in
+   * the same assistant step. Looks up the registered tool and calls its
+   * `isConcurrencySafe(exec.arguments)` classifier. The default is exclusive:
+   * an unknown tool, a tool with no `isConcurrencySafe` declaration, a check
+   * that returns any non-`true` value, and a check that THROWS all resolve to
+   * `{ kind: 'exclusive' }` — only an explicit `true` yields `{ kind: 'parallel' }`.
+   *
+   * This is a plain method, not a cordis waterfall: the conservative first
+   * declaration set needs no policy-driven downgrade, and the method boundary
+   * leaves room to introduce a `tools/execution-mode` seam later if a real
+   * deployment needs hook, MCP, or provider policy to override a tool's baseline
+   * decision.
+   * @param exec - the call to classify (its `name` selects the tool, its parsed
+   *   `arguments` feed the classifier). No I/O runs and `exec` is not mutated.
+   * @returns `{ kind: 'parallel' }` only when the registered tool's check
+   *   returns `true`; `{ kind: 'exclusive' }` otherwise.
    */
-  async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
+  executionMode(exec: ToolExecution): ToolExecutionMode {
+    const tool = this.store.get(exec.name)
+    if (!tool?.isConcurrencySafe) return { kind: 'exclusive' }
+    try {
+      return tool.isConcurrencySafe(exec.arguments) ? { kind: 'parallel' } : { kind: 'exclusive' }
+    } catch {
+      // A thrown classifier is a tool-authoring bug, not a scheduling signal:
+      // fail closed to exclusive so a broken check can never widen concurrency.
+      return { kind: 'exclusive' }
+    }
+  }
+
+  /**
+   * Run the ordered `tools/pre-execute` gate for the agent-loop scheduler. This
+   * is an internal factoring point, not a plugin seam; ordinary callers use
+   * {@link execute}, which still performs the full sequential pipeline. A
+   * non-allow decision returns a result that still needs ordered post-execute
+   * finalization; a throwing pre listener returns a final error result.
+   * @param exec - the call to prepare.
+   * @returns whether the scheduler should dispatch the tool, post-process a
+   *   pre-produced result, or use a final error result as-is.
+   * @internal
+   */
+  private async prepareScheduledExecution(exec: ToolExecution): Promise<ScheduledToolPreparation> {
     try {
       // --- Gate: tools/pre-execute. An `ask` resolves through the approval
       // seam (or degrades) to allow/deny before the shared deny path. ---
@@ -503,16 +600,27 @@ export class ToolRegistry extends Service {
           content: [{ type: 'text', text: `Error: ${decision.reason}` }],
           isError: true,
         }
-        return await this.postExecute(exec, denied)
+        return { kind: 'post-result', result: denied }
       }
+      return { kind: 'dispatch' }
+    } catch (error: unknown) {
+      return { kind: 'final-result', result: toolErrorResult(exec.callId, error) }
+    }
+  }
 
-      // --- Around-dispatch: tools/execute. The base `next` is the dispatch-
-      // with-normalization thunk — the tool body's own try/catch turns a throw
-      // into an isError result so a wrapper (and post-execute) can inspect it;
-      // an unknown tool routes through the same catch. A `tools/execute` listener
-      // (e.g. a timeout plugin) wraps this thunk: it may mutate `exec` before
-      // delegating and inspect the normalized result after. ---
-      const result = await this.ctx.waterfall(
+  /**
+   * Run only the concurrent dispatch/body stage for the agent-loop scheduler.
+   * The `tools/execute` around-dispatch waterfall wraps the normalized tool body
+   * here; ordered pre/post remain the scheduler's responsibility. Ordinary
+   * callers use {@link execute}.
+   * @param exec - the already-prepared call to dispatch.
+   * @returns the raw dispatch result before `tools/post-execute`; failures are
+   *   normalized into `isError` results.
+   * @internal
+   */
+  private async dispatchScheduledExecution(exec: ToolExecution): Promise<ToolExecutionResult> {
+    try {
+      return await this.ctx.waterfall(
         this, 'tools/execute', exec,
         async (): Promise<ToolExecutionResult> => {
           try {
@@ -530,11 +638,7 @@ export class ToolRegistry extends Service {
           }
         },
       )
-
-      return await this.postExecute(exec, result)
     } catch (error: unknown) {
-      // Outer backstop: a throwing pre/post-execute listener (or the waterfall
-      // machinery) becomes an isError result, never a turn failure.
       return toolErrorResult(exec.callId, error)
     }
   }
@@ -575,6 +679,50 @@ export class ToolRegistry extends Service {
       case 'unavailable': return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but no approval channel is available` }
       default: return assertNever(outcome, 'ApprovalOutcome')
     }
+  }
+
+  /**
+   * Run the ordered `tools/post-execute` finalization stage for the agent-loop
+   * scheduler. This is an internal factoring point paired with
+   * {@link prepareScheduledExecution} and {@link dispatchScheduledExecution};
+   * ordinary callers use {@link execute}.
+   * @param exec - the call whose dispatch result is being finalized.
+   * @param result - the dispatch result or pre-produced denial result.
+   * @returns the final tool result after post-execute; throwing listeners are
+   *   normalized into `isError` results.
+   * @internal
+   */
+  private async finalizeScheduledExecution(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
+    try {
+      return await this.postExecute(exec, result)
+    } catch (error: unknown) {
+      return toolErrorResult(exec.callId, error)
+    }
+  }
+
+  /**
+   * Execute one tool call through the `tools/pre-execute` → `tools/execute`
+   * (around dispatch) → `tools/post-execute` pipeline. `pre-execute` is the gate
+   * (allow/deny), `tools/execute` wraps core dispatch (a timeout/retry/metrics
+   * seam), and `post-execute` is the inspect/transform seam; core dispatch sits
+   * as the base `next()` of the `tools/execute` waterfall. The staged scheduler
+   * helpers above are internal factoring points for the agent loop; this public
+   * one-call API remains the sequential composition direct callers use. Failures
+   * in any stage resolve as `isError` results instead of failing the turn. If the
+   * tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. A thrown {@link HarnessError} surfaces its `{ name, code }`
+   * on the result.
+   * @param exec - the call to run (name, parsed arguments, caller agent, signal).
+   * @returns the final result after every waterfall; failures resolve as
+   *   `isError` results, never rejections.
+   */
+  async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
+    const prepared = await this.prepareScheduledExecution(exec)
+    if (prepared.kind === 'final-result') return prepared.result
+    const result = prepared.kind === 'post-result'
+      ? prepared.result
+      : await this.dispatchScheduledExecution(exec)
+    return await this.finalizeScheduledExecution(exec, result)
   }
 
   /**

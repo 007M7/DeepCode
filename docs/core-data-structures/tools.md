@@ -6,7 +6,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus the `execute` function and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
@@ -19,6 +19,31 @@ interface ToolDefinition extends ToolSchema {
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
   timeoutMs?: number
+  /**
+   * Optional synchronous, pure classification: may this call run concurrently
+   * with other tool calls in the same assistant step? The agent-loop scheduler
+   * calls it (via {@link ToolRegistry.executionMode}) to decide whether the call
+   * joins a parallel group or forms an exclusive barrier; a missing declaration,
+   * a thrown check, or any non-`true` return is treated as exclusive. Like
+   * `timeoutMs` it is host-only scheduler metadata — NEVER sent to the model,
+   * since `schemas()` whitelists only name/description/parameters.
+   *
+   * It may inspect the parsed `args` (`unknown` — a hand-rolled definition
+   * receives the raw parsed value; `defineTool` schema-validates first and
+   * returns `false` on invalid args, so an eventual `ToolArgsError` is produced
+   * only if the tool actually executes). The check performs no I/O and receives
+   * no live `Agent` or mutable `ToolExecution`.
+   *
+   * Declaring `true` is a contract: the tool body must NOT mutate the parent
+   * agent's session or other parent-owned async state during `execute` (no
+   * `exec.agent.session.append(...)`, no `agent.inject(...)`). Its only parent-
+   * step outputs are the returned content, `meta`, structured error, and
+   * `additionalContext` carried through the loop's ordered post-execute path.
+   * The narrow exception is a synchronous, side-effect-only recorder whose
+   * updates are commutative for concurrent calls by the same session (the
+   * `fs/observed` version recorder is the worked example).
+   */
+  isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -95,6 +120,14 @@ interface ToolExecution {
   agent?: Agent
   signal?: AbortSignal
 }
+```
+
+The agent loop asks the registry for each pending call's execution mode and uses it to partition a step into exclusive barriers and rolling-pool parallel runs:
+
+```ts type-equiv
+type ToolExecutionMode =
+  | { kind: 'parallel' }
+  | { kind: 'exclusive' }
 ```
 
 ```ts type-equiv

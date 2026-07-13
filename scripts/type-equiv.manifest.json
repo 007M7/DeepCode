@@ -40,6 +40,7 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaSpec", "source": "packages/core/tools/src/schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "InferArgs", "source": "packages/core/tools/src/schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionMode", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PreToolDecision", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },

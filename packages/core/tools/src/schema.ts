@@ -303,6 +303,16 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    */
   timeoutMs?: number
   /**
+   * Optional synchronous concurrency-safety classifier (see
+   * {@link ToolDefinition.isConcurrencySafe}). `args` is the typed, schema-
+   * validated shape — zero casts. Validated SOFTLY, mirroring the presenters:
+   * on an arg mismatch the produced classifier returns `false` (the conservative
+   * exclusive default) instead of the hard {@link ToolArgsError} the execute path
+   * raises, since replay/scheduling may feed older-schema args. Host-only — never
+   * sent to the model.
+   */
+  isConcurrencySafe?(args: InferArgs<S>): boolean
+  /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
    * content only) or a `{ content, meta }` object to also attach a tool-private
@@ -357,9 +367,9 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  *   execute body, and optional presenters.
  * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
  *   raw args first (throwing {@link ToolArgsError} on mismatch, which the
- *   registry turns into an isError result), and its presenters validate softly
- *   (returning undefined on mismatch, since replay may feed them older-schema
- *   args).
+ *   registry turns into an isError result), and its presenters and
+ *   `isConcurrencySafe` classifier validate softly (returning undefined/`false`
+ *   on mismatch, since replay/scheduling may feed them older-schema args).
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.
@@ -369,6 +379,8 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userIsConcurrencySafe = options.isConcurrencySafe
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
@@ -401,6 +413,16 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
+    }
+  }
+  // Concurrency classification is host-only scheduler metadata (never sent to
+  // the model) and, like the presenters, may run against replay/scheduling args
+  // from an older schema — so it validates SOFTLY: an arg mismatch returns
+  // `false` (conservative exclusive default), never the hard ToolArgsError.
+  if (userIsConcurrencySafe) {
+    tool.isConcurrencySafe = (args: unknown): boolean => {
+      if (validateArgs(options.parameters, args).length > 0) return false
+      return userIsConcurrencySafe(args as InferArgs<S>)
     }
   }
   return tool

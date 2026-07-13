@@ -21,7 +21,7 @@ createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:91`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -266,12 +266,13 @@ Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop e
 register(definition: ToolDefinition): () => void
 get(name: string): ToolDefinition | undefined
 schemas(): ToolSchema[]
+executionMode(exec: ToolExecution): ToolExecutionMode
 async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 ```
 
-Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:349`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:415`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

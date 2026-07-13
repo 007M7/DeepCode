@@ -34,10 +34,14 @@ sequenceDiagram
   Session-->>SDK: <code>session/event</code> <code>assistant/chunk</code>*
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
-  Driver->>Session: <code>tool/call</code>
-  Driver->>Tools: execute through pre and post waterfalls
-  Tools-->>Session: tool-owned events when applicable
-  Driver->>Session: <code>tool/result</code> and <code>step/end</code>
+  Driver->>Tools: group calls by executionMode
+  loop started tool calls (bounded pool)
+    Driver->>Session: <code>tool/call</code> pending audit
+    Driver->>Tools: ordered pre / pooled dispatch / ordered post
+    Tools-->>Session: tool-owned events when applicable
+  end
+  Driver->>Session: <code>tool/result</code> in model order
+  Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
   Driver->>Session: <code>turn/end</code>
   Driver->>Persistence: <code>session/flush</code> parallel checkpoint

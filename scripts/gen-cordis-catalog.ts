@@ -91,6 +91,7 @@ export const LINK_MAP: Record<string, string> = {
   TurnEndReason: 'session.md',
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
+  ToolExecutionMode: 'tools.md',
   ToolExecutionResult: 'tools.md',
   ApprovalOutcome: 'approval.md',
   ApprovalPolicy: 'approval.md',

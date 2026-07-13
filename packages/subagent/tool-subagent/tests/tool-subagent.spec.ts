@@ -68,6 +68,15 @@ describe('dsh-tool-subagent', () => {
     expect(Object.keys(props).sort()).toEqual(['description', 'prompt'])
   })
 
+  it('declares each subagent call parallel-safe through the shared tool scheduler contract', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    expect(ctx.tools.executionMode({
+      callId: CallId('subagent-safe'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK' },
+    })).toEqual({ kind: 'parallel' })
+  })
+
   it.each([
     { stopReason: 'aborted' as const, fragment: 'cancelled' },
     { stopReason: 'error' as const, fragment: 'failed' },

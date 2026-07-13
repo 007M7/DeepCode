@@ -81,11 +81,13 @@ forever:
         'assistant/chunk'
       agent/step-result
       'assistant/message'
-      each tool call:
-        'tool/call'
-        tools/pre-execute -> tools/execute -> tools/post-execute
-        'tool/result'
-      append post-tool context and steering
+      schedule tool calls by ctx.tools.executionMode (exclusive = barrier;
+        consecutive parallel-safe = one rolling-pool group, <= maxParallelToolCalls in flight):
+        each started call:
+          'tool/call'
+          tools/pre-execute -> tools/execute -> tools/post-execute
+        'tool/result' committed in model order (slot-buffered)
+      append post-tool context (model order) and steering
       'step/end'
       agent/turn-continuation
       stop unless tools or continuation policy ask for another step
@@ -96,6 +98,8 @@ forever:
 Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, its `persona` config, shared context-wide) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; leftover steering after a turn is re-queued as ordinary input.
+
+Tool-call scheduling groups exclusive barriers and bounded parallel-safe runs while preserving ordered results ([the parallel tool-call RFC](rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
 
 ### Failure Boundaries
 

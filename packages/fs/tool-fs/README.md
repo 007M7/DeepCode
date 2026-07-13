@@ -46,4 +46,6 @@ The tool passes `exec` (the tool-execution context) as the opaque `actor` on eve
 
 `fs/observed` fires AFTER the read/write/edit already succeeded, via a plain `ctx.emit`. A listener is contractually a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s is a `WeakMap.set`); the tool does not guard the emit, so a listener that throws would surface as the tool's `isError` result — async or fallible observation does not belong on this event.
 
+This is exactly why `read` declares `isConcurrencySafe: () => true` while `write`/`edit` do not: `read`'s only side effect is that synchronous commutative recorder (same-target concurrent reads converge to one observed version), so the agent loop may run sibling reads in parallel. `write`/`edit` mutate the filesystem and stay exclusive barriers — the provider re-checks the observed version inside its per-target lock before mutating, so a stale read never corrupts (it only forces a re-read). See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+
 The read rendering (line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.

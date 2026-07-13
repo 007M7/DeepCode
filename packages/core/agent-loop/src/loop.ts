@@ -10,7 +10,7 @@
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { ContinuationDecision, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -18,6 +18,7 @@ import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
+import { executeToolCalls } from './tool-calls.ts'
 import type { ReactLoopAgent } from './agent.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
@@ -172,11 +173,12 @@ export interface LoopHandle {
  *         session('assistant/chunk')
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
  *       session('assistant/message' {content, usage?})   session records what actually ran
- *       each tool-call in msg (sequential, abort-checked):
- *         session('tool/call'); ctx.tools.execute()   ⟵ tools/pre-execute (allow/deny/ask)
- *                                                        → dispatch → tools/post-execute
- *         session('tool/result')
- *       append buffered post-execute additionalContext → session('context/message')(s)
+ *       schedule tool-calls in msg by ctx.tools.executionMode (exclusive = barrier;
+ *         consecutive parallel-safe = one rolling-pool group, ≤ maxParallelToolCalls in flight):
+ *         each STARTED call: session('tool/call'); tools/pre-execute (MODEL order)
+ *           → tools/execute dispatch/body (parallel pool) → tools/post-execute (MODEL order)
+ *         session('tool/result') committed in MODEL order (slot-buffered)
+ *       append buffered post-execute additionalContext (model order) → session('context/message')(s)
  *       drain steering → session('steering/message')
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
@@ -864,68 +866,26 @@ async function runStep(
     )
   }
 
-  // --- Tool execution (sequential; parallel execution is a TODO) ---
-  // ToolRegistry.execute converts tool failures (including aborts) into
-  // isError results, so abort is re-checked around every call here.
+  // --- Tool execution (scheduled by per-call concurrency safety) ---
+  // executeToolCalls groups the step's calls by ctx.tools.executionMode and runs
+  // parallel-safe runs through a rolling pool. Only dispatch/body overlaps:
+  // tools/pre-execute and tools/post-execute run in model order, tool/result is
+  // committed in model order, and the returned additionalContext buffer is
+  // ordered the same way. Tool failures (including aborts) become isError
+  // results; the scheduler re-checks the shared signal around calls and throws
+  // the abort so this step's caller ends the turn.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   // Per-step buffer of `additionalContext` attached by tools/post-execute
   // listeners. Appended as context/message(s) only AFTER every tool/result for
   // the step, so a multi-call step keeps tool-call/result adjacency
   // (interleaving context between a call's result and the next call's would
   // break the pairing the next model request relies on).
-  const pendingContext: HookContext[] = []
-  for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
-    let parsedArguments: unknown
-    try {
-      parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
-    } catch {
-      parsedArguments = call.arguments
-    }
-    // TODO(pre-tool-input-rewrite): tools/pre-execute deliberately cannot rewrite
-    // `arguments` — tool/call (the audit record) and assistant/message (the
-    // model-history source) are logged BEFORE execute, and live consumers (ACP,
-    // tool-bash presentation) read the pre-execution args, so an execution-only
-    // rewrite would desync the UI from what ran. Designing that consistently is
-    // its own proposed RFC (docs/rfc/proposed/feature/…-pre-tool-input-rewrite.md).
-    const result = await ctx.tools.execute({
-      callId: call.id,
-      name: call.name,
-      arguments: parsedArguments,
-      agent,
-      signal,
-    })
-    session.append('tool/result', {
-      turn, step,
-      // The correlation id MUST be the loop's authoritative call.id (the
-      // model-transcript id that deriveMessages turns into toolCallId), NOT
-      // result.callId — a post-execute waterfall listener returning a
-      // mismatched id would otherwise orphan the call↔result pairing in the
-      // next model request. A listener-internal id, if ever needed, belongs in
-      // a separate diagnostic field, never overloaded onto callId.
-      callId: call.id,
-      content: result.content,
-      isError: result.isError,
-      ...result.error ? { error: result.error } : {},
-      // The tool's private presentation payload (e.g. a result-time diff),
-      // persisted so a UI bridge reproduces the card on replay.
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    // Buffer (don't append yet) any post-execute additionalContext for this call.
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
-    // signal CAN flip during the await above (abort() inside a tool);
-    // the analyzer can't see through the await boundary.
-    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    /* v8 ignore stop */
-  }
+  const pendingContext = await executeToolCalls(ctx, agent, turn, step, toolCalls, signal)
 
   // Append buffered post-execute context AFTER every tool/result, preserving
   // tool-call/result adjacency across the whole batch. inject() appends into the
-  // open turn (a context/message at its chronological position).
+  // open turn (a context/message at its chronological position). The scheduler
+  // returns the buffer in model call order.
   for (const context of pendingContext) {
     agent.inject(context.content, { source: context.source })
   }
