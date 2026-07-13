@@ -36,7 +36,7 @@ Add/​reshape the interception seams so every one returns a small, seam-specifi
 
 ### What this PR does NOT do
 
-It does **not** declare `hook/*` SessionEvents (the durable hook-invocation log) — those belong to the `dsh-hook-protocol` library, because a native plugin can already use the typed Decisions without a durable hook log. A worked native-plugin example/test in this PR (`packages/core/agent-loop/tests/interception.spec.ts`) proves all the seams compose end-to-end through the REAL loop with NO `hook/*` involved — the concrete proof that "native hooks are just a plugin". Compaction (`PreCompact`/`PostCompact`), the Notification hook, Codex `PermissionRequest`, the permission/`ask` system, and the Stop loop-guard remain deferred (`FIXME(permissions)` marks the `ask`→deny degrade).
+It does **not** declare `hook/*` SessionEvents (the durable hook-invocation log) — those belong to the `dsh-hook-protocol` library, because a native plugin can already use the typed Decisions without a durable hook log. A worked native-plugin example/test in this PR (`packages/core/agent-loop/tests/interception.spec.ts`) proves all the seams compose end-to-end through the REAL loop with NO `hook/*` involved — the concrete proof that "native hooks are just a plugin". Compaction (`PreCompact`/`PostCompact`), the Notification hook, Codex `PermissionRequest`, and the Stop loop-guard remain deferred; the permission/`ask` system has since landed as the [approval seam](2026-07-06-approval-seam.md), whose `ctx.approval` services the `ask` this PR shipped degraded to deny.
 
 ## Alternatives considered
 

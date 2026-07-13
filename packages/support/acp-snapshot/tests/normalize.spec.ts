@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../src/normalize.ts'
+import {
+  type NormalizeContext,
+  normalizeSessionLog,
+  normalizeStdout,
+  scrubRequestHeaders,
+  scrubSystemPrompts,
+} from '../src/normalize.ts'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in
@@ -258,5 +264,45 @@ describe('scrubRequestHeaders', () => {
     expect(once.split('\n')[0]).toBe(headerLine)
     expect(once.split('\n')[3]).toBe(other)
     expect(scrubRequestHeaders(once)).toBe(once)
+  })
+})
+
+describe('scrubSystemPrompts', () => {
+  it('scrubs only system prompt payloads while keeping tools and prefixes verbatim', () => {
+    const header = JSON.stringify({
+      type: 'request/header', seq: 1, time: 2,
+      data: {
+        header: {
+          system: 'full prompt',
+          tools: [{ name: 'read', description: 'full schema' }],
+          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
+        },
+        reason: 'initial',
+      },
+    })
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 2, time: 3,
+      data: {
+        system: { keepStart: 1, keepEnd: 2, insert: ['new prompt line'] },
+        tools: { changed: [{ name: 'read', description: 'changed schema' }] },
+        messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+      },
+    })
+    const toolsOnly = JSON.stringify({
+      type: 'request/header', seq: 3, time: 4,
+      data: { header: { tools: [{ name: 'read', description: 'schema only' }] }, reason: 'resume' },
+    })
+
+    const out = scrubSystemPrompts(`${header}\n${delta}\n${toolsOnly}\n`)
+    expect(out).toContain('"system":"{{system}}"')
+    expect(out).toContain('"insert":["{{system}}"]')
+    expect(out).not.toContain('full prompt')
+    expect(out).not.toContain('new prompt line')
+    expect(out).toContain('full schema')
+    expect(out).toContain('full prefix')
+    expect(out).toContain('changed schema')
+    expect(out).toContain('changed prefix')
+    expect(out.split('\n')[2]).toBe(toolsOnly)
+    expect(scrubSystemPrompts(out)).toBe(out)
   })
 })

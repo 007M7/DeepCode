@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
@@ -30,9 +34,47 @@ async function mount(config: stdioAgent.Config): Promise<Context> {
   return ctx
 }
 
+async function isolatedSkillsConfig(catalogDescriptionMaxLength?: number): Promise<NonNullable<stdioAgent.Config['skills']>> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-skills-'))
+  return {
+    local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') },
+    ...catalogDescriptionMaxLength !== undefined ? { tool: { catalogDescriptionMaxLength } } : {},
+  }
+}
+
+async function composePrefix(ctx: Context): Promise<Message[]> {
+  const empty: Message[] = []
+  return await ctx.waterfall(
+    'agent/session-prefix', { session: { header: { cwd: '/tmp' } } } as never,
+    empty, new AbortController().signal, () => Promise.resolve(empty),
+  )
+}
+
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-default-skills-'))
+  process.env.DSH_HOME = join(home, '.dsh')
+  process.env.DSH_AGENTS_HOME = join(home, '.agents')
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec' })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
     // The spine services (brought up by the agent-core bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -40,7 +82,9 @@ describe('dsh-stdio-agent app', () => {
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
     // The pre-created `main` agent the UI drives.
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    const agent = ctx.get('agents')?.get(AgentId('main'))
+    expect(agent).toBeDefined()
+    expect(agent?.session.header.cwd).toBe(process.cwd())
     await ctx.fiber.dispose()
   })
 
@@ -51,11 +95,22 @@ describe('dsh-stdio-agent app', () => {
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    stdioAgent.apply(ctx, { model: 'mock' })
+    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()
+  })
+
+  it('uses default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      stdioAgent.apply(ctx, { model: 'mock' })
+      await new Promise(resolve => setTimeout(resolve, 80))
+      expect(ctx.skills).toBeDefined()
+      expect(await ctx.skills.list()).toEqual([])
+      await ctx.fiber.dispose()
+    })
   })
 
   it('forwards resumeSessionId onto the pre-created agent when set', async () => {
@@ -67,8 +122,16 @@ describe('dsh-stdio-agent app', () => {
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-resume',
       resumeSessionId: 'no-such-session',
+      skills: await isolatedSkillsConfig(),
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards skill config into agent-core', async () => {
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+    ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
+    expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()
   })
 
@@ -94,7 +157,7 @@ describe('dsh-stdio-agent app', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question', 'skill'])
     await ctx.fiber.dispose()
   })
 
