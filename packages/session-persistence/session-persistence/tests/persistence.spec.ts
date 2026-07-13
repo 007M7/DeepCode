@@ -12,6 +12,16 @@ import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-c
 /** The durable store shape: materialized sessions only (no lazy entries). */
 type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
 
+/** An obsolete event fixture that emulates an untyped pre-change producer. */
+function legacyHeaderDelta(seq = 0): SessionEvent {
+  return {
+    type: 'request/header-delta',
+    seq,
+    time: 1,
+    data: { config: { model: 'legacy' } },
+  } as unknown as SessionEvent
+}
+
 /** Optional plugin config: an EXTERNAL store shared across backend instances. */
 interface MemoryConfig { store?: MemoryStore }
 
@@ -163,5 +173,38 @@ describe('SessionPersistence service registration', () => {
     await expect(ctx.sessionPersistence.create(invalid))
       .rejects.toThrow('session metadata must be losslessly JSON-serializable')
     await fiber.dispose()
+  })
+
+  it('rejects a legacy header delta buffered by a pre-change live producer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('legacy-live'), { meta: { cwd: '/legacy' } })
+    // Model the runtime shape available to JavaScript or a hot-loaded plugin
+    // compiled against the obsolete event vocabulary.
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+    appendLegacy('request/header-delta', { config: { model: 'legacy' } })
+
+    await expect(ctx.sessions.flush(session))
+      .rejects.toThrow(/unsupported legacy request\/header-delta event at seq 0/)
+    await fiber.dispose()
+  })
+
+  it('rejects a legacy stored prefix during live HMR adoption', async () => {
+    const id = SessionId('legacy-hmr')
+    const m = meta(id, '/legacy')
+    const legacy = legacyHeaderDelta()
+    const store: MemoryStore = new Map([[id, { meta: m, events: [legacy] }]])
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    // A current live session cannot carry the obsolete event in its seed, but
+    // HMR still has to identify the persisted prefix as unsupported rather than
+    // treating it as an ordinary live-prefix collision.
+    const session = ctx.sessions.create(id, { meta: { cwd: '/legacy' } })
+    const fiber = await ctx.plugin(MemoryPersistence, { store })
+
+    await expect(ctx.sessions.flush(session))
+      .rejects.toThrow(/unsupported legacy request\/header-delta event at seq 0/)
+    await Promise.allSettled([fiber.dispose()])
   })
 })

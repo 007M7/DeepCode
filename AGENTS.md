@@ -46,6 +46,7 @@ pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
@@ -63,6 +64,7 @@ During implementation, run the narrowest affected checks; run this full CI-equiv
 set -euo pipefail
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync
