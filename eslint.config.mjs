@@ -130,6 +130,12 @@ export default tseslint.config(
     plugins: { sonarjs },
     rules: {
       // Cross-file clones are covered separately by jscpd.
+      'sonarjs/duplicates-in-character-class': 'error',
+      'sonarjs/no-all-duplicated-branches': 'error',
+      'sonarjs/no-duplicate-in-composite': 'error',
+      'sonarjs/no-duplicate-test-title': 'error',
+      'sonarjs/no-identical-conditions': 'error',
+      'sonarjs/no-identical-expressions': 'error',
       'sonarjs/no-identical-functions': 'error',
       'sonarjs/no-duplicated-branches': 'error',
     },
