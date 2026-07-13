@@ -71,7 +71,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
@@ -297,7 +297,8 @@ interface SessionRecord {
   /**
    * The in-flight `session/prompt`, or `undefined` when none is pending. A
    * prompt resolves with a {@link StopReason} or rejects with an Error (a
-   * turn that ended in failure). Settled exactly once via {@link settlePrompt}.
+   * turn that ended in failure). Settled exactly once by its matching
+   * `turn/end`, direct cancellation, or teardown.
    *
    * `turn` is the loop turn number this prompt owns, captured from the log's
    * `turn/start` after `send()`. Until then it is `undefined` (the turn has not
@@ -307,18 +308,11 @@ interface SessionRecord {
    * wrong prompt. A direct cancel/dispose settle clears the whole in-flight slot,
    * so a later stale `turn/end` finds no pending prompt.
    *
-   * `logWatermark` is the session log length at the moment the prompt was
-   * installed (before `send()`). The settle-from-log fallback uses it to infer
-   * the owning `turn/start` from the canonical log even when the live
-   * `session/event` capture was starved (a peer listener that throws on
-   * `turn/start` — see `settleFromLog`): the prompt owns the FIRST `turn/start`
-   * appended at or after this watermark.
    */
   inflight: {
     resolve: (reason: StopReason) => void
     reject: (error: Error) => void
     turn: number | undefined
-    logWatermark: number
   } | undefined
   /**
    * Config switches accepted while the session was IDLE, not yet anchored in
@@ -337,13 +331,9 @@ interface SessionRecord {
 
 /**
  * Drive the in-flight prompt's settle from the harness event stream. The bridge
- * settles off the durable log: the `turn/end` session event on the
- * `session/event` feed for the prompt's own turn, with the agent
- * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
- * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
- * starved the bridge's listener before it saw the boundary. The first of these
- * to fire settles the prompt; `settle` is then cleared so the others are no-ops
- * (settle-exactly-once).
+ * settles off the durable `turn/end` event for the prompt's own turn. Session
+ * contains post-commit observers independently, and this listener performs
+ * correlation in a `finally` so presentation failure cannot starve settlement.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
   // Capture the injected services NOW, during apply(), while we are inside this
@@ -360,7 +350,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const userInteraction = ctx.userInteraction
   // A new ToolPresenter per session (and a throwaway per load replay), each given
   // this warn sink so a throwing tool presenter is logged, not propagated.
-  const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
+  const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
@@ -501,83 +491,24 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event: SessionEvent) => {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
-    streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
-      enabled: rec.terminalEnabled,
-      cwd: session.header.cwd,
-    }, { includeUserMessages: false })
-    const inflight = rec.inflight
-    if (inflight === undefined) return
-    if (event.type === 'turn/start') {
-      // Tag the in-flight prompt with its owning turn — but ONLY a
-      // `message`-triggered turn (the kind a `send()` prompt produces). A turn
-      // a plugin opens between prompt-install and the prompt's own turn (an idle
-      // `agent.inject()` writes a one-shot `injection`-triggered turn) must NOT
-      // be mistaken for the prompt's turn, or its turn/end would settle the RPC
-      // early. The first message turn at/after install owns the prompt
-      // (`turn === undefined` guard); the loop batches queued messages into one
-      // turn, so there is exactly one.
-      if (inflight.turn === undefined && event.data.trigger.kind === 'message') {
-        inflight.turn = event.data.turn
+    try {
+      streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
+        enabled: rec.terminalEnabled,
+        cwd: session.header.cwd,
+      }, { includeUserMessages: false })
+    } finally {
+      const inflight = rec.inflight
+      if (inflight !== undefined && event.type === 'turn/start') {
+        // The first message-triggered turn after prompt installation owns the
+        // prompt; injection-triggered turns must not settle it early.
+        if (inflight.turn === undefined && event.data.trigger.kind === 'message') {
+          inflight.turn = event.data.turn
+        }
+      } else if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
+        rec.inflight = undefined
+        settleFromTurnEnd(inflight, event.data.reason)
       }
-      return
     }
-    // Settle only on the OWNING turn's end.
-    if (event.type !== 'turn/end' || inflight.turn !== event.data.turn) return
-    rec.inflight = undefined
-    settleFromTurnEnd(inflight, event.data.reason)
-  })
-
-  // Settle fallback: a `session/event` listener registered BEFORE ACP that
-  // throws (on `turn/start` OR `turn/end`) would, via cordis `emit`'s
-  // stop-on-throw, starve ACP's listener above — the prompt would hang or, if
-  // only the turn number was missed, settle as the wrong outcome. So when the
-  // agent settles to `idle` (or is disposed), reconcile against the canonical
-  // log: determine the prompt's owning turn (the captured `turn`, or — if the
-  // live capture was starved — the FIRST `turn/start` appended at/after the
-  // install-time `logWatermark`), then settle from that turn's `turn/end`
-  // (reject on error, resolve via codec), or `cancelled` if no owning turn ever
-  // started. Never double-settles — clears `inflight` first.
-  const settleFromLog = (rec: SessionRecord): void => {
-    const inflight = rec.inflight
-    if (inflight === undefined) return
-    const events = rec.agent.session.events
-    // The owning turn number: the captured one, or — if the live capture was
-    // starved — inferred from the log as the first MESSAGE-triggered turn opened
-    // at/after the watermark. The message-trigger filter matches the live
-    // capture: a one-shot `injection` turn a plugin may open between
-    // prompt-install and the prompt's turn is NOT the prompt's turn. Undefined
-    // only if no message turn ever started for this prompt.
-    const owningTurn = inflight.turn ?? events.slice(inflight.logWatermark).find(
-      (e): e is Extract<SessionEvent, { type: 'turn/start' }> =>
-        e.type === 'turn/start' && e.data.trigger.kind === 'message',
-    )?.data.turn
-    // The owning turn's end in the log. If `owningTurn` is undefined (no turn
-    // ever started for this prompt — a torn-down-before-turn case that quiesce's
-    // direct settle normally pre-empts), no `turn/end` matches (turn numbers are
-    // >= 1) and `findLast` returns undefined, falling through to cancelled.
-    const end = events.findLast(
-      (e): e is Extract<SessionEvent, { type: 'turn/end' }> =>
-        e.type === 'turn/end' && e.data.turn === owningTurn,
-    )
-    rec.inflight = undefined
-    if (end === undefined) {
-      // No owning turn / no clean turn/end (torn down mid-turn) → cancelled.
-      inflight.resolve('cancelled')
-      return
-    }
-    settleFromTurnEnd(inflight, end.data.reason)
-  }
-
-  // On a settle to idle/disposed, reconcile any still-pending prompt from the
-  // log (covers a starved `session/event` listener — see settleFromLog). A mid-
-  // step disposal that never appended a clean turn/end resolves `cancelled`.
-  // Demux via the agent→sessionId reverse map.
-  ctx.on('agent/status', (agent, status: AgentStatus) => {
-    const sessionId = bySession.get(agent)
-    if (sessionId === undefined) return
-    const rec = sessions.get(sessionId)
-    if (rec === undefined) return
-    if (status === 'idle' || status === 'disposed') settleFromLog(rec)
   })
 
   // --- Approval answerer -----------------------------------------------------
@@ -744,29 +675,39 @@ export function apply(ctx: Context, config: AcpConfig): void {
         return Promise.resolve()
       },
 
-      newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
         validateWorkspaceParams(params)
         validateMcpServers(params)
         const sessionId = SessionId(randomUUID())
-        const handle = agents.create({
+        const handle = await agents.create({
           agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
         })
+        // Creation is now asynchronous because it awaits the unpublished setup
+        // transaction. A client disconnect can therefore close this bridge
+        // after the entry check but before the handle resolves; never install a
+        // post-close record that quiesce() could not have seen.
+        /* v8 ignore next 4 -- the in-memory transport rejects the in-flight RPC
+           immediately on close; real stdio may let the handler resume */
+        if (closed) {
+          await handle.dispose()
+          throw internalError('connection closed during session/new')
+        }
         bySession.set(handle.agent, sessionId)
         sessions.set(sessionId, {
           sessionId,
           agent: handle.agent,
           dispose: () => handle.dispose(),
-          presenter: makePresenter(),
+          presenter: makePresenter(handle.agent),
           terminalEnabled: terminalOutputCap,
           inflight: undefined,
           pendingSwitches: {},
         })
         const configOptions = configOptionsFor(handle.agent)
-        return Promise.resolve({ sessionId, ...configOptions.length > 0 ? { configOptions } : {} })
+        return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -839,7 +780,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             sessionId,
             agent,
             dispose: () => handle.dispose(),
-            presenter: makePresenter(),
+            presenter: makePresenter(agent),
             terminalEnabled,
             inflight: undefined,
             pendingSwitches: {},
@@ -858,7 +799,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // future live events for this session. The throwaway pairs call→result
           // as the log replays in order (same as live) and is discarded after,
           // so the record's presenter starts clean for the post-load live stream.
-          const replayPresenter = makePresenter()
+          const replayPresenter = makePresenter(agent)
           const replayTerminal: TerminalRendering = {
             enabled: terminalEnabled,
             cwd: agent.session.header.cwd,
@@ -892,12 +833,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
-        // watermark: the settle-from-log fallback infers the owning turn/start
-        // as the first one appended at/after it, surviving a starved live
-        // capture. A turn that ends in error rejects this promise (the codec
-        // never produces an error stop reason).
+        // A turn that ends in error rejects this promise (the codec never
+        // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
-          rec.inflight = { resolve, reject, turn: undefined, logWatermark: rec.agent.session.events.length }
+          rec.inflight = { resolve, reject, turn: undefined }
           rec.agent.send([{ type: 'text', text }])
         })
         return { stopReason }
@@ -916,8 +855,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // as cancelled directly here: do NOT rely on the resulting turn/end to
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
-        // resolution onto the settleFromLog/agent-status path, changing its
-        // timing.
+        // resolution onto a later observer path, changing its timing.
         rec.agent.cancel('session/cancel')
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
@@ -1000,15 +938,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
-   * final `turn/end` + `session/flush` are captured while `onAppend` is still
+   * final `turn/end` + `session/flush` are captured while the store-owned publication hooks are still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
    * map first and memoizes, so a second call (close racing dispose) is a no-op.
    * Shared by Cordis disposal AND client disconnect (`conn.closed`).
    *
-   * Per-agent disposal closes the former pre-step best-effort window — but via
-   * the DISPOSED path, not `cancel()`: the start-disposer resolves `handle.disposed`,
-   * which wakes the parked loop, and `isDisposed()` breaks the loop before a
+   * Per-agent disposal closes the queued-before-run window through the DISPOSED
+   * path, not `cancel()`: the start-disposer resolves `handle.disposed`, which
+   * wakes the parked loop, and `isDisposed()` breaks the loop before a
    * queued-but-not-yet-running turn can start (a turn cut off mid-flight ends
    * with reason `disposed`, not `aborted`). A bare client disconnect (resolves
    * `conn.closed` WITHOUT disposing the fiber) thus leaves NO registered agent
@@ -1268,6 +1206,13 @@ export class ToolPresenter {
   constructor(
     private readonly tools: Pick<ToolRegistry, 'get'>,
     private readonly onError: (message: string) => void = () => {},
+    /**
+     * The agent whose view resolves tool presentations: a scoped/shadowed
+     * tool presents with ITS OWN presentCall/presentResult — the same
+     * definition that executed — not a same-named global's. Absent (a replay
+     * with no live agent) the global view presents.
+     */
+    private readonly agent?: Agent,
   ) {}
 
   /**
@@ -1284,7 +1229,7 @@ export class ToolPresenter {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
     try {
-      present = this.tools.get(name)?.presentCall?.(args)
+      present = this.tools.get(name, this.agent)?.presentCall?.(args)
     } catch (error: unknown) {
       // A throwing presentCall must not break streaming: log and fall back.
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
@@ -1318,7 +1263,8 @@ export class ToolPresenter {
     if (call === undefined) return { card: 'generic', content }
     let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
+      present = this.tools.get(call.name, this.agent)
+        ?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)

@@ -76,7 +76,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(Invariants, {})
+  await ctx.plugin(Invariants)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)

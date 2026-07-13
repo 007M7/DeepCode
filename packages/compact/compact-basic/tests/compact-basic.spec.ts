@@ -1700,7 +1700,7 @@ describe('BasicCompactService under the real invariants plugin', () => {
   async function setup(): Promise<{ ctx: Context; session: Session; svc: BasicCompactService }> {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(Invariants, {})
+    await ctx.plugin(Invariants)
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter('CONDENSED'))
     await ctx.plugin(BasicCompactService, cfg({ auto: false }))

@@ -8,7 +8,7 @@
 
 import type { Agent, AgentId, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 /**
  * Which START-TIME features a provider supports. Checked by the service
@@ -24,11 +24,13 @@ import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
  */
 export interface SubagentCapabilities {
   /** Honor {@link SubagentStartRequest.outputSchema} (structured final output). */
-  outputSchema: boolean
+  readonly outputSchema: boolean
   /** Enforce {@link SubagentStartRequest.maxDepth} (recursion cap). */
-  depthLimit: boolean
+  readonly depthLimit: boolean
   /** Enforce {@link SubagentStartRequest.toolFilter} (child tool scoping). */
-  toolFilter: boolean
+  readonly toolFilter: boolean
+  /** Honor {@link SubagentStartRequest.persona} (a per-child persona). */
+  readonly persona: boolean
 }
 
 /**
@@ -39,22 +41,24 @@ export interface SubagentCapabilities {
  */
 export interface SubagentStartRequest {
   /** The task/prompt for the child agent (a user message in the child session). */
-  prompt: ContentBlock[]
+  readonly prompt: ContentBlock[]
   /**
    * The spawning ("parent") agent — the one whose tool call started this
    * subagent. REQUIRED: in-process backends read `parent.session.header` for
    * the working directory, the `parentSession` lineage to stamp on the child,
    * and the parent's delegation depth. Out-of-process backends (ACP) ignore it.
    */
-  parent: Agent
+  readonly parent: Agent
   /**
    * Cancellation signal from the spawning context (the tool's `exec.signal`).
-   * A provider that honors it aborts the child when the signal fires; the
-   * consumer also bridges it to {@link SubagentRun.cancel} explicitly.
+   * This is the canonical cancellation channel both before and after startup:
+   * a provider rejects `start()` after cleaning partial resources when it
+   * fires before publication, and cancels a published child when it fires
+   * afterward.
    */
-  signal?: AbortSignal
-  /** Per-child agent options (model, system prompt). */
-  agentOptions?: AgentOptions
+  readonly signal: AbortSignal
+  /** Per-child agent options (model and plugin-defined extension fields). */
+  readonly agentOptions?: AgentOptions
   /**
    * Optional structured-output schema — an object-rooted JSON Schema within the
    * enforced subset (see `assertSupportedOutputSchema` in dsh-tools; a schema
@@ -65,17 +69,30 @@ export interface SubagentStartRequest {
    * data — a caller holding foreign-realm data materializes it first.
    * Requesting it against a provider that lacks the capability is rejected at start.
    */
-  outputSchema?: StructuredOutputSchema
+  readonly outputSchema?: StructuredOutputSchema
   /**
-   * Optional recursion cap (max delegation depth below this child). Requires
-   * {@link SubagentCapabilities.depthLimit}; rejected at start otherwise.
+   * Optional absolute delegation-depth cap for the child being started: its
+   * computed depth must be less than or equal to this non-negative safe
+   * integer. Requires {@link SubagentCapabilities.depthLimit}; rejected at
+   * start otherwise.
    */
-  maxDepth?: number
+  readonly maxDepth?: number
   /**
    * Optional child tool scoping. Requires {@link SubagentCapabilities.toolFilter};
-   * rejected at start otherwise.
+   * rejected at start otherwise. In-process backends apply it as a scoped
+   * `tools.restrict()` in the child's creation window: the named tools vanish
+   * from the child's prompt AND refuse to execute (one visibility), with loud
+   * unknown-name validation.
    */
-  toolFilter?: { allow?: string[]; deny?: string[] }
+  readonly toolFilter?: ToolRestriction
+  /**
+   * Optional per-child persona. Requires {@link SubagentCapabilities.persona};
+   * rejected at start otherwise. In-process backends register it as a scoped
+   * `deployment:persona` section on the child, SHADOWING the deployment's
+   * persona for this child alone — same template semantics as the deployment
+   * persona (strict `{{…}}` interpolation against the registered variables).
+   */
+  readonly persona?: string
 }
 
 /**
@@ -87,7 +104,7 @@ export interface SubagentStartRequest {
 export interface SubagentStopReasonMap {
   /** The child finished its turn normally. */
   completed: 'completed'
-  /** The run was cancelled (parent signal, explicit `cancel()`, or peer cancel). */
+  /** The run was cancelled by its request signal or by disposal. */
   aborted: 'aborted'
   /** The child failed (model error, transport error). */
   error: 'error'
@@ -105,29 +122,31 @@ export type SubagentStopReason = SubagentStopReasonMap[keyof SubagentStopReasonM
  */
 export interface SubagentResult {
   /** The child's final assistant output (the last assistant message's content). */
-  output: ContentBlock[]
+  readonly output: ContentBlock[]
   /**
-   * The structured result, present IFF the request carried an `outputSchema`
-   * AND the provider honored it. Shape is validated against the request schema
-   * by the provider; `unknown` here because the seam is schema-agnostic.
+   * The structured result after a requested `outputSchema` was successfully
+   * satisfied. Requesting a schema does not guarantee presence: a provider can
+   * end with `stopReason: 'error'` when the child fails or finishes without a
+   * valid capture. Shape is validated against the request schema by the
+   * provider; `unknown` here because the seam is schema-agnostic.
    */
-  structured?: unknown
+  readonly structured?: unknown
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
-  stopReason: SubagentStopReason
+  readonly stopReason: SubagentStopReason
 }
 
 /**
  * A live subagent run: a handle the consumer holds while a child executes.
- * Returned by {@link SubagentProvider.start} (via the service). The consumer
- * awaits {@link result}, may {@link cancel} mid-flight, and MUST {@link dispose}
- * on every path to reach child quiescence (no leaked idle child / session).
+ * Returned by {@link SubagentProvider.start} (via the service) only after the
+ * child is ready. The consumer awaits {@link result} and MUST {@link dispose}
+ * on every path to cancel any remaining work and reach child quiescence.
  *
  * {@link sendMessage} and {@link resume} are OPTIONAL: a provider that supports
  * the runtime capability defines the method; one that doesn't omits it. The
  * presence of the method IS the capability — narrow before calling.
  */
 export interface SubagentRun {
-  /** The child agent's id (use `ctx.agents.get(id)` to reach the live child). */
+  /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
   readonly id: AgentId
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
@@ -137,12 +156,10 @@ export interface SubagentRun {
    * cannot represent as a stop reason.
    */
   readonly result: Promise<SubagentResult>
-  /** Request cancellation of the in-flight run; {@link result} settles `aborted`. */
-  cancel(reason?: string): void
   /**
-   * Reach child quiescence and release the run's resources (in-process: dispose
-   * the owned agent handle and remove its session; ACP: kill the subprocess).
-   * Idempotent; awaits the child actually stopping, not merely requesting it.
+   * Cancel remaining work, reach child quiescence, and release the run's
+   * resources (in-process: dispose the owned agent and remove its session;
+   * ACP: kill and reap the subprocess). Idempotent.
    */
   dispose(): Promise<void>
   /**
@@ -154,14 +171,16 @@ export interface SubagentRun {
    * OPTIONAL (resume capability): send a follow-up task to a settled child,
    * continuing its session, and return a fresh run for the continuation.
    */
-  resume?(content: ContentBlock[]): SubagentRun
+  resume?(content: ContentBlock[]): Promise<SubagentRun>
 }
 
 /**
  * A subagent backend: one transport for running a child agent (in-process
  * spawn/fork, ACP to another process, …). Implementations register under a
  * unique name via {@link SubagentService.registerProvider}; multiple providers
- * coexist in one context (unlike the single-implementation bash seam).
+ * coexist in one context (unlike the single-implementation bash seam). The
+ * Providers are trusted same-process implementations; callers treat their
+ * descriptors and returned values as borrowed immutable data.
  */
 export interface SubagentProvider {
   /** Unique registry name (e.g. `spawn`, `fork`, `acp`). */
@@ -169,19 +188,24 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
-   * The provider's context contract: `true` when a child SEES the parent
+   * The provider's conversation-history descriptor: `true` when a child SEES the parent
    * conversation (fork — the child is seeded with the parent's completed-turn
    * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
    * not a start-time capability: the service validates nothing against it —
    * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
    * wording from it, so a tool bound to a fork provider stops telling the
-   * model the child "does not see this conversation".
+   * model the child "does not see this conversation". This descriptor concerns
+   * conversation history only; it says nothing about tool registrations,
+   * injected services, or authority inheritance.
    */
   readonly inheritsParentContext: boolean
   /**
-   * Start a child run. The service has already validated that every requested
-   * start-time capability is supported, so an implementation may assume e.g.
-   * `request.maxDepth` is honorable when present.
+   * Establish a child and return its handle only after publication. The
+   * service has already validated that every requested start-time capability
+   * is supported, so an implementation may assume e.g. `request.maxDepth` is
+   * honorable when present. If setup fails or `request.signal` aborts before
+   * fulfillment, the provider owns and cleans all partial resources before this
+   * promise rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): SubagentRun
+  start(request: SubagentStartRequest): Promise<SubagentRun>
 }

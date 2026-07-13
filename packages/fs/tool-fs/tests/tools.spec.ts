@@ -164,11 +164,10 @@ describe('read tool', () => {
     expect(text(result)).toContain('offset must be a positive integer')
   })
 
-  it('rejects a fractional or NaN offset, and a zero/negative limit', async () => {
+  it('rejects a fractional offset and a zero/negative limit', async () => {
     const { ctx } = await setup()
     for (const args of [
       { file_path: 'a.txt', offset: 1.5 },
-      { file_path: 'a.txt', offset: Number.NaN },
       { file_path: 'a.txt', limit: 0 },
       { file_path: 'a.txt', limit: -3 },
     ]) {
@@ -176,6 +175,13 @@ describe('read tool', () => {
       expect(result.isError, JSON.stringify(args)).toBe(true)
       expect(text(result)).toMatch(/must be a positive integer/)
     }
+  })
+
+  it('rejects a non-JSON numeric offset before tool-specific validation', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'read', { file_path: 'a.txt', offset: Number.NaN })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('tool execution arguments must be losslessly JSON-serializable')
   })
 
   it('rejects a limit above the cap', async () => {

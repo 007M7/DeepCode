@@ -151,9 +151,7 @@ export class WorkerWorkflowEngine extends WorkflowService {
     const meta = validateMeta(request.meta)
     assertBodyParses(request.script, meta.name)
     const id = WorkflowRunId(randomUUID())
-    // The event payloads and the run handle get SEPARATE meta clones: a
-    // listener mutating its snapshot must not corrupt the holder's view.
-    const info: WorkflowRunInfo = { id, meta: structuredClone(meta) }
+    const info: WorkflowRunInfo = { id, meta }
     const limits: WorkerLimits = {
       maxConcurrentAgents: this.config.maxConcurrentAgents === 0
         ? Math.min(16, Math.max(1, availableParallelism() - 2))
@@ -168,10 +166,19 @@ export class WorkerWorkflowEngine extends WorkflowService {
       ...request.args !== undefined ? { args: request.args } : {},
       limits,
     }
+    // Capture the dependency while this service call is still traced through
+    // the start() holder. Cordis strips the engine-provider shadow when it
+    // returns the SubagentService handle, so an already-returned run can keep
+    // starting children after an engine HMR unload removes ctx.workflows.
+    // Re-resolving `this.ctx.subagents` later from WorkerRun would instead walk
+    // the now-inactive engine fiber and break the seam's holder-owned lifetime.
+    const runCtx = this.ctx
+    const subagents = runCtx.subagents
     const workerRun = new WorkerRun(
-      this.ctx,
+      runCtx,
+      subagents,
       id,
-      structuredClone(meta),
+      meta,
       request.parent,
       init,
       this.config.provider,

@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -30,16 +32,29 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   return ctx
 }
 
-function agentForCwd(cwd: string): never {
-  return { session: { header: { cwd } } } as never
+function agentForCwd(cwd: string): Agent {
+  return { session: { header: { cwd } } } as unknown as Agent
 }
 
 async function composePrefix(ctx: Context, cwd: string, signal = new AbortController().signal): Promise<Message[]> {
+  return await composePrefixForAgent(ctx, agentForCwd(cwd), signal)
+}
+
+async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
   const empty: Message[] = []
-  return await ctx.waterfall(
-    'agent/session-prefix', agentForCwd(cwd), empty, signal,
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, signal,
     () => Promise.resolve(empty),
   )
+}
+
+async function mintAgentScope(ctx: Context, cwd: string): Promise<{ agent: Agent; scope: Scope }> {
+  const agent = agentForCwd(cwd)
+  let scope!: Scope
+  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, {
+    inject: ['tools'],
+  }))
+  return { agent, scope }
 }
 
 describe('dsh-tool-skill', () => {
@@ -150,6 +165,39 @@ describe('dsh-tool-skill', () => {
     const ctx = await setup(home)
 
     expect(await composePrefix(ctx, '/workspace')).toEqual([])
+  })
+
+  it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
+    const home = await tempDir('tool-restricted-catalog')
+    const ctx = await setup(home)
+    ctx.skills.register({ name: 'listed-skill', description: 'Listed', source: 'runtime', content: 'body' })
+    const { agent, scope } = await mintAgentScope(ctx, '/workspace')
+    scope.ctx.tools.restrict({ deny: ['skill'] })
+
+    expect(ctx.tools.get('skill', agent)).toBeUndefined()
+    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
+    expect(await composePrefix(ctx, '/workspace')).toHaveLength(1)
+    await scope.dispose()
+  })
+
+  it('does not attach shipped catalog guidance to a scoped same-name tool shadow', async () => {
+    const home = await tempDir('tool-shadowed-catalog')
+    const ctx = await setup(home)
+    ctx.skills.register({ name: 'listed-skill', description: 'Listed', source: 'runtime', content: 'body' })
+    const { agent, scope } = await mintAgentScope(ctx, '/workspace')
+    scope.ctx.tools.register(defineTool({
+      name: 'skill',
+      description: 'A scoped tool with unrelated semantics.',
+      parameters: {},
+      execute() {
+        return Promise.resolve([{ type: 'text', text: 'shadow' }])
+      },
+    }))
+
+    expect(ctx.tools.get('skill', agent)).not.toBe(ctx.tools.get('skill'))
+    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
+    expect(await composePrefix(ctx, '/workspace')).toHaveLength(1)
+    await scope.dispose()
   })
 
   it('validates the catalog description cap', async () => {

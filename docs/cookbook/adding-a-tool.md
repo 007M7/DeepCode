@@ -22,7 +22,7 @@ export function apply(ctx: Context) {
     },
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
-      // exec carries { callId, name, arguments, agent?, signal? }
+      // exec carries immutable identity + token; signal is the operational field
       return [{ type: 'text', text: await readFile(args.path, 'utf8') }]
     },
   }))
@@ -34,7 +34,9 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 ## Rules of the execute() contract
 
 - **Args are validated for you.** `defineTool` validates the model-generated `arguments` against the `SchemaSpec` before `execute` runs (type, required keys, enum membership, nested objects/arrays — [runtime arg validation](../rfc/implemented/architecture/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args already match `InferArgs`. You still hand-check value constraints the DSL can't express (non-empty strings, positive numbers, cross-field rules); throw a descriptive Error for those. Raw JSON-Schema tools registered directly (MCP) are NOT validated by the harness — they validate their own input.
-- **Throwing means isError.** The registry catches anything `execute()` throws and returns `{isError: true}` to the model. Use that for infrastructure failures (bad input, spawn errors, aborts) — but REPORT domain failures in the result text instead (e.g. tool-bash returns `[exit code: 9]` with `isError: false`: the model decides what a failing command means).
+- **Registration borrows your readonly definition.** A typed same-process contribution is not a serialization boundary; do not mutate its schema or replace callbacks after registration. `schemas()` materializes only the explicit model-facing projection. To hot-swap a tool, dispose its owning effect and register the replacement; mutable state inside the callback's closure remains ordinary plugin state.
+- **Execution identity is protected.** The registry materializes `arguments` as detached lossless JSON in one recursive pass, freezes that value before policy starts, and assigns an opaque `exec.token`; `callId`, `name`, `arguments`, `agent`, `token`, and an optional enclosing-transport `parent` token stay immutable through dispatch. `parent` is identity-only and exposes no live outer execution. Treat `args` as readonly input. An around-dispatch wrapper may add, replace, or remove only `exec.signal` to impose cancellation or a deadline.
+- **Throwing or returning non-JSON data means isError.** The registry catches anything `execute()` throws and materializes the complete post-policy result as lossless JSON before final observers run. A throw, malformed result, or non-JSON content/context/meta becomes `{isError: true}` so the live outcome cannot succeed and then fail at the durable log. Use errors for infrastructure failures (bad input, spawn errors, aborts), but report domain failures in the result text instead (for example, tool-bash returns `[exit code: 9]` with `isError: false` because the model decides what a failing command means).
 - **Honor `exec.signal`.** Cancel in-flight work when it fires.
 - **Attach durable card data with `meta` (optional).** `execute` may return `{ content, meta }` instead of a bare `ContentBlock[]` — `meta` is a JSON-serializable payload the core treats as opaque, persisted on the `tool/result` event and handed back to your `presentResult` (so a card that needs more than `args`, like `write`/`edit`'s applied-hunk diff, survives a session replay). Keep UI-only data here, never in the model-facing `content`.
 - **Use `exec.agent` for async notifications.** `agent.inject(content, {source: {kind: 'plugin', plugin: '<name>'}})` appends durable context the NEXT model request sees — it is not a wake-up (an idle agent stays idle). Guard against disposed agents (try/catch).
@@ -45,13 +47,13 @@ Follow tool-bash's background pattern: a `run_in_background` flag returns a task
 
 > TODO: each tool reimplements this background pattern by hand today. At some point we need a generic long-running-tool layer that handles task ids, incremental polling, kill, and completion notices uniformly.
 
-## Permissions / sandboxing
+## Execution policy and observation
 
-Prefer not to build policy into the tool. The seam is the `tools/pre-execute` gate (deny/ask — see the permission-gate example in [extension-cookbook.md](./extension-cookbook.md)) and the `tools/post-execute` inspect/transform seam, or a sandboxing implementation behind the tool's executor seam.
+Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for extensible allow/deny/ask policy (the [permission-gate example](./extension-cookbook.md#a-hook-plugin-permission-gate)), `ctx.tools.guard()` for a final monotonic deny that later listeners cannot undo, `tools/execute` to wrap core dispatch with a deadline/retry/metrics scope, `tools/post-execute` to transform or attach model-facing context, and `tools/result` to observe the immutable normalized outcome without changing it. A sandboxing implementation can also sit behind the tool's executor capability seam; the exact contracts are in the [`dsh-tools` README](../../packages/core/tools/README.md#extension-points).
 
 ## Code Mode reaches your tool for free
 
-Under the registry's non-native `mode` ([Code Mode](../../packages/core/tools/README.md)), a registered tool is ALSO callable from a `run_code` program as `await tools.<name>(args)` — nothing to add. The generated SDK declares your parameters from the same JSON Schema `defineTool` emits (constructs outside that subset degrade to `unknown`), each program call re-enters `execute()` through both waterfalls, and a failed call rejects the program-side promise with your error text. Two consequences worth designing for: your `description` and parameter `description`s become JSDoc a model reads while WRITING CODE, and non-text result blocks reach programs as placeholders (text is the lingua franca of the bridge).
+Under the registry's non-native `mode` ([Code Mode](../../packages/core/tools/README.md)), each visible registered capability is callable from a `run_code` program as `await tools.<name>(args)` — nothing to add. The registry keeps `run_code` itself as reserved, unfilterable presentation infrastructure while restrictions still control which end capabilities appear in the scoped SDK and bindings. The generated SDK declares parameters from the same JSON Schema `defineTool` emits (constructs outside that subset degrade to `unknown`); each program call receives its own immutable execution whose `parent` is the enclosing `run_code` token, then re-enters the complete pre/guard/around/post/result pipeline. A failed call rejects the program-side promise with your error text. Design `description` and parameter `description`s as JSDoc a model reads while writing code, and remember that non-text result blocks reach programs as placeholders (text is the bridge's lingua franca).
 
 ## How your tool renders in an editor (ACP presentation)
 

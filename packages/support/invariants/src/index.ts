@@ -1,26 +1,25 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts the harness event
- * contract at runtime, and (optionally) freezes logged session-event data so
- * any code that mutates history throws instead of corrupting silently.
+ * Dev-mode invariants: a pure-listener plugin that asserts relationships in
+ * the harness event contract at runtime.
  *
  * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, and `agent/status`. It is **off in production**: enable it
- * in tests and the demos, where a contract violation should be a loud failure,
- * not a subtle one. It doubles as executable documentation of the event
- * taxonomy: the assertions below ARE the contract.
+ * `session/event`, `agent/status`, and the scoped dispatch and request seams.
+ * It is **off in production**: enable it in tests and demos, where a contract
+ * violation should be a loud failure rather than a subtle one. It doubles as
+ * executable documentation of the event taxonomy: the assertions below are
+ * the contract.
  *
- * Why runtime assertions instead of compile-time deep-readonly types? See
- * the dev-invariants RFC. Briefly: a `DeepReadonly<SessionEvent>` is high type-noise across
- * every log consumer and a plugin casts straight through it; a dev-mode freeze
- * + assertions catch real corruption at zero production cost and zero type
- * noise. The always-on half of that defense (cloning derived messages) lives
- * in dsh-session; this package is the dev-mode tripwire.
+ * Session owns immutable log storage: it snapshots and deep-freezes every
+ * accepted event at the source. This plugin checks relationships that one
+ * event's types and immutability cannot express, including turn/step nesting,
+ * scoped dispatch, status transitions, and request reconstructability.
  *
  * @module @deepseek-ai/dsh-invariants
  */
 
 import type { Context } from 'cordis'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
+import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
@@ -39,16 +38,6 @@ export class InvariantError extends HarnessError {
     super(`invariant violated: ${message}`, 'INVARIANT')
     this.name = 'InvariantError'
   }
-}
-
-/** Plugin config. */
-export interface Config {
-  /**
-   * Deep-freeze logged session-event data so mutating a logged event throws.
-   * Default true — this plugin only runs in dev/test, where freezing is the
-   * point. Set false to assert the event contract without freezing.
-   */
-  freeze?: boolean
 }
 
 /** Per-session bookkeeping for the session-log invariants. */
@@ -79,27 +68,32 @@ interface SessionTrace {
   surface: number[]
 }
 
-/**
- * Deep-freeze a value and everything reachable from it.
- *
- * Walks every object's own properties even when the object itself is already
- * frozen: `Session.append()` accepts event data from arbitrary plugins/tools,
- * so a caller can hand us a SHALLOW-frozen object whose descendants are still
- * mutable. Skipping an already-frozen node (the obvious idempotence shortcut)
- * would leave exactly the kind of mutable history the dev-invariants RFC means to catch. A
- * `WeakSet` of visited objects keeps it terminating on cycles and avoids
- * re-walking shared subtrees / already-processed seed events.
- */
-function deepFreeze(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
-  if (value === null || typeof value !== 'object') return
-  if (seen.has(value)) return
-  seen.add(value)
-  // Freeze the node (no-op if a caller pre-froze it), then ALWAYS descend —
-  // a frozen container can still hold mutable children.
-  Object.freeze(value)
-  for (const key of Object.keys(value)) {
-    deepFreeze((value as Record<string, unknown>)[key], seen)
-  }
+/** One accepted event's deferred mutation of a live session trace. */
+interface SessionTraceTransition {
+  /** Scalar state after the event commits. */
+  scalars: Pick<SessionTrace, 'lastSeq' | 'openTurn' | 'openStep' | 'nextTurn' | 'nextStep'>
+  /** The event's mutation of the open step's pending call set. */
+  pendingCalls:
+    | { kind: 'none' }
+    | { kind: 'add' | 'delete'; callId: CallId }
+    | { kind: 'clear' }
+  /** The event's mutation of the derived surface order. */
+  surface:
+    | { kind: 'none' | 'append' }
+    | { kind: 'replace'; start: number; count: number }
+  /** The committed event sequence to add to the known-sequence set. */
+  seq: number
+}
+
+/** Event payload prefix for scoped seams whose first argument names its agent. */
+interface AgentSubject {
+  agent: Agent
+}
+
+/** Structural subject fields used without coupling this dev plugin to owning services. */
+interface ScopedSubjectFields {
+  agent?: Agent
+  scope?: object
 }
 
 /** Assert that a step-scoped event names the currently open turn and step. */
@@ -111,14 +105,19 @@ function requireOpenStep(trace: SessionTrace, kind: string, turn: number, step: 
   }
 }
 
-/** Assert one appended event against the per-session invariants. */
-function checkEvent(trace: SessionTrace, event: SessionEvent): void {
+/** Validate one candidate event without mutating the committed session trace. */
+function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTransition {
   // seq is strictly monotonic — the spine of replay equivalence. lastSeq
   // starts at -1, so the first event (seq 0) passes.
   if (event.seq <= trace.lastSeq) {
     throw new InvariantError(`seq must strictly increase: saw ${event.seq} after ${trace.lastSeq}`)
   }
-  trace.lastSeq = event.seq
+  let openTurn = trace.openTurn
+  let openStep = trace.openStep
+  let nextTurn = trace.nextTurn
+  let nextStep = trace.nextStep
+  let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
+  let surface: SessionTraceTransition['surface'] = { kind: 'none' }
 
   // --- Surface invariants ---
   // Surface metadata (sourceEventSeqs, surfaceOp) is only valid on
@@ -160,7 +159,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
   // positional range — every shadowed node must appear in sourceEventSeqs.
   if (se.surfaceOp !== undefined) {
     if (se.surfaceOp === 'append') {
-      trace.surface.push(event.seq)
+      surface = { kind: 'append' }
     } else {
       const { start, end } = se.surfaceOp
       const startIdx = trace.surface.indexOf(start)
@@ -182,9 +181,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (missing.length > 0) {
         throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
       }
-      // Apply the replace to the tracked surface: the new node takes the
-      // range's position so order stays in sync for later replaces.
-      trace.surface.splice(startIdx, shadowed.length, event.seq)
+      surface = { kind: 'replace', start: startIdx, count: shadowed.length }
     }
   }
 
@@ -203,8 +200,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (event.data.turn !== trace.nextTurn) {
         throw new InvariantError(`turn/start expected turn ${trace.nextTurn}, got ${event.data.turn}`)
       }
-      trace.openTurn = event.data.turn
-      trace.nextStep = 1
+      openTurn = event.data.turn
+      nextStep = 1
       break
     }
     case 'turn/end': {
@@ -214,8 +211,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openStep !== null) {
         throw new InvariantError(`turn/end ${event.data.turn} while step ${trace.openStep} is still open`)
       }
-      trace.openTurn = null
-      trace.nextTurn += 1
+      openTurn = null
+      nextTurn += 1
       break
     }
     case 'step/start': {
@@ -229,16 +226,16 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (event.data.step !== trace.nextStep) {
         throw new InvariantError(`step/start expected step ${trace.nextStep} in turn ${event.data.turn}, got ${event.data.step}`)
       }
-      trace.openStep = event.data.step
+      openStep = event.data.step
       break
     }
     case 'step/end': {
       requireOpenStep(trace, 'step/end', event.data.turn, event.data.step)
       // A result must arrive in the step that issued the call; orphan calls
       // (a step that errored before its result) do not carry to the next step.
-      trace.pendingCalls.clear()
-      trace.openStep = null
-      trace.nextStep += 1
+      pendingCalls = { kind: 'clear' }
+      openStep = null
+      nextStep += 1
       break
     }
     case 'assistant/chunk': {
@@ -251,7 +248,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     }
     case 'tool/call': {
       requireOpenStep(trace, 'tool/call', event.data.turn, event.data.step)
-      trace.pendingCalls.add(event.data.callId)
+      pendingCalls = { kind: 'add', callId: event.data.callId }
       break
     }
     case 'tool/result': {
@@ -260,9 +257,10 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       // does NOT hold: a call may have no result — a throwing tool-execution
       // pipeline step ends the turn with no tool/result, which is legal.)
       const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
-      if (!trace.pendingCalls.delete(event.data.callId) && !syntheticInterrupted) {
+      if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
+      pendingCalls = { kind: 'delete', callId: event.data.callId }
       break
     }
     // Turn-enclosure (the turn-enclosure RFC): EVERY session event not handled by a boundary
@@ -282,8 +280,52 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       break
     }
   }
-  // Track every seq seen — used above to validate sourceEventSeqs references.
-  trace.knownSeqs.add(event.seq)
+  return {
+    scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },
+    pendingCalls,
+    surface,
+    seq: event.seq,
+  }
+}
+
+/** Apply one already-validated transition after its event commits. */
+function applyTransition(trace: SessionTrace, transition: SessionTraceTransition): void {
+  Object.assign(trace, transition.scalars)
+  switch (transition.pendingCalls.kind) {
+    case 'none':
+      break
+    case 'add':
+      trace.pendingCalls.add(transition.pendingCalls.callId)
+      break
+    case 'delete':
+      trace.pendingCalls.delete(transition.pendingCalls.callId)
+      break
+    case 'clear':
+      trace.pendingCalls.clear()
+      break
+    /* v8 ignore next -- validateEvent produces this closed transition union */
+    default:
+      assertNever(transition.pendingCalls, 'session trace pending-call transition')
+  }
+  switch (transition.surface.kind) {
+    case 'none':
+      break
+    case 'append':
+      trace.surface.push(transition.seq)
+      break
+    case 'replace':
+      trace.surface.splice(transition.surface.start, transition.surface.count, transition.seq)
+      break
+    /* v8 ignore next -- validateEvent produces this closed transition union */
+    default:
+      assertNever(transition.surface, 'session trace surface transition')
+  }
+  trace.knownSeqs.add(transition.seq)
+}
+
+/** Validate and apply one event while rebuilding an already-committed log. */
+function replayEvent(trace: SessionTrace, event: SessionEvent): void {
+  applyTransition(trace, validateEvent(trace, event))
 }
 
 /** Legal agent status transitions (the only state machine the loop guarantees). */
@@ -303,14 +345,19 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
 
 /**
  * Register the dev-mode invariants. Contributions are effect-scoped, so
- * disposing the plugin fiber removes all listeners and stops freezing
- * (HMR-safe). On (re-)apply the trace state is rebuilt by replaying each
- * existing session's log, so a hot reload mid-turn does not falsely reject the
- * next event.
+ * disposing the plugin fiber removes all listeners (HMR-safe). On (re-)apply
+ * the trace state is rebuilt by replaying each existing session's log, so a
+ * hot reload mid-turn does not falsely reject the next event.
+ *
+ * @param ctx - Cordis context that receives the invariant listeners.
  */
-export function apply(ctx: Context, config: Config = {}): void {
-  const freeze = config.freeze ?? true
+export function apply(ctx: Context): void {
   const traces = new WeakMap<Session, SessionTrace>()
+  const stagedTransitions = new WeakMap<SessionEvent, {
+    session: Session
+    trace: SessionTrace
+    transition: SessionTraceTransition
+  }>()
   // Agent status has no stored history to replay; the first observation after
   // (re-)apply seeds the baseline, so a reload never produces a false positive.
   const lastStatus = new WeakMap<Agent, AgentStatus>()
@@ -326,20 +373,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     surface: [],
   })
 
-  /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
+  /** Build (or rebuild) a session's trace by replaying its whole log. */
   const seedSession = (session: Session): SessionTrace => {
     const trace = freshTrace()
     traces.set(session, trace)
     for (const event of session.events) {
-      checkEvent(trace, event)
-      if (freeze) deepFreeze(event)
+      replayEvent(trace, event)
     }
     return trace
   }
 
   // Every store-created session (the only kind that emits session/event) is
-  // seeded first — via ctx.sessions.list() at apply or session/created — so
-  // the fallback is a defensive guard, never hit in practice.
+  // seeded first — via ctx.sessions.list() at apply or session/created — so the
+  // fallback is a defensive guard, never hit in practice.
   /* v8 ignore next -- traceFor's fallback: session/event always follows a seed */
   const traceFor = (session: Session): SessionTrace => traces.get(session) ?? seedSession(session)
 
@@ -350,17 +396,90 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // A newly created session may arrive seeded/forked (the constructor copies
   // the seed WITHOUT emitting session/event), so replay its log here too.
-  ctx.on('session/created', (session) => { seedSession(session) })
+  ctx.on('session/created', (session) => { seedSession(session) }, { global: true })
 
   ctx.on('session/event', (session, event) => {
-    checkEvent(traceFor(session), event)
-    if (freeze) deepFreeze(event)
-  })
+    // Session resolves dispatch before committing, so internal/dispatch has
+    // already staged this exact event. A later dispatch veto skips every
+    // session/event callback and therefore leaves the live trace unchanged.
+    const staged = stagedTransitions.get(event)
+    /* v8 ignore next 2 -- internal/dispatch stages the exact callback arguments */
+    if (staged === undefined || staged.session !== session) {
+      throw new InvariantError('session/event reached publication without matching pre-commit validation')
+    }
+    stagedTransitions.delete(event)
+    applyTransition(staged.trace, staged.transition)
+  }, { global: true })
 
   ctx.on('agent/status', (agent, status) => {
     checkTransition(lastStatus.get(agent), status)
     lastStatus.set(agent, status)
-  })
+  }, { global: true })
+
+  // --- Scoped-dispatch invariants (the agent-scoping seam) ---------------
+  //
+  // Every scope-filtered event family must dispatch with a scope carrier
+  // (scopeTarget) whose key IS the subject the event's arguments name —
+  // a dispatch without one silently reverts that event to global delivery
+  // (agent-scoped listeners over-hear foreign agents), and a mis-keyed one
+  // delivers to the wrong agent's listeners. `internal/dispatch` fires
+  // synchronously before listener delivery, so a violation throws at the
+  // dispatching call site. The table maps each family to how its subject is
+  // read from the event arguments; `null` = the subject is not recoverable
+  // from the arguments (session events key by the OWNING agent; subagent
+  // lifecycle events key by the delegating parent), so only carrier
+  // PRESENCE is asserted there.
+  const scopedSubject: Record<string, ((args: unknown[]) => unknown) | null> = {
+    'agent/created': args => args[0],
+    'agent/disposed': args => args[0],
+    'agent/status': args => args[0],
+    'agent/queued': args => args[0],
+    'agent/session-start': args => args[0],
+    'agent/pre-step': args => args[0],
+    'agent/prompt-submit': args => args[0],
+    'agent/request': args => args[0],
+    'agent/session-prefix': args => args[0],
+    'agent/step-result': args => args[0],
+    'agent/turn-continuation': args => args[0],
+    'agent/turn-stop': args => args[0],
+    'agent/error': args => args[0],
+    'approval/request': args => (args[0] as AgentSubject).agent,
+    'tools/pre-execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/post-execute': args => (args[0] as ScopedSubjectFields).agent,
+    'tools/result': args => (args[0] as ScopedSubjectFields).agent,
+    'system-prompt/assemble': args => (args[1] as ScopedSubjectFields).scope,
+    'session/created': null,
+    'session/disposed': null,
+    'session/event': null,
+    'session/flush': null,
+    'subagent/start': null,
+    'subagent/end': null,
+  }
+  ctx.on('internal/dispatch', (_mode, name, args, thisArg) => {
+    const subjectOf = scopedSubject[name]
+    if (subjectOf === undefined) return
+    if (!isScopeCarrier(thisArg)) {
+      throw new InvariantError(
+        `"${name}" is a scope-filtered event but was dispatched without a scope carrier — `
+        + 'pass scopeTarget(base, subject) as the dispatch thisArg (agent events: use agentEvents(ctx, agent))')
+    }
+    if (subjectOf !== null && carrierKeyOf(thisArg) !== subjectOf(args)) {
+      throw new InvariantError(
+        `"${name}" was dispatched with a scope carrier keyed to a DIFFERENT subject than its arguments name — `
+        + 'the carrier key and the event\'s subject must be the same object (use agentEvents(ctx, agent))')
+    }
+    if (name === 'session/event') {
+      const [session, event] = args as [Session, SessionEvent]
+      const trace = traceFor(session)
+      const transition = validateEvent(trace, event)
+      // The exact event identity reaches the contained post-commit listener.
+      // A later internal/dispatch listener may still veto; because validation
+      // is pure, abandoning this weakly keyed transition does not advance the
+      // committed trace or retain the session.
+      stagedTransitions.set(event, { session, trace, transition })
+    }
+  }, { global: true })
 
   // Request-reconstruction cross-check (the reconstructability RFC): a
   // loop-built request — frozen envelope + live sessionId is the marker; a
@@ -437,5 +556,5 @@ export function apply(ctx: Context, config: Config = {}): void {
       throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the folded request header`)
     }
     return next()
-  }, { prepend: true })
+  }, { global: true, prepend: true })
 }

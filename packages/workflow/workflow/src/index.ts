@@ -9,14 +9,12 @@
  * separate-process sandbox) swap in without touching the model-facing tool
  * that consumes them (`@deepseek-ai/dsh-tool-workflow`).
  *
- * The `workflow/*` lifecycle events are OBSERVE-ONLY data snapshots: they
+ * The `workflow/*` lifecycle events are OBSERVE-ONLY data: they
  * carry {@link WorkflowRunInfo} (id + meta), never the live {@link WorkflowRun}
  * — a listener must not gain `cancel`/`dispose`; control stays with the
- * `start()` caller holding the run. Every emit is per-listener contained (a
- * throwing subscriber is logged, never propagated) and every listener gets its
- * own payload clone (mutating it corrupts nothing), so one bad observer can
- * neither strand a live run, starve later listeners, nor poison another
- * listener's view.
+ * `start()` caller holding the run. Same-process payloads are borrowed
+ * immutable values. Every listener is independently contained, so a throw or
+ * rejected promise can neither strand a run nor starve peers.
  *
  * @module @deepseek-ai/dsh-workflow
  */
@@ -76,8 +74,10 @@ declare module 'cordis' {
      */
     'workflow/log'(info: WorkflowRunInfo, message: string): void
     /**
-     * One `agent()` call started a child run. Paired with
-     * {@link Events['workflow/agent-end']} by `agent.seq`.
+     * One `agent()` call established a ready child run. Paired with
+     * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
+     * receives a ready run from the provider emits neither
+     * event in this pair.
      * @param info - the run's identity snapshot.
      * @param agent - the call's sequence number, label, phase, and child id.
      * @mode emit
@@ -129,10 +129,11 @@ export type WorkflowEventName =
  * - `UNSUPPORTED_SCHEMA` — an `agent()` schema outside the structured-output
  *   subset (see dsh-tools).
  * - `AGENT_CAP` / `ITEM_CAP` — the run/agent caps tripped.
- * - `AGENT_START` — the subagent seam refused to start a child.
- * - `AGENT_RESULT` — a child's `result` REJECTED: an infrastructure fault at
- *   the subagent seam, distinct from a child that failed and resolved (which
- *   is the per-item `null`, never an error).
+ * - `AGENT_START` — the provider's asynchronous start rejected before
+ *   cancellation took precedence.
+ * - `AGENT_RESULT` — a ready run had its `result` REJECT: an infrastructure
+ *   fault at the subagent seam. This is distinct from a child that failed and resolved
+ *   (which is the per-item `null`, never an error).
  * - `RESULT_UNSERIALIZABLE` — a value crossing the script/host value boundary
  *   is not plain JSON data.
  * - `CANCELLED` — the run was cancelled; pending and future hooks reject
@@ -194,8 +195,8 @@ export function isFatalWorkflowError(error: unknown): boolean {
  *   `result` SETTLES within the implementation's bounded grace even if the
  *   script itself never settles (a consumer awaiting `result` must never be
  *   wedged past a cancellation).
- * - The `workflow/*` events fire through {@link emitWorkflowEvent} (data
- *   snapshots, per-listener containment); `workflow/end` fires exactly once
+ * - The `workflow/*` events fire through {@link emitWorkflowEvent} (borrowed
+ *   immutable data, per-listener containment); `workflow/end` fires exactly once
  *   per started run, after `result` is settled or as it settles.
  * - `dispose()` reaches quiescence within a bounded grace: it cancels, waits
  *   for the script to settle AND its started children to finish disposing,
@@ -221,12 +222,9 @@ export abstract class WorkflowService extends Service {
   abstract start(request: WorkflowStartRequest): WorkflowRun
 
   /**
-   * Emit one `workflow/*` lifecycle event with PER-LISTENER containment and
-   * PER-LISTENER payload snapshots: each subscriber is dispatched individually
-   * with its OWN structural clone of the payload (the payloads are plain JSON
-   * data by the seam contract), so a listener mutating what it received can
-   * corrupt neither the engine's live state nor any other listener's or later
-   * event's view; a thrown listener is logged (never propagated — the logging
+   * Emit one `workflow/*` lifecycle event with per-listener containment. Each
+   * subscriber receives the same borrowed immutable payload; a throw or
+   * asynchronously rejected listener is logged (never propagated — the logging
    * itself is total, even for a thrown value whose own string coercion
    * throws), so one bad subscriber can neither fail the engine mid-run,
    * surface as an unhandled rejection on a detached settle hook, nor starve
@@ -238,9 +236,10 @@ export abstract class WorkflowService extends Service {
   protected emitWorkflowEvent(name: WorkflowEventName, ...args: unknown[]): void {
     for (const callback of this.ctx.events.dispatch('emit', [name, ...args])) {
       try {
-        // The declared workflow/* signatures are all void-returning emits; the
-        // dispatch callback applies the payload tuple.
-        ;(callback as (...payload: unknown[]) => void)(...structuredClone(args))
+        const returned: unknown = (callback as (...payload: unknown[]) => unknown)(...args)
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.ctx.logger.warn(`workflow: ${name} listener rejected: ${renderListenerError(error)}`)
+        })
       } catch (error: unknown) {
         this.ctx.logger.warn(`workflow: ${name} listener threw: ${renderListenerError(error)}`)
       }

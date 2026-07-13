@@ -13,13 +13,6 @@ import { depthOf, SubagentDepthError, startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
-/**
- * Drives the shared in-process run driver DIRECTLY (no provider package), so the
- * driver's own contract — depth read/cap, the one-shot drive, the result read —
- * is covered independently of which backend (spawn/fork) calls it. The only
- * mocked boundary is the model; the real agent loop, SubagentService, and
- * dsh-invariants are mounted, so a malformed child session log fails the test.
- */
 async function setup(script: Script) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
@@ -35,51 +28,127 @@ async function setup(script: Script) {
   return { ctx, parent }
 }
 
-function text(blocks: { type: string; text?: string }[]): string {
-  return blocks.filter(b => b.type === 'text').map(b => b.text).join('')
+function request(parent: Agent, signal = new AbortController().signal) {
+  return { prompt: [{ type: 'text' as const, text: 'child task' }], parent, signal }
+}
+
+function text(blocks: readonly { type: string; text?: string }[]): string {
+  return blocks.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
 describe('depthOf', () => {
-  it('reads 0 for an agent with no subagentDepth, the set value otherwise', async () => {
+  it('reads zero for a top-level agent and an explicit child depth', async () => {
     const { parent } = await setup([])
     expect(depthOf(parent)).toBe(0)
-    const withDepth = { options: { subagentDepth: 3 } } as unknown as Agent
-    expect(depthOf(withDepth)).toBe(3)
+    expect(depthOf({ options: { subagentDepth: 3 } } as unknown as Agent)).toBe(3)
+  })
+
+  it.each([Number.NaN, 1.5, -1, -0, Number.MAX_SAFE_INTEGER + 1])('rejects malformed depth %s', (value) => {
+    expect(() => depthOf({ options: { subagentDepth: value } } as unknown as Agent))
+      .toThrow('non-negative safe integer')
   })
 })
 
 describe('startInProcessRun', () => {
-  it('drives a fresh child (no seed) to completion and returns its output', async () => {
-    const { ctx, parent } = await setup([textResponse('driver child answer')])
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'do X' }], parent }, { providerName: 'spawn' })
+  it('returns only after publication, drives a fresh child, and disposes it', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    const run = await startInProcessRun(request(parent), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
     const result = await run.result
     expect(result.stopReason).toBe('completed')
-    expect(text(result.output)).toBe('driver child answer')
+    expect(text(result.output)).toBe('driver answer')
     expect(depthOf(ctx.agents.get(run.id)!)).toBe(1)
     await run.dispose()
+    await run.dispose()
+    expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
-  it('throws SubagentDepthError when the child would exceed maxDepth', async () => {
-    const { ctx, parent } = await setup([])
-    expect(() => startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }, { providerName: 'spawn' }))
-      .toThrow(SubagentDepthError)
-  })
-
-  it('seeds the child session when a seed is supplied', async () => {
-    // Drive the parent through one real turn, then seed the child with that
-    // completed-turn prefix — the child must SEE the parent's history but its
-    // result is scoped to its OWN events (not the seeded parent message).
-    const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('seeded child reply')])
-    parent.send([{ type: 'text', text: 'parent q' }])
+  it('seeds a forked child but reads only the child-owned output', async () => {
+    const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
+    parent.send([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()
     const seed = parent.session.events.slice()
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'child q' }], parent }, { providerName: 'fork', seed })
+    const run = await startInProcessRun(request(parent), { seed })
     const result = await run.result
-    expect(result.stopReason).toBe('completed')
-    expect(text(result.output)).toBe('seeded child reply')
+    expect(text(result.output)).toBe('child answer')
     const child = ctx.agents.get(run.id)!
-    // The child inherited the parent's prefix.
-    expect(child.session.events.slice(0, seed.length).some(e => e.type === 'user/message')).toBe(true)
+    expect(child.session.header.seedLength).toBe(seed.length)
+    expect(child.session.events.slice(0, seed.length)).toEqual(seed)
     await run.dispose()
+  })
+
+  it('rejects invalid and exceeded depth before publication', async () => {
+    const { parent } = await setup([])
+    await expect(startInProcessRun({ ...request(parent), maxDepth: -1 }, {}))
+      .rejects.toThrow('non-negative safe integer')
+    await expect(startInProcessRun({ ...request(parent), maxDepth: 0 }, {}))
+      .rejects.toBeInstanceOf(SubagentDepthError)
+    const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER } } as unknown as Agent
+    await expect(startInProcessRun(request(maxParent), {})).rejects.toBeInstanceOf(RangeError)
+  })
+
+  it('rejects an already-aborted request without publishing a child', async () => {
+    const { ctx, parent } = await setup([])
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const controller = new AbortController()
+    controller.abort('too late')
+    await expect(startInProcessRun(request(parent, controller.signal), {}))
+      .rejects.toThrow('aborted before child publication')
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+  })
+
+  it('uses the request signal after publication and dispose as cancellation paths', async () => {
+    const { parent } = await setup(['hang', 'hang'])
+    const controller = new AbortController()
+    const signalled = await startInProcessRun(request(parent, controller.signal), {})
+    await new Promise(resolve => setTimeout(resolve, 30))
+    controller.abort('stop child')
+    await expect(signalled.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    await signalled.dispose()
+
+    const disposed = await startInProcessRun(request(parent), {})
+    await new Promise(resolve => setTimeout(resolve, 30))
+    await disposed.dispose()
+    await expect(disposed.result).resolves.toMatchObject({ stopReason: 'aborted' })
+  })
+
+  it('cleans a failed unpublished setup before rejecting', async () => {
+    const { ctx, parent } = await setup([])
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    await expect(startInProcessRun({
+      ...request(parent),
+      toolFilter: { deny: ['unknown-tool'] },
+    }, {})).rejects.toThrow('unknown global tool')
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+  })
+
+  it('closes the abort handoff after the factory detaches its creation listener', async () => {
+    const { ctx, parent } = await setup([])
+    const controller = new AbortController()
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const parentWithAbortAtHandoff = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        agents: {
+          create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
+            const handle = await ctx.agents.create(options)
+            // `create()` has detached its creation-only listener, but the
+            // provider continuation has not installed its live-run listener.
+            controller.abort('handoff race')
+            return handle
+          },
+        },
+      },
+    } as unknown as Agent
+    await expect(startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {}))
+      .rejects.toThrow('aborted before child publication')
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 })

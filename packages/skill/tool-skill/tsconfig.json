@@ -9,6 +9,7 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/scope" },
     { "path": "../../llm/llm" },
     { "path": "../../core/agent" },
     { "path": "../skill" },
