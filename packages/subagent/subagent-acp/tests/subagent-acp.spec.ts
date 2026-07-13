@@ -122,8 +122,9 @@ describe('buildChildEnv', () => {
 
 describe('dsh-subagent-acp', () => {
   it('drives a child process to completion and returns its streamed output', async () => {
-    const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn' })
+    const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn', MOCK_SESSION_ID: 'acp-child-session' })
     const run = await ctx.subagents.start('acp', request('do X'))
+    expect(run.id).toBe('acp-child-session')
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('hello from acp child')
