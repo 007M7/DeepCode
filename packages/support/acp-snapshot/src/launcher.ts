@@ -107,6 +107,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   const updateWaiters: {
     match: (update: SessionNotification['update']) => boolean
     resolve: (update: SessionNotification['update']) => void
+    reject: (reason: unknown) => void
   }[] = []
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
@@ -119,7 +120,15 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         const waiter = updateWaiters[index]
         /* v8 ignore next 1 -- index is bounded by the array length */
         if (waiter === undefined) continue
-        if (!waiter.match(params.update)) continue
+        let matches: boolean
+        try {
+          matches = waiter.match(params.update)
+        } catch (error: unknown) {
+          updateWaiters.splice(index, 1)
+          waiter.reject(error)
+          continue
+        }
+        if (!matches) continue
         updateWaiters.splice(index, 1)
         waiter.resolve(params.update)
       }
@@ -136,7 +145,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     updates,
     rawStdout: () => Buffer.concat(rawBuffers).toString('utf8'),
     stderr: () => stderrChunks.join(''),
-    waitForUpdate: match => new Promise(resolve => updateWaiters.push({ match, resolve })),
+    waitForUpdate: match => new Promise((resolve, reject) => updateWaiters.push({ match, resolve, reject })),
     async close(signal?: NodeJS.Signals): Promise<void> {
       if (child.exitCode !== null || child.signalCode !== null) return
       if (signal === undefined) child.stdin.end()
