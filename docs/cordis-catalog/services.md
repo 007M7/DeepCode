@@ -203,15 +203,17 @@ Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](..
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
-Live-preferred logical-corpus and exact-event read service.
+Live-preferred logical-corpus exact-read and relationship-tracing service.
 
 ```ts cordis-catalog
 listSessions(): Promise<SessionRecord[]>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:38`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
