@@ -251,11 +251,15 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (batch === undefined) {
       throw new TypeError('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
     }
-    assertSupportedEvents(batch, id)
     return this.serialize(id, () => this.appendCore(id, batch))
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    // Every append route converges here: the public service, live write-behind
+    // drains, and HMR seed/suffix adoption. Keep vocabulary rejection at that
+    // shared boundary so a stale JavaScript plugin cannot persist an event that
+    // this same backend will refuse to load.
+    assertSupportedEvents(events, id)
     if (events.length === 0) return
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
@@ -528,6 +532,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }
