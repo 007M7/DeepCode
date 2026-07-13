@@ -23,9 +23,6 @@ import { prepareValue, truncateUtf8Bytes } from './bootstrap.ts'
 import { logTruncationMarker } from './protocol.ts'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
-export type { BootstrapPort, PatchableStream } from './bootstrap.ts'
-export type { CallMessage, DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
-
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
   /**
