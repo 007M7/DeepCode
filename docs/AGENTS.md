@@ -1,10 +1,10 @@
 # AGENTS.md — The documentation standard
 
-This file defines each Markdown tier, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for audits; rationale lives in the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This file defines Markdown tiers, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for audits; the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) owns rationale.
 
 ## The tier taxonomy: one home per fact
 
-Every fact has exactly one home — the tier whose job it is — and every other place that needs it links there instead of restating it. A rule restated in two files drifts word-by-word until the copies disagree; a link cannot drift, and `verify-md-links` keeps it resolving.
+Each fact has one home: the tier whose job it is. Elsewhere, link to that home; `verify-md-links` keeps links resolving while duplicated prose drifts.
 
 | Tier | Job | Does NOT belong there |
 |---|---|---|
@@ -20,18 +20,18 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 
-Placement test: a story about a bug → postmortem. Why we chose X → RFC. How to do task Y → cookbook. What type Z looks like → core-data-structures. What package P promises → its README. A rule every agent must always obey → root AGENTS.md, one line, linking the home that holds the why.
+Placement test: bug story → postmortem; design rationale → RFC; procedure → cookbook; type shape → core-data-structures; package contract → README; universal rule → root AGENTS.md with a link to its rationale.
 
 ## Writing rules
 
 - **Document current state, not change history.** Avoid "previously/now/no longer", PRs, commits, and stack positions in durable prose; name the live mechanism. Put change stories in commits, PRs, RFCs, or postmortems.
-- **A decision worth re-litigating gets an RFC in the same PR.** The test: would a maintainer six months out ask "why was it done this way?" and find no answer in the code? If yes, write one ([when to write one](rfc/README.md)); mechanical or self-evident changes need none.
-- **One physical line per paragraph** (`verify-md-wrap`): the editor soft-wraps; hard breaks make a one-word edit re-diff the whole paragraph. Prose only — code blocks, tables, and list structure stay; code comments stay under the linter's column limit.
+- **Write an RFC in the same PR for decisions a maintainer may reasonably revisit.** Mechanical or self-evident changes need none ([when to write one](rfc/README.md)).
+- **One physical line per paragraph** (`verify-md-wrap`): use editor soft-wrap. Code blocks, tables, and list structure keep their formatting; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
 - **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
-- **Comments and JSDoc are contracts, not reasoning transcripts.** Keep only non-obvious behavior, constraints, and rationale at the closest public seam. Do not narrate the implementation, explain each test step, preserve review analysis, or restate what the code already says; delete instead of paraphrasing an obvious comment.
+- **Comments and JSDoc state contracts, not reasoning.** Keep non-obvious behavior, constraints, or rationale at the closest public seam. Delete implementation narration, test walkthroughs, review analysis, and code restatement.
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
 
 ## Wordcount Budgets
@@ -44,7 +44,7 @@ When the gate goes red:
 2. **Condense** content that belongs here but can be shorter.
 3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
 
-Ceilings keep working headroom: at least 5% above the current size, ratcheted down after trims. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling; review and the slop checklist govern them.
+Ceilings retain at least 5% headroom and ratchet down after trims. Targets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
 
 ## The slop checklist
 
