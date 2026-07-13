@@ -95,20 +95,18 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const welcome = config.welcome ?? 'ready.'
   const { input, output, exit } = runtime
 
-  // This app owns one root agent. Hold the live object directly: its per-run id
-  // is intentionally fresh, while `main` remains only the terminal's fixed
-  // display label. HMR may publish the replacement before old teardown emits
-  // disposed, so a target disposal reselects the surviving root from the live
-  // registry instead of leaving the terminal detached. Fork children carry
-  // parentSession lineage and must never become the terminal target.
-  const rootAgent = (): Agent | undefined =>
-    ctx.agents.list().find(agent => agent.session.header.parentSession === undefined)
-  let target: Agent | undefined = rootAgent()
-  ctx.on('agent/created', (agent) => {
-    if (target === undefined && agent.session.header.parentSession === undefined) target = agent
-  })
+  // This app owns one configured agent. Hold the live object directly: its
+  // per-run id is intentionally fresh, while `main` remains only the
+  // terminal's fixed display label. At install the configured agent is the
+  // earliest registry entry (it creates any subagents later). During HMR the
+  // replacement is published after the old tree, so when old teardown finally
+  // emits disposed, the newest survivor is the replacement. Persisted
+  // parentSession lineage is deliberately irrelevant: a resumed child session
+  // can itself be this process's configured top-level agent.
+  let target: Agent | undefined = ctx.agents.list()[0]
+  ctx.on('agent/created', (agent) => { target ??= agent })
   ctx.on('agent/disposed', (agent) => {
-    if (target === agent) target = rootAgent()
+    if (target === agent) target = ctx.agents.list().at(-1)
   })
 
   // Transcript rendering off the durable `session/event` feed — the assistant

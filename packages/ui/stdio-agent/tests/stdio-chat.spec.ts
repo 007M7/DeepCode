@@ -185,6 +185,9 @@ describe('createStdioChat rendering', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     const agent = makeAgent('main')
+    // Durable lineage does not imply runtime child ownership: the stdio app
+    // may explicitly resume a persisted fork as its one configured agent.
+    ;(agent.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
     ctx.agents.register(agent) // registered BEFORE the UI plugin below
     const { runtime, out } = makeRuntime()
     await ctx.plugin(Object.assign((inner: Context) => {
@@ -194,6 +197,18 @@ describe('createStdioChat rendering', () => {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 5] ')
+  })
+
+  it('accepts a lineage-bearing configured agent created after the UI installs', async () => {
+    const { ctx, input } = await setup()
+    const resumed = makeAgent('resumed')
+    ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
+    ctx.emit('agent/created', resumed)
+
+    input.feed('continue')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(resumed.sent).toEqual([[{ type: 'text', text: 'continue' }]])
   })
 
   it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
@@ -242,7 +257,7 @@ describe('createStdioChat rendering', () => {
 
     // The replacement's created edge arrived while oldRoot was still targeted.
     // Once oldRoot is removed, registry order is child then replacement; the
-    // UI must skip the surviving child and route input to the replacement root.
+    // most recently published survivor is the HMR replacement.
     disposeOld()
     input.feed('after hmr')
     await new Promise(resolve => setImmediate(resolve))
