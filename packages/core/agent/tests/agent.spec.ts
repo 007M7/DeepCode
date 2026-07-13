@@ -42,11 +42,29 @@ describe('AgentRegistry', () => {
     const dispose = ctx.agents.register(agent)
     expect(ctx.agents.get(agent.id)).toBe(agent)
     expect(ctx.agents.list()).toEqual([agent])
+    expect(ctx.agents.roots()).toEqual([agent])
     expect(() => ctx.agents.register(stubAgent('a1'))).toThrow(/already registered/)
 
     dispose()
     expect(ctx.agents.get(agent.id)).toBeUndefined()
     expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
+  })
+
+  it('tracks runtime creator ownership separately from registry order', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const root = stubAgent('root')
+    const child = stubAgent('child')
+    const detachRoot = ctx.agents.enter(root, undefined)
+    ctx.agents.announce(root)
+    const detachChild = ctx.agents.enter(child, root)
+    ctx.agents.announce(child)
+
+    expect(ctx.agents.list()).toEqual([root, child])
+    expect(ctx.agents.roots()).toEqual([root])
+
+    detachChild()
+    detachRoot()
   })
 
   it('rolls an entry back and pairs a partially delivered creation when a listener throws', async () => {
@@ -94,7 +112,7 @@ describe('AgentRegistry', () => {
     ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
 
     const first = stubAgent('split')
-    const detachFirst = ctx.agents.enter(first)
+    const detachFirst = ctx.agents.enter(first, undefined)
     expect(lifecycle).toEqual([])
     ctx.agents.announce(first)
     expect(() => { ctx.agents.announce(first) }).toThrow(/already announced/)
@@ -102,7 +120,7 @@ describe('AgentRegistry', () => {
     detachFirst()
 
     const replacement = stubAgent('split')
-    const detachReplacement = ctx.agents.enter(replacement)
+    const detachReplacement = ctx.agents.enter(replacement, undefined)
     detachFirst()
     expect(ctx.agents.get(replacement.id)).toBe(replacement)
     expect(() => { ctx.agents.announce(first) }).toThrow(/not live/)
@@ -122,7 +140,7 @@ describe('AgentRegistry', () => {
     })
     ctx.on('agent/created', () => void order.push(`second:${ctx.agents.get(agent.id) === agent}`))
     ctx.on('agent/disposed', () => void order.push('disposed'))
-    const detach = ctx.agents.enter(agent)
+    const detach = ctx.agents.enter(agent, undefined)
     ctx.agents.announce(agent)
     expect(order).toEqual(['first:true', 'after-detach:true', 'second:true', 'disposed'])
     expect(ctx.agents.get(agent.id)).toBeUndefined()

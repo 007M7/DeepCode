@@ -228,7 +228,7 @@ class AgentCreationTransaction {
     this.publishing = true
     try {
       this.detachSession = agent.ctx.sessions.enter(session)
-      this.detachAgent = this.loopCtx.agents.enter(agent)
+      this.detachAgent = this.loopCtx.agents.enter(agent, this.ownerAgent)
 
       agent.ctx.sessions.announce(session)
       this.assertActive()
