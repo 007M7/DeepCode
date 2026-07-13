@@ -56,13 +56,13 @@ exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢�
 
 `@deepseek-ai/dsh-jsonrpc-agent`（包）→ `dsh-jsonrpc-agent`（bin）→ `dsh-jsonrpc-agent-pkg`（闭包清单；无 scope 前缀，刻意避开 constraints 对 `@deepseek-ai/dsh-*` 的包形状规则）→ `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（exe 产物）。wire `serverInfo.name` 保持 `deepseek-harness-sdk-runtime`（协议稳定值）；Python dist 名为 `deepseek-harness` / `deepseek-harness-runtime-bin`。
 
-## worker 类插件的处置
+## 工作线程插件
 
-`dsh-workflow-workerthread` 与 `dsh-code-runtime-worker` 以 `new Worker(new URL('./worker.js', import.meta.url))` 依赖磁盘兄弟文件。PoC 实测：pkg 的 Worker 补丁只拦截**字符串路径**，URL 对象形态在 VFS 内找不到文件——修法已明确（`fileURLToPath()` 转字符串），但本期评审决策是**不验证、不承诺、不处理**：它们随全量集合编译进 exe，外部 `cordis.yml` 引用时行为未定义。
+exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个后端的构建入口都通过 `fileURLToPath()` 转换相邻 worker 的 URL，再将所得文件系统字符串传给 `Worker`；pkg 的 Worker 钩子可以用这种形式解析 VFS 内文件。工作流引擎在未构建的源码执行中仍保留 data URL 引导程序，只有构建后的相邻入口使用文件系统字符串。自定义配置的可执行文件冒烟测试会加载两个后端，实际调用 `run_code` 与不启动 agent 的 `workflow`，并要求两个 worker 都从 pkg 的 VFS 内返回 `42`。
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的 keyless pytest 套件以假运行时对端覆盖客户端协议、子进程清理、绝对 cwd 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置和直接二进制协议对着 mock 端点完成一个轮次，并校验最终文本与 JSONL；随后把平台 wheel 安装进干净 venv，在不传 `runtime_bin` 的情况下运行。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 import、cordis 单实例、fail-loud 配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的 keyless pytest 套件以假运行时对端覆盖客户端协议、子进程清理、绝对 cwd 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置和直接二进制协议对着 mock 端点完成一个轮次，并校验最终文本与 JSONL。自定义配置还会通过打包进 VFS 的真实 worker 文件执行 `run_code` 和不启动 agent 的 `workflow`。随后把平台 wheel 安装进干净 venv，在不传 `runtime_bin` 的情况下运行。JSON-RPC 协议不在 ACP snapshot 体系内，无 snapshot 层（点名后的明确空缺，非遗漏）。
 
 手工驱动注意：bin 视 stdin EOF 为「客户端已走」并立即 dispose，短命管道会中止在飞回合——管道驱动必须保持 stdin 打开到回合结束。
 
@@ -82,4 +82,4 @@ exe「必须显式配置」的硬语义不变；零配置体验由 wrapper 恢�
 
 **买到的**：目标平台零依赖单文件分发；插件语义与源码运行严格一致（同一棵真实包树，无转译无注册表）；serving 面、插件集、配置三者全部收敛到 `cordis.yml` + 一份依赖清单两个事实源；exe 与 node 双载体同树同语义，开发验证不必等打包；官方 Node 二进制消除了补丁二进制供应链顾虑。
 
-**付出的**：产物 174MB 级且源码原样进 blob（无字节码混淆，闭源分发诉求需另行评估）；pkg 的 VFS/模块钩子层仍是社区维护（构建脚本钉死 `@yao-pkg/pkg@6.21.0`，升级走显式改动）；`--sea` 单 target 单次调用（与 CI 每平台一腿匹配，本地多平台构建串行）；worker 类插件在 exe 内行为未定义。
+**付出的**：产物 174MB 级且源码原样进 blob（无字节码混淆，闭源分发诉求需另行评估）；pkg 的 VFS/模块钩子层仍是社区维护（构建脚本钉死 `@yao-pkg/pkg@6.21.0`，升级走显式改动）；`--sea` 每个 target 调用一次（与 CI 每平台一腿匹配，本地多平台构建串行）。

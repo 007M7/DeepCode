@@ -110,7 +110,7 @@ const dshBinPackageFiles = [
 
 const dshWorkerPackageFiles = [
   'lib/index.js',
-  'lib/worker.js',
+  'lib/worker.cjs',
   'lib/types/**/*.d.ts',
   'lib/types/**/*.d.ts.map',
   'src',

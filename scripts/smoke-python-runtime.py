@@ -17,11 +17,18 @@ from typing import Callable
 
 
 EXPECTED_TEXT = "runtime smoke ok"
+CODE_PROMPT = "Use run_code to compute the packaged worker smoke value."
+CODE_WORKER_TEXT = "code worker smoke ok"
+WORKFLOW_PROMPT = "Use workflow to compute the packaged worker smoke value without agents."
+WORKFLOW_WORKER_TEXT = "workflow worker smoke ok"
 CUSTOM_CORDIS = """\
 - id: jsonrpc
   name: '@deepseek-ai/dsh-jsonrpc'
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-core'
+  config:
+    tools:
+      mode: both
 - id: sessions
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
@@ -30,11 +37,21 @@ CUSTOM_CORDIS = """\
   name: '@deepseek-ai/dsh-bash-local'
   config:
     cwd: !!js process.env.DSH_CWD
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker'
+- id: subagents
+  name: '@deepseek-ai/dsh-subagent'
+- id: workflow-engine
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+- id: workflow-tool
+  name: '@deepseek-ai/dsh-tool-workflow'
 """
 
 
 class MockModelHandler(BaseHTTPRequestHandler):
-    """Return one deterministic OpenAI-compatible streaming completion."""
+    """Return deterministic text and worker-tool streaming completions."""
 
     requests: list[dict[str, object]] = []
 
@@ -45,11 +62,7 @@ class MockModelHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.end_headers()
-        chunks = [
-            {"choices": [{"delta": {"role": "assistant", "content": None, "reasoning_content": ""}}]},
-            {"choices": [{"delta": {"content": EXPECTED_TEXT}}]},
-            {"choices": [{"delta": {"content": ""}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 3}},
-        ]
+        chunks = completion_chunks(body)
         for chunk in chunks:
             self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
@@ -57,6 +70,127 @@ class MockModelHandler(BaseHTTPRequestHandler):
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
+
+
+def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
+    """Choose the next deterministic model response from request history."""
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise AssertionError(f"model request has no messages: {body}")
+    latest = messages[-1]
+    if not isinstance(latest, dict):
+        raise AssertionError(f"model request has an invalid latest message: {body}")
+
+    if latest.get("role") == "tool":
+        tool_name = latest_tool_name(messages)
+        tool_text = json.dumps(latest.get("content"))
+        if "42" not in tool_text:
+            raise AssertionError(f"{tool_name} worker returned no expected value: {latest}")
+        if tool_name == "run_code":
+            return text_chunks(CODE_WORKER_TEXT)
+        if tool_name == "workflow":
+            return text_chunks(WORKFLOW_WORKER_TEXT)
+        raise AssertionError(f"unexpected tool follow-up: {tool_name}")
+
+    prompt = message_text(latest.get("content"))
+    if prompt == CODE_PROMPT:
+        assert_advertised_tool(body, "run_code")
+        return tool_call_chunks("call-code-worker", "run_code", {"code": "return 6 * 7"})
+    if prompt == WORKFLOW_PROMPT:
+        assert_advertised_tool(body, "workflow")
+        return tool_call_chunks(
+            "call-workflow-worker",
+            "workflow",
+            {
+                "script": "return 6 * 7",
+                "meta": {
+                    "name": "pkg-worker-smoke",
+                    "description": "exercise the packaged workflow worker",
+                },
+            },
+        )
+    return text_chunks(EXPECTED_TEXT)
+
+
+def text_chunks(text: str) -> list[dict[str, object]]:
+    """Build a complete streaming text response."""
+    return [
+        {"choices": [{"delta": {"role": "assistant", "content": None, "reasoning_content": ""}}]},
+        {"choices": [{"delta": {"content": text}}]},
+        {
+            "choices": [{"delta": {"content": ""}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 3},
+        },
+    ]
+
+
+def tool_call_chunks(call_id: str, name: str, arguments: dict[str, object]) -> list[dict[str, object]]:
+    """Build a complete streaming function-call response."""
+    return [
+        {"choices": [{"delta": {"role": "assistant", "content": None, "reasoning_content": ""}}]},
+        {
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(arguments)},
+                    }],
+                },
+            }],
+        },
+        {
+            "choices": [{"delta": {"content": ""}, "finish_reason": "tool_calls"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 3},
+        },
+    ]
+
+
+def latest_tool_name(messages: list[object]) -> str:
+    """Find the assistant tool call paired with the latest tool result."""
+    for message in reversed(messages[:-1]):
+        if not isinstance(message, dict):
+            continue
+        calls = message.get("tool_calls")
+        if not isinstance(calls, list):
+            continue
+        for call in reversed(calls):
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if isinstance(function, dict) and isinstance(function.get("name"), str):
+                return function["name"]
+    raise AssertionError(f"tool result has no preceding assistant tool call: {messages}")
+
+
+def message_text(content: object) -> str:
+    """Read OpenAI text content in either string or block-list form."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return ""
+
+
+def assert_advertised_tool(body: dict[str, object], expected: str) -> None:
+    """Require the packaged deployment to expose the requested tool."""
+    tools = body.get("tools")
+    if not isinstance(tools, list):
+        raise AssertionError(f"model request advertised no tools: {body}")
+    names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            names.add(function["name"])
+    if expected not in names:
+        raise AssertionError(f"model request did not advertise {expected}: {names}")
 
 
 class MockModel:
@@ -116,7 +250,7 @@ def smoke_sdk_default(base_url: str) -> None:
             result = harness.run("reply with the smoke text", session_id="default-smoke")
         assert result.status == "ok", result
         assert result.final_response == EXPECTED_TEXT, result.final_response
-        assert_session_log(sessions, root)
+        assert_session_log(sessions, root, EXPECTED_TEXT)
 
 
 def smoke_sdk_custom(base_url: str, executable: Path) -> None:
@@ -137,10 +271,16 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
             base_url=base_url,
             request_timeout_seconds=60,
         ) as harness:
-            result = harness.run("reply with the smoke text", session_id="custom-smoke")
-        assert result.status == "ok", result
-        assert result.final_response == EXPECTED_TEXT, result.final_response
-        assert_session_log(sessions, root)
+            text_result = harness.run("reply with the smoke text", session_id="custom-smoke")
+            code_result = harness.run(CODE_PROMPT, session_id="custom-smoke")
+            workflow_result = harness.run(WORKFLOW_PROMPT, session_id="custom-smoke")
+        assert text_result.status == "ok", text_result
+        assert text_result.final_response == EXPECTED_TEXT, text_result.final_response
+        assert code_result.status == "ok", code_result
+        assert code_result.final_response == CODE_WORKER_TEXT, code_result.final_response
+        assert workflow_result.status == "ok", workflow_result
+        assert workflow_result.final_response == WORKFLOW_WORKER_TEXT, workflow_result.final_response
+        assert_session_log(sessions, root, EXPECTED_TEXT, CODE_WORKER_TEXT, WORKFLOW_WORKER_TEXT)
 
 
 def smoke_direct(base_url: str, executable: Path) -> None:
@@ -177,7 +317,7 @@ def smoke_direct(base_url: str, executable: Path) -> None:
             peer.read_until(lambda message: message.get("id") == "shutdown")
         finally:
             peer.close()
-        assert_session_log(sessions, root)
+        assert_session_log(sessions, root, EXPECTED_TEXT)
 
 
 class RuntimePeer:
@@ -245,7 +385,7 @@ class RuntimePeer:
         self.stderr.extend(self.process.stderr)
 
 
-def assert_session_log(sessions: Path, cwd: Path) -> None:
+def assert_session_log(sessions: Path, cwd: Path, *expected_texts: str) -> None:
     logs = list(sessions.rglob("*.jsonl"))
     if len(logs) != 1:
         raise AssertionError(f"expected one JSONL session log under {sessions}, found {logs}")
@@ -253,8 +393,10 @@ def assert_session_log(sessions: Path, cwd: Path) -> None:
     header = json.loads(lines[0])
     if header.get("cwd") != str(cwd):
         raise AssertionError(f"session header cwd is not absolute/canonical: {header}")
-    if EXPECTED_TEXT not in "\n".join(lines):
-        raise AssertionError(f"session log has no final response: {logs[0]}")
+    rendered = "\n".join(lines)
+    for expected in expected_texts:
+        if expected not in rendered:
+            raise AssertionError(f"session log has no {expected!r} response: {logs[0]}")
 
 
 if __name__ == "__main__":
