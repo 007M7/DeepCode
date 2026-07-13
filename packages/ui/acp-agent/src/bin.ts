@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * The `dsh-acp-agent` bin: boot the ACP server from a leaf `cordis.yml` that loads the {@link
- * @deepseek-ai/dsh-acp-agent} app plugin (plus an LLM adapter and a bash executor), speaking
- * ACP JSON-RPC on stdio.
+ * Boot an ACP stdio server from `cordis.yml`; usage is `dsh-acp-agent [config]`, defaulting to the
+ * cwd file. Shared env loading, Loader guards, snapshot config selection, and settled-tree boot live
+ * in dsh-app-boot. Replay skips `.env` and selects sibling `cordis.snapshot.yml` so a stray key
+ * cannot trigger a model call. EOF disposes and flushes snapshot runs; editors normally own process
+ * lifetime. Stdout is reserved for JSON-RPC—write diagnostics only to stderr.
  * @module @deepseek-ai/dsh-acp-agent/bin
  */
 

@@ -1,7 +1,8 @@
 /**
  * Reject Markdown prose paragraphs spanning multiple physical lines. The GFM
- * AST distinguishes paragraphs from multiline structural nodes; symlinked
- * instruction files are deduped.
+ * AST distinguishes paragraphs—including those in lists and blockquotes—from
+ * multiline structural nodes. The checker never rewrites; symlinked instruction
+ * files are deduped. The owning convention is in `docs/AGENTS.md`.
  */
 
 import { globSync, readFileSync, realpathSync } from 'node:fs'

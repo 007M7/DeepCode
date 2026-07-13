@@ -1,4 +1,9 @@
-/** Real Loader-path coverage for the namespace plugin's export shape. */
+/**
+ * Real Loader-path guard for an injected namespace plugin. A default export would make
+ * `unwrapExports` collapse the namespace and drop `inject`, causing access to `ctx.web` to fail.
+ * Hand-built mounting bypasses that path, so this test unwraps through the real Loader first; see
+ * postmortem 0001.
+ */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
@@ -28,6 +33,7 @@ describe('dsh-tool-web real-load-path guard', () => {
 
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolWeb) as Parameters<Context['plugin']>[0]
+    // Mounting the collapsed shape would throw for missing injection here.
     const fiber = await ctx.plugin(unwrapped)
     expect(ctx.tools.schemas().map(s => s.name)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']))
     await fiber.dispose()

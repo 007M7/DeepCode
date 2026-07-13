@@ -1,7 +1,9 @@
 /**
- * `dsh-hooks-claude` — a bridge plugin that runs a user's existing Claude Code hook config
- * (`hooks.json` / a settings file's `hooks` key) on the harness's canonical interception
- * seams.
+ * Bridge for unmodified Claude Code command hooks on harness interception
+ * seams. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
+ * start/stop; owns Claude payloads, environment and plugin-root substitution;
+ * and logs but does not honor `updatedInput`. Bespoke behavior should use typed
+ * native plugins on the same seams.
  * @module @deepseek-ai/dsh-hooks-claude
  */
 
@@ -195,7 +197,8 @@ export function apply(ctx: Context, config: Config): void {
     return { content: [...ours.content, ...theirs.content], source: ours.source }
   }
 
-  // SessionStart injects context when its detached hook resolves.
+  // SessionStart injects context when its detached hook resolves; a slow hook
+  // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
   ctx.on('agent/session-start', (agent, source) => {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent, signal: detached.signal })
@@ -216,7 +219,8 @@ export function apply(ctx: Context, config: Config): void {
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
-    // Our hooks did not block.
+    // Delegate so later listeners may still rewrite or block, then prepend our
+    // context only to a downstream allow decision.
     const downstream = await next()
     const ours = contextFrom(merged)
     if (!ours || downstream.kind !== 'allow') return downstream
@@ -259,7 +263,7 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // A blocking Stop hook forces continuation with its reason.
-  // TODO(stop-loop-guard): cap consecutive forced continuations.
+  // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
     const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn })
     if (merged.decision === 'deny') {
@@ -270,8 +274,8 @@ export function apply(ctx: Context, config: Config): void {
     return next()
   })
 
-  // --- SubagentStart / SubagentStop: observe-only emits (the subagent seam is observe-only
-  // this cut).
+  // SubagentStart may inject child context; SubagentStop only observes. Both
+  // use the live child's workspace and the generic agent-type matcher subject.
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
     detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload('SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })

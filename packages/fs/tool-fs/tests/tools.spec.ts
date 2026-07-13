@@ -1,5 +1,6 @@
 /**
- * Consumer-surface tests for the filesystem tools as the EXECUTOR.
+ * Consumer-surface tests over a fake provider and the real policy collaborator: schemas,
+ * validation, formatting, typed errors, intent dispatch, and observation-driven authorization.
  */
 
 import { describe, expect, it, vi } from 'vitest'

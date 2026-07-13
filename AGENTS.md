@@ -81,7 +81,7 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests
 
 ## Secrets / .env
 
-Real-API tests read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the environment or gitignored root `.env`. cordis.yml uses `!!js` (never `!js`) for env vars. Never commit credentials. CI e2e self-skips without a key; [docs/testing.md](docs/testing.md) owns the with-key policy.
+Real-API tests and demos read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the environment or a gitignored root `.env` loaded by `process.loadEnvFile()`. cordis.yml uses `!!js` (never `!js`) for env vars. Never commit credentials. CI e2e self-skips without a key; [docs/testing.md](docs/testing.md) owns the with-key policy.
 
 ## Conventions
 
@@ -95,15 +95,16 @@ Real-API tests read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
 - **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
-- **No hardcoded tunables in plugins**: deployment choices are validated `Config` fields changeable from cordis.yml. Protocol constants, external specs, and security invariants stay fixed.
+- **No hardcoded tunables in plugins**: deployment choices are defaulted, validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test seam is not configurability. Protocol constants, external specs, and security invariants stay fixed.
 - **Misconfiguration fails loud** at load when self-contained, otherwise at the earliest resolvable point; never silently skip a missing referent.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string`.
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
+- **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
-- **Validate RFC premises against current code** and amend proposals before moving them to `implemented/`.
+- **Validate RFC premises against current code**; friction may expose overreach, so amend proposals before moving them to `implemented/`.
 - **Testing policy** — [docs/testing.md](docs/testing.md). Transcript changes need snapshots or a PR note. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
-- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces.
+- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces, and schedule any missing harness support before implementation.
 - **Merge PRs with merge commits**, never squash/rebase or rewrite pushed branches. Put a review fix on its introducing PR, then merge down the stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --check` (pre-push) gates it.
@@ -116,13 +117,13 @@ Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, 
 
 Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why a narrower type is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring seam, protocol, or class.
 
-Comments and docs record contracts, not the author's reasoning process. Do not narrate control flow, walk through tests, list rejected local alternatives, preserve review history, or restate code; delete an obvious comment and link to the one durable rationale home when more context is needed. Encode enforceable invariants in checks, using narrow justified escape hatches rather than disabling a rule globally.
+Comments and docs preserve complete contracts and non-obvious orientation, not the author's reasoning process. Do not narrate control flow, walk through tests, preserve review history, or restate code. Keep every factual clause that affects behavior, failure, timing, ownership, or safe use; link aggressively to the owning rationale instead of duplicating it. Use [dsh-trim-prose](.agents/skills/dsh-trim-prose/SKILL.md) for editorial judgment. Encode enforceable invariants in checks, using narrow justified escape hatches rather than disabling a rule globally.
 
 Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Editing these instructions
 
-`CLAUDE.md` symlinks `AGENTS.md` at root, `packages/`, and `examples/`; edit the real file. Keep rules self-contained, link high-level docs, and condense before changing the `verify-doc-budgets` ceiling.
+`CLAUDE.md` symlinks `AGENTS.md` at root, `packages/`, and `examples/`; edit the real file. Keep each rule self-contained while linking high-level docs. Condense when clarity survives; raise a `verify-doc-budgets` ceiling when the contract genuinely needs more space.
 
 ## Vendoring policy
 

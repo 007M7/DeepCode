@@ -73,9 +73,8 @@ export class DeepSeekAdapter extends LlmAdapter {
         const parsed = await response.json() as WireError
         if (parsed.error?.message) message = parsed.error.message
       } catch {
-        // Paranoid by design: `code` and the HTTP status are ALREADY captured above (and passed
-        // to LlmError below), so the only thing this `try` can add is a richer
-        // provider-supplied message.
+        // Only swallow error-body parsing: status and code are already captured,
+        // so malformed gateway JSON must not mask the actionable HTTP failure.
       }
       throw new LlmError(message, code, response.status)
     }

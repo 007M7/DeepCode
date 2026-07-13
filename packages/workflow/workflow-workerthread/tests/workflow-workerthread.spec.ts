@@ -19,7 +19,11 @@ function fakeParent(): Agent {
 // Allow cold worker startup on contended CI runners.
 vi.setConfig({ testTimeout: 30_000 })
 
-/** Retry an assertion until it passes or the timeout elapses. */
+/**
+ * Wait up to 10 seconds for CPU-bound worker startup or cross-thread delivery on contended CI.
+ * Host reactions after an observed event use explicit tight overrides, so this generous startup
+ * allowance cannot hide multi-second reap regressions.
+ */
 function waitFor(assertion: () => void, timeout = 10_000): Promise<void> {
   return vi.waitFor(assertion, { timeout, interval: 50 })
 }

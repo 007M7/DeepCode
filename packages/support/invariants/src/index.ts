@@ -1,6 +1,8 @@
 /**
- * Dev-only listener plugin for cross-event lifecycle, scope, and request
- * invariants that types cannot express.
+ * Dev-only listeners for relationships that event types and immutability cannot express: turn and
+ * step nesting, scoped dispatch, status transitions, and request reconstruction. Enable in tests
+ * and demos, not production. Sessions already snapshot and freeze individual events; this plugin
+ * checks the cross-event contract and serves as its executable documentation.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -315,19 +317,15 @@ function replayEvent(trace: SessionTrace, event: SessionEvent): void {
   applyTransition(trace, validateEvent(trace, event))
 }
 
-/** Legal agent status transitions (the only state machine the loop guarantees). */
+/** Allow an initial observation, idle/running transitions, and terminal disposal; reject repeats and leaving disposed. */
 function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
-  // First observation: any status is a valid starting point.
   if (from === undefined) return
-  // A no-op transition is illegal — setStatus dedups, so we never see it.
   if (from === to) {
     throw new InvariantError(`agent/status repeated ${to} (no-op transition)`)
   }
-  // Leaving `disposed` is illegal — disposal is terminal.
   if (from === 'disposed') {
     throw new InvariantError(`agent/status left terminal state disposed → ${to}`)
   }
-  // idle↔running and (idle|running)→disposed are all legal; nothing else exists.
 }
 
 /**

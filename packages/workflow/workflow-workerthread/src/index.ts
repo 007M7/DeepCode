@@ -1,5 +1,8 @@
 /**
- * The `node:worker_threads` workflow engine: the {@link WorkflowService} implementation.
+ * Worker-thread workflow engine. Each run executes its model-written script in
+ * an escapable vm context on a fresh worker and bridges `agent()` calls to host
+ * subagents. The thread prevents synchronous script work from blocking the host
+ * and permits forced termination, but it is containment rather than a security boundary.
  * @module @deepseek-ai/dsh-workflow-workerthread
  */
 

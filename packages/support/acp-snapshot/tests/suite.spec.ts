@@ -23,6 +23,9 @@ import {
  * so every factory path — golden and log compares, the per-suite header pin and its uniformity
  * guard, record-mode fixture write-back, skip semantics, and the fixture guard block —
  * executes as an ordinary green test.
+ *
+ * Record tests use a temp copy. To intentionally rebuild their committed fixtures, run this
+ * spec once with `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1`, then review and commit the resulting tree.
  */
 
 const AGENT = {

@@ -1,5 +1,8 @@
 /**
- * SandboxBashExecutor tests: the CONSUMER side of the sandbox seam.
+ * Consumer-side `SandboxBashExecutor` tests. A fake Cordis sandbox service makes wrapping,
+ * policy hand-off, fail-closed propagation, classification, and fact stamping deterministic;
+ * real-provider integration lives in `tests/landlock.e2e.ts`. A mode-0555 directory supplies
+ * the Unix denial signature used by the classifier without requiring a real sandbox runner.
  */
 
 import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs'
@@ -280,7 +283,9 @@ describe('background sandbox facts', () => {
   })
 
   it('overlapping background tasks keep their OWN wrap facts (per-task, not latest-wrap)', async () => {
-    // The seam returns facts per WRAP — a legal provider may vary them between calls.
+    // Facts belong to each wrap and may vary between calls. The slow task settles after the
+    // quick task starts; a shared latest-wrap field would classify and stamp it with the wrong
+    // task's dialect and enforcement.
     const wraps: Array<Pick<ConfinedArgv, 'enforcement' | 'denialSignatures'>> = [
       { enforcement: 'partial', denialSignatures: ['permission denied'] },
       { enforcement: 'full', denialSignatures: ['read-only file system'] },

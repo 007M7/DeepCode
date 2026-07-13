@@ -9,7 +9,9 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as acp from '../src/index.ts'
 
 /**
- * With-key e2e for the ACP subagent backend: the harness drives ITSELF as an ACP server.
+ * With-key cross-process seam proof: the backend spawns the real acp-agent example, speaks ACP over
+ * stdio, and returns its real model answer. This is the out-of-process counterpart to in-process
+ * spawn coverage and self-skips without `DEEPSEEK_API_KEY`.
  */
 
 // The real acp-agent example: its bin + cordis.yml (the live DeepSeek config).

@@ -24,8 +24,8 @@ function pad(indent: number): string {
 /** A one-line JSDoc block for a schema `description`, or no lines when there is none. */
 function docLines(description: unknown, indent: number): string[] {
   if (typeof description !== 'string' || description.length === 0) return []
-  // Keep the doc a single-line comment per property: descriptions are prose (possibly with
-  // newlines); collapse whitespace so the rendered SDK stays stable and compact.
+  // Collapse prose to stable one-line docs and escape comment closers so a
+  // schema description cannot terminate generated JSDoc.
   const collapsed = description.replace(/\s+/g, ' ').trim()
   return [`${pad(indent)}/** ${collapsed.replaceAll('*/', String.raw`*\/`)} */`]
 }

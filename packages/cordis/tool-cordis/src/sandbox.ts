@@ -2,7 +2,9 @@
  * The `node:vm` sandbox `cordis_mount` code evaluates in: a fresh realm whose globals are a
  * tagged write-through console, the `harness` registration helpers, the encoding primitives a
  * bare vm context lacks, and callable traps over the Node APIs the sandbox deliberately
- * withholds.
+ * withholds. Traps steer filesystem, network, process, and timer work to `ctx.fs`, `ctx.web`,
+ * `ctx.bash`, and Cordis timers. This keeps cooperative mounts inspectable and disposable but
+ * is not containment: host-realm helper functions remain an escape route.
  * @module @deepseek-ai/dsh-tool-cordis/sandbox
  */
 
@@ -23,8 +25,8 @@ function taggedConsole(id: string): Record<'log' | 'info' | 'warn' | 'error' | '
 }
 
 /**
- * Per-sandbox prelude: give the vm realm's own constructors a `Symbol.hasInstance` that checks
- * BOTH realms.
+ * Patch only VM constructors so `instanceof` accepts both VM values and host values passed as
+ * arguments, events, or service results; host intrinsics remain untouched.
  */
 const DUAL_REALM_INSTANCEOF_PRELUDE = `
 (hostIntrinsics) => {
@@ -137,8 +139,8 @@ export function syntaxErrorContext(error: Error): string {
 /**
  * Evaluate mount code as the body of an async function inside the sandbox. `vmTimeoutMs` only
  * bounds the SYNCHRONOUS portion; an async body escapes it — acceptable under the module's
- * trust stance.
- *
+ * trust stance. Parse errors include the offending line and a TypeScript-removal or bracket-
+ * balance hint.
  * @param sandbox - the contextified object from {@link createSandbox}.
  * @param code - the model-written function body; must `return` a plugin.
  * @param id - the mount id, used as the vm filename (`cordis-mount-<id>.js`).

@@ -1,5 +1,6 @@
 /**
- * Result-time contextual-diff computation for the `write`/`edit` tools.
+ * Result-time contextual diff presentation for write and edit. Storage returns before/after
+ * text; this model-facing layer derives one three-line-context card per applied hunk.
  * @module @deepseek-ai/dsh-tool-fs/src/diff
  */
 
@@ -21,7 +22,8 @@ export type FsDiffMeta = { diffs: FileDiff[] }
 
 /**
  * Compute one {@link FileDiff} per hunk between `before` and `after`, each carrying the
- * applied change plus {@link DIFF_CONTEXT} context lines.
+ * applied change plus {@link DIFF_CONTEXT} context lines. Pure insertions use `oldText: null`,
+ * patch-only no-newline markers are omitted, and scattered replacements remain separate hunks.
  *
  * @param path - the path stamped on every produced diff (the model-facing `file_path`; the
  *   bridge relativizes it).
@@ -65,7 +67,8 @@ function isFileDiff(value: unknown): value is FileDiff {
 }
 
 /**
- * Narrow opaque live or replayed result metadata to non-empty file diffs.
+ * Narrow opaque live or replayed result metadata to non-empty file diffs. Malformed metadata
+ * returns `undefined` so presentation can fall back instead of throwing during replay.
  * @param meta - result metadata.
  * @returns validated hunks, or `undefined` for absent or malformed data.
  */

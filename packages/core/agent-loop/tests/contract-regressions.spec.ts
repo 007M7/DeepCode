@@ -39,7 +39,7 @@ function send(agent: ReactLoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('HIGH: session log records what agent/step-result actually produced', () => {
+describe('session log records what agent/step-result actually produced', () => {
   it('a step-result rewrite is what the log, derived history, and tool dispatch all see', async () => {
     const adapter = new MockAdapter([textResponse('original'), textResponse('done')])
     const ctx = await harness(adapter)
@@ -89,7 +89,7 @@ describe('HIGH: session log records what agent/step-result actually produced', (
   })
 })
 
-describe('HIGH: abort during tool execution ends the turn', () => {
+describe('abort during tool execution ends the turn', () => {
   it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
@@ -141,7 +141,7 @@ describe('HIGH: abort during tool execution ends the turn', () => {
   })
 })
 
-describe('HIGH: steering from late extension points is never stranded', () => {
+describe('steering from late extension points is never stranded', () => {
   it('steer() from an agent/turn-continuation listener overrides a stop decision', async () => {
     const adapter = new MockAdapter([
       textResponse('no tools, would stop here'),
@@ -247,7 +247,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
   })
 })
 
-describe('HIGH: plugin exceptions are contained', () => {
+describe('plugin exceptions are contained', () => {
   it('a throwing agent/turn-continuation listener ends the turn with an error, loop survives', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
@@ -302,7 +302,7 @@ describe('HIGH: plugin exceptions are contained', () => {
   })
 })
 
-describe('MEDIUM: disposed status is part of the agent/status contract', () => {
+describe('disposed status is part of the agent/status contract', () => {
   it('disposing the fiber emits agent/status(disposed) and ends the turn with reason disposed', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -349,7 +349,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
   })
 })
 
-describe('MEDIUM: misc registry and config fixes', () => {
+describe('adapter registration, routing, and accepted-input ownership', () => {
   it('duplicate adapter registration is rejected', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -508,7 +508,7 @@ describe('MEDIUM: misc registry and config fixes', () => {
   })
 })
 
-describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () => {
+describe('turn numbering continues across seeded sessions', () => {
   it('a forked agent continues turn numbers after the seed log', async () => {
     const first = new MockAdapter([textResponse('turn one')])
     const ctx = await harness(first)
@@ -546,7 +546,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
   })
 })
 
-describe('LOW: discriminated SessionEvent narrows without casts', () => {
+describe('discriminated SessionEvent narrows without casts', () => {
   it('narrows event.data from event.type', () => {
     const session = new Session(SessionId('s'))
     const appended: SessionEvent = session.append('tool/call', {
@@ -564,7 +564,7 @@ describe('LOW: discriminated SessionEvent narrows without casts', () => {
   })
 })
 
-describe('HIGH: a finish-error stream chunk ends the turn as error, not completed', () => {
+describe('a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
     // A finish-error chunk must not produce a completed assistant turn.
     const errorStream: StreamChunk[] = [
@@ -587,7 +587,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     // a standalone error event.
     const turnEnd = events.find(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' })
-    // Crucially: no assistant/message was logged for the failed step.
+    // A failed step must not synthesize an assistant message.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
 
@@ -1104,7 +1104,8 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
 
 describe('disposal and cancellation during pre-step assembly', () => {
   it('disposal during system-prompt assembly drops the about-to-start step as disposed', { timeout: 30000 }, async () => {
-    // Release assembly only after disposal has marked the agent disposed.
+    // Start disposal, then release assembly. Do not await disposal first: it
+    // waits for the blocked driver to exit.
     const adapter = new MockAdapter(['hang'])
     let releaseAssemble!: () => void
     const blocked = new Promise<void>(r => void (releaseAssemble = r))
@@ -1137,28 +1138,22 @@ describe('disposal and cancellation during pre-step assembly', () => {
     // Give the loop time to enter the step and reach assemble().
     await new Promise(r => setTimeout(r, 50))
 
-    // Start disposal — stop() sets status=disposed synchronously, then the
-    // disposer's await agent.done hangs because the loop is blocked in the
-    // waterfall. Do NOT await yet; release the blocker first.
+    // Release assembly before awaiting disposal because disposal joins the blocked driver.
     const disposalDone = fiber.dispose()
 
-    // Now release the blocked waterfall — the loop unblocks, checks
-    // isDisposed(), and exits, which resolves agent.done and disposalDone.
     releaseAssemble()
     await disposalDone
     await agent.done
     unlisten()
 
+    // Turn boundaries are durable rows; there is no `agent/*` mirror to assert.
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
-    // No step was opened, no LLM call was made.
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    // The durable turn/end record is the authoritative turn-boundary signal
-    // (turn boundaries have no agent/* mirror), so this asserts on the log.
   })
 
   it('cancel during system-prompt assembly drops the about-to-start step as aborted', { timeout: 30000 }, async () => {
@@ -1215,7 +1210,8 @@ describe('disposal and cancellation during pre-step assembly', () => {
   })
 
   it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
-    // Release pre-step only after disposal has marked the agent disposed.
+    // Start disposal, then release pre-step; awaiting disposal first would
+    // deadlock on the blocked driver.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))

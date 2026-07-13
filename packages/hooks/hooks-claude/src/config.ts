@@ -1,6 +1,7 @@
 /**
- * Parse a Claude Code hook config file into the shared {@link MatcherGroup} shape, faithfully
- * to CC's `hooks.json` / settings `hooks` key format.
+ * Parse Claude Code's event-to-matcher-group hook format into shared {@link MatcherGroup}s.
+ * Command hooks run after `${CLAUDE_PLUGIN_ROOT}` substitution. Other supported hook types are
+ * parsed but skipped with a warning, matching the bridge's faithful-but-degraded policy.
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 
@@ -50,8 +51,9 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 }
 
 /**
- * Parse a raw Claude Code config object (the value under the `hooks` key, or a `hooks.json`
- * whose top level IS that map) into runnable {@link MatcherGroup}s.
+ * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
+ * ignored rather than failing boot; non-command hooks are returned in `skipped`, and substitutions
+ * are applied to every surviving command.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.

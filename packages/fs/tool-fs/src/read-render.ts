@@ -1,7 +1,7 @@
 /**
- * Cordis-free read rendering for `@deepseek-ai/dsh-tool-fs`: turn a file's decoded text into a
- * bounded, line-numbered window (offset/limit, byte cap, per-line truncation) and format it as
- * the model-facing text block.
+ * Pure read presentation: turn provider-decoded text into a bounded, line-numbered window and
+ * model-facing envelope. Chunk scanning caps the current line, so even one newline-free giant
+ * line cannot grow memory without bound.
  * @module @deepseek-ai/dsh-tool-fs/read-render
  */
 
@@ -102,8 +102,8 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
 }
 
 /**
- * Build a bounded, line-numbered window from a file's decoded text chunks.
- *
+ * Build one window from streamed or whole-file chunks, enforcing line and byte caps and throwing
+ * `FS_NOT_FOUND` when the requested offset is past EOF.
  * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
  * @param request - the resolved window; the caller has already applied its defaults and caps.
  * @param displayPath - the caller-facing path used in the offset-out-of-range error.

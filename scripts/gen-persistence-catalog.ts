@@ -1,8 +1,9 @@
 /**
  * Generate `docs/persistence-catalog.md` from every `SessionEventMap` merge and
- * the owning `SurfaceEventType` union. Event declarations must be unique,
- * explicitly typed, documented, and free of Cordis-only `@mode` tags. `--check`
- * verifies the committed artifact.
+ * the owning `SurfaceEventType` union. This is the durable-record vocabulary,
+ * not the live Cordis bus. Event declarations must be unique, explicitly typed,
+ * documented, inheritance-free, and free of Cordis-only `@mode` tags; every
+ * surface-union member must resolve to one. `--check` verifies the artifact.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -81,7 +82,10 @@ function rawJsDoc(text: string, node: ts.Node): string {
   return jsdoc ? text.slice(jsdoc.pos, jsdoc.end) : ''
 }
 
-/** Parse pre-tag JSDoc prose into one-line paragraphs and bullets for the catalog. */
+/**
+ * Parse pre-tag JSDoc prose into one-line paragraphs and bullets, unwrap
+ * `{@link ...}`, and report whether the forbidden `@mode` tag appears.
+ */
 function parseJsDoc(raw: string): { doc: string; hasMode: boolean } {
   const inner = raw
     .replace(/^\/\*\*/, '')
@@ -188,7 +192,10 @@ function packageNameFor(rel: string, scanRoot: string): string | null {
   }
 }
 
-/** Collect and validate every `SessionEventMap` declaration merge. */
+/**
+ * Collect every `SessionEventMap` merge, rejecting inherited, non-literal,
+ * untyped, undocumented, duplicate, or incorrectly owned members in one report.
+ */
 export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
   const entries: LogEventEntry[] = []
   const violations: string[] = []
@@ -202,8 +209,9 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
     for (const { decl, topLevel } of sessionEventMapDecls(sf)) {
       const declSrc = pointer(rel, sf, decl)
       if (topLevel) {
-        // The top-level form is the OWNING vocabulary, and it has exactly one home: the single
-        // EXPORTED declaration in the owning package.
+        // The top-level form has one home: the single exported declaration in
+        // the owning package. Same-named interfaces elsewhere are different
+        // types and must not enter the on-disk catalog.
         const pkg = packageNameFor(rel, scanRoot)
         if (pkg !== SESSION_MODULE) {
           violations.push(`top-level interface SessionEventMap (${declSrc}) is outside ${SESSION_MODULE} (package ${pkg ?? 'unknown'}). Rename the interface, or contribute events via declare module '${SESSION_MODULE}'.`)

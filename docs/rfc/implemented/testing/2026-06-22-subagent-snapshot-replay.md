@@ -19,7 +19,7 @@ Replay is keyed **per calling session**, and the harness harvests **every** sess
 
 ### 1. The calling session id rides on the model request
 
-`GenerateOptions` gains an optional `sessionId`, stamped by the agent loop from `agent.session.id` at request-assembly time (where the session is already in scope). Adapters ignore it; it exists so an `llm/stream` listener can route a call by WHICH session issued it. It is typed `Branded<'SessionId'>` (from `dsh-brand`) rather than importing `SessionId` from `dsh-session` — that package imports `Message` from `dsh-llm`, so importing its id back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a real id assigns with no cast. (A future dedicated ids package could own the brand and dissolve the note; tracked separately — it touches every id import and does not belong in this testing PR.)
+`GenerateOptions` gains an optional `sessionId`, stamped by the agent loop from `agent.session.id` at request-assembly time (where the session is already in scope). Adapters ignore it; it exists so an `llm/stream` listener can route a call by WHICH session issued it. It is typed `Branded<'SessionId'>` (from `dsh-brand`) rather than importing `SessionId` from `dsh-session` — that package imports `Message` from `dsh-llm`, so importing its id back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a real id assigns with no cast. A dedicated ids package could own the brand later, but that change touches every id import and is tracked separately.
 
 ### 2. Replay binds live sessions to recorded scripts by first-call order
 

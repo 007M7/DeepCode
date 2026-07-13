@@ -1,6 +1,7 @@
 /**
- * Boot the REPL or ACP Code Mode overlay, defaulting to REPL. Both require a
- * DeepSeek API key; unsupported arguments fail with usage.
+ * Boot the REPL or ACP Code Mode overlay, defaulting to REPL. Each overlay
+ * includes its base example, selects Code Mode, and adds the worker runtime.
+ * Both require a DeepSeek API key; unsupported arguments fail with usage.
  */
 import { spawn } from 'node:child_process'
 

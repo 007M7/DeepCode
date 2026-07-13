@@ -83,9 +83,8 @@ function findViolations(absPath: string): Violation[] {
       // class may have swallowed (`packages/core/tools.` / `…/tools/`).
       const ref = m[0].replace(/[./]+$/, '')
       if (existsSync(resolve(root, ref))) continue
-      // A reference INTO a package's built `lib/` is a build OUTPUT, not an authored-source
-      // location: it does not exist until `pnpm run build` emits it, and CI runs this gate
-      // before the build step.
+      // Skip unbuilt `lib/` only below a real depth-two package root. A stale
+      // group-less path still fails; `lib` is not a blanket escape hatch.
       const parts = ref.split('/')
       const libAt = parts.indexOf('lib')
       if (libAt === 3 && existsSync(resolve(root, parts.slice(0, 3).join('/')))) continue

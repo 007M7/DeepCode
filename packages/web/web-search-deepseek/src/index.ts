@@ -1,6 +1,7 @@
 /**
- * `@deepseek-ai/dsh-web-search-deepseek`: registers a DeepSeek-backed `WebSearchProvider` with
- * `ctx.web`.
+ * Register a DeepSeek-backed provider in `ctx.web`. It calls the Anthropic-compatible Messages API
+ * with native `web_search_20250305`. The provider reuses `DEEPSEEK_API_KEY` but not
+ * `DEEPSEEK_BASE_URL`, because search and chat-completions use different bases.
  * @module @deepseek-ai/dsh-web-search-deepseek
  */
 

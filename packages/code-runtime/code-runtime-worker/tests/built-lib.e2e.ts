@@ -5,10 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Built-ARTIFACT smoke for the published package (the real-load-path guard from
- * docs/testing.md): the unit suite runs `src/` under vitest, where the worker entry resolves
- * to `src/worker.ts` — a consumer runs `lib/index.js` under plain `node`, where it must
- * resolve the sibling `lib/worker.js` bundle instead.
+ * Keyless built-artifact smoke: plain Node imports the package by name through its exports map
+ * and exercises type stripping, worker loading, bindings, and logs. It skips when `lib/` is
+ * absent; CI runs it after the build.
  */
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))

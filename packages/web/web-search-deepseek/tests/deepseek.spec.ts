@@ -300,7 +300,8 @@ describe('web-search-deepseek plugin registration', () => {
   })
 
   it('survives the real Loader unwrapExports path keeping name/inject/Config', () => {
-    // A default export would make Loader discard the required web injection metadata.
+    // A default export would make `unwrapExports` collapse the namespace and drop `inject: ['web']`.
+    // Drive the real Loader path because hand-built namespace mounting cannot expose that failure.
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(deepseekPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(deepseekPlugin)

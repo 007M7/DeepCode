@@ -3,7 +3,12 @@
  * normalization + validation with teaching errors, the marker-guarded `harness.defineTool` /
  * `harness.registerTool` pair, the SANDBOX CONTEXT FAÇADE a mounted plugin's `apply` receives
  * in place of the real `ctx`, and the plugin-shape helpers the mount lifecycle narrows sandbox
- * return values with.
+ * return values with. The façade is a whitelist of lifecycle-safe verbs and declared services;
+ * framework internals and context-valued service returns are denied.
+ *
+ * VM-realm schemas are rebuilt as host objects, and tool results are JSON-round-tripped and
+ * shape-checked before session logging. Common JSON-Schema spellings are normalized when they
+ * have one meaning; invalid vocabulary fails during registration with a teaching error.
  * @module @deepseek-ai/dsh-tool-cordis/guard
  */
 
@@ -61,7 +66,7 @@ function normalizeSchemaProp(value: unknown, path: string, forceRequired = false
   }
   // On an object property a JSON-Schema-style `required` ARRAY names required
   // children (handled by the nested unwrap below); everywhere else `required`
-  // must be a boolean, and `false` simply reads as optional.
+  // must be a boolean, and `false` means optional.
   const nestedRequiredArray = type === 'object' && Array.isArray(value.required)
   if (value.required !== undefined && typeof value.required !== 'boolean' && !nestedRequiredArray) {
     throw new Error(`harness.defineTool ${path}.required must be a boolean when present`)
@@ -157,8 +162,8 @@ function assertExecuteReturn(value: unknown): ToolExecuteReturn {
  * The `harness.defineTool` handed into the sandbox: the real DSL, with `parameters` normalized
  * into a fresh host-realm SchemaSpec (JSON-Schema wrapper unwrapped, `integer` mapped,
  * `required: false` dropped) and the tool's `execute` return normalized into the host realm
- * via a JSON round-trip (see the module doc).
- *
+ * via a JSON round-trip. Non-JSON or wrong-shape output fails that call instead of poisoning
+ * the session log.
  * @param options - the standard `defineTool` options; `parameters` may be the SchemaSpec DSL or a JSON-Schema-style wrapper.
  * @returns the marker-tagged definition `harness.registerTool` (and the guarded `ctx.tools.register`) accepts.
  */
@@ -266,7 +271,8 @@ function declaredInjects(ctx: Context): Set<string> {
 }
 
 /**
- * The sandbox context façade handed to a mounted plugin's `apply` in place of the real `ctx`.
+ * Whitelist context for mounted plugins: lifecycle-safe verbs, guarded tools, and only declared
+ * injected services. Framework plumbing is denied, and service methods cannot return a Context.
  */
 function sandboxContext(ctx: Context): Context {
   const tools = sandboxTools(ctx)

@@ -39,4 +39,4 @@ A scenario booting a differently-composed tree sets its own `configPath` (an ove
 
 Examples use a `cordis.snapshot.yml` overlay with [`dsh-llm-replay`](../llm-replay/README.md). Recording calls the live model and updates model fixtures; keyless refresh replays those fixtures and updates derived stdout, session-log, and prompt snapshots. See the [snapshot RFC](../../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md).
 
-`suite.ts` imports Vitest, so use this package only inside a Vitest run. The ACP-specific script can queue permission answers by stable option kind and can set session config options or assert their rejection. Missing permission answers cancel; selecting an unavailable kind fails the scenario.
+`suite.ts` imports Vitest, so use this package only inside a Vitest run. The ACP-specific script can queue permission answers by stable option kind and can set session config options or assert their rejection in the transcript. Missing permission answers cancel; selecting an unavailable kind fails the scenario.

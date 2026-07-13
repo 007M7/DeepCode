@@ -1,5 +1,8 @@
 /**
- * The call configuration of a conversation and its comparison/freeze utilities.
+ * Conversation call configuration and freeze utilities. Model and sampling
+ * values are request-header state that can affect cache reuse; request
+ * waterfalls replace them and the loop logs changes instead of allowing
+ * silent per-call drift.
  * @module dsh-llm/call-config
  */
 
@@ -30,9 +33,9 @@ export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
 }
 
 /**
- * Deep-freeze a value in place so any later mutation throws (ESM code runs in strict mode),
- * and return it.
- *
+ * Deep-freeze a value in place, guarding cycles, so later mutation throws.
+ * {@link AbortSignal} objects are deliberately skipped because they are the
+ * request's live cancellation channel and freezing them breaks abort.
  * @param value - the value to freeze in place.
  * @returns the same value, frozen.
  */

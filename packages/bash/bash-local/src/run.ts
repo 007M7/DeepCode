@@ -1,6 +1,7 @@
 /**
- * Process plumbing for the local bash executor: spawn, output collection with tail-keep +
- * spill-to-disk truncation, and process-group kill with SIGTERM→SIGKILL escalation.
+ * Process plumbing for the local bash executor: detached process-group spawn,
+ * tail-keep output with spill files, and SIGTERM→SIGKILL escalation. This layer
+ * reacts to an abort signal; the executor owns deadlines and classifies causes.
  * @module dsh-bash-local/run
  */
 
@@ -33,8 +34,8 @@ export const ENV_OVERRIDES = {
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
- * `process.env` minus credential-shaped vars, plus the model-friendly overrides, plus any
- * caller-supplied `extra` entries.
+ * Build a child environment by scrubbing credential-shaped ambient variables,
+ * applying model-friendly overrides, then merging trusted caller entries last.
  *
  * @param extra - caller-supplied entries merged last; an explicit entry wins even against the scrub and the overrides.
  * @returns the environment to hand to `spawn` for the child process.
@@ -236,8 +237,8 @@ export class OutputCollector {
       try {
         closeSync(this.spillFd)
       } catch {
-        // close can surface delayed writeback failures (for example EIO/ENOSPC) after writeSync
-        // appeared to succeed.
+        // A delayed writeback failure makes the spill unreliable; keep finalize
+        // total but stop advertising that file.
         this.spillFile = undefined
       }
       this.spillFd = undefined
@@ -247,9 +248,9 @@ export class OutputCollector {
 }
 
 /**
- * Send `sig` to the process GROUP led by `pid` (requires the child to have been spawned with
- * `detached: true`).
- *
+ * Send `sig` to a detached process group. Never throws: delivery races process
+ * exit and may run in a timer callback, so failures are contained and a
+ * non-positive pid is a no-op.
  * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
  * @param sig - the signal to deliver to the whole group.
  */

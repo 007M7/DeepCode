@@ -350,8 +350,8 @@ describe('the run_code dispatch bridge', () => {
       return { logs: [], value: 'done' }
     }
 
-    // Model a timeout-style outer wrapper: it temporarily installs a signal, delegates, then
-    // restores the exact prior shape.
+    // Freeze the nested observer's parent correlation. If that were the live
+    // outer execution object, the timeout-style wrapper could not restore it.
     ctx.on('tools/execute', async (exec, next) => {
       if (exec.name !== RUN_CODE_NAME) return next()
       const previous = exec.signal

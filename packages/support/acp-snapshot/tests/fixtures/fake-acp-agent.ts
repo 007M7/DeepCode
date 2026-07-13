@@ -1,5 +1,7 @@
 /**
- * Scripted fake ACP agent bin for `dsh-acp-snapshot`'s unit specs.
+ * Scripted ACP agent for snapshot-kit tests. A fixture-adjacent `behavior.json` controls the
+ * subprocess reached through the real harness path; the bin reports observations over ACP and
+ * writes scripted logs before exiting on stdin EOF.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

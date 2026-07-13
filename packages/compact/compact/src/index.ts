@@ -59,7 +59,7 @@ export abstract class CompactService extends Service {
    * @param start - first surface seq, inclusive.
    * @param end - last surface seq, inclusive.
    * @param agent - summarizer context.
-   * @param signal - optional cancellation.
+   * @param signal - optional cancellation; model-backed implementations must forward it.
    * @throws when compaction is active or the range is invalid or unbalanced.
    * @returns the replaced range and summary.
    */

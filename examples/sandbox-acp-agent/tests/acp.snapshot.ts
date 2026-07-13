@@ -3,20 +3,25 @@ import { fileURLToPath } from 'node:url'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
- * Snapshot suite for the sandboxed composition (`../cordis.yml`, swapped to the sibling
- * `cordis.snapshot.yml` replay overlay by the bin under `DSH_SNAPSHOT=replay`).
+ * Snapshot suite for the sandboxed composition. Replay swaps only the model;
+ * bash still runs under the host's Seatbelt/bwrap backend, so fixtures use
+ * portable `cat`/`printf` commands. Real denial stderr is deliberately absent
+ * because its wording varies by backend and platform; unit and kernel e2e tests
+ * own that path, while escalation fixtures start from a user-stated denial.
  */
 const SCENARIOS: Scenario[] = [
   // Protocol-only (keyless, authored): the session config-option surface this composition adds
   // — both advertised selects on session/new, the complete refreshed state every
   // session/set_config_option answers with, and both rejection shapes — as committed wire
-  // bytes.
+  // bytes. It runs no bash and therefore works without a sandbox runner.
   { name: 'config-options', hasModelTurn: false, recorded: false },
   // The runtime mode-switching arc, and NECESSARILY the pinned-header scenario: an
   // approval-policy switch rewrites its prompt section, and the resulting request/header-delta
-  // is legal only in the pinning scenario (the factory's uniformity guard).
+  // is legal only in the pinning scenario. The pin includes that delta and
+  // notice; the sandbox switch stays prompt-silent and is proven by a confined write.
   { name: 'mode-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1 },
-  // Pin both approval branches under the default read-only/ask policy.
+  // Under default read-only/ask, approval executes a confined retry; rejection
+  // executes nothing and returns deterministic text.
   { name: 'escalation-approved', hasModelTurn: true, recorded: true },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true },
 ]

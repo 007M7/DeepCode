@@ -175,8 +175,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 }
 
 /**
- * Enforce the packages/ hierarchy SHAPE: every package lives at exactly
- * `packages/<group>/<pkg>`.
+ * Enforce `packages/<group>/<pkg>`: groups are open-named containers without a
+ * package.json, and packages may be neither flat nor more deeply nested.
  */
 function checkHierarchyShape(): string[] {
   const errors: string[] = []

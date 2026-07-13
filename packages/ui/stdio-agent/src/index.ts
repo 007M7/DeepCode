@@ -3,6 +3,9 @@
  * coupled front-door cluster a terminal chat needs — a console logger, the readline UI (the
  * in-package `stdio-chat` module), JSONL session persistence, and a pre-created `main` agent
  * the UI drives.
+ * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
+ * Loader plugin intentionally exposes named exports only; a default export
+ * would hide its `Config` schema (see docs/postmortem/0001).
  * @module @deepseek-ai/dsh-stdio-agent
  */
 

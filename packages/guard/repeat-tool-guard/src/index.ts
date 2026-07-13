@@ -1,6 +1,9 @@
 /**
- * Repeat-tool-call guard: advisory loop-breaker for agents stuck re-issuing the same tool call
- * with identical arguments.
+ * Advisory repeat-call loop breaker. It never registers, blocks, or rewrites a tool; configured
+ * consecutive canonical calls add source-attributed context after downstream post-policy. The
+ * loop logs that model-visible reminder as reconstructable context. Counters are per agent and
+ * in-memory, so one agent cannot trip another and resumed sessions start fresh. Named exports
+ * preserve loader metadata. See the package README for chain semantics and thresholds.
  * @module @deepseek-ai/dsh-repeat-tool-guard
  */
 

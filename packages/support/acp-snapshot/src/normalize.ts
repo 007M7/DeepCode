@@ -1,8 +1,8 @@
 /**
- * Pure normalizers for the ACP snapshot goldens. They replace the non-deterministic values in
- * the two captured surfaces — the stdout JSON-RPC transcript and the persisted session JSONL —
- * with stable tokens, so a golden compare reflects behavior, not run-to-run noise. Kept
- * dependency-free and side-effect-free so they unit-test trivially.
+ * Pure ACP transcript and session-log normalizers. They scrub session ids, temp cwd, RPC ids,
+ * timestamps, and hook duration while preserving deterministic event sequence numbers.
+ * Request-header scrubbers stay separate so one scenario per header class can pin tools and a
+ * readable prompt while other fixtures omit duplicated header bulk.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
@@ -50,6 +50,7 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
  * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable golden
  * in the same shape as the wire: one compact JSON frame per line (NDJSON), with the JSON-RPC
  * `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all volatile strings scrubbed.
+ * Invalid JSON throws, doubling as a protocol-stdout purity check.
  *
  * @param rawStdout The captured stdout bytes, decoded utf8.
  * @param ctx The run's volatile values to scrub.

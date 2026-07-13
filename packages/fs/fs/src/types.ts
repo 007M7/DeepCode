@@ -90,11 +90,10 @@ export interface FsDirEntry {
 }
 
 /**
- * The explicit intent of a guarded {@link FileSystem.writeText} call. `createIfAbsent` creates
- * a missing target and rejects an existing one with `FS_NOT_OBSERVED` (the path the policy
- * plugin uses when the owner has no prior read). `replaceIfVersion` replaces only when the
- * target exists at the observed version; a missing target or a version mismatch throws
- * `FS_STALE_VERSION`.
+ * Guarded write intent. `createIfAbsent` rejects an existing target with
+ * `FS_NOT_OBSERVED`; `replaceIfVersion` rejects absence or mismatch with
+ * `FS_STALE_VERSION`. Omitting the intent from `writeText` means unconditional
+ * create-or-overwrite, not a third union arm.
  */
 export type FsWriteIntent =
   | { kind: 'createIfAbsent' }

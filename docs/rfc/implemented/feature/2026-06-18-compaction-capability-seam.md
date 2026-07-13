@@ -116,3 +116,10 @@ Two failure paths, both documented:
 - **`dsh-session`** gains the tool-pairing balance predicate (`isToolPairingBalanced`, in `tool-pairing.ts`, exported from the package index) that `compactRegion`/`compactIfNeeded` use to keep a collapsed region from splitting a step's tool-call/result pair. The surface `replace` op and the surface-metadata runtime guard already existed and are reused.
 - **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement node at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
 - **Wiring**: `dsh-compact-basic` is loaded in `examples/coding-agent`'s `cordis.yml`, so the seam ships in the real demo (it was previously loaded nowhere).
+
+## Testing
+
+- **Unit:** Real Loader and invariant plugins cover whole-unit retention, convergence failure, both `compact/end` outcomes, head anchoring, open-tail refusal, inert crash orphans, and compacting closed steps inside one oversized open turn.
+- **Loop:** Tests pin one awaited `agent/pre-step` per step between `turn/start` and `step/start`; a surface mutation there lands outside the step and appears in the single derived request.
+- **With-key e2e:** A real model and bash session with lowered limits triggers compaction, records a complete `compact/start…end` pair, shrinks the surface, and finishes the task.
+- **Snapshot gap:** Runaway-turn compaction cannot yet replay because the summarization call records no `assistant/chunk` events or `sessionId`; interleaved summarization-call replay remains follow-up work.

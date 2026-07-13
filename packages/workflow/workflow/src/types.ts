@@ -106,7 +106,10 @@ export interface WorkflowResult {
 }
 
 /**
- * The handle the consumer holds while a script executes.
+ * Holder-owned live workflow. `result` never rejects and settles within the
+ * engine's cancellation grace; failures resolve through `stopReason`. Consumers
+ * may cancel and must call idempotent `dispose()` on every path to await bounded
+ * script settlement and child quiescence.
  */
 export interface WorkflowRun {
   readonly id: WorkflowRunId

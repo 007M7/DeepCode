@@ -28,8 +28,7 @@ async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () =
   return { ctx, dispose: () => fiber.dispose() }
 }
 
-// The payoff: the SAME backend-agnostic contract the JSONL backend runs, now
-// proving the SQLite backend satisfies identical semantics.
+// Run the same backend-agnostic contract as JSONL to pin identical semantics.
 runPersistenceContract('sqlite', async () => {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -40,7 +39,8 @@ runPersistenceContract('sqlite', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the real SQLite backend.
+// A file-backed database lets two mounts share rows across reload. `corruptTail` inserts invalid
+// JSON past the committed seq, exercising coordinator repair against real database rows.
 runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-coord-'))
   const path = join(dir, 'sessions.db')
@@ -63,7 +63,8 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
 
 describe('scanRows', () => {
   // scanRows works off EventRows (data is a JSON string column); build them from SessionEvents
-  // so the unit tests read in terms of the event vocabulary.
+  // so the unit tests read in terms of the event vocabulary. Surface metadata is serialized to
+  // its nullable columns so the conversion remains faithful.
   const rows = (events: SessionEvent[]): EventRow[] =>
     events.map((e) => {
       const se = e as SessionEvent<SurfaceEventType>
@@ -252,7 +253,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
     // Two unmerged branches each shipped a DISTINCT layout under user_version 3 (one added only
-    // `seed_length`, the other only the surface columns).
+    // `seed_length`, the other only the surface columns). The merged v4 cannot interpret that
+    // ambiguous, incomplete layout and must reject it.
     const path = await freshDbPath()
     openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
     const db = openDatabase(path, 'wal')
@@ -269,7 +271,9 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // committed: seqs 0..5
     await b1.dispose()
 
-    // Hand-insert a torn tail row (seq 6, no closing turn/end) whose `data` is invalid JSON.
+    // A torn row after the last committed turn has invalid JSON. `scanRows` locates the boundary
+    // from seq/type columns without parsing the tail, preserves the committed prefix, and load
+    // deletes the row; invalid JSON inside the committed region would remain fatal.
     const db = openDatabase(path, 'wal')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', '{not valid json')

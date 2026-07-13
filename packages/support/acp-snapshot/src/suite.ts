@@ -1,5 +1,12 @@
 /**
- * The ACP snapshot suite factory (replay by default, keyless).
+ * Keyless-by-default ACP snapshot suite factory. Each scenario drives the real subprocess and
+ * compares normalized stdout; comparable session fixtures are both replay input and expected
+ * output. Record mode refreshes reproducible model scenarios from the live API, while refresh
+ * mode replays committed scripts and rewrites derived artifacts without a key.
+ *
+ * Exactly one scenario per header-composition class pins tool schemas in JSONL and the system
+ * prompt in Markdown. Every live header is checked against that pin, so session-dependent
+ * composition must declare a separate class instead of escaping coverage.
  * @module @deepseek-ai/dsh-acp-snapshot/suite
  */
 
@@ -61,7 +68,8 @@ export interface Scenario {
    */
   childSessions?: number
   /**
-   * Whether this scenario pins its header class's model-facing request-header content.
+   * Whether this scenario is its header class's sole request-header pin. Its Markdown file owns
+   * the prompt, its JSONL keeps tool schemas, and every classmate is checked for equality.
    */
   pinsHeader?: boolean
   /**
@@ -123,8 +131,9 @@ export function childFixturePaths(dir: string, childSessions: number): string[] 
 }
 
 /**
- * Derive the {@link NormalizeContext} for a `session.jsonl` fixture from its own header line
- * (`{ type: 'session', id, cwd }`).
+ * Derive normalization values from a fixture's own session header. Recorded ids and cwd differ
+ * from the live replay run; the non-empty sentinel for missing cwd avoids accidental empty-
+ * string replacement.
  *
  * @param fixture The committed `session.jsonl` content.
  * @returns The fixture's own volatile values, ready for {@link normalizeSessionLog}.
@@ -403,8 +412,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           cwd: result.cwd,
         }
 
-        // RECORD mode (recorded model scenarios only): persist the freshly-harvested live logs
-        // back to their fixtures.
+        // Record writes live model fixtures; keyless refresh writes every comparable replayed
+        // fixture. Pins keep tools but all JSONL files scrub prompt text.
         const scrub = scenario.pinsHeader === true
           ? scrubSystemPrompts
           : scrubRequestHeaders

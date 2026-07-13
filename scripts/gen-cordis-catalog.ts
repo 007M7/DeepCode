@@ -18,7 +18,11 @@ const OUT_SERVICES = 'docs/cordis-catalog/services.md'
  * doc-typecheck, since a bare signature fragment is not standalone-compilable). */
 const FENCE = 'ts cordis-catalog'
 
-/** Primary core-data-structures page for signature types shared by both catalog generators. */
+/**
+ * One primary core-data-structures page per signature type, shared by the
+ * Cordis and config catalogs; union names intentionally do not reuse the
+ * type-equivalence manifest's map-symbol entries.
+ */
 // TODO(catalog-type-links): verify or generate link-map coverage.
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
@@ -157,7 +161,8 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
           violations.push(`${where} is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
         }
         if (!doc) violations.push(`${where} has no description prose. Say what happened / what a listener may do, above the block tags.`)
-        // Payload parameters need a non-empty @param each.
+        // Payload parameters need a non-empty @param. The `this` receiver is not
+        // payload, and a waterfall's trailing `next` is covered by its mode.
         const { params } = parseTags(raw)
         checkParams(where, 'event', member.parameters, params, sf,
           p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
@@ -208,7 +213,8 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       const methods: string[] = []
       for (const member of cls.members) {
         if (!ts.isMethodDeclaration(member)) continue
-        // Only the PUBLIC callable surface a `ctx.<key>` consumer sees.
+        // Only instance methods callable through `ctx.<key>` are surface;
+        // private, protected, and static methods are not.
         const nonPublic = member.modifiers?.some(m =>
           m.kind === ts.SyntaxKind.PrivateKeyword
           || m.kind === ts.SyntaxKind.ProtectedKeyword

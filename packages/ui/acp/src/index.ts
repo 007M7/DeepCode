@@ -72,7 +72,7 @@ import {
 } from './codec.ts'
 
 export const name = 'acp'
-// Interface services required by advertised ACP capabilities.
+// Interface services required by advertised load, presentation, and interaction capabilities.
 export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /** Build an ACP invalid-params error with visible human detail. */
@@ -80,7 +80,7 @@ function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
 }
 
-/** Build an ACP internal error with visible human detail. */
+/** Build an ACP internal error with visible detail; plain handler errors are flattened on wire. */
 function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
 }
@@ -570,8 +570,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
         })
-        // Creation is now asynchronous because it awaits the unpublished setup
-        // transaction. A client disconnect can therefore close this bridge
+        // Creation awaits the unpublished setup transaction. A client disconnect
+        // can therefore close this bridge
         // after the entry check but before the handle resolves; never install a
         // post-close record that quiesce() could not have seen.
         /* v8 ignore next 4 -- the in-memory transport rejects the in-flight RPC

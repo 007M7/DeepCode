@@ -308,7 +308,8 @@ describe('runScenario', () => {
 
   it('rejects the run on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
-    // The fake bin offers allow_once/reject_once; scripting allow_always is a scenario bug.
+    // The fake offers only allow_once/reject_once. The harness must reject an impossible click,
+    // not merely send an RPC error that a tolerant agent could absorb.
     await expect(runScenario(
       { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },

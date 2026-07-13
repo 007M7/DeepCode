@@ -293,7 +293,7 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const { ctx, hooks } = await harnessWithFiber(dir, adapter)
     // Drive the observe-only lifecycle events directly (no real child needed — the
     // bridge just listens). No child agent is registered, so SubagentStart's
-    // child lookup yields undefined and it simply runs the hook.
+    // child lookup yields undefined and it runs the hook.
     ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
     ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
@@ -302,8 +302,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
-    // The markers prove the hook PROCESSES ran, not that the detached `.then` continuations did
-    // (`touch` lands before the process exits).
+    // A marker proves only that the process ran. Disposal drains its detached continuation so the
+    // no-context branch completes before the per-file coverage snapshot instead of racing CI.
     await hooks.dispose()
   })
 
@@ -313,8 +313,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
     const slowHook = join(dir, 'slow.sh')
-    // Record the hook shell's PID and touch the marker FIRST so the test can tell "the hook is
-    // genuinely mid-run", then sleep far past the suite timeout.
+    // Record the PID and marker before sleeping past the suite timeout. Disposal must abort and
+    // kill the process rather than await its exit or the default ten-minute hook timeout.
     writeFileSync(slowHook, `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     chmodSync(slowHook, 0o755)
     writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: {
@@ -328,9 +328,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()
-    // Quiescence, not just promptness: the drain resolves only after the run settled, and the
-    // run settles only after the killed process was reaped — so by the time dispose returns,
-    // the PID must be GONE (kill(pid, 0) throws ESRCH).
+    // Disposal reaches quiescence: it returns only after the aborted run settles and the process
+    // is reaped, so `kill(pid, 0)` must report ESRCH. Untracked fire-and-forget work would remain.
     expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.
@@ -359,8 +358,8 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
-    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it would veto the
-    // prompt (0 model requests) and log a hook/invoked.
+    // This is the only bridge mount, and its blocking hook would veto the prompt and log an event
+    // if its listener leaked after disposal. A no-op hook would not expose that leak.
     const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = new Context()
@@ -382,7 +381,8 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {
-    // Loader must retain this namespace's injection metadata.
+    // A default export would make `unwrapExports` collapse the namespace and drop `inject`, causing
+    // load to fail. Guard the shape from postmortem 0001 directly.
     expect('default' in HooksClaude).toBe(false)
     expect(HooksClaude.name).toBe('hooks-claude')
     expect(HooksClaude.inject).toEqual(['bash'])

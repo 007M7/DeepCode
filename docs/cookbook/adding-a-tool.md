@@ -80,4 +80,4 @@ The neutral vocabulary lives in `dsh-tools` (never import an ACP type into a too
 
 ## Tests every tool needs
 
-Cover argument rejection, result shaping, and HMR disposal. Side-effecting tools also need an agent-loop integration test that asserts session events. Editor presentation needs exact unit coverage plus an ACP snapshot; terminal cards must exercise a client with `terminalOutput: true`.
+Cover argument rejection, every result shape, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and `tool/result` session events. For an editor card, assert the exact `presentCall` and `presentResult` views and add an [ACP snapshot](../rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md) through the real bridge; a terminal card's scenario sets `terminalOutput: true` to exercise the capable-client path.

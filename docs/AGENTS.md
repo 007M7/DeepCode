@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file defines Markdown tiers, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for audits; the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) owns rationale.
+This file defines Markdown tiers, writing rules, and `verify-doc-budgets` ceilings. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) for placement and validation, and [dsh-trim-prose](../.agents/skills/dsh-trim-prose/SKILL.md) for editorial judgment; the [doc-tiers RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) owns rationale.
 
 ## The tier taxonomy: one home per fact
 
@@ -12,7 +12,7 @@ Each fact has one home: the tier whose job it is. Elsewhere, link to that home; 
 | Subtree `AGENTS.md` (`packages/`, `examples/`, `docs/`) | Orders specific to that subtree | Repo-wide rules the root file already carries |
 | [architecture.md](architecture.md) | The system map: services, the loop, extension seams — read before changing `packages/` | Type shapes (→ core-data-structures), per-package detail (→ package READMEs), decision rationale (→ RFCs), implementation-status annotations |
 | [core-data-structures/](core-data-structures/core.md) | The type catalog: literal shapes and semantics of the spine and seam vocabulary | Behavior narration (→ architecture.md) |
-| [rfc/](rfc/README.md) | Decision records: the why and the what-was-given-up; `implemented/` RFCs describe shipped reality in present tense | Migration plans, test checklists, and spec-speak ("should…") once the decision has shipped |
+| [rfc/](rfc/README.md) | Decision records: the why, what-was-given-up, and concise verification contract; `implemented/` RFCs describe shipped reality in present tense | Migration plans, acceptance-task checklists, fixture walkthroughs, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
 | Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
@@ -31,7 +31,7 @@ Placement test: bug story → postmortem; design rationale → RFC; procedure �
 - **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
-- **Comments and JSDoc state contracts, not reasoning.** Keep non-obvious behavior, constraints, or rationale at the closest public seam. Delete implementation narration, test walkthroughs, review analysis, and code restatement.
+- **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, conditions, timing, modality, exceptions, consequences, and non-obvious orientation; delete implementation narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link to its owning rationale. Use [dsh-trim-prose](../.agents/skills/dsh-trim-prose/SKILL.md) for the full decision rules and examples.
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
 
 ## Wordcount Budgets
@@ -44,7 +44,7 @@ When the gate goes red:
 2. **Condense** content that belongs here but can be shorter.
 3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
 
-Ceilings retain at least 5% headroom and ratchet down after trims. Targets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
+Ceilings are guardrails, not reduction targets. Retain at least 5% headroom; lower a ceiling only when the document's durable contract still has room, and raise it when necessary content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
 
 ## The slop checklist
 

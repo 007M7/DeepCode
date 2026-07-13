@@ -36,6 +36,13 @@ Crucially, `hmr` is **not** a stdout-purity footgun the way the console logger i
 
 The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a YAML include cannot **encapsulate** the front-door coupling — it can only describe it in a comment and trust every leaf to obey. It also cannot own a `bin`, so the boot glue stayed copied across three `start.ts` files. A package turns "the ACP app never logs to stdout" from a prose warning into a property of the artifact: there is no logger entry in the leaf to get wrong.
 
+## Verification
+
+- Example directories contain only their config, README, and tests: `start.ts`, the infrastructure preamble, and the shared YAML includes are gone.
+- `demo:echo`, `demo:repl`, and `demo:acp` invoke the app-package bins.
+- Each new package has a README and per-file 100% coverage; each app package also has a keyless real-Loader-path bin smoke that catches export-shape failures described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md).
+- The ACP replay transcript remains unchanged because the plugin set and load order did not change.
+
 ## Consequences
 
 - **The bare-plugin-tree pedagogy.** echo-agent's inlined `cordis.yml` showed every plugin at once; the spine now lives behind a bundle, so seeing the whole tree means opening `dsh-agent-core`. The app package's README carries that teaching weight.

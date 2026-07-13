@@ -1,6 +1,12 @@
 /**
- * Child-scoped structured-output tool, prompt instruction, terminal guard, and
- * authoritative result capture for in-process subagents.
+ * Child-scoped structured-output tool, prompt instruction, terminal guard, and authoritative
+ * result capture for in-process subagents. Each child registers its real schema on its own
+ * scope, so concurrent runs do not interact and disposal leaves no global residue. The prompt
+ * contribution is ordinary reconstructed request state.
+ *
+ * Capture commits only after the authoritative `tools/result` succeeds; Code Mode capture also
+ * waits for the enclosing `run_code` result. The terminal turn-stop and monotonic tool guard
+ * then prevent later listeners or calls from reopening a completed structured run.
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
 

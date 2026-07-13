@@ -1,7 +1,10 @@
 /**
- * `LocalFetchProvider`: a `WebFetchProvider` that retrieves a concrete public HTTP(S) URL with
- * platform-native `fetch` at the repo's Node floor and returns a status code plus bounded
- * decoded content.
+ * Safe HTTP(S) retrieval for `ctx.web`: validates URLs, follows only same-origin redirects,
+ * enforces time and size limits, classifies and decodes text, and leaves presentation to
+ * `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient credentials.
+ *
+ * Private-network and SSRF protection is not implemented; do not enable this provider where
+ * it can reach sensitive internal targets.
  * @module @deepseek-ai/dsh-web-fetch-local/provider
  */
 
@@ -46,8 +49,8 @@ export class LocalFetchProvider implements WebFetchProvider {
     if (exec?.signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
     const timeoutMs = clampTimeout(request.timeoutMs, this.limits.timeoutMs, this.limits.maxTimeoutMs)
 
-    // One deadline signal fuses the caller's abort with our own timeout, so the network request
-    // and the streaming read both stop on either.
+    // One signal stops both the request and body read. The deadline's TimeoutReason later
+    // distinguishes this provider's timeout from caller or outer-deadline cancellation.
     using d = deadline(exec?.signal, timeoutMs, 'WEB_FETCH_TIMEOUT')
     return await this.followAndRead(request.url, d.signal)
   }

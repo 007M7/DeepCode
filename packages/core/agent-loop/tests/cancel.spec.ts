@@ -2,7 +2,8 @@
  * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the broad verb — it
  * clears queued + steering work, aborts an in-flight step, and drops a turn about to start —
  * whereas a bare step abort (the loop's private `AbortController`) kills only the current step
- * and leaves the queue intact.
+ * and leaves the queue intact. The suite covers every landing window plus marker
+ * reset and `whenIdle()` quiescence.
  * @module dsh-agent-loop/tests/cancel
  */
 
@@ -91,8 +92,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Queue work, then register a whenIdle() waiter while in the pre-step window (status idle,
-    // hasQueued true) — it does not take the fast path.
+    // This waiter cannot rely on a running→idle transition because cancellation
+    // drops the turn before it runs; the skip path must settle it directly.
     send(agent, 'q')
     const idle = agent.whenIdle()
     agent.cancel('pre-step')
@@ -228,8 +229,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // The first composition is interrupted mid-waterfall and — like an abort-aware listener
-    // bailing on a firing signal — contributes nothing.
+    // The interrupted first composition must not cache its degraded empty value;
+    // the next prompt recomposes and logs/sends the fresh prefix.
     const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
     let compositions = 0
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
@@ -258,8 +259,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // A turn/start listener fires right after turn/start is appended, before any
-    // AbortController is installed for the step.
+    // A turn/start listener fires before a step controller exists, so the
+    // turn-scoped marker—not step abort—must drop the pending step.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('session/event', (session, event) => {
@@ -388,8 +389,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // setStatus('running') emits agent/status SYNCHRONOUSLY, so a running listener can cancel
-    // in the gap between the loop's pre-step check and runTurn.
+    // `agent/status` is synchronous, so cancellation can land after the first
+    // pre-step check; the second check must drop the now-empty turn.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {

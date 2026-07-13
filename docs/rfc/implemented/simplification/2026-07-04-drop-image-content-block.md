@@ -18,6 +18,10 @@ Remove `ImageBlock`, its map entry, and image-specific branches from adapters, A
 
 The recorded fallback, had review landed on keeping the slot: keep `ImageBlock` but replace every silent skip with a loud rejection, and document that policy in the vocabulary — the silent drop was the one state with no defender. Review landed on removal; the fallback stands as the documented alternative should the slot ever return ahead of a full feature.
 
+## Verification
+
+No harness `ImageBlock` is constructed outside RFC records. ACP's independent inbound-image rejection remains tested, while adapter, codec, and compaction default branches are covered with plugin-defined block types.
+
 ## Consequences
 
 Re-adding a core vocabulary type later touches several packages at once — but that coordinated change is the shape a real multimodal feature needs anyway (adapter mapping, ACP advertisement, compaction pricing), and none of it existed to preserve.

@@ -1,5 +1,8 @@
 /**
- * Replay LLM plugin for snapshot tests.
+ * Keyless snapshot-test LLM replay. It derives one model-call script per
+ * recorded session from `assistant/chunk` events and binds fresh live sessions
+ * to parent/child scripts by first-call order. Throw and hang cases require an
+ * explicit override because a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
  */
 
@@ -11,11 +14,9 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 
 /**
- * One recorded model call. A discriminated union (not a bare `StreamChunk[]`) so it can
- * faithfully replay BOTH branches of the documented LLM failure contract — an adapter may
- * THROW from `stream()` or end with a `finish` error chunk — plus a `hang` marker for
- * cancellation scenarios (mirrors the `MockAdapter` `hang` support in
- * packages/core/agent-loop/tests).
+ * One recorded model call. `throw` may replay prefix chunks before failing;
+ * `hang` models cancellation. Only ordinary chunk entries derive from JSONL;
+ * the other variants come from an override sidecar.
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
@@ -46,7 +47,10 @@ export interface ReplayConfig {
   childFiles?: string[]
 }
 
-/** Recorded calls plus header facts used to order parent and child replay scripts. */
+/**
+ * Recorded calls plus header facts used to order parent and child scripts.
+ * Recorded ids are diagnostic; fresh live ids bind by ordered first use.
+ */
 export interface SessionScript {
   /** The recorded session id (diagnostics only — the live id differs). */
   recordedId: string
@@ -71,9 +75,7 @@ export interface SessionScript {
 export function parseSessionLog(text: string): SessionEvent[] {
   const lines = text.split('\n').filter(line => line.trim().length > 0)
   const events: SessionEvent[] = []
-  // Skip line 0 (the header). A reader distinguishes it by its `type:'session'`
-  // tag; we simply drop the first line, which the JSONL backend guarantees is
-  // the header.
+  // The JSONL backend guarantees line 0 is the session header.
   for (let i = 1; i < lines.length; i++) {
     const parsed: unknown = JSON.parse(lines[i] as string)
     events.push(parsed as SessionEvent)
@@ -100,6 +102,9 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
 /**
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
+ * Groups `assistant/chunk` events by turn and step. Every group must end in a
+ * `finish`; a missing terminator means the live stream threw, so derivation
+ * rejects and the scenario must provide an explicit override.
  * @param events - the recorded session's events; only `assistant/chunk` is consulted.
  * @returns one `chunks` entry per recorded model call, in call order.
  */
@@ -158,8 +163,8 @@ export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
 }
 
 /**
- * Load every recorded session's script for a scenario, ordered by `createdAt` (earliest
- * first), ready to bind to live sessions in first-call order.
+ * Load the primary and child scripts in bind order. Child derivation begins at
+ * `seedLength` so inherited parent chunks are never replayed as child calls.
  *
  * @param config - the fixture paths: the primary log plus any recorded child logs.
  * @returns the primary script first, then the child scripts in bind order.
@@ -236,9 +241,10 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
 }
 
 /**
- * Install the replay `llm/stream` listener on `ctx`. Returns the listener disposer (so a fiber
- * dispose removes it — HMR safety). Exported separately from {@link apply} so unit tests can
- * drive it without the Loader or env vars.
+ * Install per-session positional replay. A newly seen live session takes the
+ * next ordered recorded script, then advances its own cursor synchronously at
+ * invocation time; calls without `sessionId` share one anonymous session.
+ * Returns the effect disposer for HMR-safe removal.
  *
  * @param ctx - the context whose `llm/stream` waterfall the listener short-circuits.
  * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).

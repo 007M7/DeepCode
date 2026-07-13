@@ -39,7 +39,7 @@ Agent status (per agent):
 
 Model requests (on `llm/stream`):
 
-- **a loop-built request is exactly what the log reconstructs** — frozen requests with a live `sessionId` must match a fresh derivation bounded before the in-flight `step/start`, while non-content fields match the folded request headers. The check is prepended so ordinary short-circuiting stream listeners cannot skip it; correctness comes from the sequence boundary, not listener order. See the [reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` is rebuilt through a fresh `Session` from the prefix before its in-flight `step/start`; later content belongs to the next request, and hand-built unfrozen one-shots are excluded. Frozen messages must match that derivation, while every other field matches folded `request/header*` events. The prepended check runs before ordinary short-circuiting stream listeners, but correctness comes from the sequence boundary rather than listener timing. See the [reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 

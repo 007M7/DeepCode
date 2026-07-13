@@ -91,4 +91,4 @@ Selection never depends on registration, config, or HMR order: a capability has 
 
 ## The service
 
-`WebService` registers search and fetch providers and resolves them at execution time, returning disposers and structured selection errors. Providers use platform `fetch`; the local fetch backend owns URL, redirect, size, timeout, and decoding controls while the tool owns presentation. Private-network blocking is deferred, so do not enable `web_fetch` where it can reach sensitive internal targets.
+`WebService` registers search and fetch providers, rejects duplicate ids with `WEB_DUPLICATE_PROVIDER`, and resolves providers at execution time with structured selection errors. The local fetch backend accepts only HTTP(S), rejects credentials, caps redirects, bytes, characters, and time, revalidates every same-origin redirect hop, and decodes the body; the tool owns presentation. Private-network blocking is deferred, so do not enable `web_fetch` where it can reach sensitive internal targets.

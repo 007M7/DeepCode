@@ -1,7 +1,9 @@
 /**
- * A minimal mock ACP AGENT, run as a subprocess, for the keyless `dsh-subagent-acp` tests. It
- * speaks the agent side of ACP over stdio and is fully scripted by environment variables — no
- * model, no network.
+ * Minimal no-network ACP child process for keyless backend tests. Environment variables script its
+ * text and stop reason, a cancel-cooperative or cancel-ignoring hang, permission requests, and a
+ * readiness marker. Disposal fixtures can delay an EOF flush, ignore EOF but exit and mark
+ * SIGTERM, or trap SIGTERM to require SIGKILL. The specs spawn this non-test module under tsx with
+ * an explicit tsconfig, mirroring real example boot.
  * @module @deepseek-ai/dsh-subagent-acp/tests/mock-acp-server
  */
 
@@ -122,8 +124,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
         process.exit(1)
       }
       if (IGNORE_CANCEL) {
-        // A NON-COOPERATIVE child: receive session/cancel but never resolve the pending prompt
-        // and never exit.
+        // A non-cooperative child receives cancellation but neither resolves nor exits. The
+        // backend must still settle `aborted`, and disposal must kill the process.
         return Promise.resolve()
       }
       resolveCancel?.('cancelled')
@@ -142,7 +144,7 @@ new AgentSideConnection(
 
 // Under MOCK_TRAP_SIGTERM, ignore SIGTERM and keep stdin open so the process neither quiesces
 // on EOF nor dies on the graceful signal — exercising the backend dispose path's SIGKILL
-// escalation.
+// escalation. READY_FILE proves the trap was armed before the test disposes the run.
 if (process.env.MOCK_TRAP_SIGTERM === '1') {
   process.on('SIGTERM', () => { /* trapped: refuse to exit on the graceful signal */ })
   // Keep the event loop alive (a bare timer) so nothing else lets it exit.
@@ -152,7 +154,8 @@ if (process.env.MOCK_TRAP_SIGTERM === '1') {
 
 // Under MOCK_FLUSH_ON_EOF, model the real acp-agent's EOF-driven quiesce: on stdin 'end' (the
 // dispose path's `child.stdin.end()`), take an ASYNC beat to "flush", then touch the marker and
-// exit ON OUR own — no signal involved.
+// exit on its own. A signal sent before MOCK_FLUSH_DELAY_MS would suppress the marker, so it proves
+// the EOF grace window was long enough for durable flush.
 if (FLUSH_ON_EOF !== undefined) {
   const flushDelayMs = Number(process.env.MOCK_FLUSH_DELAY_MS ?? '150')
   process.stdin.on('end', () => {
@@ -163,7 +166,9 @@ if (FLUSH_ON_EOF !== undefined) {
   })
 }
 
-// Ignore EOF but exit on SIGTERM to exercise the middle disposal tier.
+// Ignore EOF but exit on SIGTERM to exercise the middle disposal tier before SIGKILL. The signal
+// marker distinguishes that catchable rung from an immediate, uncatchable SIGKILL; READY_FILE
+// proves the handler was armed before disposal.
 if (process.env.MOCK_IGNORE_EOF === '1') {
   const sigtermFile = process.env.MOCK_SIGTERM_FILE
   process.on('SIGTERM', () => {

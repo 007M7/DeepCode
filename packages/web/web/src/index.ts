@@ -1,9 +1,8 @@
 /**
- * The web access seam (`ctx.web`): a provider registry plus a provider-selecting execution
- * surface for two capabilities — search and fetch. Provider packages register concrete
- * backends with `registerSearchProvider` / `registerFetchProvider`; the model-facing consumer
- * (`@deepseek-ai/dsh-tool-web`) executes through `search()` / `fetch()` and routes on the
- * structured {@link WebError} codes selection throws.
+ * The web access seam (`ctx.web`): registries and provider-selecting execution for search and
+ * fetch. Duplicate ids are rejected. At execution time, a configured provider must exist and
+ * be usable; without one, exactly one usable provider is required, so selection never depends
+ * on registration order.
  * @module @deepseek-ai/dsh-web
  */
 

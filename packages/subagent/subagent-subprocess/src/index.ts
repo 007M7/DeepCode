@@ -1,7 +1,8 @@
 /**
  * Shared machinery for OUT-OF-PROCESS subagent backends — providers that spawn an external
  * agent as a child process and must keep the parent deployment's credentials out of it, tear
- * it down to quiescence, and isolate it from the host user's on-disk CLI state.
+ * it down to quiescence, and isolate it from the host user's on-disk CLI state. This package
+ * registers no provider; consuming plugins own and validate every timing or path default.
  * @module @deepseek-ai/dsh-subagent-subprocess
  */
 
@@ -39,8 +40,8 @@ export function buildChildEnv(extra: Record<string, string>): NodeJS.ProcessEnv 
 }
 
 /**
- * Capture the child's spawn-level failure as a promise the run's result path can race.
- *
+ * Capture the child's spawn-level `error` event as a promise. Call in the same tick as
+ * `spawn()`; otherwise an early event can be unhandled and crash the parent.
  * @param child - the just-spawned child process.
  * @returns a promise that RESOLVES (never rejects) with the child's first
  * `error` event; for a child that spawns cleanly it never settles.
@@ -109,8 +110,8 @@ export interface DisposeLadderGraces {
 }
 
 /**
- * Tear a child process down to QUIESCENCE: resolves only once the child has actually exited
- * (or was already gone), never merely after requesting it. Three-tier escalation —
+ * Tear a child process down to quiescence, resolving only after exit: close stdin and allow
+ * cooperative flush, then send `SIGTERM`, then `SIGKILL` and await the forced exit.
  *
  * @param child - the child process to tear down.
  * @param graces - the two grace periods, from the consuming plugin's Config.
@@ -118,7 +119,7 @@ export interface DisposeLadderGraces {
 export async function disposeChildProcess(child: ChildProcess, graces: DisposeLadderGraces): Promise<void> {
   // Already gone: nothing to reap.
   if (child.exitCode !== null || child.signalCode !== null) return
-  // 1.
+  // 1. Close stdin and allow cooperative teardown and durable-state flush.
   child.stdin?.end()
   if (await exitsWithin(child, graces.disposeEofGraceMs)) return
   // 2. SIGTERM, escalating if the child still does not exit within the grace.
@@ -147,9 +148,9 @@ export interface IsolatedConfigDir {
 }
 
 /**
- * An isolated config dir for one child run, so the child's behavior is a function of
- * deployment config alone — never of whatever `~/.claude` / `~/.codex`-style state happens to
- * exist on the host machine. Two modes.
+ * An isolated config dir for one child run, independent of host CLI state. Without
+ * `pinnedPath`, creates a private temp directory and removes it best-effort; a pinned directory
+ * is returned unchanged and remains deployment-owned.
  *
  * @param prefix - the `mkdtemp` name prefix for a fresh dir (e.g.
  * `dsh-subagent-codex-`); ignored when `pinnedPath` is set.

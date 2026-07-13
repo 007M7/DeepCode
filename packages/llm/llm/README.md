@@ -46,4 +46,4 @@ Every product adapter sends application identity on provider HTTP requests. `att
 
 ### Real adapters
 
-Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).
+Two adapters implement `LlmAdapter` on different internals: [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) uses hand-rolled fetch/SSE, while [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) uses `@earendil-works/pi-ai`. Both follow the `StreamChunk` conventions in `types.ts`: usage precedes finish, tool arguments remain raw strings, and errors take one of two sanctioned paths. See [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md) for the design rationale.

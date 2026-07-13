@@ -1,4 +1,8 @@
-/** Derived-message cache behavior against a from-scratch replay oracle. */
+/**
+ * Derived-message cache contract against a scratch oracle: project new nodes
+ * once, rebuild on surface generation changes, return fresh arrays over shared
+ * frozen messages, and remain value-equal to replay at every step.
+ */
 
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'

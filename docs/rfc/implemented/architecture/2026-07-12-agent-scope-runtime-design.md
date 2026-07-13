@@ -26,7 +26,7 @@ The design can be skimmed as seven choices:
 | Compose the model-visible prompt and tool surface | One shared tool view plus the authoritative assembly-waterfall result |
 | Coordinate subagent, worker, and process shutdown | One cancellation signal plus the independent terminal/quiescence facts of that boundary |
 
-The rest of this RFC expands those choices in dependency order. It first explains the Cordis mechanics, then scope routing, creation and session commit, tools and prompts, subagents and workflows, and finally the checks that make the reasoning executable.
+The rest of this RFC expands those choices in dependency order: Cordis mechanics, scope routing, creation and session commit, tools and prompts, subagents and workflows, then executable checks.
 
 The [July 8 RFC](2026-07-08-agent-scope-contexts.md) remains the contributor contract. The separate [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns `persona`, `toolFilter`, and `maxDepth`; this document discusses only how their setup fits the lifecycle.
 
@@ -276,7 +276,7 @@ The service validates provider capabilities and request semantics before calling
 
 Spawn and fork share one in-process driver. It creates the child through `parent.ctx`, passes the required signal into the core creation transaction, and installs persona, tool restriction, and structured-output contributions during unpublished setup.
 
-The provider returns only a published run. At handoff, it rechecks cancellation between removing the creation listener and installing the live listener; an abort there disposes the new handle. Parent teardown reaches the child through `parent.ctx`. Provider unload blocks new starts but does not revoke accepted runs. Run disposal cancels the child and awaits ordered `AgentHandle` teardown.
+The provider awaits creation and returns only the published run. At the handoff, core creation detaches its creation-only abort listener; the provider immediately rechecks the signal before installing the live-run listener, so an abort in that narrow interval disposes the new handle instead of escaping cancellation. Parent teardown follows the child because the operation belongs to `parent.ctx`; provider unload blocks new starts but does not become a second revocation owner for accepted runs. The run disposer cancels the child and awaits the AgentHandle's ordered teardown.
 
 Spawn uses an empty session seed. Fork uses a validated completed-turn prefix. Conversation seeding changes history only and does not import scope, tools, services, or authority.
 

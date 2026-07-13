@@ -11,10 +11,11 @@ import { afterEach, describe, expect, it } from 'vitest'
  * `unwrapExports`, the full plugin tree INCLUDING the `@deepseek-ai/dsh-tool-cordis` package
  * resolved by name (whose `inject` would crash a collapsed export shape at load, see
  * docs/postmortem/0001) — then close stdin with no prompt and assert the ready banner + a
- * clean exit.
+ * clean exit. A dummy key satisfies adapter boot, but no prompt means no network
+ * call; `cordis-tools.e2e.ts` owns the with-key product proof.
  */
 
-// The dsh-stdio-agent bin (the demo:cordis entry) and this example's cordis.yml.
+// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
@@ -22,7 +23,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
 // the repo, so point it at the repo tsconfig (root is three levels up).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.

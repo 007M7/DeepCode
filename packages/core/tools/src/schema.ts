@@ -310,7 +310,8 @@ export interface DefineToolOptions<S extends SchemaSpec> {
 
 /**
  * Define a first-party tool whose execution and presentation arguments are
- * inferred from its per-property schema.
+ * inferred from its per-property schema. Raw JSON-Schema definitions remain
+ * valid inputs to {@link ToolRegistry.register}; this helper is authoring sugar.
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready definition with strict execution validation and

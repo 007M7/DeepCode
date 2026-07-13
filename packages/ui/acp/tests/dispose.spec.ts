@@ -24,7 +24,8 @@ describe('acp bridge — disposal & HMR safety', () => {
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 
-    // A resolved teardown is the quiescence boundary.
+    // Teardown must abort and await the loop: once it resolves the agent is settled, and the
+    // hanging prompt itself completes as cancelled rather than remaining pending.
     await harness.ctx.fiber.dispose()
     expect(agent.status).not.toBe('running')
 
@@ -33,7 +34,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('after an ACP-only HMR dispose, a late session/new creates no orphan agent (closed guard)', async () => {
-    // An ACP-only unload must close creation while shared services remain live.
+    // Unload only the bridge while transport and shared services remain live. Its closed guard must
+    // reject late creation before an orphan agent can enter the registry.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const before = harness.ctx.agents.list().length
@@ -45,7 +47,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('an agent created through the bridge is unregistered when ONLY the bridge fiber is disposed', async () => {
-    // The caller fiber owns agents created through its traced service proxy.
+    // The traced service proxy binds loop registration to the caller (bridge) fiber. ACP-only
+    // disposal must therefore reclaim the agent even while agent-loop itself remains mounted.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -57,7 +60,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('no agent is created by a session/new after the bridge has closed (closed guard)', async () => {
-    // Assert registry state because the closed transport rejects the RPC.
+    // Disconnect sets the closed guard and severs the RPC, so registry state—not the rejection
+    // shape—proves a late request did not create an undriveable agent.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const before = harness.ctx.agents.list().length
@@ -69,7 +73,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('a client disconnect mid-prompt disposes the session (no registered agent left)', async () => {
-    // Disconnect must dispose, not merely idle, the owned agent.
+    // Disconnect mid-stream must dispose, not merely idle, the owned agent; otherwise updates would
+    // be swallowed while a registered session survived without a client.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -83,7 +88,8 @@ describe('acp bridge — disposal & HMR safety', () => {
     await agent.whenIdle()
     expect(agent.status).toBe('disposed')
 
-    // The shared bridge teardown also removes registry state.
+    // Await the same memoized bridge teardown without removing root services. It must finish the
+    // AgentHandle teardown and remove both registry records, not just stop the loop.
     await harness.acpFiber.dispose()
     expect(harness.ctx.agents.get(AgentId(sessionId))).toBeUndefined()
     expect(harness.ctx.sessions.get(SessionId(sessionId))).toBeUndefined()
@@ -91,7 +97,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('a client disconnect racing fiber dispose both reach quiescence (shared teardown)', async () => {
-    // Both teardown callers must await the same quiescence boundary.
+    // Transport close and fiber disposal can race. Both must await one memoized teardown; a guard
+    // based only on record removal could let the second caller return while the first still drains.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -122,7 +129,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('the final turn closing events are persisted across an AgentHandle dispose (durability)', async () => {
-    // Reload from storage to verify final flush precedes session detach.
+    // AgentHandle teardown stops and awaits the loop, flushes through still-attached store hooks,
+    // then detaches the session. Reloading verifies that order from durable state.
     const harness = await makeBridgeHarness({ storageDir, script: [textResponse('done')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -141,7 +149,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('a turn aborted BY the dispose still flushes its closing turn/end to disk (durability, mid-turn)', async () => {
-    // A mid-turn dispose must flush its real closer before detaching storage.
+    // Here disposal itself makes the loop append `turn/end {disposed}` and flush. Reload must find
+    // that real closer, not crash recovery's synthetic `interrupted`, proving detach ran last.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -162,7 +171,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('per-session AgentHandle dispose leaves sibling agents untouched', async () => {
-    // Dispose one handle and assert the sibling remains published.
+    // A per-session handle owns exactly one agent and session. Dispose A and assert B remains fully
+    // published, which guards against context-wide teardown.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
     const handleA = await harness.ctx.agents.create({
       agentId: AgentId('sib-a'), sessionId: SessionId('sib-a'), agentOptions: { model: 'mock' },
@@ -184,7 +194,8 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('a throwing agent/disposed listener does not prevent session removal (composite-effect containment)', async () => {
-    // Listener failure cannot skip the later session-detach disposer.
+    // Composite disposers run in sequence. A throwing `agent/disposed` listener must be contained or
+    // it would skip later session detach, leaking publication hooks and creating a durability hole.
     const harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
     harness.ctx.on('agent/disposed', () => { throw new Error('boom disposed listener') })
     const handle = await harness.ctx.agents.create({
@@ -201,12 +212,14 @@ describe('acp bridge — disposal & HMR safety', () => {
   })
 
   it('concurrent AgentHandle dispose() calls all await the SAME teardown (memoized)', async () => {
-    // Concurrent callers must share the in-flight teardown promise.
+    // The Cordis effect disposer is single-shot and would let a second call return after its epoch
+    // clears. AgentHandle must memoize the whole async teardown so every caller awaits quiescence.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     const handle = await harness.ctx.agents.create({
       agentId: AgentId('conc-a'), sessionId: SessionId('conc-a'), agentOptions: { model: 'mock' },
     })
-    // Gate the final flush to keep teardown observably in flight.
+    // A hanging turn makes disposal produce a final flush; gate it so the second call arrives while
+    // teardown is observably in flight.
     handle.agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(handle.agent.status).toBe('running')

@@ -1,8 +1,7 @@
 /**
- * The model-facing bash tools: `bash`, `bash_output`, `bash_kill`. Pure schema + text shaping
- * — every process concern lives behind the `ctx.bash` executor seam (`@deepseek-ai/dsh-bash`),
- * so sandbox/permission/remote executor implementations swap in without touching what the
- * model sees.
+ * Model-facing `bash`, `bash_output`, and `bash_kill` tools over the executor
+ * seam. Background tasks are fenced by owning session, completion injects a
+ * durable notice, and confining executors add one-shot approval-based escalation.
  * @module @deepseek-ai/dsh-tool-bash
  */
 
@@ -25,7 +24,7 @@ export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
 /**
- * Validate the constraints the SchemaSpec can't express. `defineTool` now
+ * Validate the constraints the SchemaSpec can't express. `defineTool`
  * validates parsed args against the SchemaSpec before `execute` runs (the
  * arg-validation RFC), so type/required/enum checks are already done and `args`
  * is the validated `InferArgs` shape here. What remains are value constraints
@@ -136,8 +135,9 @@ function streamText(output: CollectedOutput): string {
 }
 
 /**
- * Shape one finished run into the text the model sees: stdout, then a marked stderr
- * section, then exit-status markers.
+ * Shape one finished run into model-visible stdout, marked stderr, and status
+ * facts. Non-zero exits and sandbox denials remain ordinary results; only
+ * infrastructure failure or abort makes the tool call itself fail.
  *
  * @param result - the completed foreground run from the executor.
  * @param escalationModes - the escalation targets this composition advertises; non-empty
@@ -193,7 +193,7 @@ export function renderResult(
 // UI presentation (tool-owned).
 
 /**
- * Pending-state presentation for a `bash` call.
+ * Present foreground calls as terminals and background starts as generic cards.
  */
 type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
 
@@ -220,7 +220,8 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
 }
 
 /**
- * Completed-state presentation for a `bash` call.
+ * Present completed foreground output as a terminal; background acknowledgements
+ * and execution errors use generic fenced output without an exit-status pill.
  */
 function presentBashResult(args: unknown, result: ToolResult): ToolResultView | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
@@ -238,8 +239,8 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
 }
 
 /**
- * Recover the structured exit status from a rendered `renderResult` string — the inverse of
- * the status markers it appends.
+ * Recover exit status from the final marked line emitted by {@link renderResult}.
+ * A program whose own final line exactly mimics a marker remains ambiguous for UI display.
  */
 function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
   const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
@@ -255,7 +256,8 @@ function presentTaskCall(verb: string, args: { task_id: string }): GenericCallVi
 }
 
 /**
- * Resolve the working directory for a bash call.
+ * Resolve an explicit workdir first, making a relative one session-cwd-relative;
+ * otherwise use the session cwd and leave executor defaulting as the fallback.
  */
 function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
   const sessionCwd = exec.agent?.session.header.cwd
@@ -314,7 +316,8 @@ export function apply(ctx: Context): void {
     }
   }
 
-  // Background completion → inject a notice into the owning agent's session.
+  // Completion runs on the bash fiber, so use topology-independent lookup and
+  // match the executor's stored session-owner token to a live agent.
   ctx.bash.onTaskDone((task) => {
     const ownerToken = ctx.bash.ownerOf(task.id)
     if (ownerToken === undefined) return

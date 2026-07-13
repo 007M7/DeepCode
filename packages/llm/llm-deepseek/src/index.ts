@@ -1,6 +1,7 @@
 /**
- * DeepSeek LLM adapter plugin: registers a {@link DeepSeekAdapter} for the configured model
- * names on `ctx.llm`.
+ * Register a {@link DeepSeekAdapter} for configured model names on `ctx.llm`. Configuration uses
+ * Cordis schemastery; pass secrets from environment variables through `cordis.yml` with `!!js`,
+ * as shown in the package README, rather than reading ad hoc files.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 

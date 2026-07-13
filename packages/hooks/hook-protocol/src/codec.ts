@@ -1,6 +1,7 @@
 /**
- * Parse a finished hook command's process outcome (exit code + stdout + stderr) into the
- * dialect-neutral {@link HookOutput} both bridges map from.
+ * Decode hook process outcomes for both dialects. Exit 0 may carry structured
+ * JSON or plain stdout; exit 2 blocks with stderr as the reason; every other
+ * exit is a non-blocking error. Bridges decide which recognized fields apply.
  * @module @deepseek-ai/dsh-hook-protocol/codec
  */
 
@@ -44,11 +45,15 @@ function permissionDecisionOf(value: string | undefined): HookOutput['decision']
 }
 
 /**
- * Decode process output into the dialect-neutral hook outcome.
+ * Decode process output into a dialect-neutral hook outcome. This function is
+ * total: malformed JSON remains plain stdout. When `expectedEventName` is set,
+ * a missing or different `hookSpecificOutput.hookEventName` discards only its
+ * event-scoped fields; top-level fields and the claimed discriminator remain.
+ * Omitting the guard applies the block as-is.
  * @param exitCode - process exit, or `undefined` when spawn failed.
  * @param stdout - output parsed as structured JSON only on exit 0.
  * @param stderr - the captured stderr stream; becomes the blocking `reason` on exit 2.
- * @param expectedEventName - optional event guard for hook-specific output.
+ * @param expectedEventName - firing event used to guard hook-specific fields; omit to disable the guard.
  * @returns the dialect-neutral decoded outcome.
  */
 export function parseHookOutput(exitCode: number | undefined, stdout: string, stderr: string, expectedEventName?: string): HookOutput {
@@ -113,8 +118,7 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>, ex
     // Always surface the discriminator (for the log/diagnostics), even on a
     // mismatch — the record should show what the malformed block claimed.
     if (eventName !== undefined) output.hookEventName = eventName
-    // The schemas key this block by event: when a caller passes the firing event
-    // (`expectedEventName`), the block's `hookEventName` must name it.
+    // A missing or mismatched discriminator cannot affect the firing event.
     if (expectedEventName !== undefined && eventName !== expectedEventName) {
       return
     }

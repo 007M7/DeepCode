@@ -1,4 +1,9 @@
-/** Agent-scoped subject dispatch and prompt assembly context helpers. @module @deepseek-ai/dsh-agent/dispatch */
+/**
+ * Agent-scoped dispatch and prompt assembly helpers. Ordinary events use the
+ * fused dispatcher so subject and scope key cannot diverge; registry lifecycle
+ * code instead captures one stable carrier for both edges.
+ * @module @deepseek-ai/dsh-agent/dispatch
+ */
 
 import type { Context, Events } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -107,7 +112,8 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
 }
 
 /**
- * Build the prompt assembly context with agent and scope set together.
+ * Build the prompt assembly context with agent and scope set together, so
+ * agent-scoped prompt and tool contributions cannot be silently omitted.
  * @param agent - the agent the assembly is for.
  * @returns the context to pass to `assemble()`.
  */

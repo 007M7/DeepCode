@@ -1,7 +1,8 @@
 /**
- * The fs-policy plugin: observed-state, read-before-edit, and "write/edit must be based on the
- * version you read" — added on top of the `ctx.fs` provider seam through the `fs/*` event
- * gate, not through a method service.
+ * Event-only filesystem observation policy; it registers no service. A weak owner/target map
+ * records every successful read or mutation, single-slot intent listeners supply that version,
+ * and the provider performs the atomic freshness check. Without this plugin, tools retain the
+ * bare provider's unconditional mutation behavior. See the package README for composition rules.
  * @module @deepseek-ai/dsh-fs-policy
  */
 
@@ -110,7 +111,8 @@ export function apply(ctx: Context): void {
   // fs/edit-intent: occupy the single decision slot — do not call next().
   ctx.on('fs/edit-intent', (target, actor) => Promise.resolve().then(() => gate.editIntent(target, actor)))
 
-  // fs/observed: synchronous, side-effect-only WeakMap write.
+  // fs/observed must remain synchronous and non-throwing: the mutation already succeeded, and
+  // emit does not await promises. WeakMap.set satisfies that contract.
   ctx.on('fs/observed', (target, version, actor) => {
     gate.observe(target, version, actor)
   })

@@ -33,4 +33,8 @@ It reuses `$DEEPSEEK_API_KEY` (no new secret) but **not** `$DEEPSEEK_BASE_URL`: 
 
 ## Mapping
 
-DeepSeek returns no provider-generated answer surface this provider trusts as `content`, so `content` is omitted. `sources[]` is built from the `web_search_result` items inside `web_search_tool_result` blocks: `url` ← `url`, `title` ← `title`, `publishedAt` ← `page_age`. The per-source `snippet` lives separately in a `text` block's `citations[]` (a `cited_text` keyed by `url`), so the provider joins the two — a result with no citation excerpt simply has no `snippet`. Results are deduped by `url` (a `maxUses > 1` request can surface the same URL across searches). DeepSeek's `web_search` has no result-count knob (only `maxUses`), so `maxResults` is enforced by the seam (truncating `sources[]` and setting `truncated`). Provider failures surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`.
+DeepSeek returns no provider-generated answer surface this provider trusts as `content`, so `content` is omitted. `sources[]` comes from `web_search_result` items inside `web_search_tool_result` blocks: `url` ← `url`, `title` ← `title`, and `publishedAt` ← `page_age`. Snippets live separately as URL-keyed `cited_text` entries in a text block's `citations[]`; the provider joins them, leaving `snippet` absent when no excerpt exists.
+
+Results are deduplicated by URL because one request may surface the same page across searches. DeepSeek exposes `maxUses`, not a result-count knob, so the seam enforces `maxResults` by truncating `sources[]` and setting `truncated`.
+
+Provider failures become `WEB_PROVIDER_ERROR`; caller cancellation becomes `WEB_ABORTED`.

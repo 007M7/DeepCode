@@ -117,7 +117,7 @@ declare module 'cordis' {
   }
 }
 
-// TODO(review): revisit these shapes when concurrency metadata becomes useful
+// TODO(concurrency): revisit these shapes when concurrency metadata becomes useful
 // (for example, a read-only hint that would permit safe parallel execution).
 
 /** Tool output, optionally with lossless-JSON presentation metadata persisted for replay. */
@@ -251,13 +251,21 @@ export interface ToolExecutionResult {
   meta?: unknown
 }
 
-/** Pre-dispatch decision. Input rewriting is excluded because arguments are already logged and presented. */
+/**
+ * Pre-dispatch decision. `allow` runs the call; `deny` materializes an error;
+ * `ask` runs only after an approval service returns `allowed-once` and otherwise
+ * denies. Input rewriting is excluded because arguments are already logged and
+ * presented.
+ */
 export type PreToolDecision =
   | { kind: 'allow' }
   | { kind: 'deny'; reason: string }
   | { kind: 'ask'; reason?: string }
 
-/** Post-dispatch decision: accept or replace content, attach context, or block with corrective feedback. */
+/**
+ * Post-dispatch decision: accept or replace content, attach context for the next
+ * request, or block by turning corrective feedback into an error result.
+ */
 export type PostToolDecision =
   | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
   | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
@@ -298,7 +306,12 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
-  /** Model presentation: native schemas, `run_code` plus SDK, or both. Code modes require a TypeScript runtime. */
+  /**
+   * Model presentation. `native` (default) sends every visible schema; `code`
+   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
+   * Code modes require a TypeScript runtime and fail prompt assembly when it is
+   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   */
   mode?: ToolPresentationMode
 }
 
@@ -393,7 +406,10 @@ export class ToolRegistry extends Service {
     }
   }
 
-  /** Build one scope's wire schemas and pre-restriction names for prompt-order validation. */
+  /**
+   * Build one scope's wire schemas and names for prompt-order validation.
+   * Restrictions do not make known tools invalid, but a mode collapse does.
+   */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
     const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
@@ -655,7 +671,8 @@ export class ToolRegistry extends Service {
   /**
    * Execute through pre-policy, guards, around-dispatch, post-policy, and final
    * notification. Tool and listener failures resolve as materialized error
-   * results; an invisible tool reports `UNKNOWN_TOOL`.
+   * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
+   * the same lossless, frozen snapshot final observers receive.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
    * @returns the materialized final result.

@@ -1,7 +1,6 @@
 /**
- * Plain-text transcript rendering over session events: the shared projection used wherever a
- * compaction-class consumer needs "what a model once saw" as readable text — a summarizer's
- * input, or a recall tool's output.
+ * Pure shared transcript projection for summarization and recall, so both
+ * render the same log span byte-for-byte under replay.
  * @module @deepseek-ai/dsh-compact/render
  */
 
@@ -9,7 +8,9 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /**
- * Render content blocks to a single plain-text string.
+ * Render text directly, reasoning as a tagged span, and every other block as a
+ * type-tagged placeholder. Tool results recurse into nested content; empty
+ * blocks contribute nothing and rendered blocks join with newlines.
  *
  * @param blocks - the content blocks to render.
  * @returns the newline-joined plain-text rendering; empty string when nothing renders.
@@ -43,7 +44,9 @@ export function renderContentBlocks(blocks: readonly ContentBlock[]): string {
 }
 
 /**
- * Render a set of surface-node seqs as a `User:`/`Assistant:`/`Tool result:` transcript.
+ * Render message-producing events as a role-labeled transcript. `seqs` are
+ * walked in caller-supplied surface order, which may differ from numeric log
+ * order after replacement; non-surface and unknown merged events are skipped.
  *
  * @param events - the session log the seqs index into (`session.events`).
  * @param seqs - the surface-node seqs to render, in surface order.

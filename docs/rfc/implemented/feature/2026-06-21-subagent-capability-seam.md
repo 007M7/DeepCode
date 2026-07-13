@@ -60,6 +60,10 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 `dsh-tool-subagent` binds to exactly one provider name (`Config.provider`); the model sees only `{ description, prompt }`. To expose more than one transport, load the tool plugin more than once, each bound to a different provider and a distinct `toolName` (the tool registry rejects a duplicate name). The *service* holds the multi-provider registry; the *tool* picks one — no provider/type parameter in the schema this cut.
 
+## Testing
+
+The seam is tested through the real Cordis Loader/export path, which catches the export-shape failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
+
 ## Consequences
 
 - **Recursion.** Without a bound, an in-process child can see the delegation tool and recurse. The in-process backends implement the optional absolute depth limit and scoped live-global `toolFilter`; ACP advertises both capabilities off and rejects such a request. The [subagent composition-controls RFC](2026-07-12-subagent-persona-tool-filter-and-depth.md) owns their exact semantics and security limits.

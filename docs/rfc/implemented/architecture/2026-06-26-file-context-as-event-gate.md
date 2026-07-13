@@ -150,6 +150,10 @@ Both mutations are still atomic (the backend's per-target lock is unconditional)
 
 This amends — does not reverse — [the split-fs-seam RFC](../simplification/2026-06-26-fsspec-style-fs-seam.md). The four-layer split, the provider contract, and the freshness *policy* are all kept. What changes is the **coupling between the tool and the policy layer**: a mandatory method service became a plugin-owned event gate, and the fs I/O + read windowing moved from `fileContext` up into `dsh-tool-fs`. The split-fs-seam RFC's description of `dsh-tool-fs` injecting `fileContext` and of `fileContext` owning `read`/`write`/`edit` was updated to match in the same change.
 
+## Verification
+
+Tests pin both paths: without `dsh-fs-policy`, the root tool plugin boots against `dsh-fs-local`, and read, create, overwrite, and unread edit succeed; with the policy, unread edit returns `FS_NOT_OBSERVED` and unread overwrite is gated by `createIfAbsent`. A later intent listener is not reached after the policy decides. Stale edits fail through provider CAS while the policy performs no `stat`; the tool budgets remain one `stat` for read and zero for write or edit on either path. Model-facing schemas remain byte-for-byte unchanged, so snapshots do not change.
+
 ## Alternatives considered
 
 - **Keep `ctx.fileContext` as an in-path method service** — the shape [the split-fs-seam RFC](../simplification/2026-06-26-fsspec-style-fs-seam.md) first landed; rejected because the tool could not run without the policy layer, making policy load-bearing for basic operation instead of an opt-in tightening.

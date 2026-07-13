@@ -150,8 +150,8 @@ export interface Config {
   persona?: string
   /**
    * Model-facing tool names in order, with {@link TOOL_ORDER_REST} exactly once.
-   * Shape errors fail at load and unknown names fail at assembly. Omitted means
-   * lexicographic order. See the explicit-tool-order RFC for rationale.
+   * Shape errors fail at load and unknown names fail at assembly; known names
+   * hidden in one scope may be absent there. Omitted means lexicographic order.
    */
   toolOrder?: string[]
 }
@@ -159,7 +159,8 @@ export interface Config {
 /**
  * Interpolate strict `{{variable}}` references, drop empty sections, and join
  * the rest with blank lines. Malformed, unknown, or undefined references throw;
- * substituted values are not scanned again.
+ * a lone `{{` without any later `}}` is literal prose, and substituted values
+ * are not scanned again.
  * @param assembly - the assembly whose sections and variables to render.
  * @returns the rendered prompt, or `''` when all sections are empty.
  */
@@ -243,7 +244,8 @@ export class SystemPrompt extends Service {
   /**
    * Register an ordered prompt section in the calling context's scope. A scoped
    * section shadows a global section with the same name; duplicates within one
-   * layer and non-finite orders throw.
+   * layer and non-finite orders throw. Registration and disposal emit
+   * `system-prompt/change`.
    * @param section - the section to register.
    * @returns the exact Cordis effect disposer.
    */
@@ -282,8 +284,10 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Register a tool-schema provider in the calling context's scope.
-   * @param provider - evaluated for each assembly.
+   * Register a tool-schema provider in the calling context's scope. Global and
+   * matching scoped providers both contribute; returning the reserved
+   * {@link TOOL_ORDER_REST} name makes assembly fail.
+   * @param provider - evaluated for each assembly with its context.
    * @returns the exact Cordis effect disposer.
    */
   tools(provider: (context: AssembleContext) => ToolProviderResult): () => void {
@@ -314,7 +318,8 @@ export class SystemPrompt extends Service {
 
   /**
    * Register a prompt variable in the calling context's scope. Scoped values
-   * shadow globals; invalid or duplicate names throw.
+   * shadow globals; invalid or duplicate names throw. A provider may return
+   * `undefined`, but rendering a section that references that value then fails.
    * @param name - the `[a-z][a-z0-9_]*` reference name.
    * @param provider - evaluated for each assembly.
    * @returns the exact Cordis effect disposer.
@@ -352,8 +357,9 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Assemble global and scoped providers, apply canonical ordering, then run
-   * the assembly waterfall. Scoped sections and variables shadow globals.
+   * Assemble global and scoped providers, detach tool parameters, apply
+   * canonical ordering, then run the assembly waterfall. Scoped sections and
+   * variables shadow globals; the returned waterfall value is authoritative.
    * @param context - the optional scope and plugin-defined assembly fields.
    * @returns the authoritative post-waterfall assembly.
    */

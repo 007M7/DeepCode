@@ -10,7 +10,7 @@ The boundary bought package metadata, workspace and tsconfig references, module-
 
 ## Decision
 
-The `stdio-chat` module now lives inside `dsh-stdio-agent` with its runtime seam and tests. It retains the named Cordis plugin export shape consumed by the app, while keyless Loader smokes cover the composed entry path.
+The `stdio-chat` module now lives inside `dsh-stdio-agent` with its runtime seam. Per-file tests cover EOF, rendering, disposal, and piped-versus-TTY behavior without replacing process globals. It retains the named Cordis plugin export shape consumed by the app; an `unwrapExports` assertion and keyless Loader smokes guard both the package and composed entry paths.
 
 The `packages/support/ui-stdio` package is gone: manifest, tsconfig references, module-graph rows, and README rows deleted; the doc comments that named the package (the example e2e module docs, `packages/README.md`, the support and todo READMEs, [the ui group README](../../../../packages/ui/README.md)) describe the in-package module.
 

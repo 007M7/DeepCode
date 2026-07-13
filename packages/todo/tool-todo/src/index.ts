@@ -1,6 +1,7 @@
 /**
- * The model-facing `todo_write` tool: the agent's whole task list, replaced wholesale on each
- * call.
+ * Model-facing whole-list replacement. Each call appends a `todo/write` snapshot to the calling
+ * agent's session; replay is last-write-wins, and UIs render from session events. A non-agent
+ * caller has no owning list and is rejected. Named exports preserve loader injection metadata.
  * @module @deepseek-ai/dsh-tool-todo
  */
 
@@ -28,7 +29,8 @@ const DESCRIPTION =
 
 /**
  * Validate the value constraints the SchemaSpec can't express and build the canonical {@link
- * TodoItem}[].
+ * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
+ * has already enforced the status enum; the cast below records that guarantee.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []

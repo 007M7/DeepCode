@@ -22,4 +22,4 @@ The rule they enforce: **anything the StreamChunk vocabulary cannot express for 
 
 ## Consequences
 
-The twin doubles adapter and key-gated e2e maintenance in exchange for continuous seam-neutrality validation and a second implementation example. Their core config shapes align, although reasoning controls differ. A future conformance suite could justify retiring one adapter through a superseding RFC.
+The twin doubles adapter and key-gated e2e maintenance—both cover V4 Flash and Pro across representative reasoning modes—in exchange for continuous seam-neutrality validation and a second implementation example. Both use `apiKey`, `baseURL`, and `models`; the hand-rolled adapter exposes `thinking`/`reasoningEffort`, while pi-ai exposes one `reasoning` level. A future conformance suite could justify retiring one adapter through a superseding RFC.

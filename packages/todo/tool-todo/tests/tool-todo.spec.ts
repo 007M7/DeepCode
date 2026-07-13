@@ -149,7 +149,7 @@ describe('dsh-tool-todo', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {
-    // Loader must retain this namespace's injection metadata.
+    // A default export would make Loader unwrap only apply and drop `inject`.
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-todo')
     expect(tool.inject).toEqual(['tools'])

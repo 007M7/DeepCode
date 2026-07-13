@@ -460,7 +460,8 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   })
 
   it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
-    // Lifecycle 1: run a turn, then inject context while idle.
+    // Idle injection creates and flushes a one-shot turn. No explicit flush or
+    // clean disposal follows, so disk presence proves its own checkpoint ran.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
@@ -482,7 +483,8 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   })
 
   it('an idle inject() survives persist + resume (turn-enclosed, not dropped as crash tail)', async () => {
-    // Lifecycle 1: run a turn, then inject context while idle.
+    // Turn enclosure keeps idle context out of crash-tail repair, so it must
+    // survive persistence and resume.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent

@@ -35,7 +35,11 @@ const SCHEMA: StructuredOutputSchema = {
   required: ['answer'],
 }
 
-/** Real loop and inline provider without a backend package dependency cycle. */
+/**
+ * Real loop, scripted model, and inline fresh-conversation provider over the shared driver. Loading
+ * spawn/fork here would create a dev-dependency cycle; their specs cover plugin integration while
+ * this fixture isolates driver behavior and scripts the child's `structured_output` calls.
+ */
 async function setup(script: Script, options: SetupOptions = {}) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
@@ -209,7 +213,9 @@ describe('in-process structured output', () => {
     ])
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     let wrapperInstalled = false
-    // Install a wrapper before the child loop can run.
+    // Register before ready-only start: structured output is attached before session-start and the
+    // loop. The wrapper waits for a downstream stop, rewrites it to continue, and must still lose
+    // to the later terminal checkpoint.
     ctx.on('agent/session-start', (child) => {
       if (child === parent) return
       wrapperInstalled = true
@@ -233,7 +239,8 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    // The terminal checkpoint must discard steering queued by a wrapper.
+    // A downstream policy stops, then a later wrapper delegates and queues steering that ordinary
+    // folding would turn into continue. The terminal checkpoint must discard that steering.
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {

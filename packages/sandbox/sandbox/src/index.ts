@@ -1,7 +1,7 @@
 /**
- * The process-sandbox seam (`ctx.sandbox`): an abstract service defining what platform
- * confinement does — wrap a subprocess argv so it executes under a file-effect policy —
- * without saying how.
+ * Same-world process-confinement seam: wrap exact subprocess argv under a
+ * host-path file policy. Containers, microVMs, and remote execution replace the
+ * surrounding capability seam instead; this service shares the host kernel and filesystem.
  * @module @deepseek-ai/dsh-sandbox
  */
 
@@ -9,7 +9,10 @@ import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /**
- * File-effect policy a sandbox backend enforces on confined processes.
+ * File-effect policy for confined processes. `read-only` permits only required
+ * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
+ * backend-defined temp area; `danger-full-access` bypasses confinement. Network
+ * and process visibility are outside this vocabulary.
  */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
@@ -17,7 +20,9 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 
 /**
- * How completely the selected backend enforces a confined mode's file effects.
+ * Enforcement completeness for this host. `partial` means an active backend or
+ * older kernel ABI cannot govern every promised file effect; callers requiring
+ * an absolute boundary must not treat it as `full`.
  */
 export type SandboxEnforcement = 'full' | 'partial'
 
@@ -57,10 +62,9 @@ export interface ConfinedArgv {
    */
   denialSignatures: readonly string[]
   /**
-   * How the RUNNER ITSELF failing identifies itself: case-insensitive stderr substrings
-   * produced when the sandbox binary is missing, refuses its profile, or fails closed before
-   * exec'ing the command (`bwrap: `, `landlock-run: `, `sandbox-exec: ` — each covers both the
-   * runner's own error prefix and the shell's runner-not-found message).
+   * Case-insensitive signatures for runner failure before command execution.
+   * Consumers check these before denial signatures: runner failure means the
+   * command never ran, while denial means confinement worked and blocked it.
    */
   runnerFailureSignatures: readonly string[]
 }
@@ -102,9 +106,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract process-sandbox service. Subclass, implement {@link confine}, and load the subclass
- * as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a
- * second throws, cordis' standard duplicate-service behavior).
+ * Abstract process-sandbox service. {@link confine} must return enforcing argv
+ * or fail closed at wrap or runner-execution time; silent unconfined passthrough
+ * is forbidden. Functional probes arbitrate multi-runner chains and may be
+ * skipped for a sole candidate, whose own refusal remains the fail-closed end.
  */
 export abstract class SandboxProvider extends Service {
   constructor(ctx: Context) {

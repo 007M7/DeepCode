@@ -1,8 +1,8 @@
 /**
- * The model-facing `web_fetch` tool: retrieve the content of a specific URL. Execution goes
- * through `ctx.web` — this module owns the model-facing schema, argument validation, and
- * PRESENTATION (HTML→markdown, truncation formatting), while the fetch provider owns safe
- * retrieval (transport, redirects, caps).
+ * The model-facing `web_fetch` tool. This module owns its schema, validation, and presentation;
+ * `ctx.web` owns retrieval. Timeout is deployment policy, not a model argument: config becomes
+ * `ToolDefinition.timeoutMs`, timeout policy enforces it, and this tool forwards the resulting
+ * signal. A provider timeout remains a backstop for direct seam callers.
  */
 
 import type { Context } from 'cordis'

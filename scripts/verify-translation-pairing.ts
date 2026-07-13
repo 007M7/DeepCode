@@ -2,7 +2,9 @@
  * Enforce complete English/Chinese pairs, matching structure, and recorded git
  * blob hashes under the bilingual manifest. `--list` reports state; `--write`
  * records both sides after human review. Translation quality remains a review
- * responsibility.
+ * responsibility. A complete pair includes both documents and its sidecar;
+ * headings, fences, tables, lists, and link targets must align, while excluded
+ * documents may have neither counterpart nor sidecar. See `docs/i18n/README.md`.
  */
 
 import { createHash } from 'node:crypto'

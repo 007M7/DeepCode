@@ -184,9 +184,9 @@ type PostToolDecision =
   | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
 ```
 
-Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds from approval, and guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
+Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
 
-Post-policy may replace content or block with corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured error results, so the call fails without ending the turn.
+Post-policy may replace content; a block becomes an `isError` result containing its corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
 
 ## The structured-output schema subset
 

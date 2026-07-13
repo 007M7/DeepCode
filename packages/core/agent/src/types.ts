@@ -26,7 +26,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
-    /** Agent for this assembly; absent on unscoped diagnostic assemblies. */
+    /** Agent for this assembly; absent on diagnostics. When present, `scope` must identify the same agent. */
     agent?: Agent
   }
 }
@@ -37,7 +37,7 @@ export interface AgentOptions {
   model?: string
 }
 
-/** Message options; an omitted source resolves to `{ kind: 'user' }`. */
+/** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
 export interface SendOptions {
   source?: MessageSource
 }
@@ -86,10 +86,13 @@ export interface Agent {
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
-  /** Agent-scoped context; its contributions are agent-local and unwind on disposal. */
+  /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
-  /** Queue detached, frozen lossless-JSON input; starts a turn when idle. */
+  /**
+   * Queue detached, frozen lossless-JSON input; starts a turn when idle.
+   * Invalid input throws synchronously before notification or enqueue.
+   */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
@@ -106,7 +109,10 @@ export interface Agent {
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
-  /** Clear queued and steering work and abort the active step; idle cancellation is a no-op. */
+  /**
+   * Clear queued and steering work, including work waiting to start, and abort
+   * the active step. Idle cancellation is a no-op and does not arm a later cancel.
+   */
   cancel(reason?: string): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
@@ -118,8 +124,11 @@ declare module 'cordis' {
   interface Events {
     // ---- lifecycle (emit) ----
     /**
-     * A fully configured agent and its session were published. Synchronous
-     * listener failure vetoes publication; asynchronous failure is reported.
+     * A fully configured agent and live session were published. Setup is
+     * composition-only; `agent/session-start` is the first startup-driving seam.
+     * Synchronous listener failure vetoes publication, while returned-promise
+     * rejection is reported. Detach requested during dispatch waits until every
+     * creation listener has observed the stable entry.
      * @param agent - the newly registered agent with its live session and completed setup.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
@@ -134,7 +143,8 @@ declare module 'cordis' {
      */
     'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * Agent status changed (`idle` ⇄ `running`, or → `disposed`).
+     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does
+     * not enter `running` synchronously; drive lifecycle from this event.
      * @param agent - the agent whose status flipped.
      * @param status - the status just entered (the transition's destination).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -142,7 +152,8 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * Detached, frozen content entered the agent's inbox.
+     * Detached, frozen content entered the agent's inbox. Source defaults have
+     * already been applied, so these are the exact values retained for the log.
      * @param agent - the agent whose inbox received the message.
      * @param content - the accepted content blocks retained by the inbox.
      * @param info - the accepted source plus whether it entered as steering.

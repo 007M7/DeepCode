@@ -1,7 +1,8 @@
 /**
  * Generate the model-facing Cordis API data module from the same event/service
- * collector as the documentation catalogs. Output includes concise docs,
- * signatures, and referenced public type shapes; `--check` verifies freshness.
+ * collector as the documentation catalogs. It emits first-sentence docs, raw
+ * signatures, transitive public type shapes, and inherited context entries,
+ * without source pointers; output is deterministic and `--check` verifies it.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -27,7 +28,10 @@ function quote(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, '\\\'').replace(/\n/g, '\\n')}'`
 }
 
-/** Collect uniquely named exported interface and type shapes. */
+/**
+ * Collect exported interface and type shapes; omit names declared in multiple
+ * packages rather than risk serving the wrong package's shape.
+ */
 function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   const printer = ts.createPrinter({ removeComments: true })
   const decls = new Map<string, string>()
@@ -53,7 +57,7 @@ function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   return decls
 }
 
-/** Resolve the transitive public type shapes referenced by seed text. */
+/** Resolve and sort the word-bounded transitive type closure referenced by seed text. */
 function referencedTypes(seeds: string[], decls: Map<string, string>): { name: string; declaration: string }[] {
   const included = new Map<string, string>()
   let frontier = seeds

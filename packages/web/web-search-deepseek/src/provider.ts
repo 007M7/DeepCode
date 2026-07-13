@@ -1,6 +1,8 @@
 /**
- * `DeepSeekSearchProvider`: a `WebSearchProvider` backed by DeepSeek's Anthropic-compatible
- * Messages API with the native `web_search_20250305` server tool enabled.
+ * DeepSeek search through an Anthropic-compatible Messages model call with the native
+ * `web_search_20250305` server tool. Each search costs a model turn, but returns structured
+ * result blocks; absence of those blocks is an error rather than a prose-scraping fallback.
+ * The wire format and native `fetch` client are provider-private and do not use `ctx.llm`.
  * @module @deepseek-ai/dsh-web-search-deepseek/provider
  */
 
@@ -94,6 +96,7 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
  * @param query - the original request query, echoed on the result.
  * @param response - the parsed Messages response body.
  * @returns the normalized result with deduped, snippet-joined sources.
+ * @throws {@link WebError} when native search produced no result block.
  */
 export function mapAnthropicResponse(query: string, response: AnthropicResponse): WebSearchResult {
   const blocks = response.content ?? []

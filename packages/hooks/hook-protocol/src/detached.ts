@@ -1,5 +1,7 @@
 /**
- * Quiescence tracking for a bridge's DETACHED hook runs.
+ * Quiescence tracking for emit-shaped hook runs that no seam awaits. Bridges
+ * track the run plus its continuation, pass the tracker signal into execution,
+ * and drain on disposal so no process or late callback outlives the fiber.
  * @module @deepseek-ai/dsh-hook-protocol/detached
  */
 

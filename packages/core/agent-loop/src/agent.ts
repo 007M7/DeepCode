@@ -48,7 +48,8 @@ export interface PreparedReactLoopAgent {
 }
 
 /**
- * Construct an unpublished concrete agent with instance-bound lifecycle controls.
+ * Construct an unpublished concrete agent with instance-bound lifecycle
+ * controls. Only those paired controls can publish or start this instance.
  * @param ctx - the agent-loop service context used for driving and events.
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
@@ -253,7 +254,8 @@ export class ReactLoopAgent implements Agent {
       // Decide the durability checkpoint from the log: an accepted one-shot
       // turn must be flushed even when its message append was the failing step.
       const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
-      // Track the asynchronous checkpoint so disposal drains it; contain errors.
+      // Keep inject() synchronous: report checkpoint failures live instead of
+      // rejecting the caller, and track the task so disposal still drains it.
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
         const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
@@ -290,7 +292,11 @@ export class ReactLoopAgent implements Agent {
     this.currentAbort?.abort(reason ?? 'cancelled')
   }
 
-  /** Resolve at idle, or after driver exit when disposed. */
+  /**
+   * Resolve immediately when idle with no queued work, on the next quiescent
+   * idle transition otherwise, or after driver exit when already disposed.
+   * This observes quiescence; it does not own teardown.
+   */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
     if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
@@ -330,7 +336,7 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
-      // Pre-step cancellation re-parks without a status transition.
+      // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     })
   }
@@ -370,7 +376,8 @@ export class ReactLoopAgent implements Agent {
     // cleanup. The normal loop contains turn failures itself; allSettled is the
     // final lifecycle backstop for anything outside those boundaries.
     await Promise.allSettled([this.done])
-    // Repeat because settled flushes retire in adjacent promise reactions.
+    // Repeat because settled flushes retire in adjacent promise reactions;
+    // allSettled keeps reporting failures from skipping ownership teardown.
     while (this.pendingIdleFlushes.size > 0) {
       await Promise.allSettled([...this.pendingIdleFlushes])
     }

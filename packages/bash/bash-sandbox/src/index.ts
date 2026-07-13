@@ -1,6 +1,9 @@
 /**
- * `SandboxBashExecutor`: the sandbox-consuming implementation of the `@deepseek-ai/dsh-bash`
- * executor seam.
+ * Sandbox-consuming bash executor. It wraps the exact local bash argv through
+ * `ctx.sandbox`, inherits local process mechanics, and reports the selected
+ * mode, enforcement, and denial facts. Runner failure means the command never
+ * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
+ * tasks carry `runnerFailed`. The tool owns approval and passes per-call modes.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
@@ -42,7 +45,9 @@ export function shellQuote(text: string): string {
 }
 
 /**
- * Classify a nonzero run using the selected backend's denial signatures.
+ * Conservatively classify a nonzero, non-signal run using only the selected
+ * backend's denial signatures. Text inference may miss a denial or match
+ * unrelated stderr in that dialect; it never uses another backend's terms.
  * @param result - the settled foreground run to classify.
  * @param signatures - the active wrap's denial dialect, case-insensitive stderr substrings.
  * @returns whether the run's failure reads as a sandbox denial.
@@ -52,7 +57,9 @@ export function classifyDenial(result: BashRunResult, signatures: readonly strin
 }
 
 /**
- * Classify a nonzero run using the selected backend's runner-failure signatures.
+ * Classify a nonzero run using the selected backend's runner-failure
+ * signatures. Callers check this before denial because runner diagnostics may
+ * contain denial words; the command did not run.
  * @param result - the settled foreground run to classify.
  * @param signatures - the active wrap's runner-failure signatures,
  *   case-insensitive stderr substrings.
@@ -75,7 +82,9 @@ function matchesSignature(exitCode: number | null, stderr: string, signatures: r
 }
 
 /**
- * Sandbox-consuming bash executor.
+ * Registers as `ctx.bash` in place of the local executor and consumes a
+ * `ctx.sandbox` provider. Its configured mode is the fallback; each resolved
+ * call may carry a session override or approved one-shot escalation.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox']
@@ -93,9 +102,9 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
   /**
-   * Per-task facts, keyed by task id from `start()` until the settle stamp consumes them: the
-   * mode the task runs under (per-call — an escalated task differs from its neighbors) plus
-   * its wrap facts.
+   * Per-task mode and wrap facts retained until settlement. Overlapping tasks
+   * may use different modes or provider facts, so one latest-wrap field would
+   * misclassify earlier completions.
    */
   private readonly taskFacts = new Map<BashTaskId, {
     mode: ConfinedSandboxMode
@@ -152,8 +161,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     // Same stamped-by-resolve invariant as run().
     const mode = spec.sandboxMode as SandboxMode
     if (mode === 'danger-full-access') return super.start(spec)
-    // Sandbox facts are stamped at settle time by {@link notifyTaskDone} (denial classification
-    // runs against the settled task's collected stderr).
+    // Classification needs settled stderr. Store facts synchronously after
+    // spawn, before the earliest process completion can be observed.
     const confined = this.confine(spec.command, mode)
     const task = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined
@@ -162,17 +171,16 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   }
 
   /**
-   * Stamp the sandbox facts before completion listeners run: the base executor notifies from
-   * inside the task's settle path, so overriding the notification point is what makes
-   * `task.sandbox` visible to `onTaskDone` consumers and `done` awaiters alike.
+   * Stamp per-task sandbox facts before completion listeners and `done` settle.
+   * Full-access tasks have no facts; signal deaths are not denials.
    */
   protected override notifyTaskDone(task: BashTask): void {
     const facts = this.taskFacts.get(task.id)
     if (facts !== undefined) {
       this.taskFacts.delete(task.id)
       const stderr = this.collectedStderr(task.id)
-      // Runner failure outranks denial (the command never ran; the runner's own error text can
-      // contain denial words).
+      // Runner failure outranks denial. Background settlement has no throw
+      // channel, so this fact is its counterpart to the foreground exception.
       const runnerFailed = matchesSignature(task.exitCode, stderr, facts.runnerFailureSignatures)
       task.sandbox = {
         mode: facts.mode,

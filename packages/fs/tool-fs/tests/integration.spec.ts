@@ -1,7 +1,8 @@
 /**
- * Integration tests: the real local backend (`dsh-fs-local`) plus the model tools
- * (`dsh-tool-fs`) as the executor, exercised through `ctx.tools.execute()` so nothing bypasses
- * the tool registry. Two deployments.
+ * End-to-end tool-registry tests against the real local backend. The policy deployment verifies
+ * observed-state and guarded mutation; the bare deployment proves unconditional tools have no
+ * policy-service dependency. Assertions read files back byte-for-byte rather than trusting tool
+ * messages.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +20,7 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 let dir: string
 let ctx: Context
 let fiber: Awaited<ReturnType<Context['plugin']>>
-// A stable session object stands in for an agent session (the file-state owner).
+// No header cwd: sessionCwd returns undefined and the provider's configured test dir applies.
 const session = { header: {} }
 
 let callCounter = 0

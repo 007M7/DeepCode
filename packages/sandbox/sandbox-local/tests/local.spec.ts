@@ -259,7 +259,8 @@ describe('the platform chains', () => {
   })
 
   it('a rogue cached runner tag throws via the exhaustiveness guard (closed union)', async () => {
-    // A rogue runner tag must hit assertNever.
+    // Only a cast can create this rogue closed-union tag. It must hit `assertNever`, ensuring a new
+    // runner cannot silently use another runner's wrap or denial dialect.
     const { sandbox } = await setup()
     ;(sandbox as unknown as { selectedRunner: unknown }).selectedRunner = { runner: 'chroot', enforcement: 'full' }
     expect(() => sandbox.confine(['true'], RO)).toThrow('unreachable variant')

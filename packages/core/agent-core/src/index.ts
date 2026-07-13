@@ -1,5 +1,9 @@
 /**
- * The default executor-less, UI-less agent spine as one bundle plugin.
+ * Default executor-less, UI-less agent spine. It bundles the common services,
+ * concrete loop, local skill provider, and model-facing bash/skill consumers;
+ * deployments still choose the LLM adapter, bash executor, and presentation.
+ * The plugin intentionally exposes named exports only because Loader default
+ * unwrapping would discard its `Config` schema (see docs/postmortem/0001).
  * @module @deepseek-ai/dsh-agent-core
  */
 
@@ -32,10 +36,12 @@ export interface SkillConfig {
 
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it — `agents` to the
- * agent loop (an app that pre-creates no agents, like the ACP bridge, simply omits it),
+ * agent loop (an app that pre-creates no agents, like the ACP bridge, omits it),
  * `persona` and `toolOrder` to the system-prompt plugin (the deployment's persona section and
  * the explicit model-facing tool order), the `tools` object to the tool registry (its
  * presentation `mode`), and `skills` to the skill registry/local provider/tool consumer.
+ * The schema intersects the owners' schemas, which supply defaults for every
+ * optional input and keep validation from drifting.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */

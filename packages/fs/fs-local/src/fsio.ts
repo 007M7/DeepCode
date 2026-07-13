@@ -1,7 +1,7 @@
 /**
- * Cordis-free local-filesystem I/O for `@deepseek-ai/dsh-fs-local`. Kept separate from the
- * service class (mirroring `dsh-bash-local`'s `run.ts`) so the raw stat/read/write/edit
- * mechanics can be unit-tested without a Context.
+ * Cordis-free local filesystem mechanics. This provider layer returns validated UTF-8 text,
+ * streams large files, and rejects binary data; line windows belong to `dsh-tool-fs`. Writes
+ * stage an exclusive owner-only file in a private sibling directory and atomically rename it.
  * @module @deepseek-ai/dsh-fs-local/fsio
  */
 
@@ -108,8 +108,9 @@ export interface LocalDirEntry {
 }
 
 /**
- * Resolve a path to its absolute display path and realpath identity.
- *
+ * Resolve a path to its absolute display path and realpath identity. For a missing target,
+ * realpath the nearest existing ancestor and append the missing suffix, preserving identity
+ * across symlinked ancestors before and after creation.
  * @param cwd - base directory a relative `path` resolves against.
  * @param path - absolute or relative path; empty/whitespace-only throws `FS_NOT_FOUND`.
  * @returns the absolute display path plus the realpath-derived stable target key.
@@ -469,9 +470,8 @@ export async function readForEdit(
 }
 
 /**
- * Best-effort read of a file's current text for a before/after diff basis, used by an
- * overwrite.
- *
+ * Best-effort overwrite diff basis. Binary or invalid UTF-8 returns `null` so the write still
+ * succeeds and presentation falls back to a whole-file diff.
  * @param absolutePath - the file to read (typically a target key); it must exist.
  * @param signal - aborts the read (`FS_ABORTED`).
  * @returns the LF-normalized text, or null for a binary or non-UTF-8 file.
@@ -489,8 +489,8 @@ export async function readTextForDiff(absolutePath: string, signal?: AbortSignal
 }
 
 /**
- * Apply a literal replacement to LF-normalized content.
- *
+ * Apply a literal replacement to LF-normalized content. Empty or missing search text throws
+ * `FS_EDIT_NOT_FOUND`; multiple matches throw `FS_AMBIGUOUS_EDIT` unless `replaceAll` is true.
  * @param content - the current file content, already LF-normalized.
  * @param oldString - literal text to find; CRLF inside it is normalized to LF before
  *   matching.

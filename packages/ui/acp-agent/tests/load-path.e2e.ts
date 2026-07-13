@@ -17,9 +17,11 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * real-load-path smoke for @deepseek-ai/dsh-acp-agent: boot the app through its own `bin` (the
- * demo:acp entry) as a subprocess, driving the cordis Loader and `unwrapExports` over a
- * minimal `cordis.yml` that loads THIS package.
+ * Source-path Loader smoke through the package's own bin, covering initialize, session/new, and
+ * session/load across the `unwrapExports` path implicated by postmortem 0001. Session creation and
+ * unknown-id loading reach factories but not the model, so a dummy key is sufficient. The temp cwd
+ * is also the session workspace, and an explicit root tsconfig keeps unbuilt path aliases resolvable
+ * when the child starts outside the repository.
  */
 
 const binScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
@@ -119,7 +121,9 @@ describe('dsh-acp-agent real-load-path smoke (bin + Loader, keyless)', () => {
     expect(sessionId).toBeTruthy()
 
     // session/load reaches the resume FACTORY + persistence without the model: load an UNKNOWN
-    // id (loading the live `sessionId` would correctly reject as "already loaded").
+    // id (loading the live `sessionId` would correctly reject as "already loaded"). Persistence
+    // and resume run from the JSON-RPC loop outside bridge injection; a healthy tree reaches
+    // not-found, while a collapsed export would fail earlier with missing injection.
     const unknownId = '00000000-0000-4000-8000-000000000000'
     await client.loadSession({ sessionId: unknownId, cwd, mcpServers: [] }).then(
       () => { throw new Error('expected session/load of an unknown id to reject') },

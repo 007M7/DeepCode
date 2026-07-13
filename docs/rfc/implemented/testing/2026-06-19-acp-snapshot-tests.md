@@ -75,6 +75,6 @@ Tool determinism comes from a temporary cwd, scrubbed environment, fresh non-log
 
 ## Consequences
 
-The new tier adds reviewed per-scenario input, session, stdout, optional override, and optional workspace fixtures. In return it provides deterministic keyless transcript coverage through the real Loader and tool composition. The subprocess, input, workspace, normalization, and replay harness can support examples beyond ACP.
+The new tier adds reviewed per-scenario input, session, stdout, optional override, and optional workspace fixtures. Workspace seeds are copied into the temporary cwd for both record and replay. In return the tier provides deterministic keyless transcript coverage through the real Loader and tool composition. The subprocess, input, workspace, normalization, and replay harness can support examples beyond ACP.
 
 This RFC relates to but does not supersede the [proposed determinism RFC](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md): that proposal's "universal replay fixture" re-derives session *message history* after every test (an internal-consistency invariant), whereas snapshot tests pin the *external protocol output*. They are complementary — one guards the event-sourcing invariant, the other guards the editor-facing contract.

@@ -175,8 +175,8 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a borrowed same-process provider. Duplicate and reserved names
-   * throw; remote initialization belongs in `list()`. Fiber disposal unregisters
+   * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
+   * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
    * the provider and invalidates catalog caches.
    * @param provider - the provider to register by `provider.name`.
    * @returns the exact Cordis effect disposer that unregisters this provider;
@@ -210,11 +210,11 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a borrowed readonly runtime skill. Project entries outrank runtime
-   * entries, which outrank user entries. A duplicate is ignored with a no-op
-   * disposer so it cannot remove the first registration.
+   * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
+   * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
+   * receives a no-op disposer so it cannot remove the winner.
    * @param skill - the complete skill definition to expose for discovery.
-   * @returns the exact Cordis disposer, which also invalidates caches.
+   * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
     validateRuntimeSkill(skill)
@@ -256,8 +256,9 @@ export class SkillService extends Service {
   }
 
   /**
-   * Load and validate the winning provider candidate. Cancellation is checked
-   * after selection and raced against provider loading.
+   * Load and validate the winning candidate, passing its opaque discovery locator back to the
+   * provider. Cancellation is rechecked after selection, including cache hits, and raced against
+   * loading so an uncooperative provider cannot hang the caller.
    * @param name - kebab-case skill name.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns the full skill, including body content, or `undefined`.

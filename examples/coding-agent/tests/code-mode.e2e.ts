@@ -16,8 +16,9 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 
 /**
- * With-key Code Mode proof: a real model composes tool calls, writes a file, and
- * returns curated output while the log records `run_code` and its sub-dispatches.
+ * With-key Code Mode proof: a real model receives only `run_code`, composes two
+ * sub-calls, writes a file, and returns curated output while the log records
+ * each `tool/code-dispatch`. The keyless Loader smoke is in the sibling test.
  */
 
 const PERSONA = 'You are coding-agent. You work by writing TypeScript programs for run_code: '

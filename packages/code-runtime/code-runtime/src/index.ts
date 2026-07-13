@@ -1,5 +1,6 @@
 /**
- * Code-execution seam for running one model-written program against host bindings.
+ * Code-execution seam for running one model-written program against host async bindings.
+ * Runtimes know nothing about tools or sessions; consumers own those concerns.
  * @module @deepseek-ai/dsh-code-runtime
  */
 
@@ -22,9 +23,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract code-execution service. Subclass, implement {@link run} and the two descriptors,
- * and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation
- * per context; loading a second throws, cordis' standard duplicate-service behavior).
+ * Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate
+ * failures resolve in {@link CodeRunResult}; only seam misuse rejects. Implementations bridge
+ * structured-cloneable bindings while treating programs as hostile peers, isolate runs from
+ * one another, and terminate and await in-flight runs during disposal.
  */
 export abstract class CodeRuntime extends Service {
   /**

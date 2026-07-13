@@ -14,9 +14,10 @@ import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
- * CBR-001 regression: a compaction checkpoint that the real loop lands is a free surface
- * boundary (it carries no tool-call/result pair), so it must be a valid region edge on BOTH
- * sides.
+ * CBR-001 regression through the real loop. A replacement checkpoint has a high
+ * log seq at the surface head and carries no tool pair, so both adjacent cuts
+ * must be safe and re-compacting that checkpoint alone must succeed. This pins
+ * surface-position semantics rather than raw-log scanning.
  */
 
 const TOKENS_PER_BLOCK = 10
@@ -117,9 +118,8 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
       )
       expect(checkpoints.length).toBeGreaterThan(0)
 
-      // The loop fired compaction mid-flight, so each landed checkpoint sits at a high log seq
-      // beside the step it landed in, even though its surface position is the head of the range
-      // it shadowed.
+      // High log position does not make a text-only checkpoint mid-step; both
+      // its start and end cuts are balanced in surface order.
       const nodes = agent.session.surface.nodes
       for (const cp of checkpoints) {
         const node = nodes.find(n => n.seq === cp.seq)

@@ -1,7 +1,10 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Snapshot tests: `pnpm run test:snapshot`, file pattern *.snapshot.ts.
+// Replay is the keyless default: boot the real ACP subprocess from recorded model scripts and diff
+// normalized transcript plus persisted-log goldens. `record` calls the real API and updates fixtures
+// and goldens; `refresh` replays committed scripts and updates only current goldens. Replay/refresh
+// never load `.env`; only record reads a key from the environment or gitignored root `.env`.
 if (process.env.DSH_SNAPSHOT === 'record') {
   try {
     process.loadEnvFile(new URL('.env', import.meta.url).pathname)

@@ -119,8 +119,9 @@ export interface BashExecRequest {
    */
   owner?: OwnerToken | undefined
   /**
-   * Explicit per-call sandbox-policy input, overriding the executor's configured default mode
-   * for this call.
+   * Explicit per-call sandbox policy. The tool stamps a session override or a
+   * one-shot approved escalation, with the grant taking precedence. Sandboxing
+   * executors honor it for this call; non-sandboxing executors do not confine.
    */
   sandboxMode?: SandboxMode | undefined
 }

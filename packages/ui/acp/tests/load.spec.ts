@@ -58,7 +58,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('replays a persisted tool call with the TOOL-OWNED presentation (title/rawInput/console output)', async () => {
-    // A turn with a real bash tool call is persisted, then loaded by a fresh bridge.
+    // Persist a real bash call, then replay it through a fresh bridge. A throwaway presenter pairs
+    // call and result in log order so replay uses the shipping tool's same cards as live streaming.
     live = await makeBridgeHarness({
       storageDir,
       withBash: true,
@@ -90,7 +91,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('replays a persisted todo/write as a plan sessionUpdate on load', async () => {
-    // A turn whose model called todo_write persists a todo/write event.
+    // A persisted `todo/write` must replay as an ACP plan update so a reopened editor sees the
+    // current plan, not just the tool transcript.
     live = await makeBridgeHarness({
       storageDir,
       withTodo: true,
@@ -161,7 +163,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('a load whose resume finishes after a client disconnect leaks no live session', async () => {
-    // A session/load is mid-resume() when the client transport closes.
+    // Stall persistence so transport closes while resume is pending. Whether the SDK rejects first
+    // or the bridge's post-await guard fires, no agent may survive for the dead connection.
     live = await makeBridgeHarness({ storageDir, script: [textResponse('x')] })
     await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -187,7 +190,8 @@ describe('acp bridge — session/load replay', () => {
 
   it('rejects load when the requested cwd does not match the persisted session cwd', async () => {
     // Seed a session on disk whose header.cwd is a DIFFERENT absolute path than the server's
-    // launch dir.
+    // launch dir. Resume must retain the header cwd and route bash there rather than reject the
+    // mismatch or substitute the server cwd.
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
@@ -223,7 +227,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('rejects loading a persisted session that has NO cwd (would silently run in the launch dir)', async () => {
-    // A legacy / externally-created session log with no header.cwd.
+    // A legacy/external log without `header.cwd` must be rejected; the request cwd does not override
+    // it, and accepting would let bash silently fall back to the server launch directory.
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.ctx.sessionPersistence.create({
       version: SESSION_FORMAT_VERSION, id: SessionId('legacy'), createdAt: 1, // no cwd

@@ -1,4 +1,9 @@
 /**
+ * Translate DeepSeek SSE payloads with one stateful harness block per content, reasoning, or tool
+ * call index. An empty initial reasoning delta does not open a block. Finish reason and the latest
+ * usage are deferred until `[DONE]`, covering both finish-attached and trailing usage-only shapes
+ * while ensuring no chunk follows `finish`.
+ *
  * Translate DeepSeek wire chunks into the harness `StreamChunk` protocol.
  * @module dsh-llm-deepseek/translate
  */

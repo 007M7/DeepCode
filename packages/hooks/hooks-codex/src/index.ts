@@ -1,6 +1,8 @@
 /**
- * `dsh-hooks-codex` — a bridge plugin that runs a user's existing Codex `hooks.json` on the
- * harness's canonical interception seams. The CODEX DIALECT half of the hooks subsystem.
+ * Bridge for unmodified Codex command hooks on harness interception seams. It
+ * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
+ * matchers, snake_case payloads without a trailing newline, no hook environment
+ * or command substitution, and block-only decisions; allow/ask do not grant.
  * @module @deepseek-ai/dsh-hooks-codex
  */
 
@@ -126,8 +128,8 @@ export function apply(ctx: Context, config: Config): void {
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
         }, () => performance.now())
-        // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN (non-JSON) stdout as
-        // additionalContext.
+        // Clean plain stdout becomes context only when no structured context
+        // exists; nonzero output and raw JSON never leak as prose.
         if (opts.plainStdoutAsContext === true && output.exitCode === 0
           && output.additionalContext === undefined
           && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
@@ -159,7 +161,8 @@ export function apply(ctx: Context, config: Config): void {
     return { content: [...ours.content, ...theirs.content], source: ours.source }
   }
 
-  // SessionStart injects plain stdout when its detached hook resolves.
+  // SessionStart injects plain stdout when its detached hook resolves; a slow
+  // hook may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
   ctx.on('agent/session-start', (agent, source) => {
     detached.track(runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })

@@ -2,13 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { call, setup, text } from './helpers.ts'
 
 /**
- * The sandbox context façade is a whitelist, not a pass-through proxy: mount
- * code reaches only the registration/eventing verbs, the timer helpers, a
- * guarded `tools`, and its injected services. Every framework-plumbing member
- * that could hand back an UNGUARDED context — through which a plugin could
- * `ctx.<escape>.tools.register({…})` to bypass the marker check and host-realm
- * normalization — is denied. These are the regression guards for that escape
- * class (the review finding on the original pass-through proxy).
+ * The sandbox context façade is a whitelist, not a pass-through proxy. Mounted code reaches only
+ * registration/eventing verbs, timer helpers, guarded tools, and injected services. Framework
+ * members that expose an unguarded context are denied because they could bypass marker checks and
+ * host-realm normalization; these tests pin that escape class.
  */
 
 /** Mount a plugin whose `apply` touches one framework member, and report the error text. */
@@ -77,7 +74,8 @@ describe('sandbox context façade — escape surface is closed', () => {
 
   it('denies a service whose method returns a Context (the .ctx escape), registering nothing', async () => {
     // A cordis Service instance carries `.ctx` (a real Context), so
-    // `ctx.systemPrompt.ctx.root.tools.register(…)` would be a fresh unguarded handle.
+    // `ctx.systemPrompt.ctx.root.tools.register(…)` would escape the façade; service-return
+    // guards reject that Context before the registration lands.
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
@@ -189,9 +187,8 @@ describe('sandbox context façade — inject gate on services', () => {
   })
 
   it('a cross-mount consumer must declare the provider — the undeclared path is refused, not left as a zombie tool', async () => {
-    // The finding's scenario: a consumer registers a tool built on a provider's service WITHOUT
-    // declaring inject. cordis would then never park the consumer when the provider unmounts,
-    // leaving a tool that fails only at execution.
+    // Without declared inject, Cordis cannot park the consumer when its provider unmounts. The
+    // façade refuses access up front instead of leaving a zombie tool.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: 'return { name: \'greeter-provider\', apply(ctx) { ctx.provide(\'greeter\', { greet: (n) => \'hi \' + n }) } }',

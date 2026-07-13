@@ -1,7 +1,9 @@
 /**
  * Enforce `wc -w`-style ceilings from `scripts/doc-budgets.manifest.json`.
  * Missing files and invalid ceilings fail; `--list` reports current usage.
- * Ceiling changes remain reviewable manifest edits.
+ * Only listed standing docs are budgeted. Ceilings ratchet down with at least
+ * 5% headroom; raising one requires the justification defined in
+ * `docs/AGENTS.md`.
  */
 
 import { existsSync, readFileSync } from 'node:fs'

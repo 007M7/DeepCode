@@ -56,7 +56,8 @@ async function setup() {
  */
 const fakeAgentDisposers = new Map<Context, (() => Promise<void> | void)[]>()
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
-  // Distinct ids ensure notices match the session owner token, not the registry key.
+  // A config agent has distinct registry (`agent.id`) and owner (`session.header.id`) tokens.
+  // Keeping them unequal makes notice lookup by the wrong field fail instead of passing by chance.
   const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
   const dispose = ctx.agents.register(agent)
   const list = fakeAgentDisposers.get(ctx) ?? []
@@ -411,8 +412,8 @@ describe('background tools', () => {
   it('injects a completion notice into the owning agent (found via the registry by session token)', async () => {
     const ctx = await setup()
     const inject = vi.fn()
-    // The notice path looks the agent up in ctx.agents by its session token, so the agent must
-    // be REGISTERED (not merely passed to execute).
+    // Notices look up the agent in ctx.agents by session token, so passing it to execute is not
+    // enough: the fake must be registered with a matching `session.header.id`.
     const agent = registerFakeAgent(ctx, 'bg', inject)
 
     const started = await ctx.tools.execute({
@@ -475,9 +476,8 @@ describe('background tools', () => {
   })
 
   it('drops the notice cleanly when the owning agent is gone from the registry by completion', async () => {
-    // A bash task (owned by the host-scoped bash-local fiber) can OUTLIVE its per-session agent
-    // — e.g. the ACP session disconnects and its AgentHandle disposes while the background task
-    // is still running.
+    // Host-scoped bash tasks can outlive a per-session agent after an ACP disconnect. The task
+    // retains its owner token, but with no matching live agent the notice is dropped without error.
     const ctx = await setup()
     const inject = vi.fn()
     const agent = registerFakeAgent(ctx, 'bg', inject)
@@ -507,9 +507,8 @@ describe('background task ownership (cross-session isolation)', () => {
   function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, name: string, args: unknown) {
     return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
   }
-  // Ownership is by TOKEN (session.header.id), not agent object identity — so each agent needs
-  // a DISTINCT session id, else every fake yields the same token and the isolation tests pass
-  // for the wrong reason (all tasks owned by the same token).
+  // Ownership uses `session.header.id`, not object identity. Distinct ids keep the isolation tests
+  // from passing accidentally because every fake produced the same owner token.
   const fakeAgent = (sessionId: string) =>
     ({ inject: () => undefined, session: { header: { version: 0, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
@@ -589,8 +588,8 @@ describe('background task ownership (cross-session isolation)', () => {
   })
 
   it('ownership SURVIVES an independent tool-bash HMR reload (token lives on the executor)', async () => {
-    // The owner token lives on the TASK inside the executor (dsh-bash fiber), not in a
-    // tool-bash plugin-local map.
+    // The executor task owns the token, so reloading only tool-bash preserves ownership. A
+    // plugin-local map would lose it and incorrectly expose the task to agent B.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -809,9 +808,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
   it('bash presentResult: a clean exit-0 whose output ENDS in marker-like text is NOT read as a failure', async () => {
     const ctx = await setup()
     const args = { command: 'printf "[exit code: 5]"', description: 'print' }
-    // A successful command can print text that looks like a marker. renderResult for a clean
-    // exit 0 appends NOTHING (and no trailing newline), so the body's own tail is `[exit code:
-    // 5]`.
+    // A successful command may print marker-like text. A clean result appends no marker or
+    // newline; parsing requires the leading newline emitted for real markers, so this stays exit 0.
     const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
     expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
     // Same for a fake signal marker with no leading newline.
@@ -874,17 +872,18 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
 
   it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
     const ctx = await setup()
-    // defineTool wraps presentCall to soft-validate against the schema and fall back to
-    // undefined (a generic UI presentation) rather than throwing on the display path — it may
-    // run on replay of arbitrary logged args.
+    // `defineTool` soft-validates replayed logged args before presentation. Invalid shapes return
+    // undefined for generic UI rendering rather than throwing; `presentCall` accepts `unknown`.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
   })
 })
 
 describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
   /**
-   * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a test can
-   * assert what the model-facing tool DID and DID NOT forward.
+   * Records requests passed to `resolve()` so tests can prove the model-facing tool forwards only
+   * named arguments. It intentionally exposes neither `stdin` nor `env`; this catches a future
+   * `...args` spread into the post-scrub env merge. The credential scrub remains the security
+   * boundary; see the bash stdin/env RFC. Foreground `run()` is canned and `start()` is unused.
    */
   class RecordingBashExecutor extends BashExecutor {
     readonly requests: BashExecRequest[] = []
@@ -927,7 +926,9 @@ describe('the model-facing bash tool builds its request from named args only (no
 
   it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
     const { ctx, bash } = await setupRecording()
-    // Extra args: the model includes `env` and `stdin` keys hoping they reach the executor.
+    // Unknown `env` and `stdin` keys are ignored by the schema and named request construction.
+    // This preserves the request shape; it is not a security boundary because shell syntax can
+    // already set environment variables or feed stdin.
     await ctx.tools.execute({
       callId: CallId('no-forward-1'),
       name: 'bash',
@@ -1418,8 +1419,9 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
   })
 
   it('escalates relative to the session effective mode, not the executor default (narrower override)', async () => {
-    // The blocker scenario: a workspace-write default with a read-only override — the sensible
-    // escalation is workspace-write, which a default-relative ladder could not even express.
+    // With a workspace-write default and read-only override, escalation must return to
+    // workspace-write. The static target vocabulary exposes it, and validation compares it with
+    // the call's effective override rather than a default-relative ladder.
     const ctx = await setupModal('workspace-write', { approval: true })
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     const seen: (string | undefined)[] = []

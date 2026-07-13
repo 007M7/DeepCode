@@ -1,6 +1,7 @@
 /**
  * Shared buffering, serialization, adoption, repair, and disposal orchestration
- * over backend-specific persistence primitives.
+ * for first-party backends. Third-party backends may implement the public
+ * persistence seam directly.
  * @module @deepseek-ai/dsh-session-persistence/coordinator
  */
 
@@ -84,7 +85,11 @@ interface SessionState {
   meta: SessionHeader
   /** The next seq the backend expects to append (the stored log length). */
   cursor: number
-  /** Whether lazy creation has produced a durable artifact. */
+  /**
+   * Whether lazy creation has produced a durable artifact. The first append
+   * atomically materializes the header with events; reclaim logic uses this to
+   * distinguish an unused id from a persisted collision.
+   */
   materialized: boolean
   /**
    * The live Session this state was bound to via `onCreated`, if any. State

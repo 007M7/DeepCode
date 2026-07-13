@@ -2,7 +2,8 @@
  * Shared source of truth for the RFC index: the tree walker (structure rules) and the README
  * table renderer. `gen-rfc-index.ts` writes the generated regions;
  * `verify-rfc-classification.ts` checks structure and asserts the committed regions are fresh.
- * Pure module — no side effects on import.
+ * Lifecycle and class sets are closed under `docs/rfc/README.md`; rows derive
+ * from path, H1, and filename date and sort deterministically. Import is pure.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'

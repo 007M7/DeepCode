@@ -167,8 +167,10 @@ export interface TerminalResultView {
 }
 
 /**
- * A completed file mutation rendered as an inline diff card, the *result-time* analogue of
- * {@link DiffCallView}.
+ * A completed file mutation rendered as an inline diff card, the result-time
+ * analogue of {@link DiffCallView}. Because a completed UI update replaces the
+ * pending card content, mutation tools return this even when it repeats the
+ * call-time diff; otherwise raw result text would replace the diff.
  */
 export interface DiffResultView {
   card: 'diff'

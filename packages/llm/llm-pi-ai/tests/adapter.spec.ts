@@ -312,7 +312,7 @@ describe('buildModel', () => {
   })
 })
 
-describe('review fixes', () => {
+describe('provider reasoning, passback, and early-stream cancellation', () => {
   it('defaults omitted reasoning config to thinking ENABLED (provider default)', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url) // no reasoning key at all
@@ -375,7 +375,7 @@ describe('review fixes', () => {
   })
 })
 
-describe('review fixes: abort wiring', () => {
+describe('caller cancellation', () => {
   it('honors a pre-aborted caller signal', async () => {
     const ctx = await harness('http://127.0.0.1:1')
     const controller = new AbortController()

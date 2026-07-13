@@ -34,8 +34,10 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Emitted after session publication. A synchronous throw vetoes and rolls
+     * Creation announcement during session publication. A synchronous throw vetoes and rolls
      * back with a paired disposal; detach requested during dispatch is deferred.
+     * A returned-promise rejection is logged but cannot retroactively veto this
+     * synchronous boundary.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
      * receive only sessions entered through that agent's context.
      * @param session - the session just entered and announced.
@@ -44,14 +46,17 @@ declare module 'cordis' {
     'session/created'(this: Scoped<Session>, session: Session): void
     /**
      * Emitted once when an announced session leaves the store, including
-     * publication rollback. Listener failures are contained.
+     * publication rollback, but never for an entry whose creation announcement
+     * did not begin. Listener failures are logged and contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
      * @param session - the session that is no longer live in the store.
      * @mode emit
      */
     'session/disposed'(this: Scoped<Session>, session: Session): void
     /**
-     * Post-commit append feed. Observer failures are logged and contained.
+     * Post-commit, fire-and-forget append feed. The listener snapshot resolves
+     * before the log push, but callbacks run after it; observer failures are
+     * logged and contained without making the committed append fail.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
      * receive only events from sessions entered through that agent's context.
      * @param session - the session whose log grew.
@@ -60,7 +65,8 @@ declare module 'cordis' {
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited parallel durability checkpoint; dispatch through
+     * Awaited parallel durability checkpoint: every listener runs and the
+     * caller awaits all of them, with no waterfall veto. Dispatch through
      * {@link SessionStore.flush}. Scope-filtered dispatch
      * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
@@ -70,7 +76,11 @@ declare module 'cordis' {
   }
 }
 
-/** Render injected context as a tagged synthetic user-role message. */
+/**
+ * Render injected context as tagged synthetic user-role content, keeping the
+ * canonical session vocabulary provider-neutral. Adapter-specific exceptions
+ * belong in the adapter.
+ */
 function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
   const open = `<${tag} source=${JSON.stringify(source.kind)}>`
   const close = `</${tag}>`

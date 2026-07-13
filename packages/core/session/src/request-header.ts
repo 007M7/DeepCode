@@ -1,6 +1,7 @@
 /**
- * Request-header reconstruction utilities: the pure fold/diff/apply trio over the
- * `request/header` / `request/header-delta` session events.
+ * Request-header reconstruction utilities over `request/header` snapshots and
+ * `request/header-delta` events. Writers round-trip each proposed delta and use
+ * a full snapshot when the encoding cannot represent the change.
  * @module dsh-session/request-header
  */
 
@@ -128,8 +129,11 @@ function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] |
 }
 
 /**
- * Compute the `request/header-delta` payload between two canonical headers, or undefined when
- * they are equal.
+ * Compute the `request/header-delta` payload between two canonical headers, or
+ * `undefined` when they are equal. The encoding cannot represent every change,
+ * including pure tool reordering, so callers must apply and compare the result
+ * before logging it and fall back to a full snapshot on mismatch. The session
+ * prefix is replaced whole; an empty array removes it.
  *
  * @param prev - the folded header the log currently implies.
  * @param next - the header the next request will actually use.

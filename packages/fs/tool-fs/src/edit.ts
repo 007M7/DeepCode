@@ -1,6 +1,7 @@
 /**
- * The model-facing `edit` tool: update an existing UTF-8 text file by replacing literal text,
- * requiring a unique match by default.
+ * Model-facing literal edit, unique-match by default. It obtains an optional guard from the
+ * single intent slot, calls `ctx.fs.editText` without a separate stat, then records the observed
+ * version; no policy means an unconditional atomic edit.
  * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
 
@@ -88,7 +89,7 @@ export function applyEditTool(ctx: Context): void {
       )
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // The result-time applied-hunk diff (before→after with context lines).
+      // An edit necessarily changes content, so result metadata carries at least one applied hunk.
       const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
       return {
         content: [{ type: 'text', text: formatEditOutput(target.displayPath, input.replaceAll) }],
@@ -106,7 +107,8 @@ export function applyEditTool(ctx: Context): void {
         locations: [{ path: args.file_path }],
       }
     },
-    // Result-time display: the applied contextual-diff hunks carried on `meta`.
+    // Applied metadata replaces the call-time snippet; errors or malformed replay metadata use
+    // the generic result rendering.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)

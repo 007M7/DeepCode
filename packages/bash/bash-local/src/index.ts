@@ -1,6 +1,8 @@
 /**
- * `LocalBashExecutor`: the local-subprocess implementation of the `@deepseek-ai/dsh-bash`
- * executor seam.
+ * Local-subprocess implementation of the bash seam. Each call runs in its own
+ * process group, background tasks are tracked, and disposal kills and awaits
+ * them. Execution policy belongs in `tools/pre-execute` or a sandboxing
+ * executor, not this local process layer.
  * @module @deepseek-ai/dsh-bash-local
  */
 

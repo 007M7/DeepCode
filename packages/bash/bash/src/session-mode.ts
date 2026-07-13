@@ -1,5 +1,8 @@
 /**
- * Per-session sandbox-mode override: the session log as the store.
+ * Per-session sandbox-mode override stored as log-only events. Folding the log
+ * isolates sessions and survives replay; the tool stamps the result onto each
+ * call unless a one-shot escalation grant overrides it. The model sees the
+ * effective mode through prompt guidance and boundary notices, not the event.
  * @module dsh-bash/session-mode
  */
 

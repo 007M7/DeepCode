@@ -1,6 +1,7 @@
 /**
- * A scripted {@link SubagentProvider} for testing the subagent seam WITHOUT a model or a real
- * child agent.
+ * Scripted, model-free subagent provider for deterministic coverage of registration,
+ * capability checks, lifecycle, the model-facing tool, and structured results through the real
+ * loader path. It is a named-export functional plugin; no default export.
  * @module @deepseek-ai/dsh-subagent-mock
  */
 

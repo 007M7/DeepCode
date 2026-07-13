@@ -1,7 +1,7 @@
 /**
- * Per-loop-instance transmission bookkeeping for the reconstructability contract: which header
- * event to append before a request so the session log always explains the request (the
- * reconstructability RFC).
+ * Per-loop-instance request-header bookkeeping for reconstructability. The
+ * comparison baseline is the header folded from the session log, so a fresh
+ * loop instance needs no special resume or fork state.
  * @module dsh-agent-loop/request-log
  */
 
@@ -32,8 +32,10 @@ export function createTransmissionLog(): TransmissionLog {
 }
 
 /**
- * Append whatever header event this request owes the log, so folding the log reproduces the
- * header the request was built under. Exactly one of four things happens.
+ * Append whatever header event makes the log reproduce this request's header.
+ * The first request from an instance always records a full `initial` or `resume`
+ * snapshot. Later requests record nothing when unchanged, a round-tripping
+ * delta when expressible, or a full `fallback` snapshot otherwise.
  *
  * @param session - the session whose log explains the request.
  * @param state - this loop instance's bookkeeping (mutated on first log).

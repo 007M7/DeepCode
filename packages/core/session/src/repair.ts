@@ -1,5 +1,7 @@
 /**
- * Crash-recovery repair for an interrupted session log.
+ * Crash-recovery repair for an interrupted session log. It preserves a fully
+ * written final turn and supplies the missing tool, step, and turn boundaries
+ * needed to resume with a provider-valid transcript.
  * @module @deepseek-ai/dsh-session/repair
  */
 
@@ -7,8 +9,10 @@ import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
 
 /**
- * Return deterministic synthetic events that close an open tail turn or step.
- * Sequences continue the log and timestamps reuse the last real event.
+ * Return deterministic synthetic events that close an open tail turn. Unmatched
+ * calls receive error results first, followed by an open `step/end` and an
+ * interrupted `turn/end`; sequences continue the log and timestamps reuse the
+ * last real event. A balanced or empty log returns no events.
  *
  * @param events - the loaded durable log to scan (a valid committed prefix, possibly with a crash tail).
  * @returns the synthetic closer events to append after `events`, in order; empty when the log is already balanced.
@@ -16,8 +20,8 @@ import type { SessionEvent } from './types.ts'
 export function interruptedTurnClosers(events: readonly SessionEvent[]): SessionEvent[] {
   let openTurn: number | null = null
   let openStep: number | null = null
-  // Track tool calls vs. their results WITHIN the currently-open turn only: a call is "pending"
-  // until its matching tool/result arrives.
+  // Reset at each turn boundary so earlier calls cannot leak into tail repair.
+  // Assistant blocks register calls; later tool/call events add provenance seqs.
   const pendingCalls = new Map<CallId, { step: number; callSeq?: number }>()
   for (const event of events) {
     switch (event.type) {
@@ -46,8 +50,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         }
         break
       case 'tool/call':
-        // Capture the tool/call event seq for surface provenance on the synthesized
-        // tool/result.
+        // Add the tool/call seq used as provenance on a synthetic result.
         {
           const entry = pendingCalls.get(event.data.callId)
           if (entry) {
@@ -76,9 +79,8 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   const time = last.time
   const closers: SessionEvent[] = []
 
-  // Synthesize an error tool/result for each tool-call left unanswered by the crash, so
-  // deriveMessages() yields a valid provider transcript on resume (a dangling assistant
-  // tool-call is rejected by every provider).
+  // Close calls before their step: providers reject dangling assistant calls,
+  // and Map insertion order preserves their transcript order.
   for (const [callId, { step, callSeq }] of pendingCalls) {
     closers.push({
       type: 'tool/result',

@@ -127,7 +127,9 @@ function typeClosure(seeds: string[], types: readonly TypeApiEntry[]): TypeApiEn
 }
 
 /**
- * Render the generated service catalog against the live runtime.
+ * Render the generated catalog against the live runtime: live catalogued services with methods,
+ * uncatalogued live services with owners, absent loadable services, referenced type shapes, and
+ * inherited Context APIs.
  * @param ctx - the runtime to intersect the catalog with.
  * @param api - generated service entries, replaceable in tests.
  * @param inherited - inherited `ctx` entries, replaceable in tests.

@@ -15,7 +15,7 @@ Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `n
 
 ### `agent/created` — emit
 
-A fully configured agent and its session were published. Synchronous listener failure vetoes publication; asynchronous failure is reported.
+A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving seam. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
 
 ```ts cordis-catalog
 'agent/created'(this: Scoped<Agent>, agent: Agent): void
@@ -23,7 +23,7 @@ A fully configured agent and its session were published. Synchronous listener fa
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:127`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:136`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent left the registry. AgentLoop emits this after driver quiescence; custom
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:135`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:144`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:266`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -59,7 +59,7 @@ Awaited checkpoint before `step/start` for outside-step surface mutations. Scope
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:180`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:191`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -71,11 +71,11 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:190`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:201`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
-Detached, frozen content entered the agent's inbox.
+Detached, frozen content entered the agent's inbox. Source defaults have already been applied, so these are the exact values retained for the log.
 
 ```ts cordis-catalog
 'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
@@ -83,7 +83,7 @@ Detached, frozen content entered the agent's inbox.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:152`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -95,7 +95,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:213`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -107,7 +107,7 @@ Compose the frozen session-stable request prefix once per loop instance. Interru
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -119,11 +119,11 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:174`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
-Agent status changed (`idle` ⇄ `running`, or → `disposed`).
+Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does not enter `running` synchronously; drive lifecycle from this event.
 
 ```ts cordis-catalog
 'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
@@ -131,7 +131,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`).
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:143`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:153`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -143,7 +143,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -155,7 +155,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:244`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -167,7 +167,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded. A
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:242`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:253`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -187,7 +187,7 @@ Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-app
 
 ### `fs/edit-intent` — waterfall
 
-Single-slot decision: produce the optional version guard for the next FileSystem.editText.
+Single-slot decision for the next FileSystem.editText. Calling `next()` yields an unconditional edit; the first returned guard wins.
 
 ```ts cordis-catalog
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
@@ -195,11 +195,11 @@ Single-slot decision: produce the optional version guard for the next FileSystem
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:60`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:59`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
-Record that an actor observed a target at a version, after a successful read/write/edit.
+Record a successful observation. Listeners must be synchronous recorders: throws fail the tool call and returned promises are not awaited.
 
 ```ts cordis-catalog
 'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
@@ -207,11 +207,11 @@ Record that an actor observed a target at a version, after a successful read/wri
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:69`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:68`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
-Single-slot decision: produce the write intent for the next FileSystem.writeText.
+Single-slot decision for the next FileSystem.writeText. Calling `next()` yields the bare provider's unconditional write; the first listener that returns an intent owns the decision rather than composing with peers.
 
 ```ts cordis-catalog
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
@@ -239,27 +239,27 @@ Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts
 
 ### `session/created` — emit
 
-Emitted after session publication. A synchronous throw vetoes and rolls back with a paired disposal; detach requested during dispatch is deferred. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only sessions entered through that agent's context.
+Creation announcement during session publication. A synchronous throw vetoes and rolls back with a paired disposal; detach requested during dispatch is deferred. A returned-promise rejection is logged but cannot retroactively veto this synchronous boundary. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only sessions entered through that agent's context.
 
 ```ts cordis-catalog
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:44`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:46`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
-Emitted once when an announced session leaves the store, including publication rollback. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
+Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin. Listener failures are logged and contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
 
 ```ts cordis-catalog
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:52`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:55`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
-Post-commit append feed. Observer failures are logged and contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only events from sessions entered through that agent's context.
+Post-commit, fire-and-forget append feed. The listener snapshot resolves before the log push, but callbacks run after it; observer failures are logged and contained without making the committed append fail. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only events from sessions entered through that agent's context.
 
 ```ts cordis-catalog
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
@@ -267,17 +267,17 @@ Post-commit append feed. Observer failures are logged and contained. Scope-filte
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:61`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:66`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
-Awaited parallel durability checkpoint; dispatch through SessionStore.flush. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Dispatch through SessionStore.flush. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
 
 ```ts cordis-catalog
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:75`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 

@@ -1,6 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is now a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads ONE app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
 
 ## echo-agent
 
@@ -35,6 +35,6 @@ Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mo
 
 ## sandbox-acp-agent
 
-The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
+The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), the one-entry swap supported by the `ctx.bash` capability seam), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval). A model retry after a sandbox denial becomes a `session/request_permission` prompt, and “Allow once” grants only that command the wider mode.
 
 Run with: `pnpm run demo:sandbox-acp` (needs `DEEPSEEK_API_KEY`; bwrap, a Landlock-enforcing kernel, or macOS for confined runs). See [sandbox-acp-agent/README.md](sandbox-acp-agent/README.md).

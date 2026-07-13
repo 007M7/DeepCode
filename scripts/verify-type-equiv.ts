@@ -10,7 +10,7 @@ import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
-/** Markdown scope shared with doc-typecheck. */
+/** Scan doc-typecheck's full Markdown scope so unmanifested blocks also fail. */
 const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
 
 /** One manifest entry: a documented type-equiv block and its source symbol. */
@@ -34,7 +34,11 @@ interface EquivBlock {
   code: string
 }
 
-/** Remove comments and normalize whitespace for structural comparison. */
+/**
+ * Remove comments and normalize whitespace so prose-only edits do not drift
+ * structural copies. This is intentionally not a general tokenizer: repo type
+ * declarations do not contain comment delimiters inside string literals.
+ */
 function normalize(code: string): string {
   return code
     .replace(/\/\*[\s\S]*?\*\//g, '')

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * The `dsh-stdio-agent` bin: boot a Cordis app from a leaf `cordis.yml` that loads the {@link
- * @deepseek-ai/dsh-stdio-agent} app plugin (plus a backend LLM adapter and a bash executor).
+ * Boot a stdio app from a leaf `cordis.yml`; usage is `dsh-stdio-agent [config]`, defaulting to the
+ * cwd file. Shared `.env` loading, fail-loud Loader guards, and settled-tree boot live in
+ * dsh-app-boot. The echo and REPL demos invoke this bin with their own leaf configs.
  * @module @deepseek-ai/dsh-stdio-agent/bin
  */
 

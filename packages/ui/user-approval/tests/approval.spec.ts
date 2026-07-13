@@ -438,7 +438,7 @@ describe('approval policy (the approval/policy fold)', () => {
   it('never is unbypassable even by an answerer PREPENDED after the service mounts', async () => {
     // Cordis prepend unshifts ahead of every existing listener, including any gate LISTENER the
     // service could register — which is exactly why the 'never' decision lives inside request()
-    // instead.
+    // instead. This eager grant would bypass a listener-based gate and therefore must never run.
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })
     const consulted = vi.fn()

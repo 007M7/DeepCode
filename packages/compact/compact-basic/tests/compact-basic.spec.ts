@@ -203,7 +203,8 @@ function expectNoOrphanToolResults(messages: Message[]): void {
 
 describe('BasicCompactService step-alignment (never split a tool-call/result pair)', () => {
   it('compactIfNeeded rounds the retained boundary head-ward to keep a whole step (no orphaned tool-result)', async () => {
-    // 3 turns, each one step = { assistant(tool-call), tool/result }.
+    // Retain the recent tail while the older assistant/result pairs compact as
+    // whole units; no boundary may orphan a result.
     const svc = createTestService({ contextWindow: 280, thresholdRatio: 0.5, retainTokens: 55 })
     const session = toolTurnSession(3)
 
@@ -218,7 +219,8 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
   })
 
   it('compactIfNeeded returns null when the only compactable region is an un-splittable single step', async () => {
-    // The surface is exactly one step: [assistant(tool-call), tool/result].
+    // The only candidate cut is inside one assistant/result pair; with no safe
+    // compactable prefix, decline rather than split it.
     const s = new Session(SessionId('one-step'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
@@ -587,14 +589,16 @@ describe('BasicCompactService.compactIfNeeded', () => {
   })
 
   it('returns null when the whole surface fits the retain budget (over threshold by role/system overhead)', async () => {
-    // threshold = floor(480*0.1) = 48.
+    // Role overhead pushes the request above its 48-token threshold, but the
+    // raw four-node retention walk remains below retainTokens=45, so all fit.
     const svc = createTestService({ contextWindow: 480, thresholdRatio: 0.1, retainTokens: 45 })
     const session = multiTurnSession(2, 1)
     expect(await compactIfNeeded(svc, session, '', 'm', SIGNAL)).toBeNull()
   })
 
   it('compacts a runaway turn: its early CLOSED steps summarize while recent steps stay verbatim', async () => {
-    // The Regression that motivated dropping turn-protection.
+    // Completed early steps of the open turn remain eligible; protecting the
+    // whole turn would make a runaway turn impossible to compact.
     const svc = createTestService({ contextWindow: 800, thresholdRatio: 0.1, retainTokens: 25 })
     const s = new Session(SessionId('runaway'))
     // ONE open turn with 5 closed steps; each step is [asst(tool-call), result].
@@ -740,8 +744,8 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
   })
 
   it('is not wedged by an orphaned compact/start from a prior (now-closed) turn', async () => {
-    // A crash mid-compaction left a compact/start with no compact/end; the turn it lived in was
-    // later closed (persistence repair appends turn/end).
+    // An orphaned start in a closed repaired turn is stale; only the current
+    // turn participates in the in-progress lock.
     const svc = createTestService()
     const s = new Session(SessionId('stale-lock'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -1218,7 +1222,8 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
 
   it('summarization is interceptable at llm/stream (model routing for direct calls)', async () => {
     const { ctx, adapter } = await ctxWithModel('ROUTED SUMMARY', 'routed-model')
-    // One-shot summaries use llm/stream, not the loop's agent/request seam.
+    // One-shot summaries bypass agent/request but remain mutable at llm/stream;
+    // adapter selection happens after the waterfall rewrite.
     ctx.on('llm/stream', (options, next) => {
       options.model = 'routed-model'
       return next()
@@ -1472,16 +1477,13 @@ describe('BasicCompactService edge cases', () => {
     const svc = createTestService()
     const s = new Session(SessionId('empties'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // Step 1: an empty-text user, an empty-reasoning assistant with NO tool-call
-    // (balanced: nothing to answer), and empty context/steering — all extract to
-    // nothing and are skipped.
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'reasoning', text: '' }] }, { surfaceOp: 'append' })
     s.append('context/message', { content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
-    // Step 2: a tool exchange whose tool/result has empty content → empty extraction → skipped.
+    // Keep the log pairing-valid while the empty result covers the final message kind.
     s.append('step/start', { turn: 1, step: 2 })
     s.append('assistant/message', {
       turn: 1, step: 2,
@@ -1495,10 +1497,6 @@ describe('BasicCompactService edge cases', () => {
 
     const nodes = s.surface.nodes
     await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
-    // Every empty-content message (user text, empty reasoning, empty-content
-    // tool/result, empty context, empty steering) extracted to nothing and was
-    // skipped — the only surviving line is the assistant's tool-call (which a
-    // balanced surface requires to answer the tool/result).
     expect(svc.summarizeCalls[0]!.text).toBe('Assistant: [tool-call: bash({})]')
   })
 
@@ -1546,31 +1544,26 @@ describe('BasicCompactService edge cases', () => {
 
 describe('BasicCompactService positional range (surface seqs are not monotonic after a replace)', () => {
   it('compacts a second region after the first replace lands a high-seq summary at the head position', async () => {
-    // A replace inserts the new summary node (a high seq) AT the shadowed range's surface
-    // position, so the surface becomes [highSeqSummary, …olderRetainedLowerSeqs].
+    // Replacement makes surface seqs non-monotonic. The next region is a
+    // positional span even when startSeq > endSeq.
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(4, 1)
 
-    // First compaction: shadow the two oldest surface nodes.
+    // A replacement puts its high-seq summary at the surface head.
     const nodes0 = session.surface.nodes
     const first = await compactRegion(svc, session, nodes0[0]!.seq, nodes0[1]!.seq, 'm')
 
-    // The summary node now sits at the head with a seq HIGHER than the retained older nodes
-    // that follow it — the non-monotonic surface.
     const nodes1 = session.surface.nodes
     expect(nodes1[0]!.seq).toBeGreaterThanOrEqual(first.summarySeq)
     expect(nodes1[0]!.seq).toBeGreaterThan(nodes1[1]!.seq)
 
-    // Second compaction: shadow [summary(head) … turn-2's step end].
     const startSeq = nodes1[0]!.seq
     const endSeq = nodes1[2]!.seq
     expect(startSeq).toBeGreaterThan(endSeq)
     const second = await compactRegion(svc, session, startSeq, endSeq, 'm')
 
-    // Exactly the three nodes at surface positions [0..2] are shadowed, in
-    // surface order — the positional slice, regardless of their seq values.
+    // Selection follows surface positions, not sequence-number order.
     expect(second.shadowedSeqs).toEqual([nodes1[0]!.seq, nodes1[1]!.seq, nodes1[2]!.seq])
-    // The surface still derives cleanly: a new head replace node + the rest.
     const finalNodes = session.surface.nodes
     expect(finalNodes[0]!.seq).toBeGreaterThanOrEqual(second.summarySeq)
     expect(session.deriveMessages().length).toBe(finalNodes.length)
@@ -1580,20 +1573,15 @@ describe('BasicCompactService positional range (surface seqs are not monotonic a
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(3, 1)
 
-    // First compaction shadows the oldest two surface nodes, landing a high-seq
-    // summary node at the head.
+    // Put a high-seq summary at the head; log order would place retained older nodes first.
     const n0 = session.surface.nodes
     await compactRegion(svc, session, n0[0]!.seq, n0[1]!.seq, 'm')
 
-    // Second compaction spans [head summary … turn-2's step end]. The head's seq
-    // is higher than the older retained nodes' seqs, so a log-seq-order walk
-    // would emit the older messages BEFORE the checkpoint.
     const n1 = session.surface.nodes
     svc.summarizeCalls = []
     await compactRegion(svc, session, n1[0]!.seq, n1[2]!.seq, 'm')
 
-    // The extracted transcript follows surface order: the checkpoint (head)
-    // first, then the older retained messages — matching deriveMessages().
+    // Extraction must match surface and `deriveMessages()` order.
     const { text } = svc.summarizeCalls[0]!
     const checkpointIdx = text.indexOf('compacted-summary')
     const olderIdx = text.indexOf('turn 2 user')

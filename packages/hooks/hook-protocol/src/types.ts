@@ -1,7 +1,7 @@
 /**
- * Dialect-neutral vocabulary for the Claude Code / Codex hook wire protocol, plus the log-only
- * `hook/*` session events. Types only — runtime helpers live in the sibling modules
- * (`matcher`, `codec`, `runner`, `merge`, `events`).
+ * Dialect-neutral vocabulary and log-only events shared by the Claude Code and
+ * Codex hook bridges. Payload construction, matching differences, environment,
+ * and seam-specific decision mapping remain owned by each bridge.
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
@@ -23,7 +23,11 @@ declare module '@deepseek-ai/dsh-session' {
       matcher?: string
       handlerId: string
     }
-    /** Log-only hook outcome paired to `hook/invoked` by `handlerId`. */
+    /**
+     * Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the
+     * parsed permission result, `stop` for `continue:false`, or `pass`; exit code
+     * may be absent, stderr is bounded, and duration is wall-clock runtime.
+     */
     'hook/result': {
       turn: number
       point: string

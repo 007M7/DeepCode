@@ -1,5 +1,5 @@
 /**
- * Pure translation between harness vocabulary and ACP wire types.
+ * Pure, total translation between harness vocabulary and ACP wire types.
  * @module @deepseek-ai/dsh-acp/codec
  */
 
@@ -10,6 +10,11 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
 /**
  * Map a harness {@link TurnEndReason} to the ACP `StopReason` wire enum.
  *
+ * `completed` and the defensive `error` case map to `end_turn`;
+ * `max-tokens` maps to `max_tokens`; `aborted`, `disposed`, and `rejected` map
+ * to `cancelled`. The bridge rejects error turns before this mapping. Unknown
+ * merge-extensible kinds use legal fallback `end_turn` rather than breaking
+ * the prompt RPC.
  * @param reason - the harness turn-end reason to translate.
  * @returns the legal ACP wire value per the mapping above.
  */

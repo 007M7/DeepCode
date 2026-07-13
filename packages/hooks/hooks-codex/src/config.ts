@@ -1,5 +1,7 @@
 /**
- * Parse a Codex `hooks.json` into the shared {@link MatcherGroup} shape.
+ * Parse Codex's five-event hook subset into shared {@link MatcherGroup}s. Only synchronous command
+ * hooks run; other types and `async: true` commands are recorded as skipped. Codex performs no
+ * command substitution.
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
 
@@ -30,8 +32,8 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Parse supported synchronous command hooks, recording skipped entries and
- * ignoring malformed configuration rather than failing boot.
+ * Parse a wrapped or bare Codex event map. Unknown events and malformed entries are ignored rather
+ * than failing boot; unsupported or asynchronous hooks are returned in `skipped`.
  * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
  * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */

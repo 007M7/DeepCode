@@ -21,6 +21,10 @@ Four pieces of the `dsh-hook-protocol`/bridge contract missed the discipline the
 
 Unsupported vocabulary can return when a real consumer exists. `durationMs` remains because durable audit timing is useful independently of a current reader. Bridge-specific payload construction stays in each bridge, while shared durable-event normalization belongs in the protocol library.
 
+## Verification
+
+`HookDialect` contains only Claude and Codex, and `suppressOutput` is absent from source, parsed-field docs, and normalization. `durationMs` remains in events and fixtures with replay scrubbing. The `600_000` and `500` defaults each live once in the protocol library, per-hook timeout overrides still apply, and both bridge suites exercise the library-owned stderr truncation and decision rules.
+
 ## Consequences
 
 The `dialect`, `suppressOutput`, tunables, and semantics changes are invisible on the wire and in the goldens. The cost was churn in `dsh-hook-protocol` and both bridges — cheap under the pre-release stance, and cheaper than letting two copies of a durable event's semantics age apart.

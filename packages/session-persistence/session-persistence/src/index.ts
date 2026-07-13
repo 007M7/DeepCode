@@ -1,6 +1,7 @@
 /**
- * Durable session-persistence seam. Backends store {@link SessionEvent}s plus
- * separate {@link SessionHeader} metadata.
+ * Durable session-persistence seam (`ctx.sessionPersistence`). Backends store
+ * {@link SessionEvent}s as the event-sourced log and carry non-replayable
+ * {@link SessionHeader} metadata separately.
  * @module @deepseek-ai/dsh-session-persistence
  */
 
@@ -83,9 +84,9 @@ export abstract class SessionPersistence extends Service {
 
   /**
    * Load a header and balanced contiguous log. A complete interrupted final
-   * turn is preserved and closed with missing tool errors and boundary events;
-   * only a torn final record is discarded. Unknown versions and corruption in
-   * the committed prefix reject.
+ * turn is preserved and durably closed with missing tool errors plus any open
+ * step and turn boundaries; only a torn final record is discarded. Unknown
+ * versions and corruption in the committed prefix reject.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */

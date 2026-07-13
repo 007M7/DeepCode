@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from 'vitest'
  * `@deepseek-ai/dsh-stdio-agent` bin against `code-mode.cordis.yml` (the cordis Loader,
  * `unwrapExports`, the include patches over ./cordis.yml, the worker-thread code runtime, and
  * the registry in `mode: code`), then close stdin with no prompt and assert the Code Mode
- * banner + a clean exit.
+ * banner + a clean exit. A dummy key satisfies adapter boot, but no prompt means
+ * no model call; the with-key proof lives in `code-mode.e2e.ts`.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
@@ -20,7 +21,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
 // the repo, so point it at the repo tsconfig.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.

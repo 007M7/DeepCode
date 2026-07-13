@@ -101,7 +101,12 @@ export type WorkflowEventName =
   | 'workflow/agent-end'
   | 'workflow/end'
 
-/** Machine-routable fatal workflow failures. Child-run failures are not codes. */
+/**
+ * Machine-routable fatal workflow failures: parse/meta/argument/schema errors,
+ * resource caps, subagent infrastructure failures, unserializable boundary
+ * values, and cancellation. An ordinary child failure resolves its item to
+ * `null` and is not one of these fatal codes.
+ */
 export type WorkflowErrorCode =
   | 'SCRIPT_PARSE'
   | 'META_INVALID'

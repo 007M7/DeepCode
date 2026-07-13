@@ -2,7 +2,8 @@
  * Loop-level tool-order determinism: the request/header event — and therefore the frozen
  * request the adapter receives — carries the assembly's canonical tool order (system-prompt's
  * `toolOrder` config, or lexicographic name order), regardless of the order tool plugins
- * happened to register in.
+ * happened to register in. Registration order is a concurrent loading artifact
+ * and must not leak downstream.
  */
 
 import { describe, expect, it } from 'vitest'

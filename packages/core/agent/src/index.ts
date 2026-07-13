@@ -65,14 +65,15 @@ export interface ResumeAgentOptions {
   readonly agentOptions?: AgentOptions
   /** Optional creation-only cancellation signal for persistence load/setup; detached before return. */
   readonly signal?: AbortSignal
-  /** Compose the unpublished scoped context after persistence load. */
+  /** Compose after persistence load under the same unpublished rollback contract as create. */
   readonly setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
  * Holder-owned agent capability. Disposal stops and drains the loop and idle
  * flushes before unregistering the agent, detaching its session, and unwinding
- * its scoped context. Registry observers receive only the bare {@link Agent}.
+ * its scoped context. Provider unload reaches the same quiescence boundary;
+ * registry observers receive only the bare {@link Agent}.
  */
 export interface AgentHandle {
   agent: Agent
@@ -87,8 +88,9 @@ export interface AgentHandle {
  */
 export interface AgentFactory {
   /**
-   * Create, compose, publish, announce, and start an agent under the caller's
-   * ownership. Rollback pairs any creation announcement that began.
+   * Create and compose under caller ownership, publish and announce session then
+   * agent, emit session-start, and start the driver. Rollback pairs any creation
+   * announcement that began.
    * @param ownerCtx - caller-bound context that owns the transaction and live handle.
    * @param options - agent/session identity, configuration, and optional setup.
    * @returns the owned handle after setup, both announcements, and loop start complete.
@@ -211,7 +213,8 @@ export class AgentRegistry extends Service {
   /**
    * Insert an unpublished agent for an ordered factory transaction.
    * @param agent - the prepared, unpublished agent.
-   * @returns an idempotent detach closure; during creation dispatch it defers.
+   * @returns an idempotent closure that removes this exact entry and emits the
+   * paired disposal edge; detachment during creation dispatch is deferred.
    */
   enter(agent: Agent): () => void {
     const id = agent.id

@@ -189,8 +189,8 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
-    // The no-stdin path must stay observationally identical to the pre-seam `ignore` default: a
-    // command that probes stdin's file type sees a char device (/dev/null).
+    // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
+    // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
     const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
     expect(none.stdout.text).toBe('char\n')
     const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
@@ -215,8 +215,8 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
-    // The child exits immediately without reading; closing our end of a stdin pipe still
-    // holding ~1MiB triggers EPIPE on the write.
+    // The child exits without reading, so closing a stdin pipe holding ~1 MiB triggers EPIPE.
+    // The handler swallows that write error and `done` reports the child's real exit.
     const big = 'x'.repeat(1024 * 1024)
     const result = await runBash(spec('exit 7', { stdin: big })).done
     expect(result.exitCode).toBe(7)
@@ -355,7 +355,7 @@ describe('abort edge cases', () => {
   })
 })
 
-describe('review fixes: env scrubbing and spill hardening', () => {
+describe('environment and spill-file hardening', () => {
   it('scrubs credential-shaped env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'

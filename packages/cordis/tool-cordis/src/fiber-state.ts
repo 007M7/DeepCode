@@ -1,7 +1,7 @@
 /**
- * Runtime mirror of the cordis `FiberState` const enum plus human-readable labels, shared by
- * the mount lifecycle (state reporting) and the inspect renderers (plugin-list and mount-table
- * labels).
+ * Runtime mirror and labels for Cordis's `FiberState` const enum. A const enum has no runtime
+ * object to import, so these values mirror the pinned vendored definition while retaining its
+ * type.
  * @module @deepseek-ai/dsh-tool-cordis/fiber-state
  */
 

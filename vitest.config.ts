@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   // Native path resolution reads each package's nearest tsconfig, but only the root defines
-  // workspace paths. Keep this plugin pinned to the root map.
+  // workspace paths. Keep this plugin pinned to the root map so unbuilt bare package imports resolve
+  // to source; native resolution would fall through to absent `lib/` outputs.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
     include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
@@ -13,7 +14,8 @@ export default defineConfig({
       // executable code; vendor/ and examples/ are out of scope (examples are
       // exercised by the demo smoke test instead).
       include: ['packages/*/*/src/**/*.ts'],
-      // Self-executing bins and workers are covered by subprocess tests outside v8 collection.
+      // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot
+      // them inside the unit process, so real subprocess/Worker tests cover their thin entry glue.
       exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts'],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.

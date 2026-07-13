@@ -15,8 +15,8 @@ import {
   waitForExit,
 } from '../src/index.ts'
 
-// `rm` is wrapped (real-passthrough by default) so one test can inject a rejection
-// deterministically.
+// `rm` is real-passthrough except for one deterministic failure. Permission-based recursive-rm
+// failures are not portable and disappear under root, so this is the sanctioned filesystem seam.
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return { ...actual, rm: vi.fn(actual.rm) }

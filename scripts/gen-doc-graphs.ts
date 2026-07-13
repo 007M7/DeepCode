@@ -1,5 +1,8 @@
 /**
- * Generate (and verify) the relationship-diagram docs.
+ * Generate the relationship layer above the module, Cordis, and tool catalogs.
+ * Enumerable facts come from source; hybrid graphs add manifests for policy the
+ * source cannot infer, while curated graphs explain flow and ownership.
+ * `--check` verifies the generated set.
  */
 
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -606,10 +609,8 @@ function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.Sourc
   }
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
-  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused dispatcher (`events`
-  // from `agentEvents(ctx, agent)`), an agent's setup context (`childCtx`), the agent's own
-  // context handle (`this.loopCtx`), and the session store's captured dispatch context
-  // (`emitCtx`).
+  // Scoped-dispatch spellings are conventional names. Keep this list in sync
+  // with renames or the relationship matrix can silently lose an edge.
   return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
@@ -656,9 +657,8 @@ function renderEventRelations(pkgs: Pkg[]): string {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
-  // Completeness guard: every DECLARED event must have at least one dispatcher edge — a
-  // zero-dispatcher row is either dead vocabulary or (the observed failure mode) a dispatch
-  // spelling the AST scan does not recognize, silently dropping the producer from the matrix.
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized dispatch spelling. Listener-free extension points remain valid.
   const undispatched = [...events]
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
@@ -785,7 +785,7 @@ function renderToolPipeline(): string {
     '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit policy stays on `fs/*` events. Generic pre/post waterfalls host hook and approval policy, `ctx.approval` resolves asks before guards, and `tools/execute` hosts around-dispatch concerns such as timeouts. `tools/result` observes the immutable final outcome. Code Mode sends both `run_code` and its serialized sub-calls through this pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')

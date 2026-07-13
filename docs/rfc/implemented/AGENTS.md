@@ -1,6 +1,6 @@
 # AGENTS.md — Implemented RFCs
 
-These RFCs describe shipped decisions. Follow the repo and docs standards plus the [RFC format](../README.md#the-file-format).
+These RFCs describe shipped decisions. Follow the [root instructions](../../../AGENTS.md), [documentation standard](../../AGENTS.md), and [RFC format](../README.md#the-file-format); `verify-rfc-format` gates the lifecycle-specific structure.
 
 ## Keep an implemented RFC current with what actually shipped
 

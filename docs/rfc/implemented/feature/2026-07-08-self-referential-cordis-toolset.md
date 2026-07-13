@@ -12,7 +12,7 @@ First, model-written registration must be validated where it happens: a malforme
 
 The toolset ships as [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) — a new top-level `packages/cordis/` group — and is demoed by [`examples/cordis-agent`](../../../../examples/cordis-agent/README.md). It gives the model three tools over the live cordis runtime it is running inside: inspect it, mount model-written plugins into it, dispose them again.
 
-The vm isolates accidental global pollution, and the context façade hides framework internals. Neither restricts the authority of exposed services: mounts can reach real bash, filesystem, and web capabilities. This is an opt-in development tool with bash-equivalent trust, not a security boundary or product default.
+The vm isolates accidental global pollution, and the context façade hides framework internals. Neither restricts the authority of exposed services: a mount can call `ctx.bash` to run commands with the host executor's privileges and can reach the real filesystem and web services. This is an opt-in development tool with bash-equivalent trust, not a security boundary or product default.
 
 ### The three tools
 

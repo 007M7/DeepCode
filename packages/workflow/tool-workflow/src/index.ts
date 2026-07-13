@@ -3,7 +3,10 @@
  * subagents, and return the script's final value. Pure schema + lifecycle shaping — script
  * parsing, execution, caps, and cancellation live behind `ctx.workflows`
  * (`@deepseek-ai/dsh-workflow`), so a hardened engine swaps in without touching what the model
- * sees.
+ * sees. Execution awaits `run.result` and always disposes the run; non-completed reasons become tool
+ * errors, and background collection remains deferred. Presentation is an args-only generic card
+ * titled from `meta.name`. Explicit-ask usage guidance is registered as the tool's own prompt
+ * section rather than deployment persona prose.
  * @module @deepseek-ai/dsh-tool-workflow
  */
 
@@ -169,7 +172,8 @@ export function apply(ctx: Context, config: Config): void {
       })
 
       // Bridge the tool's abort signal to the run: if the parent step is aborted while the
-      // script is in flight, cancel the whole run.
+      // script is in flight, cancel the whole run. The signal also enters the engine directly, but
+      // this local bridge preserves the tool contract even if an implementation ignores it.
       const onAbort = (): void => { run.cancel('parent step aborted') }
       exec.signal?.addEventListener('abort', onAbort, { once: true })
       // `addEventListener` does NOT fire for a signal already aborted before

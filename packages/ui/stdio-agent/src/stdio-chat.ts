@@ -1,6 +1,7 @@
 /**
- * The stdio app's readline UI: reads lines from stdin → `agent.send()`/ `steer()`, and renders
- * the durable transcript to stdout.
+ * The stdio app's readline UI: reads lines from stdin into `agent.send()` or
+ * `steer()`, renders the durable event stream to stdout, and exits piped input
+ * only after submitted work reaches idle.
  * @module @deepseek-ai/dsh-stdio-agent/stdio-chat
  */
 
@@ -83,16 +84,15 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const agentId = AgentId(config.agent ?? 'main')
   const { input, output, exit } = runtime
 
-  // Render label lookup: the `turn/start` session event carries only the turn number, so to
-  // print the short agent id (`[main turn 1]`) we map the session's id to its agent's id.
+  // Session ids need not equal agent ids. Seed existing agents before listening
+  // so a pre-created or HMR-surviving agent still gets its short render label.
   const labelBySession = new Map<string, string>()
   for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
   ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
   ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
 
-  // Transcript rendering off the durable `session/event` feed — the assistant token stream,
-  // turn/step boundaries, tool activity, and todos all come from the one canonical stream (no
-  // agent/* mirrors).
+  // Render the canonical append order from session/event so reasoning state is
+  // deterministic across chunks and boundaries; there are no agent/* mirrors.
   let inReasoning = false
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/chunk') {
@@ -135,9 +135,9 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
 
   ctx.effect(() => {
     const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
-    // Piped-input exit, once stdin reaches EOF: - If no line ever submitted work (empty stdin,
-    // blank-only lines), exit immediately — no turn will ever start, so there is nothing to
-    // wait for.
+    // On piped EOF, exit immediately if no work was submitted. Otherwise wait
+    // for a real running state followed by idle: sends do not synchronously mark
+    // running, and several queued lines may share one turn.
     let stdinClosed = false
     let disposed = false
     let submittedWork = false
@@ -155,7 +155,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         const agent = ctx.agents.get(agentId)
         if (agent && agent.status !== 'idle') return // a turn is still running
       }
-      // Let any final output flush, then exit.
+      // Let final output flush; track the timer so re-entry coalesces and HMR
+      // disposal can cancel it before it exits the replacement process.
       if (exitTimer !== undefined) {
         return // exit already scheduled — coalesce re-entrant calls
       }

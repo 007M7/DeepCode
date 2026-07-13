@@ -1,6 +1,8 @@
 /**
- * Merge the outcomes of MULTIPLE hooks that matched one hook point into a single
- * most-restrictive {@link MergedHookOutcome}.
+ * Merge matched hooks into one most-restrictive outcome. Permission precedence
+ * is `deny > ask > allow`; the first `continue:false` stop is sticky; reasons
+ * for the winning rank are joined; and context and system messages accumulate
+ * in hook order.
  * @module @deepseek-ai/dsh-hook-protocol/merge
  */
 
@@ -59,9 +61,7 @@ function decisionForRank(maxRank: number): MergedDecision {
  */
 export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   let maxRank = 0
-  // Reasons collected per RANK, so the merged reason can be the one explaining the WINNING
-  // decision (a deny-winning outcome surfaces deny reasons; an ask-winning outcome surfaces ask
-  // reasons).
+  // Keep reasons per rank so only objections explaining the winning decision surface.
   const reasonsByRank = new Map<number, string[]>()
   let stop = false
   let stopReason: string | undefined

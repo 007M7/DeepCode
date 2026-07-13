@@ -1,5 +1,7 @@
 /**
- * The model-facing `write` tool: create or fully replace a UTF-8 text file.
+ * Model-facing full-file write. It obtains an optional intent from the single policy slot, calls
+ * `ctx.fs.writeText` without a stat, then records the resulting version; no policy means an
+ * unconditional atomic create-or-overwrite.
  * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
@@ -67,7 +69,8 @@ export function applyWriteTool(ctx: Context): void {
       const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // Attach a contextual hunk as `meta` only for an overwrite (a before-version exists).
+      // Overwrites carry applied hunks. Creates have no prior text, so result presentation uses
+      // the args-derived whole-file diff instead.
       const diffs = outcome.before !== null ? computeHunkDiffs(input.filePath, outcome.before, outcome.after) : []
       return {
         content: [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }],
@@ -87,7 +90,8 @@ export function applyWriteTool(ctx: Context): void {
     },
     // Result-time display: a `diff` card so the completed `tool_call_update` re-installs the
     // diff rather than the model-facing result text (an ACP `tool_call_update.content` REPLACES
-    // the call's content, so a text result would clobber the pending diff card).
+    // the call's content, so a text result would clobber the pending diff card). Overwrites use
+    // applied metadata; creates and identical overwrites use the replay-safe args fallback.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)

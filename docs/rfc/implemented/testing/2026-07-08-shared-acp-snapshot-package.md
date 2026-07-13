@@ -27,6 +27,10 @@ The machinery lives in [`packages/support/acp-snapshot`](../../../../packages/su
 - **An injectable ACP `Client` factory instead of declarative `permissionAnswers`** — maximally flexible, but it leaks SDK client construction to every consumer and reopens per-example drift in exactly the layer being unified; a declarative queue keeps `input.json` the single scripting surface and stays golden-normalizable.
 - **Generalize beyond ACP (a transport-agnostic snapshot harness)** — no second transport exists; the harness is ACP-shaped end to end (SDK client, JSON-RPC frames, `session/update` waiters), and a speculative abstraction would be a seam split ahead of any consumer.
 
+## Testing
+
+Extraction preserved every existing ACP golden byte. The package's `src/` has per-file 100% coverage through a scripted ACP subprocess: harness tests cover every step operation, both expected-error branches, permission selection/fallback/impossible choice, environment forwarding, workspace seeding, and harvest ordering/noise/fallback; suite tests execute replay against committed synthetic fixtures and record against a temporary copy, plus the pure helpers. Two structurally unreachable guards retain reasoned coverage exclusions. The fake agent substitutes the `session/new` cwd into logs, including Darwin's `/var` realpath behavior, matching the real bin.
+
 ## Consequences
 
 A new example gets the whole snapshot tier from a scenario table plus fixtures — the sandbox branch merges master down and adds its own suite (own pin scenario, own overlay, fixtures via `test:snapshot:record`, approvals via `permissionAnswers`). The costs: `suite.ts` imports vitest, so the package is importable only inside a vitest run — a shape no other package has, stated in its README; each suite pins its own ~8 KB header fixture (a genuinely distinct composition deserves its own pin; an identical one would be caught by that suite's uniformity guard); and the e2e launcher duplication remains (`TODO(acp-test-harness)`) — the harness is the extraction target when that migration lands.

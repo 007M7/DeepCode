@@ -1,6 +1,6 @@
 /**
- * The harness error taxonomy: one base class so failures carry a stable, machine-routable
- * `code` and chain their `cause`, instead of flattening to a bare message string.
+ * Harness error base with a stable machine-routable code and chained cause.
+ * Package errors extend it so tool results and replay can retain failure class.
  * @module @deepseek-ai/dsh-llm/error
  */
 

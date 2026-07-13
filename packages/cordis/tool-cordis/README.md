@@ -12,7 +12,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 ## Trust stance
 
-The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services, and writes to `globalThis` stay local, but host-realm helpers and the privileged context make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access.
+The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## Config
 

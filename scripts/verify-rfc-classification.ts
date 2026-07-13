@@ -1,7 +1,8 @@
 /**
  * Enforce RFC lifecycle/class paths, dated filenames, and titles; verify the
  * generated index and reject index rows in the curated README. Structural rules
- * and rendering are shared with `rfc-index.ts`.
+ * and rendering are shared with `rfc-index.ts`; the closed classification
+ * contract lives in `docs/rfc/README.md`.
  */
 
 import { readFileSync } from 'node:fs'

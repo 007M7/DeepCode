@@ -2,7 +2,8 @@
  * The in-process FORK subagent backend: registers a {@link SubagentProvider} on
  * `ctx.subagents` that runs each child as a child {@link Agent} SEEDED with a prefix of the
  * parent's session log — so the child inherits the parent's conversation context instead of
- * starting fresh.
+ * starting fresh. The seed ends at the last `turn/end`: the current tool-call turn is
+ * unbalanced and cannot be replayed as a valid child session.
  * @module @deepseek-ai/dsh-subagent-fork
  */
 
@@ -32,8 +33,9 @@ export const Config: z<Config> = z.object({
 
 /**
  * The balanced completed-turn prefix of `parent`'s log: every event up to and including the
- * last `turn/end`.
- *
+ * last `turn/end`. The in-flight turn is excluded; before any completed turn the child starts
+ * fresh. Because live sequence numbers equal array indexes, the result remains a valid seed
+ * beginning at sequence zero.
  * @param parent - the agent whose session log to slice.
  * @returns the seed events, contiguous from seq 0; empty when no turn has completed.
  */

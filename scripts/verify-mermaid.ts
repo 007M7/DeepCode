@@ -1,6 +1,7 @@
 /**
- * Parse every repo-authored Mermaid fence with Mermaid itself. Scope matches the
- * Markdown link gate. Run with `tsx scripts/verify-mermaid.ts`.
+ * Parse every repo-authored Mermaid fence with Mermaid itself, catching syntax that link and fence
+ * checks cannot. Scope intentionally matches the Markdown link gate, including standing docs,
+ * package/example docs, and agent skills. Run with `tsx scripts/verify-mermaid.ts`.
  */
 
 import { globSync, readFileSync, realpathSync } from 'node:fs'

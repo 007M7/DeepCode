@@ -27,4 +27,4 @@ A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns fo
 
 ## Consequences
 
-Each bridge parses config, builds its dialect payload, invokes the shared runner and merge logic, maps the decision, and appends `hook/*`. `updatedInput` is parsed but only logged and warned until the [input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md) lands. The library's load path is exercised through its bridge consumers.
+Each bridge parses config, builds its dialect payload, invokes the shared runner and merge logic, maps the decision, and appends `hook/*`. Protocol tests cover every matcher mode, exit-code and codec field, runner plumbing, merge precedence, and audit helper at per-file 100%; bridge tests exercise the library's real load path. `updatedInput` is parsed but only logged and warned until the [input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md) lands.

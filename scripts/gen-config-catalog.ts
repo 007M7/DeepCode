@@ -1,8 +1,10 @@
 /**
  * Generate `docs/config-catalog.md` from package entry points, config types,
  * JSDoc, and static Schemastery schemas. Every package must classify, referenced
- * types must resolve without collisions, and schema paths must exist on the
- * declared config type. `--check` verifies the committed artifact.
+ * types must resolve without collisions, and every enumerable schema path must
+ * exist on the declared config type. External and dynamic shapes stay unknown;
+ * declared runtime-only fields need not appear in the schema. `--check` verifies
+ * the committed artifact.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -293,7 +295,7 @@ function declForTypeName(world: World, ctx: FileCtx, name: string): { decl: Type
     entry = loadFile(resolve(world.scanRoot, entryRel), entryRel, world.cache)
   } catch {
     // A workspace package without a readable entry is reported by its own
-    // classification pass; for a lookup it is merely out of reach.
+    // classification pass; for a lookup it is out of reach.
     return 'unknown'
   }
   return findExportedTypeDecl(world, entry, imp.imported) ?? 'unknown'
@@ -312,8 +314,9 @@ const PASSTHROUGH_WRAPPERS = new Set(['Partial', 'Required', 'Readonly', 'NonNul
  */
 function lookupPath(world: World, ctx: FileCtx, node: ts.Node, steps: PathStep[], seen: Set<string>): PathLookup {
   if (steps.length === 0) return 'found'
-  // Guard recursion at NAMED declarations only — the sole way a walk can loop (a recursive
-  // interface/alias).
+  // Guard only named declarations, where recursive types can loop. Structural
+  // children can share a source position with their parent, so guarding them
+  // would mistake ordinary descent for a cycle.
   if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
     const key = `${ctx.abs}:${node.pos}:${steps.length}`
     if (seen.has(key)) return 'unknown' // recursive type — bail rather than loop
@@ -713,8 +716,8 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     }
   }
 
-  // Second phase: fold composed schemas' key paths in, then walk every schema-validated path
-  // against the declared config type.
+  // Fold composed schemas' key paths in, then check each path against the type.
+  // Only a definite miss fails; shapes the walk cannot enumerate stay unknown.
   const byName = new Map(entries.map(e => [e.pkg, e]))
   for (const entry of entries) {
     if (entry.kind !== 'config' || entry.schemaKeys === null || entry.schemaKeys === undefined) continue

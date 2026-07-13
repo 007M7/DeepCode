@@ -11,7 +11,11 @@ import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
-/** Classification of a TypeScript fence and the gate that owns it. */
+/**
+ * TypeScript-fence ownership. `check` compiles; `ignore` is an unchecked sketch
+ * counted in the opt-out ratio; the catalog and type-equivalence variants are
+ * excluded from that ratio because their owning gates verify them.
+ */
 type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog' | 'persistence-catalog' | 'config-catalog'
 
 /** One extracted code block. */
@@ -101,10 +105,8 @@ files.sort()
 const all = files.flatMap(extractBlocks)
 const checked = all.filter(b => b.kind === 'check')
 const ignored = all.filter(b => b.kind === 'ignore')
-// `type-equiv`, `cordis-catalog`, and `persistence-catalog` blocks are verified elsewhere
-// (verify-type-equiv.ts and each catalog generator's `--check` freshness gate), not here:
-// neither compiled nor counted toward the opt-out ratio (each is a separate fully-checked
-// category, not an unchecked sketch).
+// Only compile-eligible fences belong in the opt-out ratio; every other skipped
+// kind has an independent verifier named in BlockKind's contract above.
 const ratioDenominator = checked.length + ignored.length
 
 if (checked.length === 0) {

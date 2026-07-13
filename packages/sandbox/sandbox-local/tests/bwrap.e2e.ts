@@ -9,8 +9,11 @@ import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { bwrapProfileArgs, LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * Keyless bwrap integration proof for the backend: the real `bwrap` confining real processes
- * through `confine()` + a direct spawn of the returned argv.
+ * Keyless backend integration through `confine()` and a real bwrap process. With no rung forced,
+ * a passing probe must select the first rung. Tests assert world effects, wrap shape, and that the
+ * kernel denial matches the advertised dialect; consumer coverage lives in dsh-bash-sandbox.
+ * Skips when bwrap or user namespaces are unavailable. HOME-based workspaces avoid bwrap's
+ * ephemeral `/tmp`, so workspace-write actually proves the workspace-root rebind.
  */
 
 const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

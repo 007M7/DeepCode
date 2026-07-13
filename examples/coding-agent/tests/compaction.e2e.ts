@@ -6,8 +6,12 @@ import type { Context } from 'cordis'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
-/** Key-gated smoke for mid-session compaction and continued agent progress. */
-// FIXME(compaction-snapshot): replay cannot serve the unlogged summarization model call.
+/**
+ * Key-gated smoke for mid-session compaction. It verifies the compact event
+ * pair, replacement of older surface nodes, and a final answer after compaction.
+ */
+// FIXME(compaction-snapshot): this is the only full compaction coverage because
+// replay cannot serve the summarizer's unlogged model call.
 
 let workdir: string | undefined
 let ctx: Context | undefined

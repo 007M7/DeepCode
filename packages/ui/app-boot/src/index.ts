@@ -11,8 +11,8 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 
 /**
- * Resolve the config to boot, honoring snapshot replay.
- *
+ * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
+ * `cordis.snapshot.yml` in the same directory; every other mode keeps the path.
  * @param configPath - the requested config path (absolute, or relative to `cwd`).
  * @param snapshotMode - the bin's `$DSH_SNAPSHOT` value; only `'replay'` swaps the
  *   basename.
@@ -62,8 +62,9 @@ export interface FailLoudProcess {
 }
 
 /**
- * Make a load failure fail loud with a clear message on stderr.
- *
+ * Install before boot to turn a late unhandled plugin-init rejection into one
+ * labelled stderr diagnostic and `exit(1)`. Stdout remains untouched for ACP;
+ * the returned function removes the handler.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
  * @returns the uninstaller that removes the rejection handler.
@@ -78,8 +79,9 @@ export function installFailLoud(binName: string, proc: FailLoudProcess = process
 }
 
 /**
- * After the tree settles, assert every loader entry actually started.
- *
+ * After the tree settles, reject entries with no fiber, which indicates a
+ * swallowed module-import failure. Disabled entries are the only valid
+ * fiber-less state.
  * @param ctx - the settled context whose loader entries to audit.
  * @param binName - the diagnostic prefix on the thrown error.
  */
@@ -92,9 +94,11 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 }
 
 /**
- * Boot the Loader against `absoluteConfigPath` and return the root context once the whole tree
- * has settled.
- *
+ * Boot the Loader against `absoluteConfigPath` and return only after the whole
+ * tree settles. The include uses an absolute file URL while `baseUrl` stays at
+ * the config directory for its relative imports. A missing fiber rejects here;
+ * a later init rejection is handled by {@link installFailLoud}. Built bins need
+ * `--expose-internals` for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).

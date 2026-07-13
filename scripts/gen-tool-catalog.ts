@@ -2,7 +2,8 @@
  * Generate `docs/tool-catalog.md` from schemas collected by booting each tool
  * plugin. Runtime registration is the source of truth for computed schemas;
  * the manifest is checked against every on-disk `tool-*` package. `--check`
- * verifies the committed artifact.
+ * verifies the committed artifact. Rationale and ownership live in
+ * `docs/rfc/implemented/process/2026-07-02-tool-schema-catalog.md`.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -35,7 +36,11 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
 
-/** Tool package plus the non-default dependencies needed to boot it. */
+/**
+ * Tool package plus its hand-maintained boot recipe. The caller mounts the
+ * prompt and registry; each recipe supplies only package-specific seams and
+ * config, while `dir` participates in the completeness check.
+ */
 interface ToolPackage {
   /** The npm package name, used as the catalog section heading. */
   pkg: string
@@ -134,7 +139,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
     writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
     async mount(ctx) {
-      // The tool injects `fs`; boot the local backend to satisfy it.
+      // The tool needs `fs`; the bare provider is sufficient because policy
+      // changes behavior, not schema shape.
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(ToolFs)
     },
@@ -207,8 +213,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
-      // The tools inject `web`; boot the seam plus one search and one fetch provider so both
-      // `web_search` and `web_fetch` register.
+      // Mount search and fetch providers so both tools register. Their schemas
+      // do not depend on provider identity or availability.
       await ctx.plugin(WebService)
       await ctx.plugin(WebSearchExa)
       await ctx.plugin(WebFetchLocal)

@@ -1,7 +1,8 @@
 /**
  * Verify that relative Markdown links, images, and definitions resolve. URL,
  * root-absolute, and in-page targets are excluded; query strings and fragments
- * do not affect the filesystem check. Symlinked instruction files are deduped.
+ * do not affect resolution against the source file. The checker never rewrites,
+ * and symlinked instruction files are deduped.
  */
 
 import { existsSync, globSync, readFileSync, realpathSync } from 'node:fs'

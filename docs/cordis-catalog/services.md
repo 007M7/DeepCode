@@ -19,7 +19,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:331`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:335`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -38,7 +38,7 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:131`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:133`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -50,11 +50,11 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:228`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:229`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
-Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+Registers one `ctx.bash` implementation. Runtime command failures resolve as BashRunResult; only infrastructure failures reject. Background starts return immediately without a timeout, report completion exactly once while live, and remain cancellable by signal or kill. Output reads are incremental and flag lost buffered data; disposal kills and awaits all tasks.
 
 ```ts cordis-catalog
 abstract resolve(request: BashExecRequest): BashExecSpec
@@ -70,11 +70,11 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:36`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:38`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
-Abstract code-execution service. Subclass, implement run and the two descriptors, and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
@@ -82,7 +82,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:29`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -99,7 +99,7 @@ Source: [`packages/compact/compact/src/index.ts:33`](../../packages/compact/comp
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
 ```ts cordis-catalog
 abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
@@ -127,11 +127,11 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:72`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
-Abstract process-sandbox service. Subclass, implement confine, and load the subclass as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
 
 ```ts cordis-catalog
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
@@ -139,7 +139,7 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:109`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:114`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -154,7 +154,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:59`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -173,7 +173,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:550`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:560`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -212,7 +212,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:210`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:211`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -229,7 +229,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:351`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:364`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -262,7 +262,7 @@ async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearc
 async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:79`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:78`](../../packages/web/web/src/index.ts)
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
 
@@ -272,7 +272,7 @@ Workflow execution seam. Invalid requests throw before publication; a live run i
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:152`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:157`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

@@ -43,8 +43,9 @@ export function oneTurnLog(): SessionEvent[] {
 }
 
 /**
- * Append a whole event log to a LIVE session, event by event, forwarding the surface metadata
- * each event already carries.
+ * Append recorded events to a live session while forwarding surface metadata verbatim. The broad
+ * `SessionEvent` union makes the typed marker optional, but the runtime guard must still reject a
+ * surface event whose fixture omitted it; this helper never synthesizes a default.
  */
 export function appendLog(session: Session, events: readonly SessionEvent[]): void {
   for (const e of events) {
@@ -217,7 +218,8 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       try {
         // Every value `isJsonValue` rejects must be rejected by the backend, not just BigInt —
         // otherwise a backend could pass this contract while still accepting values that
-        // corrupt the durable round-trip.
+        // corrupt the durable round-trip. Each value is carried in a plugin-added field on one
+        // user message so the contract covers the complete JSON-value boundary.
         const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
         cyclic['self'] = cyclic
         const badValues: unknown[] = [

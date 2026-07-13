@@ -289,7 +289,8 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
 
   it('a THROWING presentCall/presentResult is contained: generic fallback + onError, never propagates', () => {
     // A buggy tool whose display callbacks throw must not fail a live turn or a session/load
-    // replay (docs/defensive-patterns.md "contain callback exceptions at the boundary").
+    // replay (docs/defensive-patterns.md "contain callback exceptions at the boundary"). The
+    // presenter reports the error and falls back to generic rendering.
     const boom: ToolDefinition = {
       name: 'boom',
       description: 'b',
@@ -622,7 +623,7 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   // Drive the SHIPPING fs edit tool through the bridge: the pending tool/call installs the
   // call-time snippet, then the tool/result carries the tool's computed applied-hunk `meta`,
   // which presentResult narrows into a `diff` result card the bridge forwards as `{ type:
-  // 'diff' }` content blocks.
+  // 'diff' }` content blocks. The real tool is required because its result metadata is the contract.
   async function fsCtx(): Promise<Context> {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -676,7 +677,8 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   it('the completed diff TITLE relativizes against the session cwd (the result title replaces the card header)', async () => {
     // A `tool_call_update.title` replaces the card header, so the result-side diff must
     // relativize its title exactly as the pending card did — otherwise a completed
-    // absolute-path edit flips `Edit src/b.ts` back to the raw absolute path.
+    // absolute-path edit flips `Edit src/b.ts` back to the raw absolute path. Diff and location
+    // paths remain absolute so the editor can open the real file.
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
     const args = JSON.stringify({ file_path: '/work/proj/src/b.ts', old_string: 'OLD', new_string: 'NEW' })
@@ -698,7 +700,8 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   })
 
   it('a diff result with an EMPTY diffs array and no title omits both keys (nothing to send)', () => {
-    // A synthetic empty diff covers branches shipping filesystem tools cannot emit.
+    // Shipping edit always has a hunk and write falls back to a whole-file diff, so a synthetic
+    // tool is required to cover both absent-title and empty-content result branches.
     const emptyDiffTool: ToolDefinition = {
       name: 'writer',
       description: 'writes a file',
@@ -725,7 +728,8 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
 
 describe('relative-path display titles (bridge relativizes the title against the session cwd)', () => {
   // The bridge relativizes a file card's TITLE against the session workspace cwd (mirroring the
-  // reference adapter's toDisplayPath), while leaving locations/ diff paths RAW.
+  // reference adapter's `toDisplayPath`), while leaving location/diff paths raw. Use real fs tools
+  // and the absolute paths an editor supplies; presentation itself is args-only and lacks cwd.
   async function fsCtx(): Promise<Context> {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -777,7 +781,8 @@ describe('relative-path display titles (bridge relativizes the title against the
 
   it('an in-workspace file whose relative form starts with `..` chars (a sibling name) still relativizes', async () => {
     // `/work/proj/..cache/x` is inside the workspace — its relative form `..cache/x` begins
-    // with the chars `..` but is not a parent segment.
+    // with the chars `..` but is not a parent segment. Segment-aware guarding must relativize it,
+    // matching targets under `cwd + sep` in the reference adapter.
     const ctx = await fsCtx()
     const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/..cache/x.ts' })
     expect((update as { title: string }).title).toBe('Read ..cache/x.ts')

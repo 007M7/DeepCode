@@ -39,8 +39,8 @@ export interface SessionHeader {
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
   /**
-   * How many leading events were INHERITED via a seed rather than produced by this session —
-   * the seed boundary.
+   * How many leading events were inherited through a seed. Persisting this
+   * boundary lets resume and replay distinguish parent history from child work.
    */
   readonly seedLength?: number
 }
@@ -99,6 +99,7 @@ export interface TurnEndReasonMap {
    */
   error: { kind: 'error'; step: number; message: string; code?: string }
   disposed: { kind: 'disposed' }
+  /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
    * Policy blocked every prompt before the first step. The zero-step turn still
@@ -106,8 +107,8 @@ export interface TurnEndReasonMap {
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
-   * The turn never ended on its own: the process crashed mid-turn and a persistence backend
-   * later closed the orphaned (open) turn on reload so the log stays balanced.
+   * A persistence backend closed a crash-orphaned turn on reload. The loop never
+   * emits this marker, and the events recorded before the crash remain intact.
    */
   interrupted: { kind: 'interrupted' }
 }
@@ -198,10 +199,10 @@ export interface ToolsDelta {
 }
 
 /**
- * The session event vocabulary — the append-only source of truth for an agent's whole
- * interaction history. The LLM message history is *derived* from this log; nothing else is
- * authoritative. Replay = re-derive from the same events; trace/telemetry = subscribe to the
- * log.
+ * The merge-extensible, append-only source of truth for an agent interaction.
+ * Message history is derived from this log. Every event is lossless JSON and
+ * sequence numbers stay contiguous, including raw chunks, so persistence can
+ * store the canonical log verbatim.
  */
 export interface SessionEventMap {
   /**
@@ -224,8 +225,8 @@ export interface SessionEventMap {
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
-   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable record of a blocked
-   * prompt and why.
+   * Durable record of a prompt veto and its reason. It is log-only: the blocked
+   * prompt never enters the model-visible surface, including in a mixed batch.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
@@ -262,24 +263,19 @@ export interface SessionEventMap {
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   /**
-   * The agent's whole todo list, carried as a full snapshot and replaced wholesale on each
-   * write — the current list is the most recent `todo/write` (last-write-wins on replay, no
-   * fold). Appended by an owning agent via `session.append('todo/write', { todos })`.
+   * Whole-list snapshot; the latest write wins on replay. It is log-only UI
+   * state and never enters derived model history.
    */
   'todo/write': { todos: TodoItem[] }
   /**
-   * Full snapshot of the {@link EpochHeader} the NEXT request is built under, with the {@link
-   * RequestHeaderReason} it was recorded whole.
+   * Full {@link EpochHeader} for the next request, appended inside its step
+   * before dispatch. It is log-only and anchors subsequent deltas.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Amendment to the folded {@link EpochHeader}: at least one of a {@link SystemDelta}, a
-   * {@link ToolsDelta}, a whole replacement {@link LlmCallConfig} (four scalars — not worth
-   * diffing), or a whole replacement session prefix (`messagePrefix` — small advisory content,
-   * replaced whole; an EMPTY array encodes the transition to "none", mirroring the canonical
-   * form's absent field — the loop never produces one in practice: the prefix is composed once
-   * per instance and anchored by that instance's snapshot, so this arm exists for codec
-   * totality).
+   * Log-only amendment to the folded {@link EpochHeader}. System and tools use
+   * their delta codecs; config and prefix replace whole, with an empty prefix
+   * encoding removal. Writers verify round-trip equality or log a fallback snapshot.
    */
   'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }

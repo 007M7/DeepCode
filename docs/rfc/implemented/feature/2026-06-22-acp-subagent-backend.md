@@ -30,6 +30,12 @@ ACP `StopReason` → harness `SubagentStopReason`: `end_turn`→`completed`, `ma
 
 The child is a separate process, so it inherits an environment. Credential-shaped ambient vars (`/KEY|SECRET|TOKEN/i`) are NOT forwarded by default — the parent harness's own secrets must not leak into a spawned process implicitly (the same policy the bash executor applies). The child's OWN credentials (it needs a model key) are supplied EXPLICITLY via `config.env`, layered AFTER the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental `AWS_SECRET_ACCESS_KEY` does not. Child stderr is inherited to the parent's stderr (diagnostics surface naturally); a spawn-level `error` event (e.g. ENOENT for a bad command) is captured and raced against the ACP drive, so a bad command settles `error` instead of crashing the parent with an unhandled error.
 
+## Testing
+
+- **Keyless unit/integration:** A scripted ACP subprocess exercises real stdio for prompt/output flow, every stop-reason mapping, signal and disposal cancellation (including pre-abort, pre-session race, and torn-pipe cases), both permission policies, ignored non-message updates, missing-command cleanup, provider reload, and namespace exports.
+- **With-key e2e:** The backend spawns the real ACP example; its model answers `PONG`, writes `proof.txt`, and the parent verifies the file.
+- **Snapshot gap:** Each ACP child is a separate process with its own replay session, unlike in-process per-session replay. Deterministic mock-server coverage exists, while `TODO(acp-subagent-replay)` tracks parent replay against a replaying child.
+
 ## Alternatives considered
 
 ### Why stay on SDK 0.25.1?

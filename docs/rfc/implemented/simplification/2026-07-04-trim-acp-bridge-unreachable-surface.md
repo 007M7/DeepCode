@@ -11,7 +11,7 @@ Two pieces of `dsh-acp` surface were unreachable from any shipped configuration:
 
 ## Decision
 
-Hardcode the existing handshake identity at initialization and remove the unreachable config fields and duplicate defaults. Replace `toolKindFor` with neutral `'other'` at both presenter fallbacks. Normal first-party presentations are unchanged; malformed or failed presentations now render an honest generic card instead of inferring a kind from the tool name.
+Hardcode the existing handshake identity `{ name: 'deepseek-harness-acp', version: '0.0.1' }` at initialization and remove the unreachable config fields and duplicate defaults. Replace `toolKindFor` with neutral `'other'` at both presenter fallbacks. Normal first-party presentations are unchanged; malformed or failed presentations now render an honest generic card instead of inferring a kind from the tool name. Initialize tests and snapshots pin the handshake; only the malformed calls in `hook-codex-posttool-block` change fallback card kind.
 
 ## Alternatives considered
 

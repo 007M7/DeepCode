@@ -70,8 +70,8 @@ describe('hooks-codex coverage — decision mapping paths', () => {
   })
 
   it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
-    // Context alone is not a veto: a downstream agent/prompt-submit listener (a policy plugin
-    // registered after the bridge) must still get to block.
+    // Context alone is not a veto: the bridge delegates with `next()` and folds its context, so a
+    // downstream policy listener can still block.
     const d = dir()
     hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n') }] }] })
     const adapter = new MockAdapter([textResponse('should not run')])
@@ -437,8 +437,9 @@ describe('hooks-codex coverage — decision mapping paths', () => {
   })
 
   it('a NON-clean SessionStart hook (exit 2) does NOT inject its stdout as context', async () => {
-    // The plain-stdout→context fold is gated on exitCode === 0, matching the codec's
-    // structured-stdout rule.
+    // SessionStart cannot block, but non-clean stdout still must not become context. The marker
+    // waits for detached completion; `echo stale; exit 2` then proves the exit-code gate matches
+    // the codec's structured-stdout rule.
     const d = dir()
     const marker = join(d, 'ran')
     hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', `#!/usr/bin/env bash\ntouch "${marker}"\necho "stale"\nexit 2\n`) }] }] })

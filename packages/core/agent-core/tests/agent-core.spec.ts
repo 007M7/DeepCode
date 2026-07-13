@@ -187,7 +187,8 @@ describe('dsh-agent-core bundle', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // A default export would make Loader discard this namespace's plugin metadata.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config`. Apps import the bundle directly, so this is its Loader-shape guard.
     expect('default' in agentCore).toBe(false)
     expect(typeof agentCore.apply).toBe('function')
 

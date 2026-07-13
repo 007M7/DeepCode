@@ -1,8 +1,8 @@
 /**
- * The filesystem provider seam (`ctx.fs`): an abstract service defining the text-storage
- * primitives a backend provides — resolve a path into a stable target, stat its metadata,
- * read/stream its text, write it atomically with an explicit intent, and apply a guarded
- * literal edit — without saying how.
+ * Filesystem text-storage provider seam. Backends own stable target identity,
+ * text decoding, binary rejection, and atomic mutations. Read windows and
+ * observed-state policy stay in consumer and policy plugins; `editText` remains
+ * here so version check, literal match, and rewrite share one critical section.
  * @module @deepseek-ai/dsh-fs
  */
 
@@ -41,26 +41,25 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Single-slot decision: produce the write intent for the next {@link
-     * FileSystem.writeText}.
-     *
+     * Single-slot decision for the next {@link FileSystem.writeText}. Calling
+     * `next()` yields the bare provider's unconditional write; the first listener
+     * that returns an intent owns the decision rather than composing with peers.
      * @param target - the resolved target about to be written.
      * @param actor - the opaque tool-execution context the decider keys off.
      * @mode waterfall
      */
     'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
     /**
-     * Single-slot decision: produce the optional version guard for the next {@link
-     * FileSystem.editText}.
-     *
+     * Single-slot decision for the next {@link FileSystem.editText}. Calling
+     * `next()` yields an unconditional edit; the first returned guard wins.
      * @param target - the resolved target about to be edited.
      * @param actor - the opaque tool-execution context the decider keys off.
      * @mode waterfall
      */
     'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
     /**
-     * Record that an actor observed a target at a version, after a successful read/write/edit.
-     *
+     * Record a successful observation. Listeners must be synchronous recorders:
+     * throws fail the tool call and returned promises are not awaited.
      * @param target - the target that was read/written/edited.
      * @param version - the version the actor now holds as its observation.
      * @param actor - the observing tool-execution context; undefined records nothing useful.
@@ -71,9 +70,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract filesystem provider service. Subclass, implement the seven storage primitives, and
- * load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context;
- * loading a second throws, cordis' standard duplicate-service behavior).
+ * Abstract filesystem provider. Targets must preserve identity across aliases;
+ * reads expose regular UTF-8 text or typed errors, listings are stable and
+ * content-free, and mutations are atomic. Optional guards add stale protection
+ * without changing the unguarded provider contract.
  */
 export abstract class FileSystem extends Service {
   constructor(ctx: Context) {
@@ -139,8 +139,9 @@ export abstract class FileSystem extends Service {
   abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 
   /**
-   * Apply a literal edit to an existing UTF-8 text file.
-   *
+   * Atomically edit literal text. When supplied, the version guard is checked
+   * before matching so stale content reports `FS_STALE_VERSION`; omission edits
+   * the current content without a freshness precondition.
    * @param target - the resolved target to edit.
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.

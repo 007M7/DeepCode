@@ -1,5 +1,7 @@
 /**
- * `@deepseek-ai/dsh-timeout-policy`: the tool-call timeout policy.
+ * Cooperative tool-call timeout enforcer. A tool declares `timeoutMs` and
+ * promises to honor `exec.signal`; this wrapper arms that deadline and maps its
+ * own expiry to `TOOL_TIMEOUT` without racing or abandoning the tool promise.
  * @module @deepseek-ai/dsh-timeout-policy
  */
 
@@ -42,7 +44,9 @@ export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecut
 }
 
 /**
- * Register the tool-call timeout enforcer.
+ * Register the timeout wrapper. It resolves the caller-visible tool definition,
+ * temporarily replaces `exec.signal`, delegates, restores the upstream signal,
+ * and replaces the result only when this wrapper's own timer fired.
  */
 export function apply(ctx: Context): void {
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {

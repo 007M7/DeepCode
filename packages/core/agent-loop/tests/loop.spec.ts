@@ -518,8 +518,8 @@ describe('agent loop', () => {
   })
 
   it('agent/pre-step fires BEFORE the step it precedes opens (events land outside the step)', async () => {
-    // A listener appending a surface node in pre-step lands it before step/start in the log —
-    // proving the seam fires outside the step.
+    // The append lands before step/start, yet derive happens afterwards and the
+    // same step's request must include it.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -552,9 +552,8 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener ends the turn (error), not the loop', async () => {
-    // The seam fires before step/start, so a throw escapes to runTurn's outer catch: the
-    // not-yet-open step closes as a no-op, the failure surfaces via agent/error, and the turn
-    // ends `error` (recorded on the durable turn/end).
+    // Before step/start, a pre-step throw reaches the turn catch: no step needs
+    // closing, the turn records error, and the loop remains available.
     const adapter = new MockAdapter([textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -621,7 +620,7 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // and the reason is recorded in the log's turn/end event
+    // Assert the durable row, not only the live listener.
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
     expect(turnEnd!.data.reason).toEqual({ kind: 'max-tokens' })
   })
@@ -710,8 +709,8 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // No-data-loss: a max-tokens step whose only content was a dropped tool call has EMPTY
-    // assistant content, but its usage must still be represented.
+    // Empty content still needs an assistant/message to carry usage; derivation
+    // skips that host so it does not create a spurious assistant turn.
     const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
     expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
       turn: 1, step: 1, content: [], usage: { inputTokens: 10, outputTokens: 5 },

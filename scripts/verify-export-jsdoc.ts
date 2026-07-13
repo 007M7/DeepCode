@@ -1,9 +1,10 @@
 /**
  * Enforce JSDoc on every non-vendored package export. Functions and public
  * class methods require parameter and non-void return documentation; exported
- * declarations require description prose. Framework protocol slots,
- * constructors, inherited members, augmentations, and source re-exports keep
- * their documentation at the declaring contract. Unknown export forms fail.
+ * declarations require description prose. Inline callable types, overload
+ * signatures, namespace members, and public class members are included;
+ * framework slots, constructors, inherited contracts, augmentations, and source
+ * re-exports keep their docs at the declaring contract. Unknown forms fail closed.
  */
 
 import { existsSync, globSync } from 'node:fs'

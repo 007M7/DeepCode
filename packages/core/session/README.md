@@ -8,8 +8,8 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Public API
 
-- `ctx.sessions.create(id?, options?)` validates and detaches durable seed/header data, publishes the session, and binds it to the calling fiber.
-- `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. It rejects unpublished, detached, or stale objects.
+- `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt` and `seedLength`.
+- `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; unpublished, detached, and stale objects reject.
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
@@ -18,9 +18,9 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 Use the split lifecycle only when teardown must be ordered with another resource:
 
-- `prepare(id?, options?)` constructs without publication.
-- `enter(session)` performs the collision check, publishes without announcing, and returns an entry-bound idempotent detach.
-- `announce(session)` emits the single creation edge. Detach during that dispatch is deferred and later emits the paired disposal edge.
+- `prepare(id?, options?)` validates and constructs without publication.
+- `enter(session)` performs the collision check, publishes without announcing, and returns an entry-bound idempotent detach. Concurrent same-id preparations are allowed, but only one entry succeeds; a stale detach cannot remove its replacement.
+- `announce(session)` emits the single creation edge and rejects repeat or reentrant announcements. Detach during that dispatch is deferred and later emits the paired disposal edge; an unannounced entry emits neither lifecycle edge.
 
 `dsh-agent-loop` uses this split so final loop flush precedes session detach; see the [ownership RFC](../../../docs/rfc/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md).
 
@@ -32,10 +32,10 @@ The store pairs announced creation with disposal, publishes post-commit append n
 
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
-- `session.append(type, data, opts?)` snapshots and freezes durable data, commits synchronously, then notifies observers with failure containment. Reentrant attached-session appends reject.
-- `session.deriveMessages()` incrementally projects the derived surface and returns a fresh array over frozen messages.
+- `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
+- `session.deriveMessages()` incrementally projects each new surface node once and returns a fresh array over shared frozen messages. A surface rewrite rebuilds the projection; there is no raw-log fallback.
 - `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and invariants.
-- `session.surface` lazily folds new `surfaceOp` markers; `replaceGeneration` changes on rewrites.
+- `session.surface` lazily folds only new `surfaceOp` markers; `replaceGeneration` changes on every rewrite or invalidation.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
 - `session.seq`, `session.id` — current sequence and readonly typed identity.
 - `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`). Construction validates the durable record and requires its id to match `session.id`.

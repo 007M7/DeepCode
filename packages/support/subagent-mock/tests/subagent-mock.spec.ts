@@ -105,7 +105,7 @@ describe('dsh-subagent-mock', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/Config/apply', () => {
-    // Loader must retain this namespace's injection metadata.
+    // A default export would make Loader unwrap only that value and drop `inject`.
     expect('default' in mock).toBe(false)
     expect(mock.name).toBe('subagent-mock')
     expect(mock.inject).toEqual(['subagents'])

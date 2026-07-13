@@ -1,6 +1,8 @@
 import stylistic from '@stylistic/eslint-plugin'
 import tseslint from 'typescript-eslint'
 
+// Strict type-aware correctness rules plus repository formatting. Tests/examples relax deliberate
+// mock unsafety; vendored sources retain upstream style and receive only selected safety checks.
 export default tseslint.config(
   {
     ignores: [
@@ -24,7 +26,8 @@ export default tseslint.config(
     ],
     languageOptions: {
       parserOptions: {
-        // Share one project service to avoid per-package graphs and excessive memory.
+        // One project service resolves each file to its owning tsconfig and shares dependency
+        // graphs. Per-package programs duplicated path-mapped and Cordis closures, reaching ~5 GB.
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

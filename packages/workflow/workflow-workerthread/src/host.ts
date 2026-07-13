@@ -1,6 +1,8 @@
 /**
- * Host side of one workflow run. Owns the worker, child RPC, first-outcome
- * settlement, cancellation grace, lifecycle pairing, and quiescent cleanup.
+ * Host side of one workflow run. The first worker result, unexpected death, or
+ * cancellation-grace expiry owns settlement and closes message admission.
+ * Pending starts share one abort signal; published children share idempotent
+ * cleanup, and quiescence waits for both while synthesizing any missing end events.
  * @module @deepseek-ai/dsh-workflow-workerthread/host
  */
 

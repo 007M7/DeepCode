@@ -1,6 +1,7 @@
 /**
- * The model-facing filesystem tool suite (`read`, `write`, `edit`) over the `ctx.fs` provider
- * seam. This single plugin registers all three tools.
+ * Model-facing read, write, and edit tools over `ctx.fs`. This package owns schemas, validation,
+ * read windows, formatting, and observation events, never a concrete provider. An optional
+ * event policy supplies mutation guards; without one the tools use unconditional provider calls.
  * @module @deepseek-ai/dsh-tool-fs
  */
 

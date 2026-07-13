@@ -73,8 +73,8 @@ export class BlockAssembler {
       }
       case 'block-end': {
         const partial = this.ensure(chunk.index, chunk.block.type)
-        // First close wins: a second block-end for an already-closed index is a straggler (same
-        // rule as post-close deltas).
+        // First close wins; ignoring re-close stragglers keeps streamed output
+        // and the final assembled block in agreement.
         if (partial.block) return
         partial.block = chunk.block
         return chunk.block

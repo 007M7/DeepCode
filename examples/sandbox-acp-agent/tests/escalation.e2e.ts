@@ -17,7 +17,10 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * examples/sandbox-acp-agent end to end.
+ * Sandbox ACP end to end. The keyless leg boots the real composition through
+ * initialize and session/new without a model or runner. With a key and runner,
+ * a scripted client grants a read-only denial's escalation once and the retried
+ * write must land on disk; unavailable prerequisites self-skip.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
@@ -27,8 +30,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-// A usable confining runner, probed the same way the executor suites do: bwrap on Linux,
-// Seatbelt's sandbox-exec on macOS.
+// Without a usable bwrap/Seatbelt runner, the strict attempt fails closed with
+// SANDBOX_UNAVAILABLE instead of producing the denial this flow requires.
 const hasBwrap = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--', 'true'], {
   timeout: 5_000,
   stdio: 'ignore',

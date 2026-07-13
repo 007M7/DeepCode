@@ -75,6 +75,9 @@ function isHeaderLine(value: unknown): value is HeaderLine {
  * Encode an arbitrary string as a single safe path segment, injectively over ALL JS (UTF-16)
  * strings — including lone surrogates. A {@link SessionId} is an unvalidated branded string,
  * so this neutralizes `../`, absolute paths, NUL, and separators before any filesystem use.
+ * Safe code units remain literal; every other unit, including `~`, becomes
+ * `~XXXX`. Operating on code units preserves lone surrogates, while special-
+ * casing `.` and `..` prevents traversal by an otherwise safe whole segment.
  *
  * @param raw - the string to encode; must be non-empty (throws on `''`).
  * @returns the escaped single path segment, decodable back to `raw`.
@@ -132,9 +135,10 @@ export function eventLine(event: SessionEvent): string {
 }
 
 /**
- * Parse a JSONL log buffer into its preserved event prefix (the header is line 0). Returns the
- * longest prefix of complete, seq-contiguous events plus the byte offset of the end of the
- * last preserved line (`committedBytes`).
+ * Parse a JSONL log buffer into its preserved event prefix (the header is line
+ * 0). Fully written events in an interrupted final turn remain part of the
+ * prefix. The first unparsable record or seq gap after the last `turn/end`
+ * marks a tolerated torn tail; the same hole in the committed region rejects.
  *
  * @param buffer - the raw bytes of the log file (header line first).
  * @returns the header, the preserved event prefix, and `committedBytes` — the
@@ -142,9 +146,8 @@ export function eventLine(event: SessionEvent): string {
  */
 export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionEvent[]; committedBytes: number } {
   const text = buffer.toString('utf8')
-  // Split into complete (newline-terminated) lines, tracking the byte offset of each line's end
-  // so the truncation point is exact (multi-byte chars make the char offset differ from the
-  // byte offset).
+  // Track complete lines by byte offset: a non-newline tail is torn and ignored,
+  // and a running counter avoids rescanning a long multi-byte log.
   const lines: { text: string; endByte: number }[] = []
   let start = 0
   let byteOffset = 0
@@ -172,8 +175,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
   }
   const headerLine = parsedHeader
 
-  // Find the committed region: the prefix up to and including the LAST complete `turn/end` in
-  // the WHOLE log.
+  // Parse every complete record first so the last valid `turn/end` determines
+  // whether an earlier hole is committed corruption or an uncommitted tail.
   interface Parsed { ok: boolean; event?: SessionEvent; endByte: number }
   const parsed: Parsed[] = eventEntries.map((entry) => {
     try {
@@ -191,8 +194,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
     if (p?.ok && p.event?.type === 'turn/end') { lastTurnEnd = i; break }
   }
 
-  // Walk the longest PREFIX of complete, seq-contiguous, parseable event lines (line i is a
-  // parsed event with seq === i).
+  // Preserve the contiguous prefix, including a complete interrupted turn;
+  // holes through the last committed boundary throw, while later holes stop.
   const preserved: SessionEvent[] = []
   for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i]

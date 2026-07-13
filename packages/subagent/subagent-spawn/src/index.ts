@@ -12,8 +12,8 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
-// `tools` is deliberately not injected: the shared driver registers structured output through
-// the child's creation context, whose factory already requires the tool service.
+// `tools` is deliberately not injected: the child factory already provides it during setup,
+// and adding it here would unnecessarily change this provider's apply timing.
 export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */

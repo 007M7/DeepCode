@@ -2,7 +2,8 @@
  * Integration: the real fetch backend (`dsh-web-fetch-local`) + a real search provider
  * (`dsh-web-search-exa`) + the real seam (`dsh-web`) + the model tool (`dsh-tool-web`) + the
  * tool-call timeout policy (`dsh-timeout-policy`), exercised through `ctx.tools.execute()` —
- * nothing bypasses the tool registry.
+ * nothing bypasses the tool registry. Fetch verifies world effects against loopback HTTP; search
+ * uses the real Exa provider with only its network boundary stubbed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -157,7 +158,8 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
 
   it('the provider backstop still protects a DIRECT ctx.web.fetch() call (no tool-call policy in that path)', async () => {
     // A direct seam caller does not go through tools/execute, so the tool-call policy never
-    // applies; the provider's own timeout is the only budget.
+    // applies; the provider's own timeout is the only budget. A short request hint must therefore
+    // produce provider-owned `WEB_FETCH_TIMEOUT`, never `TOOL_TIMEOUT`.
     const err = await tctx.web.fetch({ url: slowBase, timeoutMs: 50 }).then(
       () => undefined,
       (e: unknown) => e as { code?: string },

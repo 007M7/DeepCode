@@ -1,5 +1,7 @@
 /**
- * Generate (and verify) the module dependency graph in docs/module-graph.md.
+ * Generate `docs/module-graph.md` from in-repo `peerDependencies`, the canonical
+ * runtime edges. The deterministic output groups packages by directory and
+ * renders both Mermaid and a dependency table; `--check` verifies freshness.
  */
 
 import { dirname, resolve } from 'node:path'
@@ -161,8 +163,8 @@ if (process.argv.includes('--check')) {
   try {
     committed = readFileSync(resolve(root, OUT), 'utf8')
   } catch {
-    // Only an ENOENT (file not yet generated) is expected here; readFileSync of a
-    // present-but-unreadable file is not a state this repo produces.
+    // A missing artifact is the expected read failure. Any read failure has the
+    // same remedy here—regenerate—so it is reported as stale below.
     committed = null
   }
   if (committed === content) {

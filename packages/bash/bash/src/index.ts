@@ -29,9 +29,11 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract bash execution service. Subclass, implement the abstract methods, and load the
- * subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a
- * second throws, which is cordis' standard duplicate-service behavior).
+ * Registers one `ctx.bash` implementation. Runtime command failures resolve as
+ * {@link BashRunResult}; only infrastructure failures reject. Background starts
+ * return immediately without a timeout, report completion exactly once while
+ * live, and remain cancellable by signal or {@link kill}. Output reads are
+ * incremental and flag lost buffered data; disposal kills and awaits all tasks.
  */
 export abstract class BashExecutor extends Service {
   private listeners = new Set<BashTaskListener>()
@@ -51,7 +53,8 @@ export abstract class BashExecutor extends Service {
    * The sandbox mode this executor confines commands under BY DEFAULT, or `undefined` when it
    * does not sandbox at all — the capability fact the tool and ACP layers read to advertise
    * sandbox controls honestly.
-   *
+   * A session or call may override this default, so widening is evaluated per
+   * execution rather than encoded in this getter.
    * @returns the configured default mode of a sandboxing executor;
    *   `undefined` for an executor that never confines.
    */
@@ -92,7 +95,8 @@ export abstract class BashExecutor extends Service {
   /**
    * The opaque OWNER token recorded for a background task at {@link start} (from the {@link
    * BashExecSpec}'s `owner`), or `undefined` for an unknown id OR a known-but-ownerless task.
-   *
+   * The executor stores the token without interpreting policy; keeping it here
+   * lets ownership survive a consumer-plugin reload.
    * @param id - the background task id to look up ownership for.
    * @returns the token recorded at start, verbatim; undefined for an unknown
    *   id or a known-but-ownerless task.

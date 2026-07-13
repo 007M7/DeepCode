@@ -1,4 +1,9 @@
-/** Agent loop driver with turn-level error containment. @module dsh-agent-loop/loop */
+/**
+ * Drives one agent across queued durable turns. Turn failures are contained so
+ * later work can run; the session log, not this driver, owns conversation state.
+ * See docs/rfc/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md.
+ * @module dsh-agent-loop/loop
+ */
 
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
@@ -78,7 +83,7 @@ export interface LoopHandle {
   cancelReason(): string
   /** Clear the cancel marker (called once per iteration after the turn returns). */
   clearCancel(): void
-  /** Settle idle waiters when a cancelled turn is skipped without a status transition. */
+  /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
 }
 
@@ -267,7 +272,9 @@ async function runTurn(
         break
       }
 
-      // Compose, detach, and freeze the per-instance prefix before pressure checks.
+      // Compose the request-only prefix once per loop instance before pressure
+      // checks. It precedes all derived history and is recorded only in the
+      // request header, not as session history.
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
         const composed = await events.waterfall(
@@ -294,7 +301,8 @@ async function runTurn(
         break
       }
 
-      // Snapshot the exact log prefix before step/start: the reconstruction boundary.
+      // Snapshot the exact log prefix before step/start: the reconstruction
+      // boundary. Appends after this synchronous snapshot join the next request.
       const boundaryMessages = session.deriveMessages()
 
       session.append('step/start', { turn, step })
@@ -444,13 +452,12 @@ function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boole
   return messages.length > 0
 }
 
-/** One step: build the request from the boundary snapshot + the step's
- * header → compose the session prefix if this instance has none yet → log
- * the header event the request owes → stream model → record → execute
- * tools. The caller assembles the
- * system prompt, fires the `agent/pre-step` seam, snapshots the derivation,
- * and opens the step BEFORE calling this, so `boundaryMessages` is exactly
- * the surface prefix at step/start and already reflects any compaction. */
+/**
+ * Run one committed step: transform call config, log the request header, build
+ * the request from the cached prefix plus the step-boundary snapshot, stream and
+ * record the response, then execute tools. The caller has already assembled the
+ * prompt, run `agent/pre-step`, snapshotted history, and opened the step.
+ */
 async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
@@ -560,7 +567,8 @@ async function runStep(
     } catch {
       parsedArguments = call.arguments
     }
-    // TODO(pre-tool-input-rewrite): A rewrite must keep logged history and live presentation aligned.
+    // TODO(pre-tool-input-rewrite): Keep logged history and live presentation aligned;
+    // see docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md.
     const result = await ctx.tools.execute({
       callId: call.id,
       name: call.name,

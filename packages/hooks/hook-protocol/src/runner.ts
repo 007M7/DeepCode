@@ -1,8 +1,8 @@
 /**
- * Run one configured command hook through the `ctx.bash` executor seam and parse its outcome
- * into a {@link HookOutput}. This is where the wire protocol's EXECUTION half lives: feed the
- * hook its JSON payload on stdin, hand it the dialect's env vars, honor its timeout, capture
- * stdout/stderr/exit, and decode.
+ * Execute command hooks through `ctx.bash`, using its credential scrub,
+ * process-group cancellation, and timeout machinery. The bridge supplies the
+ * trusted stdin payload and dialect environment, then this module decodes the
+ * captured outcome.
  * @module @deepseek-ai/dsh-hook-protocol/runner
  */
 
@@ -54,9 +54,10 @@ export interface RunHookResult {
 }
 
 /**
- * Run `hook` via `bash` with `options.payload` serialized to its stdin, then decode the result
- * into a {@link HookOutput}.
- *
+ * Run `hook` with serialized stdin and decode its outcome. A hook-specific
+ * timeout in seconds overrides the default; trusted environment entries merge
+ * after the executor scrub. Infrastructure rejection becomes an outcome with
+ * no exit code, so this function never throws or crashes the calling turn.
  * @param bash - the executor seam the command runs through.
  * @param hook - the configured command; its `timeoutSec` (wire unit: seconds) overrides the default timeout.
  * @param options - the invocation's payload, env, cwd, signal, stdin framing, and default timeout.

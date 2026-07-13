@@ -1,6 +1,11 @@
 /**
- * Provider-bound model tool that delegates to one child agent, awaits its
- * result, and always disposes the run. Provider lifecycle controls registration.
+ * Model-facing delegation tool bound by configuration to one provider; transport selection is not
+ * exposed in its `{ description, prompt }` schema. Provider lifecycle controls registration and
+ * re-derives conversation-history wording after reload, so load order is irrelevant.
+ *
+ * Execution synchronously awaits the child result and always disposes the run. Non-completed stop
+ * reasons become error results, while transport details remain behind `ctx.subagents`. Load this
+ * plugin more than once to expose multiple configured providers.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -77,7 +82,8 @@ export const Config: z<Config> = z.object({
     model: z.string(),
   }).default(undefined as unknown as { model: string }),
   persona: z.string(),
-  // Preserve omitted filters and nested lists; an empty allow-list means deny all.
+  // Schemastery otherwise materializes omitted objects and nested arrays as `{ allow: [] }`, which
+  // silently means deny all. Preserve omission while retaining an explicit empty allow-list.
   toolFilter: z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
@@ -253,7 +259,7 @@ export function apply(ctx: Context, config: Config): void {
   if (present !== undefined) {
     mount(present)
   } else {
-    // Not an error: the backend's fiber may simply activate after this one.
+    // Not an error: the backend's fiber may activate after this one.
     // The tool appears the moment the provider registers; a typo'd provider
     // name shows up as this note plus a tool that never materializes.
     ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)

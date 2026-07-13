@@ -703,7 +703,9 @@ describe('ToolRegistry', () => {
   })
 
   it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
-    // The async probe distinguishes nested LIFO teardown from a sibling effect.
+    // Registry methods return the exact Cordis effect disposer so a composite yield places
+    // unregistration at its LIFO position. A wrapper would create a concurrent sibling; this async
+    // probe yields during earlier teardown and would then observe the tool already removed.
     const ctx = await setup()
     const order: string[] = []
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -990,20 +992,18 @@ describe('schema DSL edge cases', () => {
         port: { type: 'number' },
       },
     })
-    // no 'required' key in the nested object because nothing is required
     const config = jsonSchema.properties['config'] as Record<string, unknown>
     expect('required' in config).toBe(false)
   })
 })
 
-describe('schema DSL regressions (Codex review round 2)', () => {
+describe('schema DSL optional and nested contracts', () => {
   it('InferArgs makes non-required keys genuinely optional (omittable)', () => {
     type Args = InferArgs<{
       path: { type: 'string'; required: true }
       limit: { type: 'number' }
     }>
     expectTypeOf<Args>().toEqualTypeOf<{ path: string; limit?: number }>()
-    // omitting the optional key is assignable — the actual regression
     const omitted: Args = { path: '/tmp' }
     expect(omitted.limit).toBeUndefined()
   })

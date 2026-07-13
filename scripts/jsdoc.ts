@@ -3,7 +3,8 @@
  * catalog generator (`scripts/gen-cordis-catalog.ts` — the events + `ctx.<key>` service
  * surface), the plugin config catalog generator (`scripts/gen-config-catalog.ts`, which
  * renders the parsed prose), and the export-surface gate (`scripts/verify-export-jsdoc.ts` —
- * every module-level export).
+ * every module-level export). This is the single definition of description,
+ * parameter, return, and stale-tag completeness across those surfaces.
  */
 
 import ts from 'typescript'
@@ -25,8 +26,9 @@ export function rawJsDoc(text: string, node: ts.Node): string {
 export type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
 
 /**
- * Parse a raw JSDoc block into description prose + the `@mode` tag (when present).
- *
+ * Parse a raw JSDoc block into description prose and an optional `@mode`. Prose
+ * ends at the first block tag, paragraphs collapse to one line, bullet items
+ * remain separate lines, and `{@link X}` renders as `X`.
  * @param raw - the raw comment text including the JSDoc delimiters.
  * @returns the collapsed description prose plus the parsed `@mode` (or null).
  */
@@ -80,9 +82,8 @@ export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
 }
 
 /**
- * Parse the block tags of a raw JSDoc comment for the completeness checks: every `@param name
- * — description` entry plus the `@returns` description.
- *
+ * Parse `@param` and `@returns` descriptions, including continuation lines.
+ * Parameter separators are optional and `[optional]` names unwrap.
  * @param raw - the raw comment text including the JSDoc delimiters.
  * @returns the `@param` name→description map plus the `@returns` description
  * (null when the tag is absent, '' when present but empty).
@@ -119,13 +120,15 @@ export function parseTags(raw: string): { params: Map<string, string>; returns: 
 }
 
 /**
- * Check that required parameter tags exist and no stale tag remains.
+ * Require a non-empty tag for each non-exempt identifier parameter, reject
+ * binding-pattern parameters, and reject stale tags. Exempt parameters may
+ * still be documented.
  * @param where - the offender label violations open with, e.g. `event 'x' (file:1)`.
- * @param surface - surface noun used in diagnostics.
+ * @param surface - surface noun used in binding-pattern diagnostics.
  * @param parameters - the declaration's parameter list.
  * @param tags - the parsed `@param` name→description map from parseTags.
  * @param sf - source file used to render binding patterns.
- * @param isExempt - parameters that need no tag.
+ * @param isExempt - parameters whose tag is optional, such as `this` or waterfall `next`.
  * @param violations - the aggregate list violations append to.
  */
 export function checkParams(
@@ -157,8 +160,8 @@ export function checkParams(
 /**
  * Check the `@returns` half of the completeness contract: a non-`void` / `Promise<void>`
  * return needs a non-empty `@returns`, and the return type must be ANNOTATED — a pure-AST
- * walk cannot classify an inferred return.
- *
+ * walk cannot classify an inferred return. Void returns may still carry an
+ * optional tag, for example to document resolution timing.
  * @param where - the offender label violations open with.
  * @param typeNode - the declared return type annotation, or undefined when inferred.
  * @param returns - the parsed `@returns` description from parseTags (null when absent).

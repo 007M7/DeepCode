@@ -75,12 +75,15 @@ const SCENARIOS: Scenario[] = [
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
   { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
-  // Hook matrix — one scenario per hook point × its headline Decision outcome, across BOTH
-  // bridges (Claude `hooks.json`, Codex `codex-hooks.json`, seeded in workspace/).
+  // Prompt-submit blocks are authored keylessly: they persist a rejected turn
+  // and hook events without starting a model step, so their logs still compare.
   { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
   { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
+  // SessionStart/SubagentStart are excluded because detached injection races log
+  // order; SubagentStop writes no transcript, so a golden could not prove it ran.
+  // Unit tests cover those points; the hook-snapshot-matrix RFC owns the rationale.
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
@@ -97,7 +100,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
   // Code Mode: the registry in `mode: code` — the wire tool list collapses to [run_code], the
   // tools:sdk section rides in the prompt, and the program's tool calls land as
-  // tool/code-dispatch events.
+  // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
 ]

@@ -56,6 +56,10 @@ Kept deliberately narrow per the "not every string needs a brand" policy. Each o
 - **Numeric ordinals** — turn number, step number, and the event `seq` are `number`, not `string`, so `Branded<string>` does not apply; a parallel `number & { readonly [BRAND]: B }` variant could brand them, but they are positional ordinals rarely passed across boundaries, so the payoff is low.
 - **Validated construction** — the brand factories are pure casts with no runtime check, and every boundary (ACP `sessionId`, provider-issued `call.id`, the empty-string fallback in `dsh-llm-deepseek`) trusts the raw string today. A `SessionId.parse()` / `isValid()` companion that throws on malformed input at boundaries is a genuine gap, but it is a *runtime-behavior* change with its own design (what is "malformed"? what do we do on failure?) and belongs in its own RFC, not bundled into this type-only pass.
 
+## Verification
+
+`BashTaskId` and `OwnerToken` are defined in `dsh-bash` and threaded through the executor, local implementation, and model-facing tool without adding a `dsh-session` dependency. Collections, public parameters, and exported signatures use the applicable brand for `CallId`, `SessionId`, `AgentId`, or `BashTaskId` rather than bare `string`; raw provider, ACP, and model inputs enter through the brand factory instead of scattered casts.
+
 ## Consequences
 
 - **Mechanical churn across two surfaces.** Propagating brands touches the bash seam (interface + impl + consumer) and the ACP session-id surface plus the persistence coordinator. The churn is broad but low-severity: a missed site is a compile error, not a silent bug. The change is observably type-only — no snapshot or e2e behavioral diff. It sits next to the [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) proposal (both touch the session-id / owner-token boundary); if that proposal lands, `OwnerToken` still stays distinct from the unified id for the decoupling reason above.

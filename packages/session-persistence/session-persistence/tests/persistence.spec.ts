@@ -16,8 +16,10 @@ type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
 interface MemoryConfig { store?: MemoryStore }
 
 /**
- * A trivial in-memory {@link SessionPersistence} that composes a {@link
- * PersistenceCoordinator} over a dependency-free `Map`-backed {@link PersistenceBackend}.
+ * Reference {@link PersistenceCoordinator} vehicle and abstract-service coverage, backed by a
+ * dependency-free map with atomic writes and no torn-tail marker. Supplying the map lets multiple
+ * instances share materialized sessions, the in-memory analogue of reload over one file/database;
+ * durable behavior is covered by the JSONL and SQLite backends.
  */
 class MemoryPersistence extends SessionPersistence implements PersistenceBackend<never> {
   static inject = ['sessions']
@@ -78,8 +80,7 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     }
     const existing = this.store.get(m.id)
     if (!existing) {
-      // First batch: `_isMaterialized` is false (the coordinator only omits
-      // materialization on the first batch); writing the entry IS the materialization.
+      // The coordinator sends the first batch for materialization; later batches append.
       this.store.set(m.id, { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] })
     } else {
       existing.events.push(...structuredClone(events) as SessionEvent[])
@@ -112,7 +113,8 @@ runPersistenceContract('memory', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the in-memory backend.
+// Each fixture shares one map across mounts. No `corruptTail` is supplied because map writes are
+// atomic; the suite asserts that skip while JSONL and SQLite cover the repair branch.
 runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
   const store: MemoryStore = new Map()
   return {

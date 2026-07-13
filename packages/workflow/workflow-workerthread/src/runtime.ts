@@ -1,7 +1,14 @@
 /**
- * Worker-side workflow runtime: vm hooks, child RPC, limits, value
- * materialization, cancellation, and result shaping. Host termination enforces
- * the cancellation deadline.
+ * Per-run worker-side vm hooks, child RPC, concurrency/caps, cancellation, and result shaping; it
+ * never touches Cordis. Script values leaving the realm are materialized as plain JSON before
+ * messaging. Values entering the trusted model-written realm are passed directly; `args` alone is
+ * cloned so script mutation cannot alter initialization data. See `./realm.ts` for the trust model.
+ *
+ * Fatal workflow errors—bad hook arguments, unsupported schemas/options, caps, start failures, and
+ * cancellation—propagate through combinators. Only child failures and ordinary stage errors become
+ * per-item nulls. Every returned promise has a rejection consumer so dropped script promises cannot
+ * kill the worker. A cancelled script that never settles emits nothing; the host force-settles the
+ * run within grace and terminates the thread.
  * @module @deepseek-ai/dsh-workflow-workerthread/runtime
  */
 

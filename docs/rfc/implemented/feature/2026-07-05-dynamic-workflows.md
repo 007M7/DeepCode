@@ -12,7 +12,7 @@ A workflow capability family at `packages/workflow/` in the bash seam shape (int
 
 ### The script contract (Claude Code-compatible)
 
-A workflow call contains JSON `meta` and a JavaScript `script` body with top-level `await`. Metadata is validated as data and never evaluated. The body receives `agent`, `parallel`, `pipeline`, `phase`, `log`, and `args`; failed children and ordinary stage errors resolve the affected item to `null`. Claude Code's determinism restrictions are deferred with journaling, so compatible bodies may use clock and randomness after moving their meta header into the parameter.
+A workflow call contains JSON `meta` (`name`, `description`, and optional `whenToUse`/`phases`) and a JavaScript `script` body with top-level `await` that returns a JSON value. Metadata is validated as data and never evaluated. The body receives `agent(prompt, options)`, `parallel(thunks)`, `pipeline(items, ...stages)`, `phase(title)`, `log(message)`, and `args`. Pipeline stages receive `(prev, item, index)` with no cross-stage barrier; failed children and ordinary stage errors resolve the affected item to `null` and skip its remaining stages. Claude Code's determinism restrictions are deferred with journaling, so compatible bodies may use clock and randomness after moving their meta header into the parameter.
 
 One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferred options (`effort`/`isolation`/`agentType`), malformed arguments, schemas outside the supported subset, tripped caps, seam start failures — throws a `WorkflowError` with `fatal: true`, and the combinators RE-THROW fatal errors instead of nulling the item. Without this, a typo'd option dissolves into a `null` indistinguishable from a child failure — the accepted-then-ignored failure mode this repo bans. One addition: the tool's `args` parameter is a JSON OBJECT (a bare list is wrapped as a field) so the wire schema stays honest.
 
@@ -26,11 +26,11 @@ One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferre
 
 **Why `node:worker_threads`**: each run gets one unpooled worker. A vm context limits the documented script surface, while message-port RPC bridges `agent()` to host-side child loops. The worker prevents synchronous script work from blocking the host, provides a serialization boundary, and permits forced termination after cancellation. `isolated-vm` was rejected because of its maintenance state and deployment requirements.
 
-The host validates metadata and parses the body before publication. Private enum-keyed payload maps define the wire protocol, and host-owned records preserve the subagent run contract across it. The [agent-scope runtime-design RFC](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) owns the start, cancellation, worker-death, and disposal algorithms.
+The host validates metadata and parses the body before publication. Private enum-keyed payload maps define the wire protocol, and host-owned records preserve the subagent run contract across it. The [agent-scope runtime-design RFC](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) owns the start, cancellation, worker-death, result-precedence, and disposal algorithms.
 
 **Meta is data**: the schema-validated `meta` field reaches the seam as JSON and is only shape-validated. The host never evaluates a metadata literal, which would let script-controlled accessors run outside the worker's isolation.
 
-**Value boundary**: `materializeFromRealm` copies outbound values and rejects unsupported JSON shapes, exotic prototypes, cycles, sparse arrays, and non-finite numbers. Data-property copies make `"__proto__"` safe. `args` crosses through `workerData` and is cloned again before exposure. Realm functions are invoked rather than copied, and thrown values use a total renderer so `result` cannot reject. The engine README documents cross-realm errors.
+**Value boundary**: `materializeFromRealm` copies outbound values and rejects functions, symbols, nested `undefined`, exotic prototypes, cycles, sparse arrays, and non-finite numbers. Data-property copies make `"__proto__"` safe; getters are read normally and a throwing getter fails loudly. `args` crosses through `workerData` and is cloned again before exposure. Realm functions are invoked rather than copied, and thrown values use a total renderer so `result` cannot reject. Hook errors are host-realm `WorkflowError`s, so scripts branch on `name` or `code` rather than `instanceof Error`, as documented in the engine README. Concurrency, total-agent, item, timeout, and grace limits are validated config.
 
 ### The consumer (dsh-tool-workflow)
 
@@ -43,6 +43,10 @@ A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, awai
 An output schema makes a schema-valid committed capture mandatory for successful child completion. The scoped runtime presents the capture tool and instruction, commits only a successful final outcome—including the enclosing `run_code` outcome for an SDK call—denies later side effects after capture becomes pending, and stops the child without another model step after commit. A validation failure remains a retryable tool error; clean completion without a committed capture settles as an error.
 
 `StructuredOutputSchema` is the raw enforceable JSON-Schema subset in `dsh-tools` (single-string `type`, `properties`/`required`/`additionalProperties`, `items`, scalar `enum`/`const`), and unsupported keywords fail loudly because that wire data becomes the capture tool's parameters verbatim. The [agent-scope runtime-design RFC](../architecture/2026-07-12-agent-scope-runtime-design.md#structured-output-commits-only-authoritative-outcomes) owns the assembly, commit, guard, and terminal-stop correctness algorithms.
+
+## Testing
+
+Worker-side logic runs through an in-process `MessageChannel` so V8 coverage measures it. Unit tests cover script helpers, fatal and nullable failures, JSON boundaries, caps, cancellation, child ownership, and structured output through real loops. A built-lib smoke runs the separately bundled `lib/worker.js` under plain Node, a with-key e2e drives real child agents, and model-facing workflow behavior is snapshot-covered through its owning example.
 
 ## Deferred (documented non-goals of this cut)
 

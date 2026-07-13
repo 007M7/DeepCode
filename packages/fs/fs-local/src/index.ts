@@ -1,7 +1,6 @@
 /**
- * Local-filesystem implementation of the `ctx.fs` provider seam. {@link LocalFileSystem}
- * subclasses {@link FileSystem} and backs the seven text-storage primitives with the host
- * filesystem via {@link module:@deepseek-ai/dsh-fs-local/fsio}.
+ * Host-filesystem implementation of `ctx.fs`. Realpath-derived target identity makes aliases
+ * share stale guards, and writes through a symlink update its target without replacing the link.
  * @module @deepseek-ai/dsh-fs-local
  */
 
@@ -177,6 +176,7 @@ export class LocalFileSystem extends FileSystem {
       const existing = await probe(target.targetKey)
       // Stale guard before literal matching: an edit based on an old read reports
       // FS_STALE_VERSION, not FS_EDIT_NOT_FOUND/FS_AMBIGUOUS_EDIT against newer content.
+      // Missing targets use the same stale code on guarded and unconditional edit paths.
       if (!existing) throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       // expected === undefined: unconditional edit of the current content — no

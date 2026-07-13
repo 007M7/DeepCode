@@ -24,6 +24,13 @@ Teardown order is load-bearing for durability. The session lifecycle and loop sh
 
 Background task ownership belongs to the executor. `BashExecSpec.owner` carries an optional opaque token, `ownerOf(id)` reads it, and `dsh-tool-bash` stamps the calling session token at start. `bash_output` and `bash_kill` reject mismatched callers; completion notices locate the live agent by session token through the registry. Keeping ownership on the task preserves the fence across tool-plugin reloads. The completion listener remains effect-scoped, so a notice that settles during the reload gap may still be dropped.
 
+## Verification
+
+- ACP disconnect or session close leaves no registered agent or session-store entry, including when `session/load` races teardown.
+- Cancelling before a queued prompt starts prevents that prompt from running or absorbing the next prompt.
+- Reloading `dsh-tool-bash` does not let another session read or kill an existing background task because ownership remains on the executor.
+- Config-created agents remain loop-fiber-owned, so non-ACP demos need not manage handles explicitly.
+
 ## Session owner tokens are unique among live agents
 
 The bash owner token relies on `session.header.id` being unique among live agents. Concurrent same-ID operations may prepare privately, but `SessionStore.enter()` rejects duplicate publication and the losing transaction rolls back. `tool-bash` owns the comparison policy; the bash seam stores an opaque `owner` string without interpreting it.

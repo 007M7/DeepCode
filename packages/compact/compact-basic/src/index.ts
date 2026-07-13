@@ -1,6 +1,8 @@
 /**
- * `BasicCompactService`: the first implementation of the `@deepseek-ai/dsh-compact` seam. It
- * owns the entire compaction strategy.
+ * Basic compaction backend. It estimates request pressure, retains a recent
+ * tool-balanced surface tail, summarizes the older head through a one-shot model
+ * call, and replaces that head with one checkpoint. Auto-compaction runs before
+ * every step so a growing turn can compact its earlier closed steps.
  * @module @deepseek-ai/dsh-compact-basic
  */
 
@@ -29,8 +31,8 @@ const SUMMARY_OPEN_TAG = '<compacted-summary>'
 const SUMMARY_CLOSE_TAG = '</compacted-summary>'
 
 /**
- * The summarization system prompt: instructs the model to condense the conversation into a
- * fixed, fully-populated structure rather than freeform bullets.
+ * Fixed summary structure for resumable checkpoints. A tagged prior checkpoint
+ * is merged with newer history instead of copied forward verbatim.
  */
 const SUMMARIZE_SYSTEM_PROMPT = [
   'You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.',
@@ -73,8 +75,8 @@ const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
 
 /**
- * Map a terminal `FinishReason` to the error a SUMMARIZATION must throw, or `undefined` for an
- * acceptable finish. `FinishReason` is merge-extensible.
+ * Map a terminal summary failure to an error. A max-token finish is rejected
+ * because committing an incomplete checkpoint would shadow the full history.
  */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
@@ -116,7 +118,8 @@ export class BasicCompactService extends CompactService {
     this.config = resolveConfig(config)
 
     if (this.config.auto) {
-      // Auto-compaction: delegate to compactIfNeeded before every step.
+      // Check before every step so a single growing turn can compact earlier closed steps.
+      // This serial pre-step seam mutates the surface outside the pending step.
       ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal) => {
         try {
           const result = await this.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
@@ -223,8 +226,9 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Summarize conversation text into content blocks via `ctx.llm.stream()` assembled through a
-   * `BlockAssembler`.
+   * Summarize through a direct one-shot `ctx.llm.stream()` call, not an agent
+   * step or `agent/request` dispatch. Failure finishes and truncated summaries
+   * reject; the signal is forwarded and only text reaches the checkpoint.
    *
    * @param text - plain-text rendering of the conversation region to condense.
    * @param agent - supplies the fallback model and the session id stamped on
@@ -274,10 +278,10 @@ export class BasicCompactService extends CompactService {
   // ---- Core API (implements the abstract contract) ----
 
   /**
-   * The sole token-pressure gate: estimate the NEXT request's pressure — the session prefix +
-   * the surface-derived history + the system prompt ({@link estimatePressure}) — and if it
-   * exceeds the threshold (`contextWindow * thresholdRatio`), compact the oldest surface nodes
-   * outside the `retainTokens` budget.
+   * The sole pressure gate: count the next request's prefix, derived history,
+   * and system prompt. Above threshold, retain a recent tool-balanced tail and
+   * compact the head, reconsolidating any prior automatic checkpoint. Returns
+   * `null` when no safe or necessary range exists.
    */
   override async compactIfNeeded(
     agent: Agent,
@@ -333,7 +337,7 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    // Resolve the range by surface POSITION, not numeric seq interval.
+    // Resolve by surface position: a newer replacement seq may occupy an older slot.
     const nodes = session.surface.nodes
     const startIdx = nodes.findIndex(n => n.seq === start)
     const endIdx = nodes.findIndex(n => n.seq === end)
@@ -343,8 +347,7 @@ export class BasicCompactService extends CompactService {
       throw new Error(`compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`)
     }
 
-    // The region must never split a step's assistant-message tool-calls from their tool/results
-    // (which would orphan one side and produce a transcript every provider rejects).
+    // Both range edges must preserve assistant tool-call/result pairing.
     const events = session.events
     if (!isToolPairingBalanced(nodes, events, start)) {
       throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)

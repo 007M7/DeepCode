@@ -1,6 +1,4 @@
-/**
- * Tests for the fs-policy plugin: it registers no service, only the three `fs/*` listeners.
- */
+/** Event-level policy tests; no filesystem provider is needed because the plugin performs no I/O. */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'

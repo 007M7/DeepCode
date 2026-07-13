@@ -1,5 +1,7 @@
 /**
- * Shared test fixtures for the ACP bridge specs.
+ * Shared non-spec fixture that mounts the full in-memory agent/persistence stack and connects the
+ * ACP bridge to a real SDK client over memory streams. Tests exercise the same protocol path as an
+ * editor without a subprocess or stdio.
  */
 
 import { Context } from 'cordis'
@@ -213,7 +215,8 @@ export async function makeBridgeHarness(options: {
 
   // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the agent writes flow
   // to the client's reader and vice versa. (ndJsonStream takes (output, input): the agent
-  // writes to a2c and reads from c2a; the client writes to c2a and reads from a2c.)
+  // writes to a2c and reads from c2a; the client writes to c2a and reads from a2c.) Holding the c2a
+  // writer lets tests EOF the agent reader and simulate editor disconnect.
   const a2c = new TransformStream<Uint8Array, Uint8Array>()
   const c2a = new TransformStream<Uint8Array, Uint8Array>()
   const c2aWriter = c2a.writable.getWriter()
@@ -268,16 +271,19 @@ export async function makeBridgeHarness(options: {
     },
   })
 
-  // Wire the bridge (agent side) and the client (test side).
+  // Default to `mock` only when the caller omitted the key; explicit `model: undefined` means no
+  // model and must survive the object spread.
   const cfg: AcpConfig = { stream: agentStream, ...options.config }
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
   // Mount the bridge the way production does: as a cordis plugin (via `ctx.plugin` with the
-  // real `inject`), not `AcpPlugin.apply(ctx, cfg)` directly on the root ctx.
+  // real `inject`), not `AcpPlugin.apply(ctx, cfg)` on the ungated root. Later JSON-RPC callbacks run
+  // outside apply's injection scope, matching production and exposing missing-inject failures.
   harness.acpFiber = await ctx.plugin({
     name: 'acp-test',
     // Use the bridge's real exported `inject` so this never drifts from the plugin's actual
     // dependency list (adding a service to the bridge must not require editing the harness — a
-    // hardcoded list silently broke when `tools` was added).
+    // hardcoded list silently broke when `tools` was added). The returned fiber permits ACP-only
+    // disposal while root services remain live for HMR assertions.
     inject: [...AcpPlugin.inject],
     apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
   })

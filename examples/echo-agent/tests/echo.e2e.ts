@@ -9,17 +9,19 @@ import { afterEach, describe, expect, it } from 'vitest'
  * Keyless Loader-path smoke for examples/echo-agent: boot the real example through the
  * `@deepseek-ai/dsh-stdio-agent` bin against this example's `cordis.yml` (the cordis Loader,
  * `unwrapExports`, the whole plugin tree), pipe a script of stdin lines, and assert the
- * rendered stdout.
+ * rendered stdout. The mock adapter is network-free, making this the complete
+ * smoke; inputs cover both the echo-tool round trip and direct-reply branch.
  */
 
-// The dsh-stdio-agent bin (the demo:echo entry) and this example's cordis.yml.
+// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// Dev/test run UNBUILT: `@deepseek-ai/dsh-*` imports resolve through the root tsconfig `paths`
-// map, which tsx finds by searching UP from cwd.
+// The temp cwd is outside the repo, so point tsx at the root config that resolves
+// unbuilt workspace packages through `paths`.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.

@@ -427,8 +427,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('derives a FORK child script from its OWN events only (skips the seeded parent prefix)', () => {
-    // A fork child's log begins with the seeded parent prefix — the parent's events, INCLUDING
-    // its assistant/chunk events.
+    // A fork log includes the parent's assistant chunks before `seedLength`. Deriving from the
+    // whole log would replay parent responses as child calls, so only child-owned chunks qualify.
     const parentChunk: StreamChunk = { type: 'text-delta', index: 0, text: 'PARENT-RESPONSE' }
     const childChunks: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'CHILD-RESPONSE' }, { type: 'finish', reason: { kind: 'stop' } }]
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
@@ -485,7 +485,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('keeps the primary first even when a child sorts BEFORE it in input order', () => {
-    // Equal creation times keep the primary first regardless of input order.
+    // The primary is appended first internally. A strictly earlier child sorts before it, while
+    // equal creation times preserve primary-first order regardless of input order.
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
     const earlier = writeSession('session.1.jsonl', { id: 'early', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts = loadSessionScripts({ file: f, childFiles: [earlier] })

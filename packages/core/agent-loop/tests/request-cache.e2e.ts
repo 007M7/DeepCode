@@ -14,7 +14,8 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
  * `cacheReadTokens > 0` on every request after the first — the adapter maps the provider's
  * `prompt_cache_hit_tokens`, and the per-step usage recorded on `assistant/message` events is
  * the production observable for cache behavior (the reconstructability RFC's measurement
- * layer: prefix stability is corollary #1).
+ * layer: prefix stability is corollary #1). Mocks establish append-extension;
+ * this key-gated test establishes a real provider cache hit.
  */
 
 // Long enough that the shared request prefix comfortably spans the provider's

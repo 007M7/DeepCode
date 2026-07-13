@@ -12,9 +12,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /**
- * Validate and detach lossless JSON in one read per property. Accepts ordinary
- * arrays, plain or null-prototype objects, and JSON scalars; rejects sparse,
- * cyclic, exotic, negative-zero, and non-finite values. Getter throws propagate.
+ * Validate and detach lossless JSON in one read per property, so a stateful
+ * getter cannot change between validation and copying. Accepts ordinary arrays,
+ * plain or null-prototype objects, and JSON scalars; rejects sparse, cyclic,
+ * exotic, negative-zero, and non-finite values. Getter throws propagate.
  *
  * @param value - the candidate value to validate and detach.
  * @returns the detached snapshot, or `undefined` when the value is not

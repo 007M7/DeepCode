@@ -4,7 +4,9 @@ import { Session, SessionId, isToolPairingBalanced } from '../src/index.ts'
 import type { SessionEvent, SurfaceNode } from '../src/index.ts'
 
 /**
- * Unit coverage for the tool-pairing balance check.
+ * Unit coverage for compaction-cut safety: a cut is balanced only when it
+ * separates no assistant tool call from its result. Non-step nodes are neutral,
+ * and replace operations prove surface order—not raw log order—is authoritative.
  */
 
 const SURFACE = { surfaceOp: 'append' as const }
@@ -165,8 +167,8 @@ describe('isToolPairingBalanced — multiple tool calls in one assistant message
 })
 
 describe('isToolPairingBalanced — a mid-step injection context/message', () => {
-  // A background task-done inject() lands a context/message inside an open step, between the
-  // assistant (with a tool-call) and its tool/result.
+  // The injected context is pairing-neutral, but both adjacent cuts remain
+  // unbalanced because the tool call is still open across them.
   function midStepInjection(): Session {
     const s = new Session(SessionId('mid-inject'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -217,7 +219,8 @@ describe('isToolPairingBalanced on an injection turn (no step)', () => {
 })
 
 describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace op', () => {
-  // The case the log-position scan got wrong.
+  // A replacement checkpoint has a high log seq but sits at the surface head;
+  // its cuts are balanced regardless of later raw-log neighbors.
   function checkpointHeadedSession(): Session {
     const s = new Session(SessionId('checkpoint'))
     // A closed turn with a tool step → surface [u1, asst(call), result].

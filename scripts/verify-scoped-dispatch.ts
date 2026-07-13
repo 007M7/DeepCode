@@ -4,6 +4,7 @@
  * `packages/support/invariants/src/index.ts`, which enforces carriers at dispatch time) and
  * the event declarations' JSDoc (the "Scope-filtered dispatch" sentence rendered into the
  * events catalog, which tells plugin authors what a scoped listener will and won't hear).
+ * Registry-subject notifications are intentionally unfiltered and belong in neither set.
  */
 
 import { globSync, readFileSync } from 'node:fs'

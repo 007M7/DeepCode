@@ -18,9 +18,10 @@ import { Readable, Writable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Built-ARTIFACT smoke for the published `dsh-acp-agent` bin. `load-path.e2e.ts` boots
- * `src/bin.ts` under tsx — but the package's `bin` field points at `lib/bin.js`, run under
- * plain `node` by a real consumer.
+ * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
+ * require a valid initialize response. This catches built-only settle races and stdout protocol
+ * leaks that the tsx source-path smoke cannot. It skips before build; initialize is keyless, with a
+ * dummy key used only to boot the adapter. `--expose-internals` enables Cordis bare-plugin loading.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -37,7 +38,8 @@ const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
   'schemastery', 'cosmokit',
 ]
-// Third-party deps the ACP bridge needs at runtime.
+// Resolve ACP's declared third-party dependencies from that package, not this test: pnpm's strict
+// layout need not hoist them. Symlink those exact paths into the plain-Node consumer.
 const npmDeps = ['@agentclientprotocol/sdk', 'zod']
 const acpPkgDir = join(repoRoot, 'packages/ui/acp')
 
@@ -145,7 +147,8 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, 
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
-    // A typo'd config path must fail clearly, not exit 0.
+    // A nonexistent directory prevents even the include plugin import. Loader logs the failure and
+    // leaves no fiber; boot's settled-entry guard must convert that state into non-zero exit.
     const { code, stderr } = await runBinExpectingExit('/nonexistent/dir/cordis.yml')
     expect(code).not.toBe(0)
     expect(stderr).toContain('failed to load')

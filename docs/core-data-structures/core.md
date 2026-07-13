@@ -201,9 +201,9 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative tool order, and session prefix through `request/header` snapshots and deltas. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta) and the [reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through `request/header` snapshots and deltas. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta) and the [reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`agent/request` may replace the frozen call config. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records its result. Requests reaching `llm/stream` are deep-frozen.
+`agent/request` receives a frozen call-config seed and may return a replacement. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records the exact result used. Requests reaching `llm/stream` are deep-frozen, so mutation throws.
 
 On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
 

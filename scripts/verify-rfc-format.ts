@@ -1,7 +1,8 @@
 /**
  * Enforce RFC headers, lifecycle-specific sections, alternatives, and retired
  * marker rules. Classification and filenames belong to the sibling tree gate;
- * translation structure belongs to the pairing gate.
+ * translation structure belongs to the pairing gate. Exact format and
+ * grandfathering rules live in `docs/rfc/README.md`.
  */
 
 import { readFileSync } from 'node:fs'

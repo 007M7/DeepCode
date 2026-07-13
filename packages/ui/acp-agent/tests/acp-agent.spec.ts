@@ -139,7 +139,8 @@ describe('dsh-acp-agent composition', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // Loader must retain the namespace so name, Config, and apply survive unwrapping.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config` while the app still boots. Guard the postmortem-0001 shape directly.
     expect('default' in acpAgent).toBe(false)
     expect(typeof acpAgent.apply).toBe('function')
 

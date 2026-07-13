@@ -93,7 +93,7 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-The loop renders one prompt assembly per step. Plugins contribute ordered sections, tool schemas, and strict `{{name}}` variables. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+The loop renders one prompt assembly per step. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn instead of shipping a hole. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
 

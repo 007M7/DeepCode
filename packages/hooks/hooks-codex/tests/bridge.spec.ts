@@ -143,8 +143,8 @@ describe('hooks-codex bridge', () => {
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
     const dir = configDir()
-    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose, it would veto the
-    // prompt (0 model requests) and log a hook/invoked.
+    // A leaked listener would let this blocking hook veto the prompt and log an invocation; a
+    // no-op hook would pass even when leaked.
     const deny = script(dir, 'deny.sh', '#!/usr/bin/env bash\nexit 2\n')
     writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: deny }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
@@ -170,8 +170,8 @@ describe('hooks-codex bridge', () => {
     const dir = configDir()
     const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
-    // Record the hook shell's PID and touch the marker FIRST so the test can tell "the hook is
-    // genuinely mid-run", then sleep far past the suite timeout.
+    // Record the PID and marker before sleeping past the suite timeout. Disposal must abort the
+    // tracked process through `runPoint`, not await its natural exit.
     const slow = script(dir, 'slow.sh', `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     writeHooks(dir, { SessionStart: [{ hooks: [{ type: 'command', command: slow }] }] })
     const ctx = new Context()
@@ -190,9 +190,8 @@ describe('hooks-codex bridge', () => {
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await fiber.dispose()
-    // Quiescence, not just promptness: the drain resolves only after the run settled, and the
-    // run settles only after the killed process was reaped — so by the time dispose returns,
-    // the PID must be GONE (kill(pid, 0) throws ESRCH).
+    // Disposal reaches quiescence only after the aborted run settles and the process is reaped, so
+    // `kill(pid, 0)` must report ESRCH. Untracked fire-and-forget work would remain.
     expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.

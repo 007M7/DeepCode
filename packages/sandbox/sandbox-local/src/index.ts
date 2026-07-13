@@ -1,5 +1,8 @@
 /**
- * `LocalSandboxProvider`: the local implementation of the `@deepseek-ai/dsh-sandbox` seam.
+ * Local sandbox backend. It selects the platform runner chain (Linux bwrap then
+ * Landlock; macOS Seatbelt), functionally probes competing candidates once, and
+ * reports each wrap's enforcement and stderr dialects. Missing or unusable
+ * confinement fails closed rather than returning the original argv.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
@@ -16,7 +19,10 @@ import type { ConfinedArgv, ConfinedSandboxMode, SandboxEnforcement, SandboxPoli
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the sandbox runner argv (the bwrap-shaped profile arguments are appended).
+   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * non-empty override asserts full enforcement and skips built-in selection and
+   * probing; a broken runner then fails at execution and must be identifiable by
+   * {@link runnerFailureSignatures}.
    */
   runnerCommand?: string[]
   /**
@@ -33,7 +39,9 @@ export interface Config {
 }
 
 /**
- * The `bwrap` profile arguments for one policy.
+ * Build a bwrap profile: the host is read-only with fresh `/dev` and `/proc`;
+ * workspace-write overlays writable temp and workspace mounts. PID and network
+ * isolation are intentionally outside the file-effect policy.
  *
  * @param policy - the file-effect policy to express as bwrap arguments.
  * @returns the bwrap profile arguments (before the trailing `--` + argv).
@@ -48,9 +56,9 @@ export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
 }
 
 /**
- * The `landlock-run` grant arguments for one policy — the bwrap profile's file-effect
- * semantics expressed as a Landlock allow-list (Landlock cannot mount, so there are no
- * fresh/ephemeral filesystems).
+ * Build Landlock grants for the same file policy without synthetic mounts.
+ * Read-only grants only `/dev/null` for writes; workspace-write also grants the
+ * host temp root and workspace.
  *
  * @param policy - the file-effect policy to express as launcher grants.
  * @returns the launcher grant arguments (before `--` + argv).
@@ -74,7 +82,7 @@ function canonicalPath(path: string): string {
   try {
     return realpathSync(path)
   } catch {
-    // realpathSync failed: the path (or a prefix) is missing or unreadable.
+    // An unresolved grant matches nothing until the named path exists; keep its spelling.
     return path
   }
 }
@@ -85,11 +93,9 @@ function sbplString(path: string): string {
 }
 
 /**
- * The `sandbox-exec` arguments for one policy: `-p` plus a Seatbelt (SBPL) profile with the
- * same file-effect semantics as the other dialects, built as allow-default → `(deny
- * file-write*)` → write allow-list (later rules win), so exactly the mode's promised file
- * effects are governed — network and process visibility stay unrestricted, which is all the
- * seam's mode vocabulary claims.
+ * Build a Seatbelt profile that denies file writes then allows `/dev/null` and,
+ * for workspace-write, the canonical workspace, host temp, and per-user macOS
+ * temp roots. Network and process visibility remain unrestricted.
  *
  * @param policy - the file-effect policy to express as an SBPL profile.
  * @returns the `sandbox-exec` arguments (`-p` + profile, before `--` + argv).
@@ -208,11 +214,9 @@ const DENIAL_SIGNATURES = {
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
 /**
- * How each runner's own failure identifies itself on stderr (the seam's
- * `ConfinedArgv.runnerFailureSignatures`): every runner prefixes its error lines with its
- * program name, and the shell's runner-not-found message carries the same `name: ` shape
- * (`bash: bwrap: command not found`, `bash: …/bin/landlock-run: No such file or directory`) —
- * so one substring per runner covers both "runner broke" and "runner missing".
+ * Runner-owned stderr prefixes cover both internal refusal and shell-level
+ * not-found errors. Consumers match these before denial text because the
+ * command never ran on this path.
  */
 const RUNNER_FAILURE_SIGNATURES = {
   bwrap: ['bwrap: '],
@@ -330,7 +334,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     const chain = this.internals.chain ?? PLATFORM_CHAINS[this.internals.platform ?? process.platform] ?? []
     const [first, ...rest] = chain
     if (first === undefined) return 'unavailable'
-    // One candidate = nothing to arbitrate: select it without probing.
+    // A sole candidate needs no arbitration; its execution-time refusal still fails closed.
     if (rest.length === 0) return { runner: first, enforcement: STATIC_ENFORCEMENT[first] }
     for (const runner of chain) {
       const enforcement = this.probeRunner(runner)

@@ -1,7 +1,7 @@
 /**
- * The timing-and-classification half of a timeout — a zero-dependency library of pure
- * functions shared by every capability that clamps a caller's timeout hint, arms a deadline,
- * and later has to tell "timed out" apart from "cancelled".
+ * Shared timeout arithmetic, signal fusion, and classification. The library
+ * only notifies through abort signals; each capability still owns the mechanism
+ * that stops its work and translates timeout reasons into public outcomes.
  * @module @deepseek-ai/dsh-timeout
  */
 
@@ -22,15 +22,16 @@ export class TimeoutReason extends Error {
 }
 
 /**
- * Validate a caller's optional timeout hint, fill it from the backend default, then cap at
- * the backend max.
+ * Validate a caller's optional timeout hint, use the backend default, then cap
+ * it. Supplied values must be positive and finite; zero is not a public
+ * disable-timeout sentinel.
  *
  * @param requested The caller's optional hint; validated when present.
  * @param def The backend default applied when `requested` is absent.
  * @param max The backend upper bound the result is capped to.
  * @param name Field name used in the thrown message (so the caller sees which input was
  *   bad).
- * @returns The effective timeout in milliseconds: `min(requested ??
+ * @returns The effective timeout in milliseconds: `min(requested ?? def, max)`.
  */
 export function clampTimeout(
   requested: number | undefined,
@@ -53,9 +54,9 @@ export interface Deadline {
 }
 
 /**
- * Build a deadline signal that aborts on upstream cancellation OR on timeout, with the
- * timeout carrying an identifiable {@link TimeoutReason} (unlike native
- * `AbortSignal.timeout()`, whose fixed `TimeoutError` is opaque).
+ * Fuse upstream cancellation with an identifiable timeout. `timeoutMs <= 0` is
+ * the internal no-timer sentinel; the returned disposer clears an armed timer.
+ * The signal only notifies, so callers must stop their own work.
  *
  * @param upstream The caller's cancellation signal, if any, fused into the result.
  * @param timeoutMs Deadline in milliseconds; `<= 0` means "no timeout" (arm no timer).
@@ -85,8 +86,9 @@ export function deadline(
 }
 
 /**
- * Recover the {@link TimeoutReason} from an aborted signal (or any object with a `reason`),
- * else `undefined`.
+ * Recover a timeout reason from a reason-bearing object. Supplying `code`
+ * distinguishes this deadline from a nested upstream deadline; a foreign code
+ * follows the ordinary cancellation path.
  *
  * @param x An {@link AbortSignal} or any `{ reason }` carrier (e.g. a caught abort error).
  * @param code When provided, only a {@link TimeoutReason} with this exact `code` matches.

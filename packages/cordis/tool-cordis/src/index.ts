@@ -1,6 +1,9 @@
 /**
- * The self-referential cordis toolset: three model-facing tools that let the agent inspect and
- * MODIFY the live cordis runtime it is running inside.
+ * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned plugin
+ * under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
+ * so plugin disposal removes the entire dynamic subtree. The VM and context façade prevent
+ * accidental misuse, not hostile code: an allowed service such as `ctx.bash` reaches the real
+ * runtime. Named exports preserve loader injection metadata.
  * @module @deepseek-ai/dsh-tool-cordis
  */
 

@@ -1,5 +1,7 @@
 /**
- * Code Mode: the `run_code` tool and its dispatch bridge.
+ * Code Mode `run_code` transport. Programs call the registry's agent-visible
+ * tools through nested, sequential executions; each sub-dispatch is logged for
+ * reconstruction, while only the outer curated result enters model history.
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
@@ -119,7 +121,7 @@ function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
 
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
- * executed through the dispatch bridge described in the module doc. The
+ * executed through the dispatch bridge described above. The
  * registry reserves it as presentation infrastructure under non-native modes,
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,

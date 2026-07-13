@@ -129,8 +129,8 @@ describe('Session', () => {
   it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
     const session = new Session(SessionId('s5b'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // The typed overload makes surfaceOp mandatory only when the type argument is a SPECIFIC
-    // SurfaceEventType literal.
+    // A widened SessionEventType bypasses the overload's conditional requirement,
+    // so the runtime guard must still reject the missing surface marker.
     const widenedType = 'user/message' as SessionEventType
     expect(() => session.append(widenedType, { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       .toThrow(/surface-eligible and requires a surfaceOp marker/)
@@ -657,8 +657,8 @@ describe('SessionStore', () => {
   })
 
   it('enter() rejects a stale prepared session whose id is already live (no overwrite)', async () => {
-    // prepare()/enter() are public cross-package primitives that a caller may separate with
-    // arbitrary work.
+    // A stale prepared object must not replace the live same-id entry; its later
+    // detach would otherwise remove the wrong session.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const stale = ctx.sessions.prepare(SessionId('racy'))

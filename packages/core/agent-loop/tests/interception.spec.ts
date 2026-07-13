@@ -117,9 +117,8 @@ describe('agent/prompt-submit', () => {
   })
 
   it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
-    // The merge of the interception seams with master's compaction seam pins one ordering:
-    // `agent/prompt-submit` runs (rewriting the prompt and injecting context) before the step
-    // loop, and `agent/pre-step` fires inside the step before the single deriveMessages().
+    // Prompt rewrites and injected context land before `agent/pre-step`, so a
+    // compaction listener measures the current surface before the single derive.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -184,7 +183,8 @@ describe('agent/prompt-submit', () => {
   })
 
   it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
-    // Two prompts queued into one turn: block "secret", allow "safe".
+    // Blocking one prompt in a mixed batch must persist its reason even though
+    // the allowed prompt keeps the turn from ending rejected.
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -508,14 +508,13 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // same turn, two steps
+    // The continuation stays in the turn, is logged with provenance before step 2,
+    // and reaches that step's request.
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(log.filter(e => e.type === 'step/start')).toHaveLength(2)
-    // the reason was recorded as steering BEFORE step 2, with its plugin source
     const steering = log.find(e => e.type === 'steering/message')
     expect(steering?.type === 'steering/message' && steering.data.content).toEqual([{ type: 'text', text: 'keep going on the goal' }])
     expect(steering?.type === 'steering/message' && steering.data.source).toEqual({ kind: 'plugin', plugin: 'goal' })
-    // and reached the next request
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going on the goal')
   })
 

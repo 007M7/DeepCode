@@ -1,5 +1,8 @@
 /**
- * Minimal, dependency-free HTML→markdown-ish text conversion for `web_fetch` presentation.
+ * Minimal dependency-free HTML-to-readable-text conversion for `web_fetch`, not a full parser. It
+ * removes non-content elements and tags, decodes common entities, collapses whitespace, and keeps
+ * basic headings, lists, and links. A richer converter can replace it without changing the seam or
+ * tool schema.
  * @module @deepseek-ai/dsh-tool-web/html
  */
 

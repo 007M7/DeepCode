@@ -10,10 +10,10 @@ import { launcherPath } from 'node-addon-landlock-run'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * Keyless Landlock integration proof for the backend: the real npm-distributed `landlock-run`
- * launcher (`node-addon-landlock-run`) confining real processes through `confine()` + a direct
- * spawn of the returned argv, with the bwrap rung forced off so the ladder lands on the
- * launcher.
+ * Keyless backend integration through `confine()` and the registry `landlock-run` launcher, with
+ * bwrap forced off. Tests assert real world effects; consumer coverage lives in dsh-bash-sandbox.
+ * Skips when the platform package or enforcing kernel is unavailable. HOME-based workspaces avoid
+ * Landlock's wholesale `/tmp` grant, so workspace-write proves the workspace-root grant itself.
  */
 
 const probe = spawnSync(launcherPath(), ['--probe'], { timeout: 5_000, encoding: 'utf8' })

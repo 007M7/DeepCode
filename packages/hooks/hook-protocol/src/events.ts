@@ -1,8 +1,8 @@
 /**
- * Append helpers for the log-only `hook/*` session events — the durable record that a hook ran
- * and what it decided. Thin wrappers over `session.append` so a bridge does not hand-build the
- * payloads (and so the `turn`-enclosure + invoked/result pairing stay consistent across both
- * bridges).
+ * Append helpers for durable, log-only hook events. They carry no surface
+ * intent and must remain turn-enclosed and invoked/result paired. Mid-turn hook
+ * points satisfy that boundary; SessionStart records injected context instead
+ * and does not append `hook/*` outside a turn.
  * @module @deepseek-ai/dsh-hook-protocol/events
  */
 
@@ -83,8 +83,9 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
 }
 
 /**
- * Append the durable result paired with `hook/invoked`, normalizing its decision,
- * bounded stderr summary, and optional exit code.
+ * Append the durable result paired with `hook/invoked`. The recorded decision
+ * is the parsed decision, then `stop` for `continue:false`, else `pass`; stderr
+ * is trimmed and capped, and an absent process exit stays omitted.
  * @param session - the session whose open turn records the event.
  * @param record - the outcome to record: the decoded output plus the summary cap and duration.
  */

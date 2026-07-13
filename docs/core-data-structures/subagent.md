@@ -21,7 +21,7 @@ interface SubagentCapabilities {
 
 ## The start request
 
-The service validates this request against the named provider's capabilities before `start`. `parent` supplies working-directory, lineage, and depth context. Optional output schema, depth, tool filter, and persona require matching capability flags. In-process backends scope filters and personas to child creation and implement the supported object-rooted output-schema subset with a forced capture tool.
+The tool layer builds this request from the model input and its own config; the service validates it against the named provider before `start`. Required `parent` supplies the session cwd, lineage, and delegation depth. Optional output schema, depth, tool filter, and persona require matching capability flags. Unsupported schemas fail at start; in-process backends scope filters and personas to child creation and implement the supported object-rooted schema with a forced capture tool.
 
 ```ts type-equiv
 interface SubagentStartRequest {

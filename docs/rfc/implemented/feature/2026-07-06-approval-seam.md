@@ -79,9 +79,15 @@ The answerer routes through the bridge's reverse-map ownership seam described by
 
 `dsh-user-approval` owns the fixed dispatch-and-audit mechanism; `dsh-tools` asks and `dsh-acp` answers. Replaceable answerers remain listeners in their channel-owning plugins, so a three-package capability split would add an empty implementation layer. Sandbox executors remain transport-only, and static capability grants remain separate from interactive approval.
 
+### Testing
+
+- **Unit/integration:** cover first-wins delegation, fail-closed defaults, malformed and throwing answerers, cancellation races and late-answer discard, audit pairing despite observer failures, unbypassable `'never'`, distinct tool-denial reasons, and ACP per-session routing/outcome mapping.
+- **Snapshot:** script permission answers through both sandbox escalation branches and pin the `'never'` prompt plus policy-switch notice. Hook-produced asks without a composed answerer remain covered as fail-closed denial.
+
 ## Deferred
 
 - **`allow_always` grant storage** — honoring a persistent grant means designing storage, scope identity (call? path? prefix? session? time window?), and revocation; until designed, only the one-shot options are advertised ([the sandbox RFC](2026-07-06-sandbox.md) § Escalation records the open scope question).
+- **A recorded hook-produced ask with a composed answerer** — escalation records the human-prompt wire, while the current hook fixture pins the no-service denial; their combined producer/answerer path remains unit-covered.
 - **Routing a child agent's approvals to the parent session** — `subagent-acp`'s child auto-answers its own `permission` requests; surfacing them to the parent's editor is its own design.
 
 ## Alternatives considered
@@ -98,6 +104,7 @@ The answerer routes through the bridge's reverse-map ownership seam described by
 - Only `allowed-once` dispatches an asked-about action; absent, rejected, cancelled, or failed answer paths deny.
 - Session ownership routes prompts, policy, and audit events without crossing editor sessions.
 - Accepted requests append one durable audit pair; the model sees only the resulting tool result.
+- A deployment without the service emits no approval prompt or audit events and denies every `ask` at the tool boundary.
 
 Costs and accepted limits:
 
@@ -106,8 +113,6 @@ Costs and accepted limits:
 - **Ownership keys on `Agent` object identity.** The answerer resolves sessions through the bridge's existing WeakMap; every current path hands the same object through the loop and the seams, but a future boundary that clones or proxies agents would make the bridge delegate and fail closed — safe, but silently UI-less — and would need session-id matching instead.
 
 ## FAQ
-
-Behavioral and usage questions only — every "why not X?" design question lives in [Alternatives considered](#alternatives-considered), whose job is exactly that.
 
 - **What happens in a deployment with no answerer at all (headless, CI)?** Every ask falls through the empty waterfall to `unavailable` and the tool call denies with the "no approval channel is available" reason. Fail-closed is the zero-listener default, not a configuration.
 - **Can a grant persist — "always allow this"?** No. `allowed-once` authorizes the single asked-about action and the service stores nothing between requests; `allow_always` is deliberately not advertised until grant storage is designed (§ Deferred).

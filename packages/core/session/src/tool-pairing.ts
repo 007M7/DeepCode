@@ -1,6 +1,7 @@
 /**
- * Tool-pairing balance over a session's surface: is a given cut point in the surface a safe
- * edge for a collapsed region (e.g. compaction)?
+ * Tool-pairing balance over a session surface. Compaction changes surface
+ * positions, so safe cuts are derived from tool-call/result content on the
+ * surface rather than step markers in the append-only log.
  * @module @deepseek-ai/dsh-session/tool-pairing
  */
 
@@ -27,10 +28,12 @@ function nodeDelta(event: SessionEvent): number {
 }
 
 /**
- * Check that a surface cut does not split a tool call from its result.
+ * Check that a surface cut does not split a tool call from its result. A region
+ * is safe to collapse only when the cuts before its first node and after its
+ * last node both return `true`.
  * @param nodes - the surface linked list in head→tail order.
  * @param events - the session log each node's `seq` indexes into.
- * @param beforeSeq - node immediately after the cut; absent from the surface means after-tail.
+ * @param beforeSeq - node immediately after the cut; `null` or a seq absent from the surface means after-tail.
  * @returns whether every call before the cut has its result before the cut.
  * @throws if a result appears without a preceding open call.
  */

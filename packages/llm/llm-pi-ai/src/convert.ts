@@ -1,7 +1,10 @@
 /**
  * Bidirectional mapping between the harness vocabulary and pi-ai's:
- * `GenerateOptions`/`Message[]` → pi-ai `Context`, and pi-ai `AssistantMessageEvent`s →
- * harness `StreamChunk`s.
+ * Convert harness requests to pi-ai context and pi-ai assistant events to harness stream chunks.
+ * pi-ai parses tool arguments while the harness preserves raw JSON, so conversion parses inbound
+ * arguments and re-stringifies outbound values while the adapter restores provider payloads.
+ * In-stream pi-ai errors become harness error/aborted finishes, and its reasoning tokens remain
+ * folded into output usage because it reports no separate count.
  * @module dsh-llm-pi-ai/convert
  */
 
@@ -65,7 +68,8 @@ export function toPiContext(options: GenerateOptions): PiContext {
             content.push({ type: 'text', text: block.text })
             break
           case 'reasoning':
-            // thinkingSignature names the wire field pi-ai replays the CoT under.
+            // Without this wire-field name, pi-ai replays an empty `reasoning_content`, violating
+            // DeepSeek's thinking-mode passback rule on tool-call turns.
             content.push({ type: 'thinking', thinking: block.text, thinkingSignature: 'reasoning_content' })
             break
           case 'tool-call':

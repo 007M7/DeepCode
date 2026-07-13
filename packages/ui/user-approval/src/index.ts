@@ -171,7 +171,8 @@ function hasOpenTurn(events: readonly SessionEvent[]): boolean {
 }
 
 /**
- * Append the sole durable representation of a session policy override.
+ * Append the sole durable representation of a session policy override. Invalid
+ * values throw before the log changes; consumers fold the new value on each read.
  * @param session - the session the override belongs to.
  * @param policy - the policy in effect until the next switch.
  */

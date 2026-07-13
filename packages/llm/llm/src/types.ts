@@ -1,5 +1,7 @@
 /**
- * Provider-neutral message and streaming vocabulary.
+ * Canonical provider-neutral message and streaming vocabulary for the loop,
+ * session log, and plugins. Adapters alone translate provider wire shapes;
+ * mapped interfaces make the content, source, and finish unions extensible.
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -102,6 +104,10 @@ export interface TokenUsage {
 
 /**
  * Raw streaming protocol emitted by adapters.
+ * Block indexes correlate interleaved deltas, and `block-end` carries the
+ * assembled block. Adapters emit usage before the terminal finish and nothing
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -150,8 +156,8 @@ export interface GenerateOptions {
   stop?: string[]
   signal?: AbortSignal
   /**
-   * The id of the session this request belongs to — stamped by the agent loop from
-   * `agent.session.id`.
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
 }

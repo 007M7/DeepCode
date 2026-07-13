@@ -1,6 +1,10 @@
 /**
- * The engine's value boundary: copy script-realm values into plain JSON data — loud about
- * everything JSON cannot carry — and render thrown script values to failure text.
+ * Materializes values leaving the script vm into plain JSON before they cross the worker
+ * boundary, and renders thrown script values without rejecting the run. The walk rejects
+ * lossy JSON shapes but trusts model-written workflow scripts: getters and proxy traps may
+ * run, and the vm is not a security boundary. The worker provides host-loop isolation and
+ * forced termination, not hostile-value containment. See
+ * docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md for the isolation rationale.
  * @module @deepseek-ai/dsh-workflow-workerthread/realm
  */
 
@@ -48,11 +52,16 @@ function hasPlainPrototype(value: object): boolean {
 }
 
 /**
- * Copy `value` (typically from the vm realm) into plain host JSON data.
+ * Copy `value` (typically from the vm realm) into plain host JSON data. Root `undefined` is
+ * returned unchanged; nested `undefined` and values JSON cannot represent losslessly fail
+ * with the offending path. Property accessors run normally, and a throwing read is wrapped
+ * with its rendered failure.
  *
  * @param value - the realm value to materialize.
  * @param root - the path label for the root value (error messages).
  * @returns the host-realm copy (plain objects/arrays/scalars only).
+ * @throws {@link MaterializeError} for unsupported values, cycles, sparse arrays, exotic
+ *   prototypes, or property reads that throw.
  */
 export function materializeFromRealm(value: unknown, root = 'value'): unknown {
   if (value === undefined) return undefined

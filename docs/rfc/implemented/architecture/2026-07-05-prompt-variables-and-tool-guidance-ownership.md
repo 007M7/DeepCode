@@ -24,13 +24,13 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 ### Prompt variables
 
-Plugins register `{{name}}` values through `ctx.systemPrompt.variable(name, provider)`. Assembly resolves them into the waterfall-visible variable map, then strict rendering rejects unknown, missing, malformed, or duplicate names. A lone unmatched `{{` remains prose, and substituted values are not rescanned. Section names are also unique.
+Plugins register `{{name}}` values through `ctx.systemPrompt.variable(name, provider)`. Assembly resolves them into the waterfall-visible variable map. Rendering rejects unknown own-property references, registered providers that return `undefined`, malformed complete references, and unbalanced references that still contain a closing `}}`; a lone unmatched `{{` remains prose, and substituted values are not rescanned. Registration rejects invalid or duplicate variable names, and section names are unique.
 
 `dsh-agent-loop` registers the two built-ins, both pure projections of the context agent: `model` (= `options.model`) and `cwd` (= `session.header.cwd`). The example personas write `powered by the {{model}} model` — the model name is stated once, in the `model:` config key. `{{cwd}}` is demonstrated in the ACP example only: every ACP session carries the client's cwd, while config-pre-created stdio agents have none (a persona claiming `{{cwd}}` there fails the turn — by design). The variables stay on the loop plugin (unlike the sections below): they are runtime facts of the agents THIS loop drives, and a replacement loop supplies its own.
 
 ### Persona as the order-0 section
 
-`dsh-system-prompt` owns `harness:identity` at order `-100` and the configured `deployment:persona` at order 0, so both survive a replacement loop. Prompt rendering has one path: `renderPrompt(assembly)`. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The conventional order bands are identity `-100`, persona `0`, and tool guidance `100–199`.
+`dsh-system-prompt` owns `harness:identity` at order `-100` and the configured `deployment:persona` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and `agent/pre-step` therefore measures the exact prompt used for compaction. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The conventional order bands are identity `-100`, persona `0`, and tool guidance `100–199`.
 
 ### Tool guidance ownership
 
@@ -53,6 +53,13 @@ Per-tool semantics and selection guidance live in tool descriptions. Prompt sect
 
 - Further variables (`date`, platform, git state) — the registry makes each a one-line contribution by whichever plugin owns the fact; none is claimed here.
 - A config `cwd` for pre-created stdio agents (would let the stdio persona use `{{cwd}}` and partition persistence by real path) — deferred until the session-cwd story is revisited.
+
+## Shipped invariants
+
+- The coding-agent prompt renders identity, persona with the interpolated model, then fs/bash/web guidance through one assembly path.
+- Fork and fresh subagent descriptions reflect whether the provider inherits completed conversation turns; the tool appears, disappears, and is reworded with provider lifecycle changes.
+- Unknown, valueless, malformed, or unbalanced variable references name the section and throw; duplicate section, variable, and tool registrations also throw.
+- Snapshot replay is prompt-independent: it keys recorded chunk streams by turn and step without comparing the outgoing request.
 
 ## Consequences
 

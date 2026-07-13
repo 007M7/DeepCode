@@ -1,10 +1,9 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * Package-shape override (see the root tsdown.config.ts): besides the default lib/index.js
- * bundle, the worker BOOTSTRAP ships as its own sibling entry — `new Worker(new
- * URL('./worker.js', import.meta.url))` loads it as a file, so it cannot be part of the index
- * bundle.
+ * Build the index and worker as separate single-entry bundles. The worker must be a sibling
+ * file, while a multi-entry build would emit an unlisted shared chunk omitted by the package's
+ * exact `files` whitelist.
  */
 export default defineConfig([
   {

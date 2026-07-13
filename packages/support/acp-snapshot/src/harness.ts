@@ -1,7 +1,8 @@
 /**
- * Shared subprocess harness for ACP snapshot suites. A library module driven by the suite
- * factory in ./suite.ts (and directly by harness-level specs); each example's `*.snapshot.ts`
- * names its own agent-under-test paths.
+ * Shared ACP snapshot subprocess harness. It boots the real agent bin through the Cordis
+ * loader, drives deterministic ACP JSON-RPC over stdio, captures protocol-pure stdout, and
+ * harvests persisted session logs after graceful shutdown. Normalization stays in
+ * `normalize.ts`; suite registration stays in `suite.ts`.
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
@@ -57,8 +58,8 @@ export interface AgentUnderTest {
 /**
  * One step of a scenario's deterministic input script (`input.json`). The harness interprets
  * these in order. `newSession` captures the server-issued (random) session id into a
- * `{{sessionId}}` variable that later steps reference, since a committed file cannot know the
- * id in advance.
+ * `{{sessionId}}` variable that later steps reference. `promptAndCancel` sends without awaiting,
+ * waits for the first streamed message, then cancels, making transcript order deterministic.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -75,8 +76,9 @@ export type InputStep =
 export interface InputScript {
   steps: InputStep[]
   /**
-   * Ordered answers for the agent's `session/request_permission` round-trips, consumed FIFO —
-   * the Nth request gets the Nth answer.
+   * FIFO permission answers selected by stable option kind; the harness maps each kind to the
+   * agent-issued option id. Exhaustion cancels, while a kind the agent did not offer fails the
+   * scenario.
    */
   permissionAnswers?: PermissionAnswer[]
 }
@@ -202,8 +204,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (c: string) => stderrChunks.push(c))
 
-    // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO feed the
-    // same bytes to the SDK client through a passthrough.
+    // Tee the same raw bytes to the golden and SDK client. Decode once at the end so a UTF-8
+    // sequence split across stream chunks cannot corrupt the transcript.
     const passthrough = new Readable({ read() {} })
     child.stdout.on('data', (buf: Buffer) => {
       rawBuffers.push(buf)
@@ -226,8 +228,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
-    // A scenario bug detected inside a client callback (a scripted permission kind the agent
-    // never offered).
+    // A callback throw would become only an RPC error the agent could absorb. Record an
+    // impossible permission choice here, answer cancelled, and fail the outer scenario.
     let scriptError: Error | undefined
     const makeClient = (_agent: AcpAgent): Client => ({
       sessionUpdate(params: SessionNotification): Promise<void> {
@@ -353,7 +355,8 @@ async function runStep(
     case 'promptAndCancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
-      // Dispatch the prompt WITHOUT awaiting (a hang fixture never resolves on its own).
+      // A hang fixture never resolves alone. Wait for its streamed chunk before cancellation
+      // so updates deterministically precede the cancelled prompt response.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
       await client.cancel({ sessionId })
@@ -439,7 +442,8 @@ async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
       })
     }
   }
-  // Primary (no parentSession) first, then children by ascending createdAt.
+  // Match replay fixture assignment: primary first, then children by creation time, with id as
+  // a deterministic collision tiebreaker.
   logs.sort((a, b) => {
     const ap = a.parentSession === undefined ? 0 : 1
     const bp = b.parentSession === undefined ? 0 : 1

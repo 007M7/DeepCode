@@ -45,6 +45,12 @@ Reminders use `additionalContext` with the plugin source, preserving the origina
 
 `thresholds` is validated at load and throws on an empty list, a non-integer, a value below 2, or a duplicate — misconfiguration fails loud, replacing the pi original's silent fall-back to defaults. `include`/`exclude` entries support `*` wildcards. Patterns are predicates over whatever tools exist at call time, not references to a registry entry, so an entry matching no currently registered tool is NOT an error — unlike `toolOrder`'s referent check, `exclude: [mcp_*]` must stay valid in a deployment that loads no MCP tools.
 
+## Testing
+
+- **Unit:** A real loop with a scripted adapter covers counting and reset rules, untracked transparency, disposal cleanup, per-agent isolation, canonical argument key order, escalation, denied calls, no-agent execution, wildcard escaping, invalid config, and downstream block or replacement decisions at per-file 100% coverage.
+- **Snapshot:** The keyless `repeat-tool-guard` scenario makes five identical `todo_write` calls and pins the gentle third-call and detailed fifth-call reminders in both ACP output and the session log. The plugin is loaded in the live example but remains inert in other scenarios.
+- **E2e:** None; the plugin is deterministic and provider-independent, and its seam contracts are covered by their owners.
+
 ## Alternatives considered
 
 - **Append the reminder into the tool result** (`accept` with replaced `content` — the pi extension's mechanism, which patches result content because that is the only channel its API offers) — rejected: it makes the logged `tool/result` lie about what the tool returned, and `additionalContext` exists precisely as the separate sanctioned channel for post-execute commentary, with loop-level buffering that preserves call/result adjacency.

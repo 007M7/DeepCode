@@ -1,6 +1,9 @@
 /**
- * The `Branded<B>` nominal-typing primitive — a type-only utility (no runtime code, no
- * harness-package dependency) shared by every package that owns a cross-boundary id.
+ * Dependency-free nominal typing for cross-boundary identifiers. Structurally identical runtime
+ * strings become non-interchangeable statically while retaining ordinary comparison, logging, and
+ * serialization. Each owning package defines its concrete id and zero-cost factory; brand ids that
+ * can plausibly be confused across packages, not arbitrary strings. This package exports only the
+ * erased primitive so an owner need not depend on another capability package.
  * @module @deepseek-ai/dsh-brand
  */
 

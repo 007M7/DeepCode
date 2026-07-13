@@ -84,7 +84,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bash',
-    summary: 'Abstract bash execution service.',
+    summary: 'Registers one `ctx.bash` implementation.',
     methods: [
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
@@ -99,7 +99,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'codeRuntime',
-    summary: 'Abstract code-execution service.',
+    summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
       'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
     ],
@@ -114,7 +114,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'fs',
-    summary: 'Abstract filesystem provider service.',
+    summary: 'Abstract filesystem provider.',
     methods: [
       'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
@@ -240,7 +240,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'A fully configured agent and its session were published.',
+    summary: 'A fully configured agent and live session were published.',
   },
   {
     name: 'agent/disposed',
@@ -324,19 +324,19 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
-    summary: 'Single-slot decision: produce the optional version guard for the next FileSystem.editText.',
+    summary: 'Single-slot decision for the next FileSystem.editText.',
   },
   {
     name: 'fs/observed',
     mode: 'emit',
     signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
-    summary: 'Record that an actor observed a target at a version, after a successful read/write/edit.',
+    summary: 'Record a successful observation.',
   },
   {
     name: 'fs/write-intent',
     mode: 'waterfall',
     signature: '\'fs/write-intent\'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>',
-    summary: 'Single-slot decision: produce the write intent for the next FileSystem.writeText.',
+    summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
     name: 'llm/stream',
@@ -348,25 +348,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/created',
     mode: 'emit',
     signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
-    summary: 'Emitted after session publication.',
+    summary: 'Creation announcement during session publication.',
   },
   {
     name: 'session/disposed',
     mode: 'emit',
     signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
-    summary: 'Emitted once when an announced session leaves the store, including publication rollback.',
+    summary: 'Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin.',
   },
   {
     name: 'session/event',
     mode: 'emit',
     signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
-    summary: 'Post-commit append feed.',
+    summary: 'Post-commit, fire-and-forget append feed.',
   },
   {
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    summary: 'Awaited parallel durability checkpoint; dispatch through SessionStore.flush.',
+    summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
     name: 'skill/provider-added',

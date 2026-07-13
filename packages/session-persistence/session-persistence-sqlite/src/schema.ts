@@ -56,7 +56,9 @@ export interface EventRow {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
- * Open the database, validate its version, and apply schema and pragmas.
+ * Open the database and apply its schema and pragmas. A zero `user_version` is
+ * stamped with {@link SCHEMA_VERSION}; every other non-current version rejects
+ * rather than being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
  * @returns the open handle with pragmas applied and both tables ensured.
@@ -140,9 +142,10 @@ export function rowToEvent(row: EventRow): SessionEvent {
 }
 
 /**
- * The preserved prefix of an ordered event-row list (mirrors the JSONL backend's `scanLog`):
- * the longest prefix of complete, seq-contiguous, parseable rows, PLUS the seq from which a
- * never-committed torn tail must be deleted (or `undefined` if the whole list is intact).
+ * Find the preserved prefix of ordered event rows. Fully written rows in an
+ * interrupted final turn remain in the prefix. The first unparsable row or seq
+ * gap after the last `turn/end` marks a tolerated torn tail; the same hole in
+ * the committed region rejects.
  *
  * @param rows - one session's event rows, ordered by seq ascending.
  * @returns the preserved event prefix, plus `tornFrom` — the seq the physical
@@ -167,7 +170,8 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
     if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }
   }
 
-  // Walk the longest PREFIX of complete, seq-contiguous, parseable rows (row i has seq === i).
+  // Preserve the contiguous prefix, including a complete interrupted turn;
+  // holes through the last committed boundary throw, while later holes stop.
   const preserved: SessionEvent[] = []
   for (let i = 0; i < rows.length; i++) {
     const p = parsed[i]

@@ -1,6 +1,7 @@
 /**
  * Verify root-relative `docs/*.md` tokens in repo-authored TypeScript. The
- * textual scan requires the extension and excludes built and vendored source.
+ * textual scan requires the extension, checks matching string literals too,
+ * and excludes built declarations and vendored source.
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'

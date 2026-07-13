@@ -92,7 +92,9 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
 /**
  * Redirect a stream's `write` into the log buffer (the program-visible
  * `process.stdout`/`process.stderr` in the real worker), so raw writes land in emission order
- * alongside console output instead of racing down a pipe.
+ * alongside console output instead of racing down a pipe. It preserves Node's optional callback
+ * contract: the callback runs asynchronously after admission, even when the log budget drops
+ * the write.
  *
  * @param logs - the buffer captured writes are pushed into.
  * @param stream - the stream whose `write` slot is patched.
@@ -147,7 +149,8 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
  * Prepare the program's completion value for the done message: a value whose MEASURED
  * cross-boundary size fits `maxValueBytes` crosses raw — exact bytes for a string, the
  * structured-clone wire size (`v8.serialize`) for everything else, so a huge container whose
- * BOUNDED inspect rendering happens to be small cannot smuggle itself past the cap.
+ * bounded inspect rendering happens to be small cannot smuggle itself past the cap. Oversized
+ * or non-cloneable values are replaced by a bounded string rendering with an in-band marker.
  *
  * @param value - the program's completion value.
  * @param maxValueBytes - the byte cap for the value.
@@ -205,6 +208,7 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
  * Build the binding namespace objects the program sees: one null-prototype global per
  * namespace, each declared name an own enumerable async function that bridges over the port
  * (`__proto__`/`constructor`/`toString` are ordinary keys, never prototype collisions).
+ * Non-cloneable arguments and host failure replies reject only the corresponding call.
  *
  * @param data - the boot payload's namespace declarations (globals + names).
  * @param port - the port binding calls are posted to.
@@ -240,7 +244,8 @@ export function makeNamespaces(
 }
 
 /**
- * Run one program and post its terminal {@link DoneMessage}.
+ * Run one strict async-function body, allowing top-level `await` and `return`, and post exactly
+ * one terminal {@link DoneMessage}; a thrown program error becomes its `error` field.
  * @param port - host message port or test double.
  * @param data - the boot payload the host sent.
  * @param streams - stdout/stderr objects captured as program logs.

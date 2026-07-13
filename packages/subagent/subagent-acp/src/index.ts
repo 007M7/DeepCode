@@ -1,7 +1,8 @@
 /**
- * The out-of-process ACP subagent backend: registers a {@link SubagentProvider} on
- * `ctx.subagents` that runs each child agent in a spawned SUBPROCESS, driven over the Agent
- * Client Protocol (ACP) as the client.
+ * Out-of-process ACP subagent backend. Each child has its own process, session, model, and
+ * tools, so it shares no Cordis context, ignores `request.parent`, and advertises no parent-
+ * enforced start capabilities. This plugin uses named exports only; a default would hide its
+ * loader metadata (see `docs/postmortem/0001-acp-default-export-drops-inject.md`).
  * @module @deepseek-ai/dsh-subagent-acp
  */
 

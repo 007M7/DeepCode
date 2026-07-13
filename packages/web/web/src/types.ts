@@ -1,7 +1,7 @@
 /**
- * Vocabulary for the web capability seam (`ctx.web`): the search/fetch request/result shapes
- * providers produce and consumers format, the provider status discriminant selection reads,
- * the execution-control context, and the typed error taxonomy.
+ * Vocabulary for the web capability seam (`ctx.web`). Search and fetch deliberately share one
+ * seam so provider selection, cancellation, errors, and product configuration have one owner,
+ * while retaining separate request and result shapes.
  * @module @deepseek-ai/dsh-web/types
  */
 
@@ -150,9 +150,11 @@ export interface WebFetchProvider {
 }
 
 /**
- * Typed web error. Extends {@link HarnessError} so it carries a stable, machine-routable
- * `code` (a `string`, like every other seam's error) and chains `cause`.
- * `ToolRegistry.execute()` converts a thrown `WebError` into an error tool result whose
- * structured metadata exposes the code, so callers (hooks, tests, UI) route on it.
+ * Typed web error with a machine-routable, open-string `code` and chained `cause`.
+ * Consumers must tolerate provider-specific codes. Shared codes cover unavailable,
+ * missing, unusable, ambiguous, or duplicate providers, cancellation, and provider failure;
+ * the local fetch provider additionally distinguishes invalid or blocked URLs, redirects,
+ * size and timeout limits, and unsupported content types. Tool execution exposes the code in
+ * structured error metadata.
  */
 export class WebError extends HarnessError {}

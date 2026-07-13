@@ -10,12 +10,14 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 Creation and resume use one caller-owned transaction: compose while unpublished, enter both registries, announce lifecycle edges, then start the driver. Failure rolls back private resources; caller, handle, and provider teardown share one quiescence boundary. The interface contract and ownership order live in [`dsh-agent`](../agent/README.md) and the [agent-scope runtime RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md).
 
-- `ctx.agentLoop.create(id, options?, meta?)` synchronously creates a caller-fiber-owned agent with a fresh generated session id.
+Caller-chosen ids arbitrate only at final registry entry, so concurrent contenders may prepare but every loser rolls back. Entry-bound detach capabilities cannot remove a later same-id replacement. Teardown stops and drains—including idle-injection flushes—before detaching agent, session, and scope; ids become reusable at detach.
+
+- `ctx.agentLoop.create(id, options?, meta?)` synchronously creates a caller-fiber-owned agent with a fresh generated session id and optional cwd. Each call starts a new session rather than applying resume-or-create policy.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
-- `ctx.agents.create(options)` creates on the supplied session id and returns an owned [`AgentHandle`](../agent/README.md).
-- `ctx.agents.resume(options)` loads through optional [session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md), continues the stored history, and returns the same handle shape.
+- `ctx.agents.create({ agentId, sessionId, meta?, seed?, agentOptions?, setup?, signal? })` validates and snapshots durable seed and metadata, awaits optional composition while unpublished, creates on the supplied session id, and returns an owned [`AgentHandle`](../agent/README.md). Its signal applies only until publication.
+- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions?, setup?, signal? })` loads through optional [session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md), continues stored history and turn numbering under the resumed session id, and follows the same unpublished setup and creation-only cancellation boundary. It rejects when no persistence backend is mounted.
 
 The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle). For a programmatic agent, the handle holder is the only consumer-facing teardown capability; AgentLoop provider unload is the independent structural teardown edge, not another handle exposed to application code.
 

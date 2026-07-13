@@ -2,7 +2,7 @@
 
 The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs, including the local skill provider, and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
-This is the package to read to see **the whole plugin tree at once** — the teaching role the inlined `echo-agent` `cordis.yml` used to play before the spine moved behind this bundle.
+Read this package for the whole plugin tree and its composition order.
 
 ## The tree it loads
 

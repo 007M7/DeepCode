@@ -24,7 +24,7 @@ Tool-call presentation remains tool-owned. A tool's `presentCall` and `presentRe
 
 Permission handling is an answerer on the [user-approval seam](2026-07-06-approval-seam.md), not an ask-every-tool policy in ACP. An `approval/request` for a bridge-owned agent with a call id becomes `session/request_permission` on that agent's editor session, with one-shot allow/reject choices. Foreign or call-less requests delegate; a missing or failed answerer remains fail-closed. The plugin that asks—such as a pre-execute policy or bash escalation—owns the decision to ask.
 
-The bridge exposes independent ACP config options for sandbox mode and approval policy only when their services exist. Changes validate against the owning vocabulary and enter the session fold immediately during a turn or at the next turn boundary while idle. Session modes are not used because they cannot represent orthogonal controls; model selection remains connection-wide.
+The bridge exposes independent ACP config options for sandbox mode and approval policy only when their services exist. Changes validate against the owning vocabulary and enter the session fold immediately during a turn. While idle, a change is overlaid in responses but remains memory-only until the next turn anchors it; a crash therefore reverts to the durable fold. Session modes are not used because they cannot represent orthogonal controls; model selection remains connection-wide.
 
 The bridge also provides the ACP-backed `UserInteractionProvider`: `ask_user_question` requests become form elicitations on the owning session. Select, multi-select, option descriptions, and custom-answer override semantics are preserved.
 

@@ -9,9 +9,13 @@ import { bwrapProfileArgs, LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 
 /**
- * Keyless consumer-integration proof under bwrap: the real `LocalSandboxProvider` (nothing
- * forced — bwrap is the ladder's first rung, so a passing probe selects it) underneath the
- * real `SandboxBashExecutor`, driven through the executor's public run/start paths.
+ * Keyless integration of the real provider and executor through public run/start paths. With
+ * no rung forced, a passing bwrap probe selects the ladder's first rung. The tests check world
+ * effects and stamped facts, including EROFS classification through the wrap-carried dialect;
+ * backend-only confinement is covered by `@deepseek-ai/dsh-sandbox-local`.
+ *
+ * Skips when bwrap or unprivileged user namespaces are unavailable. HOME-based paths are
+ * intentional because bwrap replaces `/tmp`, which cannot prove the workspace-root boundary.
  */
 
 const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

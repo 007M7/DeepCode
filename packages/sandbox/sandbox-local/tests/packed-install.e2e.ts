@@ -6,7 +6,16 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-/** Keyless packed-tarball smoke in an external plain-Node consumer. */
+/**
+ * Keyless publish-path rehearsal. It packs the package and workspace peers, installs those exact
+ * tarballs in an external plain-Node consumer, and lets npm resolve the registry Landlock launcher
+ * plus its platform package. No tsx, path mapping, or workspace resolution can hide missing files,
+ * dependency errors, or lost executable modes.
+ *
+ * The installed launcher must match the host architecture, remain executable, and either confine a
+ * real process with bwrap disabled or fail closed on a non-enforcing kernel. Skips off Linux or
+ * before `pnpm run build`; launcher byte provenance belongs to its upstream release pipeline.
+ */
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
@@ -59,7 +68,8 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
       tarballs.push(lines[lines.length - 1] as string)
     }
 
-    // Install packed tarballs in a plain ESM consumer, including optional platform dependencies.
+    // Peer ranges resolve to the tarballs; Cordis is pinned to their peer range. Do not omit optional
+    // dependencies because the launcher selects its OS/CPU package through one.
     writeFileSync(join(consumerDir, 'package.json'), JSON.stringify({ name: 'dsh-packed-consumer', private: true, type: 'module' }))
     const install = spawnSync('npm', ['install', '--no-audit', '--no-fund', ...tarballs, 'cordis@4.0.0-rc.6'], {
       cwd: consumerDir,

@@ -1,6 +1,8 @@
 /**
- * Serialize harness vocabulary (`GenerateOptions`, `Message[]`) into the DeepSeek
- * chat-completions request body.
+ * Serialize harness messages into DeepSeek chat completions. User text is joined; assistant text
+ * becomes `content`, tool calls become `tool_calls`, and tool results become separate tool messages.
+ * Assistant reasoning is replayed as `reasoning_content` only on tool-call turns, as required by
+ * thinking-mode passback. Unknown declaration-merged block types are skipped rather than rejected.
  * @module dsh-llm-deepseek/serialize
  */
 

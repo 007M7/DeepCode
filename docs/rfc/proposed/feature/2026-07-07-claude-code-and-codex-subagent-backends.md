@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-Add isolated subagent providers for Claude Code and Codex. A harness turn should be able to delegate a self-contained task to either product and receive its final answer without exposing parent secrets or inheriting host configuration from `~/.claude` or `~/.codex`.
+Add isolated subagent providers for Claude Code and Codex. The existing [named-provider seam](../../implemented/feature/2026-06-21-subagent-capability-seam.md) and [ACP backend](../../implemented/feature/2026-06-22-acp-subagent-backend.md) establish the process-boundary shape. A harness turn should be able to delegate a self-contained task to either product and receive its final answer without exposing parent secrets or inheriting host configuration from `~/.claude` or `~/.codex`.
 
 ## Proposal
 
@@ -14,7 +14,7 @@ Two sibling provider packages, structural variants of the ACP backend, plus one 
 - `@deepseek-ai/dsh-subagent-codex` — spawns `codex app-server` and drives one thread/turn over its JSON-RPC-over-stdio protocol with a hand-rolled newline-JSON client (~200–300 lines) in the package.
 - `@deepseek-ai/dsh-subagent-process` — a pure library (the `subagent-inprocess` precedent) extracting what `dsh-subagent-acp` already carries and both new backends need: the credential env scrub (`SENSITIVE_ENV_PATTERN`/`buildChildEnv`), the EOF → SIGTERM → SIGKILL dispose ladder, and new isolated-config-dir helpers (`mkdtemp` create, best-effort remove). The ACP backend migrates onto it; `bash-local`'s sibling copy is left alone to bound the change.
 
-Both providers follow the ACP backend contract: a fresh child per `start`, one prompt round-trip, no inherited parent context or advertised optional capabilities, and a non-rejecting `result` that maps child failures to stop reasons while logging the original error. Each mounts `dsh-tool-subagent` under a distinct tool name. The tool result is the only new model-visible artifact, so no new session event is required; workspace mutations remain ambient side effects outside transcript replay.
+Both providers follow the ACP backend contract: a fresh child per `start`, one prompt round-trip, no inherited parent context or advertised optional capabilities, ignored `request.parent` and `request.agentOptions`, and a random branded agent id. `result` never rejects; child failures map to stop reasons while the original error reaches the logger. Each mounts `dsh-tool-subagent` under a distinct tool name. The tool result is the only new model-visible artifact, so no new session event is required; workspace mutations remain ambient side effects outside transcript replay.
 
 ## Verified interface facts (pinned versions)
 
@@ -31,11 +31,11 @@ Both integration surfaces were verified against pinned implementations before th
 
 ## Isolation and credentials
 
-Each run uses a fresh config directory (`CLAUDE_CONFIG_DIR` with `settingSources: []`, or `CODEX_HOME`) that is removed on dispose; config may instead select a persistent directory. The shared child-env helper forwards ordinary environment variables, removes credential-shaped names, and overlays explicit `config.env`. Claude Code receives its API key through that overlay, while Codex receives it through `account/login/start`.
+Authentication is API-key-only. Each run uses a fresh config directory (`CLAUDE_CONFIG_DIR` with `settingSources: []`, or `CODEX_HOME`) that is removed best-effort on dispose; config may instead select a persistent directory. The shared child-env helper forwards ordinary values such as `PATH`, `HOME`, `TMPDIR`, locale, and proxy settings, removes credential-shaped names, and overlays explicit `config.env`. Claude Code receives its API key through that overlay, while Codex receives it through `account/login/start` rather than a hand-written auth file.
 
 ## Permission and approval policy
 
-Each backend exposes its engine's native policy vocabulary. Claude Code defaults to `permissionMode: default` with rejected fallback permissions; Codex defaults to `sandboxMode: read-only`, `approvalPolicy: never`, and the same rejected fallback. Every server request is answered programmatically, including unknown methods, so a child cannot wait indefinitely for unavailable human input.
+Each backend exposes its engine's native policy vocabulary. Claude Code defaults to `permissionMode: default` with `permission: reject`; Codex defaults to `sandboxMode: read-only`, `approvalPolicy: never`, and the same rejected fallback. Examples opt into `acceptEdits` or `workspace-write`. Known approval, user-input, and elicitation requests receive the configured answer; unknown methods receive method-not-found and unknown notifications are consumed. No prompt reaches a human, and no child can wait indefinitely for unavailable input.
 
 ## StopReason mapping
 
@@ -47,9 +47,9 @@ Liveness posture, stated explicitly: teardown timing is config, turn duration is
 
 Coverage is required at each applicable tier:
 
-- **Keyless unit/integration:** use scripted child processes through the real SDK or wire client to cover round trips, stop mapping, cancellation, permissions, isolation, failures, and cleanup.
-- **With-key e2e:** each real engine performs file work under an explicitly writable policy; skips name the missing binary or key.
-- **Snapshot:** deferred under provider-specific TODOs pending the per-session replay shape described by the [subagent replay RFC](../../implemented/testing/2026-06-22-subagent-snapshot-replay.md).
+- **Keyless unit/integration:** drive a fake Claude CLI through the real SDK and a scripted Codex app-server through the real wire client. At per-file 100% coverage, exercise round trips, every stop mapping, both cancellation paths and pre-abort, permission policies, unknown messages, spawn failure, reload cleanup, export shape, scrubbed environments, temporary-directory removal, and Codex auth precheck failure.
+- **With-key e2e:** each real engine performs file work under `acceptEdits` or `workspace-write`; skips name the missing binary or key and assert no child process remains.
+- **Snapshot:** deferred as `TODO(claude-code-subagent-replay)` and `TODO(codex-subagent-replay)` pending the process-specific replay shape described by the [subagent replay RFC](../../implemented/testing/2026-06-22-subagent-snapshot-replay.md).
 
 ## Alternatives considered
 

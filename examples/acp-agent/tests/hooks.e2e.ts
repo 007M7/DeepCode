@@ -17,8 +17,10 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * With-key e2e: the Claude Code hook bridge running against the real acp-agent subprocess and
- * the real model.
+ * With-key e2e for the Claude hook bridge. The process-level `./hooks.json` is
+ * resolved from a temporary launch cwd and blocks all PreToolUse calls; a real
+ * model is asked to write there, and absence of the file proves interception.
+ * The test owns and disposes the ACP subprocess.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
@@ -76,7 +78,8 @@ afterEach(async () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook blocks bash (real model)', () => {
   it('denies every bash command, so the requested file is never written (verified on disk)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-hooks-e2e-'))
-    // A PreToolUse hook that blocks every tool (exit 2, no matcher = match-all).
+    // `configPath` is process-relative, so placing the match-all hook in the
+    // launch cwd selects it; hook commands themselves run in the session cwd.
     await writeFile(join(workdir, 'hooks.json'), JSON.stringify({
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo "bash blocked by policy" >&2; exit 2' }] }] },
     }))

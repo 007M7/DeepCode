@@ -10,9 +10,10 @@ import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
- * Unit coverage for the @deepseek-ai/dsh-stdio-agent app plugin: mounting it composes the
- * console logger, the agent-core spine (pre-creating the `main` agent from the app config),
- * the JSONL backend, and the readline UI in one `ctx.plugin`.
+ * Unit coverage for app composition and config forwarding: console logger, pre-created main agent,
+ * agent-core spine, JSONL backend, and readline UI. HMR is a Loader-only leaf concern covered by the
+ * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
+ * survive namespace collapse while silently losing its schema.
  */
 async function mount(config: stdioAgent.Config): Promise<Context> {
   const ctx = new Context()
@@ -152,7 +153,8 @@ describe('dsh-stdio-agent app', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // Loader must retain the namespace so name, Config, and apply survive unwrapping.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config` while the app still boots. Guard the postmortem-0001 shape directly.
     expect('default' in stdioAgent).toBe(false)
     expect(typeof stdioAgent.apply).toBe('function')
 

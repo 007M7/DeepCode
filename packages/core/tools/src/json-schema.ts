@@ -1,7 +1,9 @@
 /**
- * Structured-output JSON Schema subset: the vocabulary a caller uses to demand a
- * machine-readable result from a subagent (`SubagentStartRequest.outputSchema`) or a workflow
- * `agent()` call.
+ * Structured-output JSON Schema subset for subagents and workflows. It supports
+ * one scalar `type`; object `properties`/`required`/boolean
+ * `additionalProperties`; array `items`; scalar `enum`/`const`; and JSON-valued
+ * annotations. Unsupported or misplaced keywords reject rather than being
+ * accepted without enforcement, and structured-output roots must be objects.
  * @module dsh-tools/json-schema
  */
 

@@ -1,5 +1,7 @@
 /**
- * SQLite durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-sqlite`).
+ * SQLite durable session-persistence backend. It maps each session header and
+ * event to rows, and delegates write-path orchestration to
+ * {@link PersistenceCoordinator}.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
@@ -75,8 +77,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Open the database asynchronously (the parent directory may need creating); every hook
-    // awaits `ready` first.
+    // Open asynchronously so directory creation does not block plugin apply;
+    // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
@@ -105,8 +107,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  // `list` is BOTH the public service method and the PersistenceBackend hook — one method (the
-  // SELECT below).
+  // One method serves both public `list` and the backend hook; delegating it to
+  // the coordinator would call this hook recursively.
 
   /**
    * The per-session init promises, exposed for white-box tests that await a

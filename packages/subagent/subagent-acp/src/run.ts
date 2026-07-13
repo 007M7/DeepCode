@@ -1,6 +1,10 @@
 /**
- * Fresh-process ACP subagent client. Drives one child session and owns process
- * cancellation and quiescent disposal.
+ * Fresh-process ACP subagent client. Drives one child session and owns cancellation and
+ * quiescent disposal.
+ *
+ * TODO(acp-subagent-replay): add snapshot-tier coverage with a separate replay fixture and
+ * sessions root inside each child process. Current keyless coverage uses a scripted ACP child;
+ * with-key coverage drives the real ACP example.
  * @module @deepseek-ai/dsh-subagent-acp/run
  */
 
@@ -24,7 +28,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
 
-/** Fixed response to child permission requests: reject, or first allow option. */
+/** Fixed response to child permission requests: reject by default, or select the first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
 
 /** Resolved spawn spec for an ACP child process (no defaults — see Config). */
@@ -68,7 +72,7 @@ export interface AcpRunSpec {
   onError?: (error: Error, stopReason: SubagentStopReason) => void
 }
 
-/** Default EOF grace for child flush and nested-process teardown before signaling. */
+/** EOF grace for child flush and nested-process teardown; wider than the signal grace below. */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
 /** Default grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config; mirrors the bash executor). */

@@ -14,7 +14,9 @@ import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-t
  * Which START-TIME features a provider supports. Checked by the service before delegating to
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
- * degradation" rule).
+ * degradation" rule). These static flags cover features needed before a run exists; runtime
+ * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
+ * is the capability.
  */
 export interface SubagentCapabilities {
   /** Honor {@link SubagentStartRequest.outputSchema} (structured final output). */
@@ -54,8 +56,9 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
-   * Supported object-rooted JSON Schema for {@link SubagentResult.structured}.
-   * Requires the provider capability and plain host-realm JSON data.
+   * Object-rooted JSON Schema within `assertSupportedOutputSchema`'s enforced subset. Start rejects
+   * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
+   * a successful child returns the matching value as {@link SubagentResult.structured}.
    */
   readonly outputSchema?: StructuredOutputSchema
   /**
@@ -124,8 +127,9 @@ export interface SubagentResult {
 }
 
 /**
- * Ready child handle. Consumers await {@link result} and always {@link dispose}
- * for quiescence. Optional methods indicate their runtime capabilities.
+ * Child handle returned only after readiness. Consumers await {@link result} and must always
+ * {@link dispose} to cancel remaining work and reach quiescence. Optional methods are runtime
+ * capability discovery; narrow their presence before calling.
  */
 export interface SubagentRun {
   /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
@@ -170,9 +174,9 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
-   * Whether a child receives the parent's completed conversation history. This
-   * descriptive fact drives tool wording; it says nothing about services, tools,
-   * or authority.
+   * Whether the child sees the parent's completed-turn prefix. This is descriptive, not a
+   * service-validated start capability: the model-facing tool derives truthful wording from it.
+   * It says nothing about tool registration, injected services, or authority inheritance.
    */
   readonly inheritsParentContext: boolean
   /**
