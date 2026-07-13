@@ -104,8 +104,14 @@ export class HarnessSdkServer {
     }))
     this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
       const agent = this.ctx.agents.get(info.id)
-      const parentSessionId = this.subagentParents.get(info.id) ?? agent?.session.header.parentSession
+      const cachedParentSessionId = this.subagentParents.get(info.id)
       this.subagentParents.delete(info.id)
+      // This protocol reports LOCAL child sessions, paired with the
+      // session/created-driven subagent.started notification above. A remote
+      // provider may use a real remote SessionId for its run, but that session
+      // does not exist in this harness and therefore has no paired start event.
+      if (cachedParentSessionId === undefined && agent === undefined) return
+      const parentSessionId = cachedParentSessionId ?? agent?.session.header.parentSession
       this.transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),

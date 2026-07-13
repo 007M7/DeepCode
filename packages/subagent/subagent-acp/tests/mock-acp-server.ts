@@ -99,7 +99,7 @@ function makeAgent(conn: AgentSideConnection): Agent {
         writeFileSync(NEWSESSION_GATE.ready, 'at-newSession')
         while (!existsSync(NEWSESSION_GATE.go)) await new Promise(r => setTimeout(r, 10))
       }
-      return { sessionId: randomUUID() }
+      return { sessionId: process.env.MOCK_SESSION_ID ?? randomUUID() }
     },
     authenticate(_params: AuthenticateRequest): Promise<void> {
       // No auth methods advertised; nothing to do.

@@ -303,7 +303,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('falls back to live lineage and treats the shared id as the child session id', async () => {
+  it('falls back to live lineage and ignores runs without a local child session', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined
@@ -367,16 +367,10 @@ describe('HarnessSdkServer', () => {
           stopReason: 'error',
         },
       })
-      expect(transport.notifications).toContainEqual({
-        method: 'subagent.finished',
-        params: {
-          provider: 'fork',
-          agentId: 'missing-child-agent',
-          childSessionId: 'missing-child-agent',
-          status: 'error',
-          stopReason: 'error',
-        },
-      })
+      expect(transport.notifications.some(n =>
+        n.method === 'subagent.finished'
+        && n.params?.agentId === 'missing-child-agent',
+      )).toBe(false)
 
       await server.shutdown()
     } finally {
