@@ -39,15 +39,6 @@ export interface SchemaProp {
   description?: string
   /** Enum of allowed values (strings only). */
   enum?: string[]
-  /**
-   * Default value, emitted into the JSON Schema only (validation never applies
-   * it — see the validator note below).
-   *
-   * XXX(unused-default): no tool definition in the repo sets `default`; it rides
-   * into the wire schema for a model that no tool surfaces it to. Drop the field
-   * and its converter line unless a real tool needs a model-visible default.
-   */
-  default?: unknown
   /** Nested properties for type: 'object'. */
   properties?: SchemaSpec
   /** Items schema for type: 'array'. */
@@ -123,7 +114,6 @@ function propToJsonSchema(prop: SchemaProp): { schema: Record<string, unknown>; 
   const result: Record<string, unknown> = { type: prop.type }
   if (prop.description) result.description = prop.description
   if (prop.enum) result.enum = prop.enum
-  if (prop.default !== undefined) result.default = prop.default
 
   const required = prop.required === true
 
