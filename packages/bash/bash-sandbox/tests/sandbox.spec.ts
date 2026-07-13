@@ -246,6 +246,20 @@ describe('result facts', () => {
 })
 
 describe('background sandbox facts', () => {
+  it('stamps facts and releases accounting when background spawn fails', async () => {
+    const { bash } = await setup()
+    const missingWorkdir = join(mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-')), 'missing')
+    const task = bash.start(bash.resolve({ command: 'true', workdir: missingWorkdir }))
+
+    await task.done
+
+    expect(task.status).toBe('killed')
+    expect(task.readOutput().delta).toContain('spawn failed:')
+    expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
+    expect(accounting.size).toBe(0)
+  })
+
   it('stamps a settled denial: nonzero exit + permission stderr under a confined mode', async () => {
     const { bash } = await setup()
     const task = bash.start(bash.resolve({ command: 'echo "x: Permission denied" >&2; exit 1' }))

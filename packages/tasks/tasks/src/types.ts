@@ -71,7 +71,7 @@ export interface TaskStart {
   label: string
   /**
    * The spawning agent. Its `session.header.id` becomes the task's owner
-   * token (read/kill/wait/list are fenced to that session), and its `ctx` scope
+   * identity (read/kill/wait/list are fenced to that session), and its `ctx` scope
    * owns an async cleanup that cancels and awaits the task during disposal. It
    * must be the exact live instance currently registered under its agent id;
    * a stale object whose id has been reused is rejected before work starts.

@@ -194,6 +194,7 @@ export class LocalBashExecutor extends BashExecutor {
         // suffices — runBash only rejects with Error instances.
         proc.status = 'killed'
         running.stderr.push(Buffer.from(`spawn failed: ${String(error)}`))
+        this.onProcessDone(proc, running)
         this.live.delete(proc)
       }),
       readOutput: (): BashProcessRead => {
@@ -227,8 +228,9 @@ export class LocalBashExecutor extends BashExecutor {
 
   /**
    * Settlement hook for subclasses that attach execution facts to a process.
-   * Called after exit facts are stamped and before {@link BashProcess.done}
-   * resolves. The base implementation is intentionally empty.
+   * Called after exit facts or spawn-failure output are stamped and before
+   * {@link BashProcess.done} resolves. The base implementation is intentionally
+   * empty.
    * @param _proc - the settled process handle.
    * @param _running - the process collectors, including full in-memory stderr.
    */

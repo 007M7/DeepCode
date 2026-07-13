@@ -83,6 +83,8 @@ interface TrackedTask {
   markSettled: () => void
   /** Live {@link TaskService.wait} calls — a settlement with waiters marks the task reported. */
   waiters: number
+  /** Removable resolvers for live waits; timeout/abort unregister before the task settles. */
+  waitResolvers: Set<() => void>
 }
 
 /** True for the three terminal {@link TaskStatus} values. */
@@ -169,6 +171,7 @@ export class TaskService extends Service {
       settled,
       markSettled,
       waiters: 0,
+      waitResolvers: new Set(),
     }
     this.store.set(id, task)
 
@@ -276,8 +279,10 @@ export class TaskService extends Service {
    * has already settled: settlement saw this live waiter and suppressed the
    * completion notice on its behalf, so the wait still resolves and delivers
    * the terminal snapshot it owes (an abort must never leave a finished task
-   * both unreported and notice-suppressed). Throws for an unknown id, a task
-   * owned by another session, or a non-positive timeout.
+   * both unreported and notice-suppressed). Each live wait uses a removable
+   * resolver that timeout/abort detaches, so a long-running task does not
+   * retain expired waits. Throws for an unknown id, a task owned by another
+   * session, or a non-positive timeout.
    * @param id - the task to wait for.
    * @param timeoutMs - max wait in milliseconds (positive, finite; the surface caps it).
    * @param caller - the waiting agent, checked against the task's owner.
@@ -313,7 +318,13 @@ export class TaskService extends Service {
         // the wait. `using` clears the timer on every exit path.
         using d = deadline(signal, timeoutMs, TASK_WAIT_TIMEOUT)
         await new Promise<void>((resolve, reject) => {
+          const onSettled = (): void => {
+            task.waitResolvers.delete(onSettled)
+            d.signal.removeEventListener('abort', onAbort)
+            resolve()
+          }
           const onAbort = (): void => {
+            task.waitResolvers.delete(onSettled)
             if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
               resolve()
             } else if (isTerminal(task.status)) {
@@ -325,11 +336,8 @@ export class TaskService extends Service {
               reject(new Error('wait aborted'))
             }
           }
+          task.waitResolvers.add(onSettled)
           d.signal.addEventListener('abort', onAbort, { once: true })
-          void task.settled.then(() => {
-            d.signal.removeEventListener('abort', onAbort)
-            resolve()
-          })
         })
       } finally {
         uncount()
@@ -437,6 +445,9 @@ export class TaskService extends Service {
         }
       }
     }
+    const waitResolvers = [...task.waitResolvers]
+    task.waitResolvers.clear()
+    for (const resolveWait of waitResolvers) resolveWait()
     task.markSettled()
   }
 

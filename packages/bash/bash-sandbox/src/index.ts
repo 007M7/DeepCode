@@ -164,8 +164,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
   /**
-   * Per-task facts, keyed by task id from `start()` until the settle stamp
-   * consumes them: the mode the task runs under (per-call — an escalated task
+   * Per-process facts, keyed by handle from `start()` until the settle stamp
+   * consumes them: the mode the process runs under (per-call — an escalated task
    * differs from its neighbors) plus its wrap facts. The seam returns facts
    * PER WRAP — a provider may legally vary enforcement or dialect between
    * calls — so overlapping background tasks must each classify against their
@@ -234,8 +234,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     // Sandbox facts are stamped at settle time by onProcessDone()
     // (denial classification runs against the settled task's collected
     // stderr). The map entry lands synchronously after spawn, strictly
-    // before the earliest possible settle (a process exit reaches us no
-    // sooner than the next tick).
+    // before the earliest possible settle (including a spawn rejection, whose
+    // promise reaction cannot run until this synchronous start call returns).
     const confined = this.confine(spec.command, mode)
     const proc = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined

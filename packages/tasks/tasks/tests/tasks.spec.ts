@@ -59,6 +59,14 @@ async function harness() {
 /** Let the settlement continuation (a `done.then`) run. */
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
+/** Inspect the internal resolver registry to pin bounded retention while a task stays live. */
+function waitResolverCount(ctx: Context, id: TaskId): number {
+  const service = ctx.tasks as unknown as { store: Map<TaskId, { waitResolvers: Set<() => void> }> }
+  const task = service.store.get(id)
+  if (task === undefined) throw new Error(`missing test task ${id}`)
+  return task.waitResolvers.size
+}
+
 describe('TaskService.start', () => {
   it('preserves the SessionId brand on public owner snapshots', () => {
     expectTypeOf<TaskSnapshot['ownerSession']>().toEqualTypeOf<SessionId | undefined>()
@@ -252,6 +260,26 @@ describe('TaskService.wait', () => {
     const ctx = await harness()
     const id = ctx.tasks.start(producer().spec)
     expect(await ctx.tasks.wait(id, 5)).toMatchObject({ status: 'running', reported: false })
+  })
+
+  it('unregisters timed-out and aborted wait resolvers while the task remains live', async () => {
+    const ctx = await harness()
+    const id = ctx.tasks.start(producer().spec)
+
+    for (let index = 0; index < 3; index += 1) {
+      const wait = ctx.tasks.wait(id, 5)
+      expect(waitResolverCount(ctx, id)).toBe(1)
+      await expect(wait).resolves.toMatchObject({ status: 'running' })
+      expect(waitResolverCount(ctx, id)).toBe(0)
+    }
+
+    const controller = new AbortController()
+    const wait = ctx.tasks.wait(id, 5_000, undefined, controller.signal)
+    expect(waitResolverCount(ctx, id)).toBe(1)
+    controller.abort()
+    await expect(wait).rejects.toThrow('wait aborted')
+    expect(waitResolverCount(ctx, id)).toBe(0)
+    expect(ctx.tasks.get(id).status).toBe('running')
   })
 
   it('returns immediately for an already-terminal task', async () => {
