@@ -230,6 +230,27 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[main turn 1] ')
   })
 
+  it('retargets a surviving root when HMR publishes it before disposing the old root', async () => {
+    const { ctx, input } = await setup()
+    const oldRoot = makeAgent('old-root')
+    const child = makeAgent('child')
+    ;(child.session.header as { parentSession?: string }).parentSession = oldRoot.id
+    const replacement = makeAgent('replacement')
+    const disposeOld = ctx.agents.register(oldRoot)
+    ctx.agents.register(child)
+    ctx.agents.register(replacement)
+
+    // The replacement's created edge arrived while oldRoot was still targeted.
+    // Once oldRoot is removed, registry order is child then replacement; the
+    // UI must skip the surviving child and route input to the replacement root.
+    disposeOld()
+    input.feed('after hmr')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(child.sent).toEqual([])
+    expect(replacement.sent).toEqual([[{ type: 'text', text: 'after hmr' }]])
+  })
+
   it('renders tool/call and tool/result session events', async () => {
     const { ctx, out } = await setup()
     const session = {} as Session
