@@ -418,9 +418,9 @@ describe('in-process structured output', () => {
   it('appends the structured instruction to the child REQUEST\'s system text (base prompt preserved)', async () => {
     const { ctx, parent, adapter } = await setup([toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 })])
     // A context-wide section stands in for the deployment persona: the
-    // instruction must APPEND to whatever the prompt pipeline assembled, not
-    // replace it (AgentOptions has no prompt field — the instruction is
-    // per-request wire state added by the final-request listener).
+    // instruction must APPEND to the other scoped and global sections, not
+    // replace them (AgentOptions has no prompt field — the instruction is an
+    // ordinary child-scoped prompt registration).
     ctx.systemPrompt.section({ name: 'test:persona', order: 10, text: 'You are a counter.' })
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
@@ -444,22 +444,6 @@ describe('in-process structured output', () => {
       },
     })
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-
-    // This listener is registered after the child's protection and prepended.
-    // Service finalization still restores the stripped transport and prompt
-    // parts, while removing the fabricated native capture tool.
-    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const result = await next()
-      return {
-        sections: result.sections.filter(section =>
-          section.name !== 'tools:sdk' && section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
-        tools: [
-          ...result.tools.filter(tool => tool.name !== RUN_CODE_NAME),
-          { name: STRUCTURED_OUTPUT_TOOL, description: 'wrong native duplicate', parameters: {} },
-        ],
-        variables: result.variables,
-      }
-    }, { prepend: true })
 
     const result = await run.result
     expect(result.structured).toEqual({ answer: 12 })
@@ -610,66 +594,12 @@ describe('in-process structured output', () => {
       await runB.dispose()
     })
 
-    it('protection replaces a conflicting injected schema, not merely ensuring presence', async () => {
-      const { ctx, parent, adapter } = await setup([
-        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),
-      ])
-      // A global listener that INJECTS a wrong-schema structured_output entry:
-      // protection restores the run's own canonical schema.
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const replaced = await next()
-        return {
-          sections: replaced.sections,
-          tools: [
-            ...replaced.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
-            { name: STRUCTURED_OUTPUT_TOOL, description: 'wrong', parameters: { type: 'object', properties: { bogus: { type: 'string' } } } },
-          ],
-          variables: { ...replaced.variables },
-        }
-      })
-      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-      const result = await run.result
-      expect(result.structured).toEqual({ answer: 5 })
-      const entries = adapter.requests[0]!.tools!.filter(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
-      expect(entries).toHaveLength(1)
-      expect(entries[0]!.parameters).toEqual(SCHEMA)
-      await run.dispose()
-    })
-
-    it('protection wins against a listener that replaces the assembly object', async () => {
-      const { ctx, parent, adapter } = await setup([
-        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),
-      ])
-      // A global (every-assembly) listener that returns a brand-new assembly
-      // WITHOUT the capture tool or instruction — the composition caveat that
-      // erases cooperative mutations. Service finalization restores both
-      // after the complete waterfall.
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const replaced = await next()
-        return {
-          sections: replaced.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
-          tools: replaced.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
-          variables: { ...replaced.variables },
-        }
-      })
-      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-      const result = await run.result
-      expect(result.structured).toEqual({ answer: 5 })
-      const entry = adapter.requests[0]!.tools!.find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
-      expect(entry).toBeDefined()
-      expect(entry!.parameters).toEqual(SCHEMA)
-      const system = adapter.requests[0]!.system ?? ''
-      expect(system).toContain(STRUCTURED_OUTPUT_INSTRUCTION)
-      await run.dispose()
-    })
-
-    it('protection preserves the canonical tool position and section band', async () => {
+    it('places the capture tool and instruction in their canonical orders', async () => {
       const { ctx, parent, adapter } = await setup([
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
       ])
-      // A global tool sorting lexicographically AFTER structured_output and a
-      // global section above the 190 band: protection leaves both exactly
-      // where the canonical registry ordering put them.
+      // A global tool sorts lexicographically after structured_output, while a
+      // global section above the 190 band follows the capture instruction.
       ctx.tools.register({
         name: 'zz_probe',
         description: 'probe',
@@ -683,41 +613,6 @@ describe('in-process structured output', () => {
       const names = toolNames(request)
       expect(names.indexOf(STRUCTURED_OUTPUT_TOOL)).toBeGreaterThanOrEqual(0)
       expect(names.indexOf(STRUCTURED_OUTPUT_TOOL)).toBeLessThan(names.indexOf('zz_probe'))
-      const system = request.system ?? ''
-      const instructionAt = system.indexOf(STRUCTURED_OUTPUT_INSTRUCTION)
-      expect(instructionAt).toBeGreaterThanOrEqual(0)
-      expect(system.indexOf('AFTER-BAND')).toBeGreaterThan(instructionAt)
-      await run.dispose()
-    })
-
-    it('a stripped instruction re-inserts at its band; an added duplicate entry collapses to one', async () => {
-      const { ctx, parent, adapter } = await setup([
-        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 3 }),
-      ])
-      ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
-      // Strip the instruction section entirely AND add a wrong-schema
-      // duplicate tool entry alongside the registry's own: protection must
-      // restore the section INTO its band (before the order-200 section, not
-      // appended after it) and collapse the tools to exactly one entry
-      // carrying the run's schema.
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const replaced = await next()
-        return {
-          sections: replaced.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
-          tools: [
-            ...replaced.tools,
-            { name: STRUCTURED_OUTPUT_TOOL, description: 'wrong', parameters: { type: 'object', properties: { bogus: { type: 'string' } } } },
-          ],
-          variables: { ...replaced.variables },
-        }
-      })
-      const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-      const result = await run.result
-      expect(result.structured).toEqual({ answer: 3 })
-      const request = adapter.requests[0]!
-      const entries = request.tools!.filter(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
-      expect(entries).toHaveLength(1)
-      expect(entries[0]!.parameters).toEqual(SCHEMA)
       const system = request.system ?? ''
       const instructionAt = system.indexOf(STRUCTURED_OUTPUT_INSTRUCTION)
       expect(instructionAt).toBeGreaterThanOrEqual(0)

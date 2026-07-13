@@ -1,8 +1,7 @@
 /**
  * System prompt assembly registry. Plugins contribute ordered text sections,
- * tool schema providers, and named prompt variables; protocol contributions
- * may declare themselves owner-final. `assemble(context)` collates them through a waterfall that
- * runs once per step, restores owner-final contributions, and `renderPrompt`
+ * tool schema providers, and named prompt variables; `assemble(context)`
+ * collates them through a waterfall that runs once per step, and `renderPrompt`
  * interpolates `{{variable}}` references into the final text.
  *
  * The harness-owned prompt openers live here too: this plugin registers the
@@ -30,13 +29,18 @@ declare module 'cordis' {
      * {@link PromptAssembly} (sections + tools + variables) before it is
      * rendered. Bound to the {@link SystemPrompt} service; call `next()` to
      * delegate.
-     * @param assembly - the assembly built from the registered sections, tool
-     *   providers, and variable providers; listeners may mutate it or return a
-     *   replacement.
+     *
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
      * by `context.scope` — a listener registered through `agent.ctx` fires only
      * for that agent's assemblies; a plain plugin listener fires for every
      * assembly (scope-less ones included, dispatched subject-less).
+     *
+     * The returned assembly is authoritative. This is an expert composition
+     * seam: a listener that removes or replaces another plugin's protocol
+     * contribution owns preserving that protocol's invariants.
+     * @param assembly - the assembly built from the registered sections, tool
+     *   providers, and variable providers; listeners may mutate it or return a
+     *   replacement.
      * @param context - the per-assembly {@link AssembleContext} the caller
      *   passed to {@link SystemPrompt.assemble} (e.g. which agent the prompt
      *   is for), so a listener can filter or extend per agent.
@@ -93,12 +97,6 @@ export interface PromptSection {
    * interpolated later, by {@link renderPrompt}.
    */
   readonly text: string | ((context: AssembleContext) => string)
-  /**
-   * Whether this section's canonical presence and definition survive the
-   * complete assembly waterfall. Use this only for owner-required protocol
-   * instructions; ordinary sections remain transformable.
-   */
-  readonly ownerFinal?: boolean
 }
 
 /** One section of an assembly: {@link PromptSection} with its text resolved. */
@@ -126,12 +124,6 @@ export interface ToolProviderResult {
   readonly schemas: readonly ToolSchema[]
   /** The pre-restriction name universe for config validation (defaults to `schemas`' names). */
   readonly knownNames?: readonly string[]
-  /**
-   * Tool names this provider owns finally. The names need not be present in
-   * `schemas`: naming a mode-hidden tool makes its canonical absence final, so
-   * an assembly listener cannot fabricate it onto the wire.
-   */
-  readonly ownerFinalNames?: readonly string[]
 }
 
 /**
@@ -222,30 +214,6 @@ function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined, knownN
   const rest = tools.filter(tool => !listed.has(tool.name)).sort(compareToolNames)
   return toolOrder.flatMap(name =>
     name === TOOL_ORDER_REST ? rest : tools.filter(tool => tool.name === name))
-}
-
-/** Restore owner-final entries from `canonical`, anchored before their next ordinary canonical neighbor. */
-function restoreOwnerFinal<T extends { name: string }>(
-  canonical: readonly T[], result: readonly T[], ownerFinalNames: ReadonlySet<string>,
-): T[] {
-  const restored = result.filter(entry => !ownerFinalNames.has(entry.name))
-  for (const [index, entry] of canonical.entries()) {
-    if (!ownerFinalNames.has(entry.name)) continue
-    // Protected entries are inserted in canonical order. Anchor each one
-    // before the first later UNPROTECTED canonical neighbor that survived the
-    // waterfall; if none survived, it belongs at the end. Looking only at
-    // ordinary neighbors avoids reversing adjacent owner-final entries.
-    const following = new Set(
-      canonical.slice(index + 1)
-        .filter(candidate => !ownerFinalNames.has(candidate.name))
-        .map(candidate => candidate.name),
-    )
-    const next = restored.findIndex(candidate => following.has(candidate.name))
-    // `canonical` is an owned snapshot made before the waterfall; no second
-    // clone is needed when moving its entries into the finalized assembly.
-    restored.splice(next < 0 ? restored.length : next, 0, entry)
-  }
-  return restored
 }
 
 /** Lexicographic (code-unit) name comparison — locale-independent, so the order is identical on every machine. */
@@ -364,10 +332,10 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 
 /**
  * Registry service (`ctx.systemPrompt`): plugins contribute ordered text
- * sections, tool-schema providers, named prompt variables, and owner-final
- * contributions; the agent loop calls `assemble(context)` once per
- * step. Registers the harness-owned `harness:identity` and
- * `deployment:persona` sections itself (see {@link Config.persona}).
+ * sections, tool-schema providers, and named prompt variables; the agent loop
+ * calls `assemble(context)` once per step. Registers the harness-owned
+ * `harness:identity` and `deployment:persona` sections itself (see
+ * {@link Config.persona}).
  */
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
@@ -420,10 +388,8 @@ export class SystemPrompt extends Service {
    * scoped context (`agent.ctx`) contributes to that scope alone — and a
    * scoped section SHADOWS a same-named global section for that scope's
    * assemblies (most-specific-wins; this is how a per-agent persona overrides
-   * `deployment:persona`) unless that global contribution is owner-final: it
-   * reserves its section name against scoped shadows so the
-   * registration owner—not a later scope—defines the canonical value. The
-   * readonly typed contribution is borrowed until disposal; only the semantic
+   * `deployment:persona`). The readonly typed contribution is borrowed until
+   * disposal; only the semantic
    * finite-order rule is checked at runtime. Throws if the SAME layer already has the name (a
    * duplicate would silently double prompt text — e.g. a double-loaded tool
    * plugin; the global-duplicate message names `agent.ctx` as the per-agent
@@ -439,17 +405,6 @@ export class SystemPrompt extends Service {
       throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
     const scope = scopeOf(this.ctx)
-    if (scope !== undefined
-      && this.sections.some(global => global.name === section.name && global.ownerFinal === true)) {
-      throw new Error(`prompt section "${section.name}" is globally owner-final and cannot be shadowed in an agent scope`)
-    }
-    if (scope === undefined && section.ownerFinal === true) {
-      const hasScopedShadow = [...this.scopedSections.values()]
-        .some(layer => layer.some(scoped => scoped.name === section.name))
-      if (hasScopedShadow) {
-        throw new Error(`owner-final prompt section "${section.name}" cannot be registered while a scoped shadow exists`)
-      }
-    }
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
         ? this.sections
@@ -602,11 +557,10 @@ export class SystemPrompt extends Service {
    * name restricted away for this scope is a normal absence), and every
    * visible variable resolved against `context` into `assembly.variables`.
    * Tool schemas are detached because assembly waterfalls may mutate them.
-   * Runs through the `system-prompt/assemble`
-   * waterfall, giving listeners the opportunity to mutate or replace the
-   * assembly, then restores every contribution whose owner declared it final
-   * from the pre-waterfall canonical assembly. Like the sections' `order` sort, tool
-   * canonicalization happens on the initial assembly; ordinary listener
+   * Runs through the `system-prompt/assemble` waterfall, giving listeners the
+   * opportunity to mutate or replace the assembly; the returned value is the
+   * authoritative model-visible composition. Like the sections' `order`
+   * sort, tool canonicalization happens on the initial assembly; listener
    * output owns its own determinism. Await the result before reading the
    * assembly values — waterfall listeners may be async.
    * Interpolation happens later, in {@link renderPrompt}.
@@ -638,11 +592,6 @@ export class SystemPrompt extends Service {
     for (const section of (scope === undefined ? [] : this.scopedSections.get(scope)) ?? []) {
       sectionByName.set(section.name, section)
     }
-    const ownerFinalSections = new Set(
-      [...sectionByName.values()]
-        .filter(section => section.ownerFinal === true)
-        .map(section => section.name),
-    )
     // Tools: consult the global providers plus the scope's, each with this
     // assembly's context. `schemas` are what the model may see (already
     // post-restriction, per provider); `knownNames` (defaulting to the
@@ -655,7 +604,6 @@ export class SystemPrompt extends Service {
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()
-    const ownerFinalTools = new Set<string>()
     for (const provider of providers) {
       const result = provider(context)
       const schemas = result.schemas.map(({ name, description, parameters }): ToolSchema => ({
@@ -666,7 +614,6 @@ export class SystemPrompt extends Service {
       const acceptedKnownNames = result.knownNames ?? schemas.map(tool => tool.name)
       collected.push(...schemas)
       for (const name of acceptedKnownNames) knownNames.add(name)
-      for (const name of result.ownerFinalNames ?? []) ownerFinalTools.add(name)
     }
     const assembly: PromptAssembly = {
       sections: [...sectionByName.values()]
@@ -679,27 +626,10 @@ export class SystemPrompt extends Service {
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
-    // Snapshot only the owner-final fields. The waterfall receives
-    // `assembly` by reference and may mutate it or return a replacement; these
-    // independent snapshots remain the authoritative registry product.
-    const canonicalSections = ownerFinalSections.size > 0 ? structuredClone(assembly.sections) : undefined
-    const canonicalTools = ownerFinalTools.size > 0 ? structuredClone(assembly.tools) : undefined
-    const result = await this.ctx.waterfall(
+    return this.ctx.waterfall(
       scopeTarget(this, scope), 'system-prompt/assemble', assembly, context,
       () => Promise.resolve(assembly),
     )
-    // Build a replacement instead of mutating the waterfall result: a
-    // listener may legitimately return a frozen assembly. Merge-extensible
-    // fields ride through the spread untouched.
-    return {
-      ...result,
-      ...canonicalSections !== undefined
-        ? { sections: restoreOwnerFinal(canonicalSections, result.sections, ownerFinalSections) }
-        : {},
-      ...canonicalTools !== undefined
-        ? { tools: restoreOwnerFinal(canonicalTools, result.tools, ownerFinalTools) }
-        : {},
-    }
   }
 }
 
