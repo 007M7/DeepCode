@@ -27,11 +27,7 @@ Design surveyed against the bash tools of Claude Code, OpenCode, Codex, and pi; 
 
 ## Model Experience
 
-### Bash tool results, indirectly
-
-**What the model sees**: Through `dsh-tool-bash`, the conversation model sees the data-dependent stdout and stderr tail inside that consumer's exact result wrappers, exit and timeout markers, background-task state, and a spill-file path when full output is available. This backend adds no prompt or schema itself. An unknown task becomes exactly `Error: unknown bash task "<taskId>"`; a pre-spawn cancellation becomes `Error: aborted before spawn: <reason>`.
-
-**Token effect**: Zero tokens until a bash tool runs. Foreground output is bounded per stream by `maxOutputBytes`; background reads return only new output, so polling does not repeat already-delivered text. Results remain in history until compaction.
+Indirectly, through `dsh-tool-bash`, which renders this executor's bounded stdout/stderr tails, background-task deltas and state, spill-file path, exact `Error: unknown bash task "<taskId>"` and `Error: aborted before spawn: <reason>` failures, and retains each resulting tool message until compaction.
 
 ## Known Limitations and Deferred Work
 

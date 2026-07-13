@@ -27,11 +27,7 @@ Exa returns a flat `results[]` and no generated answer, so `content` is omitted.
 
 ## Model Experience
 
-### Web search result, indirectly
-
-**What the model sees**: Through `dsh-tool-web`, the conversation model sees Exa result URLs, titles, first highlight snippets, and publication dates. No generated answer or provider-private response fields enter the tool result. Failures become `Error: Exa search aborted`, `Error: Exa search request failed: <error>`, or `Error: Exa returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`.
-
-**Token effect**: Zero direct harness-model tokens. Result size scales with the bounded source list and snippets; the seam enforces `maxResults`, and retained results or errors remain until compaction.
+Indirectly, through `dsh-tool-web`, which retains this provider's `maxResults`-bounded URLs, titles, first highlights, and publication dates or exact `Error: Exa search aborted`, `Error: Exa search request failed: <error>`, and `Error: Exa returned an unprocessable response body: <error>` failures while generated answers and provider-private fields remain outside context.
 
 ## Known Limitations and Deferred Work
 

@@ -45,11 +45,7 @@ The failure branches throw `WebError`, whose structured code (plus message detai
 
 ## Model Experience
 
-### Search or fetch result, indirectly
-
-**What the model sees**: Through `dsh-tool-web`, the model sees bounded normalized provider data. Selection failures become exactly `Error: configured web provider "<id>" is not registered`, `Error: configured web provider "<id>" is registered but unavailable`, `Error: no usable web provider is registered`, or `Error: multiple usable web providers are registered (<ids>); configure one explicitly`; provider failures use the same `Error: <message>` wrapper.
-
-**Token effect**: This seam adds no prompt or schema. Only a call result or error adds retained tokens; source caps bound search output.
+Indirectly, through `dsh-tool-web`, which retains bounded normalized provider data or the exact configured-provider, unavailable-provider, no-provider, multiple-provider, and `Error: <message>` failures while this registry contributes no prompt or schema itself.
 
 ## Known Limitations and Deferred Work
 

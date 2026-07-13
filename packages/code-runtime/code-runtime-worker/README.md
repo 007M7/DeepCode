@@ -33,11 +33,7 @@ Every field is validated (positive numbers) and defaulted; there are no other tu
 
 ## Model Experience
 
-### `run_code` result, indirectly
-
-**What the model sees**: Through Code Mode in `dsh-tools`, the conversation model sees only what the program prints or returns. A log cap emits exactly `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes`; an oversized or non-transferable return rendered as text ends exactly `… [truncated]`. Worker failures become `Error: code run failed (<kind>): <message>`; this backend's stable messages include `compute budget exhausted (<computeMs>ms busy)`, `wall-clock ceiling reached (<maxWallMs>ms)`, `worker error: <message>`, and `worker exited with code <code> before completing`. Binding-call traffic and worker internals stay outside context.
-
-**Token effect**: Zero tokens until Code Mode executes a program. `maxLogBytes` and `maxValueBytes` cap the model-visible result, which then remains in tool history until compaction.
+Indirectly, through Code Mode in `dsh-tools`, which renders this worker's capped printed or returned data, exact `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes` and `… [truncated]` markers, and `Error: code run failed (<kind>): <message>` failures into a retained `run_code` result while keeping binding traffic and worker internals outside context.
 
 ## Known Limitations and Deferred Work
 

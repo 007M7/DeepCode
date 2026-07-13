@@ -19,11 +19,7 @@ Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [`ex
 
 ## Model Experience
 
-### Sandbox result facts, indirectly
-
-**What the model sees**: This provider adds no prompt or tool. It supplies the selected enforcement and denial dialect to `dsh-bash-sandbox`, which can become that consumer's exact `[sandbox: file access denied under <mode> mode]` marker. If no local runner can confine the command, the model instead receives the exact `SANDBOX_UNAVAILABLE` text quoted in [`dsh-sandbox`](../sandbox/README.md). Runner selection and profiles are not shown.
-
-**Token effect**: Zero direct tokens; only the conditional marker or error reaches context through the bash consumer.
+Indirectly, through `dsh-bash-sandbox` and `dsh-tool-bash`, which render this provider's enforcement dialect as the exact `[sandbox: file access denied under <mode> mode]` marker or the [`dsh-sandbox`](../sandbox/README.md) `SANDBOX_UNAVAILABLE` text while keeping runner selection and profiles outside context.
 
 ## Known Limitations and Deferred Work
 

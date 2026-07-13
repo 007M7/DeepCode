@@ -23,11 +23,7 @@ The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `sr
 
 ## Model Experience
 
-### Filesystem tool results, indirectly
-
-**What the model sees**: Through `dsh-tool-fs`, the model sees line-windowed UTF-8 file content or mutation acknowledgements. This backend's stable failures are normalized as `Error: <message>`; messages include `cannot read "<path>": binary file`, `cannot <read-or-edit> "<path>": invalid UTF-8 text`, `cannot write "<path>": not a regular file`, `cannot write "<path>": file no longer exists`, `cannot <write-or-edit> "<path>": file changed since it was read`, `cannot overwrite existing "<path>" without reading it first`, `cannot edit "<path>": binary file`, `old_string must be a non-empty string`, `old_string was not found in "<path>"`, and `old_string matched <count> times in "<path>"; provide a more specific old_string or set replace_all to true`. Real paths, versions, atomic-write mechanics, and directory metadata remain internal unless a consumer renders them.
-
-**Token effect**: Zero direct tokens. Read tokens are bounded by the tool's line, line-length, and byte caps; mutation results or errors remain in history until compaction.
+Indirectly, through `dsh-tool-fs`, which renders this provider's line-windowed UTF-8 content, mutation acknowledgements, and exact provider messages under `Error: <message>` into capped retained tool results while versions, atomic-write mechanics, and directory metadata remain internal.
 
 ## Known Limitations and Deferred Work
 
