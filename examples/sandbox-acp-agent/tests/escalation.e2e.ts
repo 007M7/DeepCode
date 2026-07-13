@@ -81,10 +81,16 @@ let spawned: Spawned | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  await spawned?.close('SIGKILL')
-  spawned = undefined
-  if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-  workdir = undefined
+  try {
+    await spawned?.close('SIGKILL')
+  } finally {
+    spawned = undefined
+    try {
+      if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
+    } finally {
+      workdir = undefined
+    }
+  }
 })
 
 describe('sandbox-acp-agent keyless smoke (real cordis.yml via the Loader)', () => {
