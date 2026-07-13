@@ -22,7 +22,6 @@
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type {
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -64,7 +63,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface DeepSeekSearchProviderOptions {
-  /** DeepSeek API key. Empty/absent → `status()` reports `missing-credential`. */
+  /** DeepSeek API key. Empty/absent makes the provider unavailable. */
   apiKey: string
   /** Endpoint base; `/messages` is appended. */
   baseURL: string
@@ -111,11 +110,10 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
  * block is present — native search did not trigger, and prose-scraping is not a
  * fallback.
  *
- * @param query - the original request query, echoed on the result.
  * @param response - the parsed Messages response body.
  * @returns the normalized result with deduped, snippet-joined sources.
  */
-export function mapAnthropicResponse(query: string, response: AnthropicResponse): WebSearchResult {
+export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResult {
   const blocks = response.content ?? []
   const resultBlocks = blocks.filter(
     (block): block is WebSearchToolResultBlock => block.type === 'web_search_tool_result',
@@ -143,7 +141,7 @@ export function mapAnthropicResponse(query: string, response: AnthropicResponse)
       })
     }
   }
-  return { providerId: DEEPSEEK_PROVIDER_ID, query, sources, truncated: false }
+  return { sources, truncated: false }
 }
 
 /** The DeepSeek-backed search provider. */
@@ -152,14 +150,14 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
 
   constructor(private readonly options: DeepSeekSearchProviderOptions) {}
 
-  status(): WebProviderStatus {
-    if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
-    if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
-    if (!isPositiveInteger(this.options.maxTokens) || !isPositiveInteger(this.options.maxUses)) return { available: false, reason: 'misconfigured' }
-    return { available: true }
+  available(): boolean {
+    return this.options.apiKey.length > 0
+      && URL.canParse(this.options.baseURL)
+      && isPositiveInteger(this.options.maxTokens)
+      && isPositiveInteger(this.options.maxUses)
   }
 
-  async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/messages`, {
@@ -183,7 +181,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
           }],
           tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: this.options.maxUses }],
         }),
-        ...exec?.signal ? { signal: exec.signal } : {},
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('DeepSeek search aborted', 'WEB_ABORTED', { cause: error })
@@ -211,7 +209,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as AnthropicResponse
-      return mapAnthropicResponse(request.query, payload)
+      return mapAnthropicResponse(payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('DeepSeek search aborted', 'WEB_ABORTED', { cause: error })
       if (error instanceof WebError) throw error

@@ -40,8 +40,6 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds. */
   timeoutMs?: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
@@ -53,7 +51,6 @@ export const Config: z<Config> = z.object({
   maxResponseBytes: z.number().default(5_000_000),
   maxBodyChars: z.number().default(100_000),
   timeoutMs: z.number().default(30_000),
-  maxTimeoutMs: z.number().default(120_000),
   maxRedirects: z.number().default(5),
   userAgent: z.string().default(DEFAULT_USER_AGENT),
 })
@@ -83,14 +80,12 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveFinite('maxResponseBytes', resolved.maxResponseBytes)
   assertPositiveFinite('maxBodyChars', resolved.maxBodyChars)
   assertPositiveFinite('timeoutMs', resolved.timeoutMs)
-  assertPositiveFinite('maxTimeoutMs', resolved.maxTimeoutMs)
   assertNonNegativeInteger('maxRedirects', resolved.maxRedirects)
   const limits: LocalFetchLimits = {
     maxUrlLength: resolved.maxUrlLength,
     maxResponseBytes: resolved.maxResponseBytes,
     maxBodyChars: resolved.maxBodyChars,
     timeoutMs: resolved.timeoutMs,
-    maxTimeoutMs: resolved.maxTimeoutMs,
     maxRedirects: resolved.maxRedirects,
     userAgent: resolved.userAgent,
   }

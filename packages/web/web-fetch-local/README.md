@@ -8,7 +8,7 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 The provider owns **safe resource retrieval**: URL validation, HTTP transport, redirect policy, a resource-backstop timeout, abort propagation, byte caps, charset decoding, content-type classification, and binary rejection. `@deepseek-ai/dsh-tool-web` owns **presentation** (HTML→markdown, truncation formatting). A non-2xx HTTP response is a *result* (status code + decoded body), not an error; `WebError` is reserved for failures to safely retrieve or represent the resource.
 
-The provider's `timeoutMs`/`maxTimeoutMs` is a **resource backstop** for direct `ctx.web.fetch()` callers and misconfigured deployments — it is NOT the model-facing tool-call budget. The tool-call budget for `web_fetch` is deployment policy owned by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md), which arms a per-call deadline on `exec.signal`. A shipped web-tool deployment sets the provider backstop **above** the `tool-timeout` budget, so the tool-call policy normally wins for model calls (returning `TOOL_TIMEOUT`); when the outer deadline signal reaches this provider first, it classifies as `WEB_ABORTED` and the outer wrapper replaces the result with `TOOL_TIMEOUT`. The provider's own `WEB_FETCH_TIMEOUT` only fires for a direct seam caller whose own budget elapsed.
+The provider's configured `timeoutMs` is a **resource backstop** for direct `ctx.web.fetch()` callers and misconfigured deployments — it is NOT the model-facing tool-call budget. The tool-call budget for `web_fetch` is deployment policy owned by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md), which arms a per-call deadline on `exec.signal`. A shipped web-tool deployment sets the provider backstop **above** the `tool-timeout` budget, so the tool-call policy normally wins for model calls (returning `TOOL_TIMEOUT`); when the outer deadline signal reaches this provider first, it classifies as `WEB_ABORTED` and the outer wrapper replaces the result with `TOOL_TIMEOUT`. The provider's own `WEB_FETCH_TIMEOUT` fires when its configured backstop elapses.
 
 ## Transport hygiene
 
@@ -26,8 +26,7 @@ The provider's `timeoutMs`/`maxTimeoutMs` is a **resource backstop** for direct 
 | `maxUrlLength` | `2048` | Maximum accepted request URL length. |
 | `maxResponseBytes` | `5_000_000` | Maximum response body size in bytes. |
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
-| `timeoutMs` | `30_000` | Default fetch timeout — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
-| `maxTimeoutMs` | `120_000` | Upper bound for a per-request timeout override (direct callers). |
+| `timeoutMs` | `30_000` | Fetch timeout — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
 | `maxRedirects` | `5` | Maximum same-origin redirect hops (`0` follows none). |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
 

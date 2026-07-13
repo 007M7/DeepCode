@@ -1044,7 +1044,7 @@ export interface WebServiceConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:68`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:64`](../packages/web/web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -1061,8 +1061,6 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds. */
   timeoutMs?: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
