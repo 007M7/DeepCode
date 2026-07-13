@@ -31,7 +31,7 @@ export type SurfaceOp =
 
 ### SurfaceManager: delta-based, not full rebuild
 
-A `SurfaceManager` class (private to `Session`) maintains the cached linked list. It tracks `_lastProcessedSeq` and processes only the **delta** (new events since the last access) rather than rescanning the entire log. Because the log is append-only, prior events never change — full rebuild is only needed after a wholesale log replacement (e.g., seeding).
+A `SurfaceManager` owned by `Session` maintains the cached linked list. It tracks `_lastProcessedSeq` and processes only the **delta** (new events since the last access) rather than rescanning the entire log. The seed is fixed before the manager is created and the log is append-only afterward, so prior events never change and no invalidation path is needed.
 
 Delta processing is O(1) when no new events and O(new events) when new events arrive.
 

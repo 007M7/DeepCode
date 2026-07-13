@@ -1,7 +1,7 @@
 /**
  * Derived-message cache tests: the session projects each surface node exactly
- * once (O(new nodes) per call), rebuilds on a surface rewrite (replace /
- * invalidate — the replaceGeneration signal), returns a fresh array snapshot
+ * once (O(new nodes) per call), rebuilds on a surface replacement (the
+ * replaceGeneration signal), returns a fresh array snapshot
  * per call over shared frozen messages, and stays deep-equal to a from-scratch
  * replay derivation at every step — the incremental==scratch property the
  * reconstructability RFC's invariant enforces in dev at request time.
@@ -66,17 +66,6 @@ describe('derived-message cache', () => {
     expect(Object.isFrozen(first[0])).toBe(true)
   })
 
-  it('rebuilds after surface.invalidate() (the generation covers wholesale rebuilds too)', () => {
-    const session = new Session(SessionId('cache-invalidate'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    userText(session, 'one')
-    const before = session.deriveMessages()
-    session.surface.invalidate()
-    const after = session.deriveMessages()
-    expect(after).toEqual(before)
-    // A rebuild re-projects: fresh objects, same values.
-    expect(after[0]).not.toBe(before[0])
-  })
 })
 
 describe('Session.deriveEventMessage — the per-event projection', () => {

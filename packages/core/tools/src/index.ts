@@ -290,7 +290,7 @@ export interface ToolErrorInfo {
  * distinguish it from a tool body's own error.
  */
 export class ToolNotFoundError extends HarnessError {
-  constructor(public readonly toolName: string) {
+  constructor(toolName: string) {
     super(`unknown tool "${toolName}"`, 'UNKNOWN_TOOL')
     this.name = 'ToolNotFoundError'
   }
@@ -298,7 +298,6 @@ export class ToolNotFoundError extends HarnessError {
 
 /** The outcome of one tool call. */
 export interface ToolExecutionResult {
-  callId: CallId
   content: ContentBlock[]
   isError: boolean
   /**
@@ -918,7 +917,7 @@ export class ToolRegistry extends Service {
       }
     } catch (error: unknown) {
       execution = { ...base, arguments: undefined }
-      const result = this.materializeFinalResult(toolErrorResult(callId, error))
+      const result = this.materializeFinalResult(toolErrorResult(error))
       this.notifyResult(execution, result)
       return result
     }
@@ -928,7 +927,7 @@ export class ToolRegistry extends Service {
     } catch (error: unknown) {
       // Outer backstop: a throwing pre/post-execute listener, guard, or the
       // waterfall machinery becomes an isError result, never a turn failure.
-      result = this.materializeFinalResult(toolErrorResult(execution.callId, error))
+      result = this.materializeFinalResult(toolErrorResult(error))
     }
     this.notifyResult(execution, result)
     return result
@@ -953,7 +952,6 @@ export class ToolRegistry extends Service {
       // Every non-grant, including a failed/unavailable approval request, takes
       // the same deny path and still reaches post-policy plus result observers.
       const denied: ToolExecutionResult = {
-        callId: exec.callId,
         content: [{ type: 'text', text: `Error: ${denialReason}` }],
         isError: true,
       }
@@ -984,16 +982,12 @@ export class ToolRegistry extends Service {
           const returned = await tool.execute(exec.arguments, exec)
           const content = Array.isArray(returned) ? returned : returned.content
           const meta = Array.isArray(returned) ? undefined : returned.meta
-          return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
+          return { content, isError: false, ...meta !== undefined ? { meta } : {} }
         } catch (error: unknown) {
-          return toolErrorResult(exec.callId, error)
+          return toolErrorResult(error)
         }
       },
     )
-    if (result.callId !== exec.callId) {
-      throw new TypeError(`tools/execute returned callId "${String(result.callId)}" for authoritative call "${exec.callId}"`)
-    }
-
     return await this.postExecute(exec, result)
   }
 
@@ -1068,7 +1062,6 @@ export class ToolRegistry extends Service {
     const additionalContext = decision.additionalContext
     if (decision.kind === 'block') {
       return {
-        callId: result.callId,
         content: decision.feedback,
         isError: true,
         ...additionalContext ? { additionalContext } : {},
@@ -1097,10 +1090,9 @@ function createExecutionToken(): ToolExecutionToken {
   return Symbol('dsh.tool.execution') as ToolExecutionToken
 }
 
-function toolErrorResult(callId: ToolExecution['callId'], error: unknown): ToolExecutionResult {
+function toolErrorResult(error: unknown): ToolExecutionResult {
   const info = errorInfo(error)
   return {
-    callId,
     content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
     isError: true,
     ...info ? { error: info } : {},

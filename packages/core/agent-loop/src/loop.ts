@@ -899,12 +899,8 @@ async function runStep(
     })
     session.append('tool/result', {
       turn, step,
-      // The correlation id MUST be the loop's authoritative call.id (the
-      // model-transcript id that deriveMessages turns into toolCallId), NOT
-      // result.callId — a post-execute waterfall listener returning a
-      // mismatched id would otherwise orphan the call↔result pairing in the
-      // next model request. A listener-internal id, if ever needed, belongs in
-      // a separate diagnostic field, never overloaded onto callId.
+      // Correlation comes from the immutable execution input; the result does
+      // not duplicate this authoritative transcript identity.
       callId: call.id,
       content: result.content,
       isError: result.isError,
