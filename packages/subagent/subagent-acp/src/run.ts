@@ -23,6 +23,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { Readable, Writable } from 'node:stream'
 import {
   ClientSideConnection,
@@ -190,6 +191,10 @@ function toError(value: unknown): Error {
  */
 export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Promise<SubagentRun> {
   if (request.signal.aborted) throw new Error('subagent request was aborted before the ACP child started')
+  // ACP session ids are unique only within the child server. The lifecycle id
+  // is minted in the parent namespace so fresh processes cannot collide with
+  // each other or with a local agent that happens to use the same session id.
+  const id = SessionId(randomUUID())
 
   // Spawn the child ACP agent. stdin = ACP request channel, stdout = ACP
   // response channel, stderr = INHERIT so the child's diagnostics surface on the
@@ -257,7 +262,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     ),
   )
 
-  let sessionId: SessionId | undefined
+  let sessionId: string | undefined
   // Resolves when a cancel is requested, so `result` can settle `aborted` even
   // if the child never cooperates with `session/cancel` (it ignores the notify,
   // or the prompt wedges). The result path races this against the ACP drive: the
@@ -306,7 +311,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
           clientCapabilities: {},
         })
         const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-        sessionId = SessionId(session.sessionId)
+        sessionId = session.sessionId
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
       spawnFailed.then((err): never => { throw err }),
@@ -322,7 +327,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   // guard keeps that cross-closure invariant explicit for TypeScript.
   /* v8 ignore next */
   if (sessionId === undefined) throw new Error('ACP child published without a session id')
-  const runId = sessionId
+  const remoteSessionId = sessionId
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
     try {
@@ -334,7 +339,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       // succeeds, transport/process failure rejects the in-flight prompt RPC.
       const prompt = async (): Promise<SubagentResult> => {
         // The startup phase cannot fulfill without assigning the session id.
-        const promptResult = await conn.prompt({ sessionId: runId, prompt: toAcpPrompt(request.prompt) })
+        const promptResult = await conn.prompt({ sessionId: remoteSessionId, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
       return await Promise.race([
@@ -368,7 +373,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
 
   let disposal: Promise<void> | undefined
   return {
-    id: runId,
+    id,
     result,
     dispose(): Promise<void> {
       if (disposal !== undefined) return disposal

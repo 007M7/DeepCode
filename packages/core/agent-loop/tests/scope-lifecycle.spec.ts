@@ -249,7 +249,7 @@ describe('agent scope lifecycle', () => {
     })
     await setupStarted.promise
     expect(ctx.agents.get(SessionId('atomic'))).toBeUndefined()
-    expect(ctx.sessions.get(SessionId('atomic-s'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('atomic'))).toBeUndefined()
     expect(order).toEqual(['setup:start'])
     gate.resolve(undefined)
     const handle = await creating
