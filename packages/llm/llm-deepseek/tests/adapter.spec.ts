@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble } from './assemble.ts'
@@ -109,8 +109,12 @@ describe('DeepSeekAdapter against a mock server', () => {
       stream: true,
       stream_options: { include_usage: true },
     })
-    // Attribution header identifies the harness to the provider.
-    expect(server.headers[0]?.['user-agent']).toMatch(/^deepseek-harness\//)
+    // Attribution reaches the wire: the exact shared User-Agent, and no
+    // provider-specific headers under the User-Agent-only contract.
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]).not.toHaveProperty('http-referer')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
   })
 
   it('streams raw chunks through ctx.llm.stream', async () => {

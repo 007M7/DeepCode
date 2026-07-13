@@ -12,7 +12,13 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../../vendor/timer"
+    },
+    {
+      "path": "../../../vendor/schemastery"
     },
     {
       "path": "../../llm/llm"
@@ -25,6 +31,15 @@
     },
     {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../skill/skill-local"
+    },
+    {
+      "path": "../../skill/tool-skill"
     },
     {
       "path": "../../core/agent"

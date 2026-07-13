@@ -21,7 +21,9 @@ Adjacent surface examined and deliberately left alone: `SubagentService.getProvi
 
 This is the seam-vocabulary echo of [prune dead methods from the persistence seam](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md): members every implementation must declare for nobody — weaker even, since here zero implementations exist.
 
-## Why not keep it?
+## Alternatives considered
+
+### Why not keep it?
 
 The two-kinds-of-capability design is the seam RFC's headline, and re-adding `outputSchema` later touches several files. But the design survives with `depthLimit` as its live example and the RFCs as its record, and the seam RFC itself concedes the shipped `toolFilter` shape is wrong (real enforcement needs a `tools/pre-execute` deny in the child's context, not schema filtering) — that deny primitive exists on the interception seams, so re-adding against a real implementing provider will pin a better contract than the current speculative one.
 

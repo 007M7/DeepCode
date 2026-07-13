@@ -40,6 +40,10 @@ Agent status (per agent):
 
 - **legal transitions only** — `idle↔running` and `(idle|running)→disposed`. A no-op transition (`setStatus` dedups, so it never fires) and leaving the terminal `disposed` state are violations.
 
+Model requests (on `llm/stream`):
+
+- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` (the loop-built marker; hand-built one-shots like compaction's summarize are unfrozen and skipped) must carry frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the fold of the log's `request/header*` events (see [the reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
+
 On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 
 ## Why runtime, not deep-readonly types

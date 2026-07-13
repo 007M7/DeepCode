@@ -10,9 +10,9 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { MockAdapter, maxTokensResponse, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
-import { depthOf, SubagentDepthError } from '@deepseek-ai/dsh-subagent-inprocess'
+import { depthOf, STRUCTURED_OUTPUT_TOOL, SubagentDepthError } from '@deepseek-ai/dsh-subagent-inprocess'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -241,10 +241,10 @@ describe('dsh-subagent-spawn', () => {
     await parentHandle.dispose()
   })
 
-  it('advertises depthLimit but not outputSchema/toolFilter', async () => {
+  it('advertises depthLimit and outputSchema but not toolFilter', async () => {
     const { ctx } = await setup([])
     const provider = ctx.subagents.getProvider('spawn')!
-    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: true, toolFilter: false })
+    expect(provider.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: false })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
@@ -255,6 +255,54 @@ describe('dsh-subagent-spawn', () => {
     expect(ctx.subagents.list()).toEqual(['spawn'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])
+  })
+
+  it('captures structured output through the shipped plugin (driver runtime, plugin wiring)', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42 }),
+    ])
+    const run = ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'produce the answer' }],
+      parent,
+      outputSchema: { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] },
+    })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.structured).toEqual({ answer: 42 })
+    // Run-scoped runtime: the settle released the last acquisition.
+    expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+    await run.dispose()
+  })
+
+  it('a backend unload mid-structured-run settles the run and releases the runtime', async () => {
+    // Rebuild the stack by hand so we hold the backend's fiber.
+    const ctx = new Context()
+    const adapter = new MockAdapter(['hang'])
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(Invariants)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentService)
+    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+    const run = ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'q' }],
+      parent,
+      outputSchema: { type: 'object', properties: { a: { type: 'number' } } },
+    })
+    // Let the child's step start streaming, then unload the backend. The
+    // backend owns the child agent, so the unload tears the child down and
+    // the run settles — releasing its own runtime acquisition on the way out.
+    await new Promise(resolve => setTimeout(resolve, 30))
+    await fiber.dispose()
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+    await run.dispose()
   })
 
   it('has the namespace-plugin export shape (no stray default)', () => {

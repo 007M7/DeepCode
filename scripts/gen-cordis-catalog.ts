@@ -1,25 +1,28 @@
 /**
- * Generate (and verify) the cordis events + services catalog in
- * docs/cordis-catalog/events-and-services.md.
+ * Generate (and verify) the cordis events and services catalogs in
+ * docs/cordis-catalog/events.md and docs/cordis-catalog/services.md.
  *
- * The catalog is the WIRING-axis reference: every cordis event a plugin can
- * listen to (exact signature + dispatch mode) and every `ctx.<key>` service it
- * can call (exact public interface). It complements the core-data-structures
- * catalog (the VOCABULARY axis — the types these signatures move around).
+ * The two pages are the WIRING-axis reference, one axis each: every cordis
+ * event a plugin can listen to (exact signature + dispatch mode) and every
+ * `ctx.<key>` service it can call (exact public interface). They complement the
+ * core-data-structures catalog (the VOCABULARY axis — the types these
+ * signatures move around).
  *
- * The catalog is FULLY GENERATED from source — never hand-edit it. The codebase
- * is disciplined enough that a pure-AST pass captures the whole truthful
- * surface: every event/service is a string literal that round-trips to a static
- * `interface Events` / `interface Context` declaration (no dynamically-named
- * events, no runtime-only services). So the committed file is a build artifact
- * and a regenerate-and-diff freshness check (`--check`) makes drift structurally
- * impossible. Because generation enumerates source rather than checking a
- * hand-written subset, a brand-new event cannot be silently undocumented — it
- * appears in the next regenerate, and an un-regenerated file fails `--check`.
+ * The catalogs are FULLY GENERATED from source — never hand-edit them. The
+ * codebase is disciplined enough that a pure-AST pass captures the whole
+ * truthful surface: every event/service is a string literal that round-trips
+ * to a static `interface Events` / `interface Context` declaration (no
+ * dynamically-named events, no runtime-only services). So the committed files
+ * are build artifacts and a regenerate-and-diff freshness check (`--check`)
+ * makes drift structurally impossible. Because generation enumerates source
+ * rather than checking a hand-written subset, a brand-new event cannot be
+ * silently undocumented — it appears in the next regenerate, and an
+ * un-regenerated file fails `--check`.
  *
- *   `tsx scripts/gen-cordis-catalog.ts`          → write the catalog
- *   `tsx scripts/gen-cordis-catalog.ts --check`  → exit 1 if the committed file
- *                                                  is stale (CI / pre-push gate)
+ *   `tsx scripts/gen-cordis-catalog.ts`          → write both catalogs
+ *   `tsx scripts/gen-cordis-catalog.ts --check`  → exit 1 if a committed
+ *                                                  catalog is stale (CI /
+ *                                                  pre-push gate)
  *
  * The HARNESS tier (the `@deepseek-ai/dsh-*` events + services) is rendered in
  * full from source: signature, the `@mode` badge, and the declaration's JSDoc.
@@ -37,7 +40,9 @@
  * a stale `@param` naming no real parameter errors. Violations aggregate into
  * ONE error listing every offender. The tags are enforcement-only: parseJsDoc
  * stops prose at the first block tag, so they never change the rendered
- * catalog. The INHERITED
+ * catalog. The parsing + check helpers live in `scripts/jsdoc.ts`, shared with
+ * the whole-export-surface gate (`scripts/verify-export-jsdoc.ts`) so
+ * "documented" means the same thing on both surfaces. The INHERITED
  * tier (cordis core + loader/hmr/timer) is pinned vendor source a plugin author
  * also sees; it is rendered tersely (name + one-line + source pointer) from a
  * curated table in this script, NOT elevated to the harness tier's prominence.
@@ -50,45 +55,56 @@
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
+import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const OUT = 'docs/cordis-catalog/events-and-services.md'
+const OUT_EVENTS = 'docs/cordis-catalog/events.md'
+const OUT_SERVICES = 'docs/cordis-catalog/services.md'
 
 /** The fenced-block info string for generated signature blocks (skipped by
  * doc-typecheck, since a bare signature fragment is not standalone-compilable). */
 const FENCE = 'ts cordis-catalog'
 
-/** A dispatch mode, rendered as the badge after an event name. */
-type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
-
 /**
  * Cross-link map: a type name that appears in a signature → the
- * core-data-structures page that documents it (path relative to OUT's folder).
+ * core-data-structures page that documents it (path relative to the catalogs'
+ * folder).
  * Hand-curated and catalog-owned, NOT derived from type-equiv.manifest.json —
  * that manifest documents the `…Map` symbols (`ContentBlockMap`) while
  * signatures reference the derived UNION names (`ContentBlock`), and it lists a
  * few symbols on two pages. Here each name resolves to exactly one PRIMARY page.
+ * Shared with `gen-config-catalog.ts` (each caller prefixes its own relative
+ * path to `core-data-structures/`), so both catalogs cross-link identically.
  * TODO(catalog-type-links): add a verifier or generator for link-map coverage
  * so new hook-era decision types like `PromptDecision` / `PreToolDecision` do
  * not silently appear in signatures without a "Types:" link.
  */
-const LINK_MAP: Record<string, string> = {
+export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
   ContentBlock: 'core.md',
   Message: 'core.md',
   MessageSource: 'core.md',
   GenerateOptions: 'core.md',
+  LlmCallConfig: 'core.md',
   SessionEvent: 'core.md',
   StreamChunk: 'llm-streaming.md',
   TurnEndReason: 'session.md',
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
   ToolExecutionResult: 'tools.md',
+  ApprovalOutcome: 'approval.md',
+  ApprovalPolicy: 'approval.md',
+  ApprovalRequest: 'approval.md',
   BashExecRequest: 'bash.md',
   BashExecSpec: 'bash.md',
   BashRunResult: 'bash.md',
   BashTask: 'bash.md',
   BashTaskRead: 'bash.md',
+  ConfinedArgv: 'sandbox.md',
+  SandboxMode: 'sandbox.md',
+  SandboxPolicy: 'sandbox.md',
+  CodeRunRequest: 'code-runtime.md',
+  CodeRunResult: 'code-runtime.md',
   FsEditOutcome: 'filesystem.md',
   FsEditRequest: 'filesystem.md',
   FsInfo: 'filesystem.md',
@@ -138,132 +154,6 @@ interface InheritedEntry {
   summary: string
   /** Source pointer `vendor/…:line`. */
   source: string
-}
-
-/** Repo-relative source pointer `file:line` for a node's first character. */
-function pointer(rel: string, sf: ts.SourceFile, node: ts.Node): string {
-  const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
-  return `${rel}:${line + 1}`
-}
-
-/** The raw `/** … *​/` JSDoc block immediately preceding a node, or '' if none. */
-function rawJsDoc(text: string, node: ts.Node): string {
-  const ranges = ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []
-  const jsdoc = ranges.filter(r => text.slice(r.pos, r.pos + 3) === '/**').at(-1)
-  return jsdoc ? text.slice(jsdoc.pos, jsdoc.end) : ''
-}
-
-/**
- * Parse a raw JSDoc block into description prose + the `@mode` tag (when
- * present). Output obeys the repo's markdown conventions so the generated file
- * passes verify-md-wrap: each prose paragraph collapses to ONE physical line,
- * and a `-` bullet list is preserved with each item on its own single line
- * (continuation lines folded in). `{@link Foo}` unwraps to `Foo`. Description
- * prose ends at the FIRST block tag (standard JSDoc semantics): tag lines and
- * their continuation lines are never prose, so `@param`/`@returns` blocks are
- * invisible to the rendered catalog.
- */
-function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
-  const inner = raw
-    .replace(/^\/\*\*/, '')
-    .replace(/\*\/$/, '')
-    .split('\n')
-    .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
-  let mode: Mode | null = null
-  let inTags = false
-  const blocks: string[] = []
-  let para: string[] = []
-  let list: string[] = []
-  let item: string[] = []
-  const join = (parts: string[]): string => parts.join(' ').replace(/\s+/g, ' ').trim()
-  const flushItem = (): void => {
-    if (item.length) list.push(join(item))
-    item = []
-  }
-  const flushList = (): void => {
-    flushItem()
-    if (list.length) blocks.push(list.join('\n')) // one block, items on own lines
-    list = []
-  }
-  const flushPara = (): void => {
-    flushList()
-    if (para.length) blocks.push(join(para))
-    para = []
-  }
-  for (const line of inner) {
-    const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(line)
-    if (m) { mode = m[1] as Mode; flushPara(); inTags = true; continue }
-    if (line.startsWith('@')) { flushPara(); inTags = true; continue }
-    if (inTags) continue // block-tag territory: continuations are never prose
-    if (line.trim() === '') { flushPara(); continue }
-    if (/^-\s+/.test(line)) {
-      // A list item starts: a pending paragraph (e.g. an intro line directly
-      // above the list, no blank between) flushes FIRST so it renders above.
-      flushItem()
-      if (para.length) { blocks.push(join(para)); para = [] }
-      item.push(line)
-      continue
-    }
-    if (item.length) { item.push(line); continue } // continuation of current item
-    para.push(line)
-  }
-  flushPara()
-  const doc = blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim()
-  return { doc, mode }
-}
-
-/**
- * Parse the block tags of a raw JSDoc comment for the completeness checks:
- * every `@param name — description` entry plus the `@returns` description.
- * Standard JSDoc block-tag semantics — a tag's description runs across
- * continuation lines until the next tag or a blank line, and the `-`/`—`
- * separator after a param name is optional. `[name]` optional-brackets unwrap
- * to `name`. Rendering never sees these: parseJsDoc stops prose at the first
- * block tag.
- */
-function parseTags(raw: string): { params: Map<string, string>; returns: string | null } {
-  const inner = raw
-    .replace(/^\/\*\*/, '')
-    .replace(/\*\/$/, '')
-    .split('\n')
-    .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
-  const params = new Map<string, string>()
-  let returns: string | null = null
-  let sink: ((text: string) => void) | null = null
-  for (const line of inner) {
-    const param = /^@param\s+(\[?[\w$]+\]?)\s*(?:[-—–]\s*)?(.*)$/.exec(line)
-    if (param) {
-      const name = (param[1] ?? '').replace(/^\[|\]$/g, '')
-      let acc = param[2] ?? ''
-      params.set(name, acc)
-      sink = (t) => { acc = acc ? `${acc} ${t}` : t; params.set(name, acc) }
-      continue
-    }
-    const ret = /^@returns?(?:\s+[-—–]?\s*(.*))?$/.exec(line)
-    if (ret) {
-      let acc = ret[1] ?? ''
-      returns = acc
-      sink = (t) => { acc = acc ? `${acc} ${t}` : t; returns = acc }
-      continue
-    }
-    if (line.startsWith('@') || line.trim() === '') { sink = null; continue }
-    sink?.(line.trim())
-  }
-  return { params, returns }
-}
-
-/**
- * Throw one aggregate error for every completeness violation a walk collected.
- * Aggregation (vs the fail-fast the @mode check used to do) is deliberate: a
- * remediation pass sees the whole list at once instead of replaying the gate
- * once per offender.
- */
-function reportViolations(violations: string[]): void {
-  if (violations.length === 0) return
-  throw new Error(
-    `gen-cordis-catalog: ${violations.length} JSDoc completeness violation(s) (see AGENTS.md):\n`
-    + violations.map(v => `  ${v}`).join('\n'),
-  )
 }
 
 /** Find the `declare module 'cordis'` body in a source file, or null. */
@@ -328,27 +218,13 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
         // (mode machinery, documented once by @mode semantics). Documenting an
         // exempt parameter anyway is allowed — only absence is checked.
         const { params } = parseTags(raw)
-        for (const p of member.parameters) {
-          if (!ts.isIdentifier(p.name)) {
-            violations.push(`${where}: parameter '${p.name.getText(sf)}' is a binding pattern; the event surface needs simple identifier parameters so @param can name them.`)
-            continue
-          }
-          const pname = p.name.text
-          if (pname === 'this' || (hasNext && p === last)) continue
-          const desc = params.get(pname)
-          if (desc === undefined) violations.push(`${where} is missing @param ${pname}.`)
-          else if (!desc.trim()) violations.push(`${where}: @param ${pname} has an empty description.`)
-        }
-        for (const tag of params.keys()) {
-          if (!member.parameters.some(p => ts.isIdentifier(p.name) && p.name.text === tag)) {
-            violations.push(`${where}: @param ${tag} does not match any parameter (stale tag?).`)
-          }
-        }
+        checkParams(where, 'event', member.parameters, params, sf,
+          p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
         if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
       }
     }
   }
-  reportViolations(violations)
+  reportViolations('gen-cordis-catalog', violations)
   return entries
 }
 
@@ -409,35 +285,12 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         if (!raw) { violations.push(`${where} has no JSDoc.`); continue }
         if (!parseJsDoc(raw).doc) violations.push(`${where} has no description prose above its block tags.`)
         const { params, returns } = parseTags(raw)
-        // Every parameter needs a non-empty @param; a `this` receiver
-        // annotation is not payload and is exempt.
-        for (const p of member.parameters) {
-          if (!ts.isIdentifier(p.name)) {
-            violations.push(`${where}: parameter '${p.name.getText(sf)}' is a binding pattern; the service surface needs simple identifier parameters so @param can name them.`)
-            continue
-          }
-          const pname = p.name.text
-          if (pname === 'this') continue
-          const desc = params.get(pname)
-          if (desc === undefined) violations.push(`${where} is missing @param ${pname}.`)
-          else if (!desc.trim()) violations.push(`${where}: @param ${pname} has an empty description.`)
-        }
-        for (const tag of params.keys()) {
-          if (!member.parameters.some(p => ts.isIdentifier(p.name) && p.name.text === tag)) {
-            violations.push(`${where}: @param ${tag} does not match any parameter (stale tag?).`)
-          }
-        }
-        // A non-void result needs a non-empty @returns. The return type must be
-        // ANNOTATED: a pure-AST walk cannot classify an inferred return. On a
-        // `void`/`Promise<void>` method @returns stays optional (resolution
-        // timing can be worth documenting), never required.
-        const rt = member.type?.getText(sf).replace(/\s+/g, ' ')
-        if (rt === undefined) {
-          violations.push(`${where} has no return type annotation; annotate it explicitly so the gate can classify the result.`)
-        } else if (!/^(void|Promise<void>)$/.test(rt)) {
-          if (returns === null) violations.push(`${where} is missing @returns (return type: ${rt}).`)
-          else if (!returns.trim()) violations.push(`${where}: @returns has an empty description.`)
-        }
+        // Every parameter needs a non-empty @param (`this` receiver exempt),
+        // and a non-void ANNOTATED result needs a non-empty @returns — the
+        // shared checkers carry the exact contract.
+        checkParams(where, 'service', member.parameters, params, sf,
+          p => ts.isIdentifier(p.name) && p.name.text === 'this', violations)
+        checkReturns(where, member.type, returns, sf, violations)
       }
       entries.push({
         key,
@@ -449,7 +302,7 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       })
     }
   }
-  reportViolations(violations)
+  reportViolations('gen-cordis-catalog', violations)
   return entries.sort((a, b) => a.key.localeCompare(b.key))
 }
 
@@ -480,7 +333,7 @@ const INHERITED_EVENTS: InheritedEntry[] = [
   { name: 'loader/patch-context', summary: 'A context is being patched during a reload.', source: 'vendor/loader/src/index.ts:27' },
 ]
 
-const INHERITED_SERVICES: InheritedEntry[] = [
+export const INHERITED_SERVICES: InheritedEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.', source: 'vendor/cordis/src/registry.ts:144' },
@@ -506,7 +359,7 @@ function typeLinks(signature: string): string {
 
 /** Render one harness event entry. */
 function renderEvent(e: EventEntry): string[] {
-  const out = [`#### \`${e.name}\` — ${e.mode}`, '']
+  const out = [`### \`${e.name}\` — ${e.mode}`, '']
   if (e.doc) out.push(e.doc, '')
   out.push('```' + FENCE, e.signature, '```', '')
   const links = typeLinks(e.signature)
@@ -518,7 +371,7 @@ function renderEvent(e: EventEntry): string[] {
 /** Render one harness service entry. */
 function renderService(s: ServiceEntry): string[] {
   const kind = s.abstract ? ' (abstract seam)' : ''
-  const out = [`### \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
+  const out = [`## \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
   if (s.doc) out.push(s.doc, '')
   if (s.methods.length) {
     out.push('```' + FENCE, ...s.methods, '```', '')
@@ -529,51 +382,71 @@ function renderService(s: ServiceEntry): string[] {
   return out
 }
 
-/** Render the full catalog (pure, deterministic given sorted inputs). */
-function render(events: EventEntry[], services: ServiceEntry[]): string {
+/** The shared generated-file banner comment. */
+const BANNER = [
+  '<!-- Generated by scripts/gen-cordis-catalog.ts — do not edit by hand.',
+  '     Run `pnpm run gen-cordis-catalog` to regenerate. -->',
+  '',
+]
+
+/** The shared GENERATED + freshness-gate + fence notice paragraph. */
+const GATE_NOTICE = 'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence (skipped by doc-typecheck, since a bare signature is not standalone-compilable). Type names in a signature link to the page that documents them.'
+
+/** Render the events catalog (pure, deterministic given sorted inputs). */
+function renderEvents(events: EventEntry[]): string {
   const lines: string[] = [
-    '<!-- Generated by scripts/gen-cordis-catalog.ts — do not edit by hand.',
-    '     Run `pnpm run gen-cordis-catalog` to regenerate. -->',
+    ...BANNER,
+    '# Cordis Events Catalog',
     '',
-    '# Cordis Events & Services Catalog',
+    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and the declaration\'s JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around.',
     '',
-    'An index reference to the **wiring** a plugin author works against: every cordis event you can listen to (exact signature + dispatch mode) and every `ctx.<key>` service you can call (exact public interface). It complements [core-data-structures/](../core-data-structures/core.md), which catalogs the *data structures* these signatures move around — this page is the verbs, that page is the nouns.',
+    GATE_NOTICE,
     '',
-    'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence (skipped by doc-typecheck, since a bare signature is not standalone-compilable). Type names in a signature link to the page that documents them.',
+    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely.',
     '',
-    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer surface a plugin also sees — pinned vendor source, summarized tersely.',
-    '',
-    '## Events',
-    '',
-    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
+    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
     '',
   ]
   const scopes = [...new Set(events.map(e => e.scope))].sort()
   for (const scope of scopes) {
-    lines.push(`### \`${scope}/*\``, '')
+    lines.push(`## \`${scope}/*\``, '')
     for (const e of events.filter(x => x.scope === scope).sort((a, b) => a.name.localeCompare(b.name))) {
       lines.push(...renderEvent(e))
     }
   }
   lines.push(
-    '## Services',
+    '## Inherited events (cordis core + loader/hmr/timer)',
     '',
-    'The `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
-    '',
-  )
-  for (const s of services) lines.push(...renderService(s))
-  lines.push(
-    '## Inherited tier (cordis core + loader/hmr/timer)',
-    '',
-    'The framework surface every plugin inherits, beyond the harness vocabulary above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the catalog is a complete picture of what `ctx` and the event bus offer, without elevating framework internals to the harness tier\'s prominence.',
-    '',
-    '### Inherited events',
+    'The framework events every plugin also sees, beyond the harness vocabulary above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of the event bus, without elevating framework internals to the harness tier\'s prominence.',
     '',
   )
   for (const e of INHERITED_EVENTS) {
     lines.push(`- \`${e.name}\` — ${e.summary} ([\`${e.source}\`](../../${e.source.split(':')[0]}))`)
   }
-  lines.push('', '### Inherited `ctx` members', '')
+  lines.push('')
+  return lines.join('\n')
+}
+
+/** Render the services catalog (pure, deterministic given sorted inputs). */
+function renderServices(services: ServiceEntry[]): string {
+  const lines: string[] = [
+    ...BANNER,
+    '# Cordis Services Catalog',
+    '',
+    'Every `ctx.<key>` service a plugin can call: the exact public interface plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
+    '',
+    GATE_NOTICE,
+    '',
+    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.',
+    '',
+  ]
+  for (const s of services) lines.push(...renderService(s))
+  lines.push(
+    '## Inherited `ctx` members (cordis core + loader/hmr/timer)',
+    '',
+    'The framework `ctx` surface every plugin also sees, beyond the harness services above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of what `ctx` offers, without elevating framework internals to the harness tier\'s prominence.',
+    '',
+  )
   for (const s of INHERITED_SERVICES) {
     lines.push(`- \`${s.name}\` — ${s.summary} ([\`${s.source}\`](../../${s.source.split(':')[0]}))`)
   }
@@ -581,31 +454,38 @@ function render(events: EventEntry[], services: ServiceEntry[]): string {
   return lines.join('\n')
 }
 
-/** CLI entry: `--write` (default) writes the catalog, `--check` fails if stale.
- * Guarded behind an entry-point check so importing this module for tests neither
- * regenerates the committed file nor calls process.exit. */
+/** CLI entry: `--write` (default) writes both catalogs, `--check` fails if
+ * either is stale. Guarded behind an entry-point check so importing this module
+ * for tests neither regenerates the committed files nor calls process.exit. */
 function main(): void {
-  const content = render(collectEvents(), collectServices())
+  const outputs: [string, string][] = [
+    [OUT_EVENTS, renderEvents(collectEvents())],
+    [OUT_SERVICES, renderServices(collectServices())],
+  ]
   if (process.argv.includes('--check')) {
-    let committed: string | null = null
-    try {
-      committed = readFileSync(resolve(root, OUT), 'utf8')
-    } catch {
-      // Only ENOENT (not yet generated) is expected; a present-but-unreadable
-      // file is not a state this repo produces. Either way the remedy is the
-      // same — regenerate — so treat a read failure as "stale".
-      committed = null
+    const stale: string[] = []
+    for (const [out, content] of outputs) {
+      let committed: string | null = null
+      try {
+        committed = readFileSync(resolve(root, out), 'utf8')
+      } catch {
+        // Only ENOENT (not yet generated) is expected; a present-but-unreadable
+        // file is not a state this repo produces. Either way the remedy is the
+        // same — regenerate — so treat a read failure as "stale".
+        committed = null
+      }
+      if (committed !== content) stale.push(out)
     }
-    if (committed === content) {
-      console.log(`gen-cordis-catalog: ${OUT} is up to date.`)
+    if (stale.length === 0) {
+      console.log(`gen-cordis-catalog: ${OUT_EVENTS} and ${OUT_SERVICES} are up to date.`)
       process.exit(0)
     }
-    console.error(`gen-cordis-catalog: ${OUT} is stale. Run \`pnpm run gen-cordis-catalog\` and commit ${OUT}.`)
+    console.error(`gen-cordis-catalog: ${stale.join(' and ')} ${stale.length === 1 ? 'is' : 'are'} stale. Run \`pnpm run gen-cordis-catalog\` and commit the result.`)
     process.exit(1)
   }
 
-  writeFileSync(resolve(root, OUT), content)
-  console.log(`gen-cordis-catalog: wrote ${OUT}.`)
+  for (const [out, content] of outputs) writeFileSync(resolve(root, out), content)
+  console.log(`gen-cordis-catalog: wrote ${OUT_EVENTS} and ${OUT_SERVICES}.`)
 }
 
 // Run only when invoked as a script, not when imported by a test.

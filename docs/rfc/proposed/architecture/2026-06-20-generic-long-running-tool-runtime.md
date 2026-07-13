@@ -34,6 +34,8 @@ A consumer census of the surface the runtime would carve up. Production has two 
 - ACP and snapshot fixtures render background bash through the shared task vocabulary, not through bash-only lifecycle semantics.
 - The [tool cookbook](../../../cookbook/adding-a-tool.md) points long-running tools at the shared runtime instead of telling each tool to invent its own task protocol.
 
-## What we give up
+## Risks
 
 The bash package loses local ownership of an already-working background-task implementation, and the implementing PR may temporarily churn model-facing tool names or transcript presentation. That churn is worthwhile if it leaves one background-task contract instead of making every future long-running tool clone bash's private protocol.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

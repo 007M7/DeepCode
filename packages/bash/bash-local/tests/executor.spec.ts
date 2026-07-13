@@ -11,9 +11,10 @@ const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
 async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] = {}) {
   const ctx = new Context()
-  await ctx.plugin(LocalBashExecutor, config)
+  // A short kill grace via the REAL config path, so escalation tests stay fast.
+  await ctx.plugin(LocalBashExecutor, { graceMs: 200, ...config })
   const bash = ctx.bash as LocalBashExecutor
-  bash.internals = { spillDir, graceMs: 200 }
+  bash.internals = { spillDir }
   return { ctx, bash }
 }
 
@@ -39,12 +40,14 @@ async function readUntil(
 ): Promise<BashTaskRead> {
   const deadline = Date.now() + timeoutMs
   let last: BashTaskRead | undefined
+  let delta = ''
   while (Date.now() < deadline) {
     last = bash.readOutput(id)
-    if (last.delta.includes(expected)) return last
+    delta += last.delta
+    if (delta.includes(expected)) return { ...last, delta }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
-  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; last delta was ${JSON.stringify(last?.delta ?? '')}`)
+  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; output was ${JSON.stringify(delta)}, last delta was ${JSON.stringify(last?.delta ?? '')}`)
 }
 
 describe('LocalBashExecutor.run', () => {
@@ -80,16 +83,28 @@ describe('LocalBashExecutor.run', () => {
     await expect(setup({ timeoutMs: Number.NaN })).rejects.toThrow(/timeoutMs/)
     await expect(setup({ maxTimeoutMs: 0 })).rejects.toThrow(/maxTimeoutMs/)
     await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
+    await expect(setup({ graceMs: 0 })).rejects.toThrow(/graceMs/)
 
     const { bash } = await setup()
     expect(() => bash.resolve({ command: 'true', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)
     expect(() => bash.resolve({ command: 'true', timeoutMs: -1 })).toThrow(/request\.timeoutMs/)
   })
 
+  it('kill escalation uses the configured graceMs (a TERM-trapping task dies by SIGKILL)', async () => {
+    const { bash } = await setup() // setup pins graceMs: 200 via config
+    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done' }))
+    await readUntil(bash, task.id, 'ready\n')
+    bash.kill(task.id)
+    await task.done
+    expect(task.signal).toBe('SIGKILL')
+  })
+
   it('per-call timeout takes precedence under the cap and kills on expiry', async () => {
     const { bash } = await setup({ timeoutMs: 60_000 })
     const result = await bash.run(bash.resolve({ command: 'sleep 60', timeoutMs: 100 }))
     expect(result.timedOut).toBe(true)
+    // Mutually exclusive: a timeout classifies as timedOut, never also aborted.
+    expect(result.aborted).toBe(false)
     expect(result.timeoutMs).toBe(100)
   })
 
@@ -100,6 +115,20 @@ describe('LocalBashExecutor.run', () => {
     setTimeout(() => { controller.abort() }, 50)
     const result = await pending
     expect(result.aborted).toBe(true)
+    // Mutually exclusive: an upstream cancel classifies as aborted, never also timedOut.
+    expect(result.timedOut).toBe(false)
+  })
+
+  it('classifies a self-killed command as neither timed out nor aborted', async () => {
+    // The command kills itself (SIGTERM) with no timeout and no upstream abort:
+    // the deadline signal never fires, so both classifications are false — the
+    // fused-signal classification reports the cause that cut the command short,
+    // and here nothing the executor owns did.
+    const { bash } = await setup({ timeoutMs: 60_000 })
+    const result = await bash.run(bash.resolve({ command: 'kill -TERM $$' }))
+    expect(result.signal).toBe('SIGTERM')
+    expect(result.timedOut).toBe(false)
+    expect(result.aborted).toBe(false)
   })
 
   it('rejects on spawn failure (bad workdir)', async () => {
@@ -271,9 +300,9 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('disposing with already-finished tasks only kills the running ones', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
 
     const finished = bash.start(bash.resolve({ command: 'true' }))
     await finished.done
@@ -288,9 +317,9 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('disposing the executor fiber kills running tasks (no orphans)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
     const listener = vi.fn()
     bash.onTaskDone(listener)
 
@@ -337,9 +366,9 @@ describe('review fixes: lifecycle hardening', () => {
 
   it('dispose AWAITS a TERM-trapping process (SIGKILL escalation included)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
 
     const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; sleep 60' }))
     await new Promise(resolve => setTimeout(resolve, 100))

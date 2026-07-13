@@ -17,10 +17,11 @@
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
- *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
+ *   `agent/request`/`agent/session-prefix`/`agent/step-result`/
+ *   `agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
- *   `agent/disposed`, `agent/queued`, `agent/steering`, `agent/session-start`)
+ *   `agent/disposed`, `agent/queued`, `agent/session-start`)
  *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
  *   they are durable `session/event` records. Answers "right now, with the agent
  *   object — intercept or observe."
@@ -44,32 +45,62 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ContentBlock, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
 
-/** Brand a string as an {@link AgentId}. */
+/**
+ * Brand a string as an {@link AgentId}.
+ * @param id - the raw agent id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
 import type { Session } from '@deepseek-ai/dsh-session'
 
+declare module '@deepseek-ai/dsh-system-prompt' {
+  interface AssembleContext {
+    /**
+     * The agent this assembly is for. The agent loop passes it on every
+     * per-step `assemble({ agent })`; variable providers project per-agent
+     * facts from it (`options.model` → `{{model}}`, `session.header.cwd` →
+     * `{{cwd}}`). Optional because a bare `assemble()` (tests, diagnostics)
+     * has no agent — providers must tolerate its absence.
+     */
+    agent?: Agent
+  }
+}
+
 /**
- * Options an agent is created with.
+ * Options an agent is created with. The persona is NOT here — it is the
+ * deployment's `persona` config on the dsh-system-prompt plugin, shared by
+ * every agent in the context.
  * Merge-extensible: plugins declare extra fields via declaration merging.
  */
 export interface AgentOptions {
   /** Model name (must have a registered adapter at call time). */
   model?: string
-  /** Per-agent system prompt appended after the assembled sections. */
-  systemPrompt?: string
 }
 
+/**
+ * Options for {@link Agent.send}/{@link Agent.steer}/{@link Agent.inject}. An
+ * absent `source` resolves to `{ kind: 'user' }`, so a plugin supplying content
+ * must label itself here or its message is recorded as a user prompt (see
+ * {@link HookContext} on why that label is load-bearing).
+ */
 export interface SendOptions {
   source?: MessageSource
 }
 
+/**
+ * An agent's lifecycle state, emitted on every transition as `agent/status`:
+ * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
+ * `disposed` (terminal — no transition leaves it, and `send`/`steer`/`inject`
+ * throw).
+ */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
 /**
@@ -302,21 +333,28 @@ declare module 'cordis' {
      * value; this event is typed and documented as `void`, so listeners must not
      * return a semantic veto value. `fullSystemPrompt` is the assembled prompt a
      * listener needs to measure pressure (the system prompt counts toward the
-     * budget). `signal` cancels any in-flight work a listener starts (e.g. a
+     * budget), and `sessionPrefix` is the instance's composed
+     * {@link agent/session-prefix} product for the same reason — every request
+     * carries it in front of the derived history, and it is composed BEFORE
+     * this seam fires precisely so a pressure gate counts the prefix the
+     * request will actually send (never a stale logged one). `signal` cancels
+     * any in-flight work a listener starts (e.g. a
      * summarization model call).
      * @param agent - the agent about to open the step.
      * @param turn - the already-open turn this step belongs to.
      * @param step - the number of the step about to start.
      * @param fullSystemPrompt - the assembled prompt, for measuring token pressure.
+     * @param sessionPrefix - the instance's frozen session prefix, for the same measurement.
      * @param signal - aborts in-flight listener work when the turn is torn down.
      * @mode serial
      */
-    // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
-    // is its only consumer, so a wide event carries a string just one listener
+    // TODO: `fullSystemPrompt`/`sessionPrefix` are a smell on a generic
+    // per-step seam — compaction
+    // is their only consumer, so a wide event carries payloads just one listener
     // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
     // prompt provider, or move token-pressure measurement behind a
     // compaction-specific seam instead of the shared pre-step checkpoint.
-    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: decide what happens to ONE drained queued message before it
      * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
@@ -331,18 +369,76 @@ declare module 'cordis' {
      */
     'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
-     * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
-     * model call (hooks, model switching, tool filtering, …). Call `next()` to
-     * delegate, or return without it to short-circuit. For surface mutation that
-     * must precede history derivation (compaction), use {@link agent/pre-step}
-     * instead — by the time this fires, `options.messages` is already derived.
+     * Waterfall: shape the step's call configuration — model switching,
+     * sampling overrides — by returning a replacement {@link LlmCallConfig}
+     * (the frozen seed is the config the loop would otherwise use). Config is
+     * ALL a listener shapes here: every request is a pure function of the
+     * session log (the reconstructability RFC), so model-visible content
+     * flows through the log channels — `inject()`, steering, prompt-submit
+     * `additionalContext`, prompt sections via `system-prompt/assemble`, or
+     * the header-logged session prefix via {@link agent/session-prefix}
+     * — never through request mutation, and the loop records whatever config
+     * the request actually uses as a `request/header*` event before dispatch.
+     * The step's messages are already snapshotted when this fires (the
+     * `step/start` boundary): an `inject()` from a listener here lands in the
+     * log but joins the NEXT request. For surface mutation that must precede
+     * the snapshot (compaction), use {@link agent/pre-step}. Call `next()` to
+     * delegate, or return an {@link LlmCallConfig} without it to
+     * short-circuit.
      * @param agent - the agent making the model call.
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
-     * @param options - the assembled request; listeners return a transformed copy.
+     * @param config - the config the loop would use (frozen); return a replacement to switch.
      * @mode waterfall
      */
-    'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
+    'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    /**
+     * Waterfall: compose the SESSION PREFIX — request-only messages placed in
+     * front of the ENTIRE derived history (directly after the provider's
+     * system slot) on every request this loop instance sends. Fired ONCE per
+     * loop instance, lazily before its first step's {@link agent/pre-step}
+     * seam — BEFORE the pre-step so a token-pressure gate (compaction) counts
+     * the prefix this instance will actually send, never a previous
+     * instance's logged one. The composed
+     * result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the
+     * instance's anchoring `'initial'`/`'resume'` header snapshot, and reused
+     * verbatim for every subsequent request — never recomputed mid-session,
+     * so the provider prefix cache holds by construction (a process restart
+     * or `ctx.agents.resume()` is a new instance: it recomposes, and any
+     * drift lands attributably on the `'resume'` snapshot). Composition runs
+     * outside the step, before the boundary snapshot: a composing listener's
+     * session append joins the CURRENT request's derived history. A
+     * composition interrupted by a cancel/dispose landing inside the
+     * waterfall is discarded — never cached, logged, or sent — and the next
+     * turn recomposes under a live signal, so an abort-aware listener's
+     * degraded fallback cannot leak into later requests.
+     *
+     * This is the home for session-stable openers the model must always see
+     * but that must NOT become durable history — a skills catalog, an
+     * AGENTS.md digest, a workspace baseline: `Session.deriveMessages()`
+     * never returns the prefix, and the header events are its only durable
+     * record, so the request stays reconstructable from the log. Content
+     * that CHANGES mid-session belongs in the append-only history channels
+     * instead — `agent.inject()`, a `tools/post-execute` decision's
+     * `additionalContext`, prompt-submit `additionalContext` — each a
+     * durable `context/message` paid once and prefix-cached thereafter.
+     *
+     * The seed is a frozen empty list; a contributing listener returns a NEW
+     * array — never an in-place push. The canonical contribution is a
+     * PREPEND, `[mine, ...await next()]`: the waterfall unwinds
+     * innermost-first (the LAST-registered listener's `next()` resolves
+     * first), so prepending yields registration order on the wire, and every
+     * plugin using it composes deterministically. The append form
+     * `[...await next(), mine]` is legal but places a contribution AFTER
+     * every later-registered plugin's — reverse registration order when all
+     * contributors append. Call `next()` to
+     * delegate, or return a list without it to short-circuit.
+     * @param agent - the agent whose session prefix is being composed.
+     * @param prefix - the frozen empty seed; return an extended replacement to contribute.
+     * @param signal - aborts in-flight listener work (e.g. a discovery scan) when the step is torn down.
+     * @mode waterfall
+     */
+    'agent/session-prefix'(agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).
@@ -367,16 +463,7 @@ declare module 'cordis' {
      */
     'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 
-    // ---- streaming + tool notifications (emit) ----
-    /**
-     * Steering content was injected into a running turn.
-     * @param agent - the agent that absorbed the steering.
-     * @param turn - the running turn that received it.
-     * @param content - the injected blocks.
-     * @param source - the steering message's resolved source.
-     * @mode emit
-     */
-    'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
+    // ---- error notifications (emit) ----
     /**
      * A step or turn errored. The loop reports a failure here (plus the logger)
      * even when the error has no in-turn position for a session `error` event.

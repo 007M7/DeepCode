@@ -2,9 +2,12 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
+  type ToolExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -62,16 +65,15 @@ describe('ToolRegistry', () => {
     expect(schema.execute).toBeUndefined()
   })
 
-  it('schemas() preserves `strict` when set (allowlist keeps the model-facing fields)', async () => {
+  it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
     const ctx = await setup()
     ctx.tools.register(defineTool({
-      name: 'strict-tool',
-      description: 'd',
-      parameters: { x: { type: 'string', required: true } },
-      strict: true,
-      async execute() { return [] },
+      name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     }))
-    expect(ctx.tools.schemas()[0]).toMatchObject({ name: 'strict-tool', strict: true })
+    const schema = ctx.tools.schemas().find(s => s.name === 'budgeted')
+    expect(schema).toBeDefined()
+    expect('timeoutMs' in (schema as object)).toBe(false)
   })
 
   it('executes a tool and returns its content', async () => {
@@ -158,7 +160,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
 
-  it('an ask decision degrades to deny until the permission system lands', async () => {
+  it('an ask decision degrades to deny when no approval seam is mounted', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
@@ -179,6 +181,107 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval (not yet supported)' })
+  })
+
+  describe('ask routing through ctx.approval', () => {
+    /**
+     * A minimal Agent stand-in — the approval seam reaches
+     * `agent.session.append` and folds `.events`; the seeded open turn
+     * satisfies request()'s enclosure precondition.
+     */
+    function fakeAgent(): Agent {
+      return {
+        session: { events: [{ type: 'turn/start' }], append: () => ({}) },
+      } as unknown as Agent
+    }
+
+    async function approvalSetup() {
+      const ctx = await setup()
+      await ctx.plugin(ApprovalService)
+      ctx.tools.register(echoTool)
+      return ctx
+    }
+
+    it('dispatches the tool when the answerer grants allowed-once, forwarding the ask fields', async () => {
+      const ctx = await approvalSetup()
+      const agent = fakeAgent()
+      const controller = new AbortController()
+      const seen: ApprovalRequest[] = []
+      ctx.on('approval/request', (req) => {
+        seen.push(req)
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> =>
+        ({ kind: 'ask', reason: 'hook wants a human' }))
+
+      const result = await ctx.tools.execute({
+        callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' }, agent, signal: controller.signal,
+      })
+
+      expect(result).toMatchObject({ isError: false, content: [{ type: 'text', text: 'hi' }] })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human' })
+      expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('denies with the user-rejection reason on rejected', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: the user rejected tool "echo"' })
+    })
+
+    it('denies with the cancellation reason on cancelled', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: approval for tool "echo" was cancelled' })
+    })
+
+    it('denies with the no-channel reason when the seam is mounted but nobody answers', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
+    })
+
+    it('denies an agent-less execution without asking — nothing to route or audit through', async () => {
+      const ctx = await approvalSetup()
+      let asked = false
+      ctx.on('approval/request', () => {
+        asked = true
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {} })
+      expect(asked).toBe(false)
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but the call has no agent to route it through' })
+    })
+
+    it('turns a rogue outcome from a NON-conforming approval stand-in into an isError result', async () => {
+      // ApprovalService normalizes rogue answers itself; this pins the
+      // registry's own exhaustiveness backstop by shadowing the service with a
+      // stand-in that violates the outcome contract.
+      const ctx = await setup()
+      ctx.tools.register(echoTool)
+      ctx.provide('approval', { request: () => Promise.resolve('yolo') } as unknown as ApprovalService)
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+      expect(text).toContain('unreachable')
+    })
   })
 
   it('a tools/post-execute listener can replace the result content (accept) ', async () => {
@@ -282,6 +385,151 @@ describe('ToolRegistry', () => {
     expect(result.isError).toBe(false)
     // pre runs fully (gate) before dispatch, then post runs over the result.
     expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
+  })
+
+  it('runs tools/execute after an allowed pre-execute, around dispatch, and before post-execute', async () => {
+    const ctx = await setup()
+    const order: string[] = []
+    ctx.tools.register(defineTool({
+      name: 'traced',
+      description: 'echo',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        order.push('dispatch')
+        return [{ type: 'text' as const, text: args.text ?? '' }]
+      },
+    }))
+
+    ctx.on('tools/pre-execute', async (_exec, next) => { order.push('pre'); return next() })
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      order.push('execute:before')
+      const result = await next()
+      order.push('execute:after')
+      return result
+    })
+    ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    // The around seam wraps dispatch; pre gates before it, post runs over its result.
+    expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
+  })
+
+  it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    let entered = false
+    ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'deny', reason: 'nope' }))
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      entered = true
+      return next()
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: nope' })
+    expect(entered).toBe(false) // a denied call never enters the around-dispatch seam
+  })
+
+  it('a thrown tool is normalized to an isError result BEFORE a tools/execute listener sees next()', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new HarnessError('kaboom', 'BOOM') },
+    })
+
+    let seen: { isError: boolean; error?: unknown } | undefined
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      const result = await next()
+      // The base next() IS dispatch-with-normalization: the wrapper sees the
+      // normalized isError result, never a raw throw from the tool body.
+      seen = { isError: result.isError, error: result.error }
+      return result
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(seen).toEqual({ isError: true, error: { name: 'HarnessError', code: 'BOOM' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
+  })
+
+  it('a thrown tool normalized inside tools/execute still reaches post-execute', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new Error('exploded') },
+    })
+
+    let postSaw: boolean | undefined
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => next())
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      postSaw = result.isError
+      return next()
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(postSaw).toBe(true) // the normalized isError still flows through post-execute
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('a tools/execute listener can replace exec.signal for the dispatched tool (deadline pattern)', async () => {
+    const ctx = await setup()
+    let seenSignal: AbortSignal | undefined
+    ctx.tools.register({
+      ...echoTool,
+      name: 'signal-probe',
+      async execute(_args, exec) {
+        seenSignal = exec.signal
+        return [{ type: 'text' as const, text: 'ok' }]
+      },
+    })
+
+    const upstream = new AbortController().signal
+    const replacement = new AbortController().signal
+    ctx.on('tools/execute', async (exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      expect(exec.signal).toBe(upstream)
+      // Cordis next() ignores passed arguments, so a wrapper mutates exec in
+      // place (the documented "mutate the shared object, then delegate" idiom).
+      exec.signal = replacement
+      return next()
+    })
+
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'signal-probe', arguments: {}, signal: upstream })
+    expect(seenSignal).toBe(replacement) // dispatch saw the wrapper's replacement, not the upstream
+  })
+
+  it('a tools/execute listener can short-circuit dispatch by returning a result without next()', async () => {
+    const ctx = await setup()
+    let dispatched = false
+    ctx.tools.register({
+      ...echoTool,
+      name: 'never-runs',
+      async execute() { dispatched = true; return [] },
+    })
+
+    ctx.on('tools/execute', async (exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
+      ({ callId: exec.callId, content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
+    expect(dispatched).toBe(false) // returning without next() skips core dispatch
+    expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
+  })
+
+  it('returns an isError result when a tools/execute listener throws', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => { throw new Error('wrapper broke') })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'Error: wrapper broke' }],
+      isError: true,
+    })
   })
 
   it('returns an isError result when a tools/pre-execute listener throws', async () => {
@@ -609,44 +857,6 @@ describe('schema DSL edge cases', () => {
       type: 'array',
       items: { type: 'string' },
     })
-  })
-
-  it('defineTool passes through strict flag when set to true', () => {
-    const tool = defineTool({
-      name: 'strict-tool',
-      description: 'A strict tool',
-      parameters: { input: { type: 'string' } },
-      strict: true,
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect(tool.strict).toBe(true)
-  })
-
-  it('defineTool omits strict when not provided', () => {
-    const tool = defineTool({
-      name: 'non-strict-tool',
-      description: 'A non-strict tool',
-      parameters: { input: { type: 'string' } },
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect('strict' in tool).toBe(false)
-  })
-
-  it('defineTool strict=false is included', () => {
-    const tool = defineTool({
-      name: 'explicitly-non-strict',
-      description: 'Explicitly non-strict',
-      parameters: { input: { type: 'string' } },
-      strict: false,
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect(tool.strict).toBe(false)
   })
 
   it('handles enum and default together in one property', () => {
@@ -1038,6 +1248,38 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
+  })
+
+  it('attaches a positive-finite timeoutMs to the definition', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: 30_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBe(30_000)
+  })
+
+  it('omits timeoutMs when not declared', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {},
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBeUndefined()
+  })
+
+  it('throws when timeoutMs is zero or negative', () => {
+    const make = (ms: number) => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: ms,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(() => make(0)).toThrow('timeoutMs must be a positive finite number')
+    expect(() => make(-5)).toThrow('positive finite number')
+  })
+
+  it('throws when timeoutMs is non-finite', () => {
+    expect(() => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: Infinity,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })).toThrow('positive finite number')
   })
 })
 

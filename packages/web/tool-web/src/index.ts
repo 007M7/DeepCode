@@ -20,7 +20,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
-import { applyWebSearchTool } from './search.ts'
+import { applyWebSearchTool, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
 
 export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
@@ -33,25 +33,56 @@ export const name = 'tool-web'
 /** Services required by the web tool suite. */
 export const inject = ['tools', 'web', 'systemPrompt']
 
+/** Default cooperative tool-call timeout budget (ms) for the web tools. */
+export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 30_000
+
+/** Plugin config: which web tools to register, the source cap, and per-tool budgets. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
   /** Register `web_fetch`. Defaults to true. */
   fetch?: boolean
+  /** Upper bound on sources returned by one `web_search` call. */
+  searchMaxResults?: number
+  /** Cooperative timeout budget (ms) for `web_fetch`. Defaults to 30000. */
+  fetchTimeoutMs?: number
+  /** Cooperative timeout budget (ms) for `web_search`. Defaults to 30000. */
+  searchTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   search: z.boolean().default(true),
   fetch: z.boolean().default(true),
+  searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS),
+  fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
+  searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
 })
+
+/** The shape after schemastery applies its defaults to every field. */
+type ResolvedConfig = Required<Config>
+
+/** The result cap must be a positive integer (it bounds a provider's source list). */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`tool-web: ${name} must be a positive integer`)
+  }
+}
 
 /**
  * Register the enabled web tools. `search`/`fetch` default to true; a product
- * that wants only one disables the other in config. The tools' disposers are
+ * that wants only one disables the other in config. Each tool's cooperative
+ * timeout budget (`fetchTimeoutMs`/`searchTimeoutMs`, default 30000) is resolved
+ * here and attached to the tool as `ToolDefinition.timeoutMs` for
+ * `@deepseek-ai/dsh-timeout-policy` to enforce. The tools' disposers are
  * fiber-scoped (the effect-based registries clean up on dispose), so no manual
  * teardown is needed.
  */
 export function apply(ctx: Context, config: Config): void {
-  if (config.search !== false) applyWebSearchTool(ctx)
-  if (config.fetch !== false) applyWebFetchTool(ctx)
+  // schemastery (Config) has already filled every defaulted field.
+  const resolved = config as ResolvedConfig
+  assertPositiveInteger('searchMaxResults', resolved.searchMaxResults)
+  assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
+  assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
+  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
+  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs)
 }

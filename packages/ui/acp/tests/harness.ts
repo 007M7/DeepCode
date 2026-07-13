@@ -29,11 +29,15 @@ import {
   ndJsonStream,
   type Agent as AcpAgent,
   type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
   type Stream,
 } from '@agentclientprotocol/sdk'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as AcpPlugin from '../src/index.ts'
 import { type AcpConfig } from '../src/index.ts'
 
@@ -121,6 +125,10 @@ export interface BridgeHarness {
   permissionRequests: RequestPermissionRequest[]
   /** Decide each permission request's outcome (default: cancelled). */
   onPermission: (req: RequestPermissionRequest) => RequestPermissionResponse
+  /** Elicitation requests the bridge issued for ask_user_question. */
+  elicitationRequests: CreateElicitationRequest[]
+  /** Decide each elicitation response (default: cancel). */
+  onElicitation: (req: CreateElicitationRequest) => CreateElicitationResponse | Promise<CreateElicitationResponse>
   /** If set, the client's sessionUpdate throws this (tests notify error path). */
   onSessionUpdateError: (() => void) | undefined
   /**
@@ -153,6 +161,8 @@ export interface BridgeHarness {
 export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
+  /** Deployment persona for the tree (the system-prompt plugin's config). */
+  persona?: string
   storageDir: string
   /**
    * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
@@ -162,6 +172,8 @@ export async function makeBridgeHarness(options: {
    * implementation over a mock in tests").
    */
   withBash?: boolean
+  /** Plug the REAL `ask_user_question` tool and ACP user-interaction provider. */
+  withAskUser?: boolean
   /**
    * Plug the REAL `dsh-tool-todo` tool so a test can drive `todo_write` through
    * the bridge and assert the resulting `plan` sessionUpdate — the shipping
@@ -183,11 +195,15 @@ export async function makeBridgeHarness(options: {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona: options.persona ?? '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  await ctx.plugin(UserInteractionService)
+  if (options.withAskUser) {
+    await ctx.plugin(ToolAskUser)
+  }
   if (options.withBash) {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     await ctx.plugin(ToolBash)
@@ -224,6 +240,7 @@ export async function makeBridgeHarness(options: {
   const updates: CapturedUpdate[] = []
   const sessionUpdates: { sessionId: string; update: CapturedUpdate }[] = []
   const permissionRequests: RequestPermissionRequest[] = []
+  const elicitationRequests: CreateElicitationRequest[] = []
   const harness: BridgeHarness = {
     ctx,
     adapter,
@@ -231,6 +248,8 @@ export async function makeBridgeHarness(options: {
     sessionUpdates,
     permissionRequests,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
+    elicitationRequests,
+    onElicitation: () => ({ action: 'cancel' }),
     onSessionUpdateError: undefined,
     client: undefined as unknown as ClientSideConnection,
     acpFiber: undefined as unknown as BridgeHarness['acpFiber'],
@@ -255,6 +274,10 @@ export async function makeBridgeHarness(options: {
     requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
       permissionRequests.push(params)
       return Promise.resolve(harness.onPermission(params))
+    },
+    unstable_createElicitation(params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+      elicitationRequests.push(params)
+      return Promise.resolve(harness.onElicitation(params))
     },
   })
 

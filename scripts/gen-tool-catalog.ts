@@ -1,5 +1,5 @@
 /**
- * Generate (and verify) the tool-schema catalog in docs/tool-catalog/tools.md.
+ * Generate (and verify) the tool-schema catalog in docs/tool-catalog.md.
  *
  * The catalog is the MODEL-FACING TOOL reference: every tool a shipped plugin
  * contributes to `ctx.tools`, with the exact `name` / `description` / JSON-Schema
@@ -38,22 +38,30 @@ import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import SkillService from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
-const OUT = 'docs/tool-catalog/tools.md'
+const OUT = 'docs/tool-catalog.md'
 
 /**
  * One tool-plugin package to boot. `mount` is a per-entry recipe (async): it
@@ -75,9 +83,22 @@ interface ToolPackage {
   dir: string
   /** Repo-relative source path linked from the catalog entry. */
   source: string
+  /** Services or owning runtime surfaces the package requires at execution time. */
+  requires: string[]
+  /** Session events or other visible state the tools write or affect. */
+  writes: string[]
+  /** Additional model-visible names shipped by example/app config. */
+  shippedNames?: string[]
   /** Plug the injected seams + the tool plugin onto a context that already
    * carries `systemPrompt` + `tools`. */
   mount: (ctx: Context) => Promise<void>
+  /**
+   * Config for the caller's `ToolRegistry` mount. The registry itself ships a
+   * model-facing tool (`run_code`, registered under a non-native `mode`), so
+   * ITS catalog entry boots the registry in the mode that surfaces it;
+   * every other entry uses the default (native) registry.
+   */
+  toolsConfig?: ToolsConfig
   /**
    * A deployment note rendered after the package's tools, for a fact that
    * booting the package alone cannot show. The registered tool NAME can be a
@@ -95,18 +116,63 @@ interface ToolPackage {
  */
 const TOOL_PACKAGES: ToolPackage[] = [
   {
+    pkg: '@deepseek-ai/dsh-tool-ask-user',
+    dir: 'tool-ask-user',
+    source: 'packages/ui/tool-ask-user/src/index.ts',
+    requires: ['ctx.tools', 'ctx.userInteraction'],
+    writes: ['tool/call', 'tool/result after a UI/provider answers the question'],
+    async mount(ctx) {
+      await ctx.plugin(UserInteractionService)
+      await ctx.plugin(ToolAskUser)
+    },
+    note:
+      'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tools',
+    dir: 'tools',
+    source: 'packages/core/tools/src/code-mode.ts',
+    requires: ['ctx.tools', 'ctx.codeRuntime (execution time)', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'one tool/code-dispatch per bridged sub-call', 'tool/result'],
+    // The registry's OWN tool: run_code exists only under a non-native mode
+    // (the registry registers it in its constructor; the code runtime is read
+    // at assembly/execution time, so the schema harvest needs none mounted).
+    toolsConfig: { mode: 'code' },
+    async mount() {},
+    note:
+      'Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash'],
+    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
     async mount(ctx) {
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
+    note:
+      'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-cordis',
+    dir: 'tool-cordis',
+    source: 'packages/cordis/tool-cordis/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result', 'live plugin-tree mutations (mount/unmount)'],
+    async mount(ctx) {
+      await ctx.plugin(ToolCordis)
+    },
+    note:
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
     dir: 'tool-fs',
     source: 'packages/fs/tool-fs/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
     async mount(ctx) {
       // The tool injects `fs`; boot the local backend to satisfy it. The schemas
       // do not depend on the policy plugin (an event gate that changes behavior,
@@ -118,9 +184,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-skill',
+    dir: 'tool-skill',
+    source: 'packages/skill/tool-skill/src/index.ts',
+    requires: ['ctx.tools', 'ctx.skills'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SkillService)
+      await ctx.plugin(SkillLocal, {
+        dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
+        agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
+      })
+      await ctx.plugin(ToolSkill)
+    },
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subagents'],
+    writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
+    shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       // Register a scripted provider under the name the tool delegates to.
@@ -134,14 +218,36 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-todo',
     dir: 'tool-todo',
     source: 'packages/todo/tool-todo/src/index.ts',
+    requires: ['ctx.tools', 'owning Agent session'],
+    writes: ['tool/call', 'todo/write', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(ToolTodo)
+    },
+    note:
+      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow',
+    dir: 'tool-workflow',
+    source: 'packages/workflow/tool-workflow/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workflows', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool injects `workflows`; boot the vm engine over a scripted
+      // subagent provider to satisfy it. The schema does not depend on which
+      // provider backs the engine.
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentMock, { name: 'mock' })
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolWorkflow)
     },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',
     dir: 'tool-web',
     source: 'packages/web/tool-web/src/index.ts',
+    requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       // The tools inject `web`; boot the seam plus one search and one fetch
       // provider so both `web_search` and `web_fetch` register. The schemas do
@@ -152,6 +258,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(WebFetchLocal)
       await ctx.plugin(ToolWeb)
     },
+    note:
+      'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
   },
 ]
 
@@ -159,6 +267,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
 interface CatalogPackage {
   pkg: string
   source: string
+  requires: string[]
+  writes: string[]
+  shippedNames?: string[]
   schemas: ToolSchema[]
   /** A deployment note (see {@link ToolPackage.note}), rendered after the tools. */
   note?: string
@@ -205,10 +316,18 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     // fiber) — the repo's "dispose must reach quiescence" rule.
     try {
       await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(ToolRegistry, entry.toolsConfig ?? {})
       await entry.mount(ctx)
       const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
-      catalog.push({ pkg: entry.pkg, source: entry.source, schemas, ...entry.note !== undefined ? { note: entry.note } : {} })
+      catalog.push({
+        pkg: entry.pkg,
+        source: entry.source,
+        requires: entry.requires,
+        writes: entry.writes,
+        schemas,
+        ...entry.shippedNames !== undefined ? { shippedNames: entry.shippedNames } : {},
+        ...entry.note !== undefined ? { note: entry.note } : {},
+      })
     } finally {
       await ctx.fiber.dispose()
     }
@@ -220,10 +339,17 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
 function renderTool(schema: ToolSchema, source: string): string[] {
   const out = [`### \`${schema.name}\``, '']
   if (schema.description) out.push(schema.description, '')
-  if (schema.strict !== undefined) out.push(`Strict: \`${String(schema.strict)}\``, '')
   out.push('```json', JSON.stringify(schema.parameters, null, 2), '```', '')
-  out.push(`Source: [\`${source}\`](../../${source})`, '')
+  out.push(`Source: [\`${source}\`](../${source})`, '')
   return out
+}
+
+function codeList(values: string[] | undefined): string {
+  return values?.length ? values.map(value => `\`${value}\``).join(', ') : '-'
+}
+
+function tableCell(value: string | undefined): string {
+  return value ? value.replace(/\|/g, '\\|').replace(/\n/g, '<br>') : '-'
 }
 
 /** Render the full catalog (pure, deterministic given the manifest-ordered input). */
@@ -234,11 +360,19 @@ export function render(catalog: ToolCatalog): string {
     '',
     '# Tool Schema Catalog',
     '',
-    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [cordis events & services catalog](../cordis-catalog/events-and-services.md) (the wiring a plugin listens to and calls) and [core-data-structures/](../core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
+    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
     '',
-    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](../rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
+    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
     'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
+    '',
+    '## Tool Package Map',
+    '',
+    'This table connects model-visible tool names to the plugin package and service seams behind them. Exact JSON Schemas follow in the package sections below.',
+    '',
+    '| Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...catalog.map(entry => `| \`${entry.pkg}\` | ${codeList(entry.schemas.map(schema => schema.name))} | ${codeList(entry.requires)} | ${codeList(entry.writes)} | ${codeList(entry.shippedNames)} | ${tableCell(entry.note)} |`),
     '',
   ]
   for (const entry of catalog) {

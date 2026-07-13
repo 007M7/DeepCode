@@ -6,7 +6,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ## `SessionEventMap` — the event vocabulary
 
-The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`).
+The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
 
 ```ts type-equiv
 interface SessionEventMap {
@@ -60,6 +60,29 @@ interface SessionEventMap {
    * cordis-catalog row.
    */
   'todo/write': { todos: TodoItem[] }
+  /**
+   * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
+   * with the {@link RequestHeaderReason} it was recorded whole. Appended by
+   * the loop inside the step, before dispatch, on a loop instance's first
+   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
+   * round-trip guard (`'fallback'`); always records what the request actually
+   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
+   * the latest snapshot and applies the deltas after it. NOT a
+   * {@link SurfaceEventType}: it produces no LLM message — it is the request
+   * envelope, logged so every request is a pure function of the session log
+   * (the reconstructability RFC).
+   */
+  'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Amendment to the folded {@link EpochHeader}: system line-trim, name-keyed
+   * tools delta, whole replacement config, or whole replacement session
+   * prefix (an EMPTY array encodes the transition to "none"). The
+   * writer verifies `applyHeaderDelta(previous, delta)` reproduces the new
+   * header exactly and falls back to a `'fallback'` `request/header` snapshot
+   * when it cannot, so a logged delta ALWAYS round-trips. NOT a
+   * {@link SurfaceEventType}.
+   */
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 ```
 
@@ -73,6 +96,31 @@ export interface TodoItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 ```
+
+### The request header events: `request/header` and `request/header-delta`
+
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
+
+```ts type-equiv
+export interface EpochHeader {
+  /** The conversation's call configuration (model + sampling scalars). */
+  config: LlmCallConfig
+  /** Rendered system prompt text; absent for a system-less request. */
+  system?: string
+  /** Assembled tool schemas; absent for a tool-less request. */
+  tools?: ToolSchema[]
+  /**
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
+   */
+  messagePrefix?: Message[]
+}
+```
+
+Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are ABSENT fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); composed once per loop instance and anchored by that instance's snapshot, so the loop never produces a prefix delta in practice — the delta arm (whole-array replacement, an empty array encoding the transition back to absence) exists for codec totality. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
 
 ## `SessionEvent<T>` — one log entry
 
@@ -148,9 +196,9 @@ export interface SurfaceNode {
 }
 ```
 
-## Derived history: `deriveMessages()`
+## Derived history: `deriveMessages()` and `deriveEventMessage()`
 
-`Session.deriveMessages()` projects the event log into the `Message[]` the model sees. The projection rules:
+`Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:
 
 - `user/message` → a user message.
 - `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its `usage`, but a content-less assistant turn must not enter the provider transcript.
@@ -159,12 +207,19 @@ export interface SurfaceNode {
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
 
+## Live-session fork API
+
+`ctx.sessions.create(id, { seed, meta })` is the low-level replay/fork primitive. For ordinary live-session forks, `SessionStore` exposes one policy API:
+
+- `fork(source, boundary?, childSessionId?)` accepts a live `Session` object or live `SessionId`, selects source events through the inclusive `boundary` seq (default: current last event), requires the boundary event to be `turn/end`, then creates a live child session with deep-cloned seed events plus child metadata (`parentSession`, `seedLength`, and inherited `cwd`).
+
+An explicit `boundary` lets callers fork from a previous completed turn even if the source has newer events or an open current turn. The API rejects non-`turn/end` boundaries instead of clipping silently. Broader turn-enclosure sanity stays in the existing `dsh-invariants` plugin and persistence repair path rather than being duplicated in `fork()`. `dsh-subagent-fork` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should make the requested boundary explicit.
+
 ## What started a turn: `TurnTriggerMap`
 
 ```ts type-equiv
 interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
-  continuation: { kind: 'continuation' }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
    * was idle. The loop wraps the injected `context/message` in a one-shot turn
@@ -224,14 +279,9 @@ Every session event lives **inside** a turn (between a `turn/start` and its `tur
 
 ## Plugin-contributed log-only events
 
-A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The compaction seam's `compact/*` are documented on [compaction.md](compaction.md); the hook bridges' `hook/*` provenance (from `@deepseek-ai/dsh-hook-protocol`) are:
+A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
 
-| Event | Payload | Role |
-|---|---|---|
-| `hook/invoked` | `{ turn, point, dialect, matcher?, handlerId }` | A hook command was invoked at a hook `point` (`PreToolUse`, `Stop`, …). `dialect` is the bridge (`claude`/`codex`/`native`); `matcher` the matcher-group pattern that selected it (absent for match-all); `handlerId` correlates with the result. |
-| `hook/result` | `{ turn, point, handlerId, decision, exitCode?, stderrSummary?, durationMs }` | The decided outcome, paired by `handlerId`. `decision` is the resolved neutral outcome (`deny`/`allow`/`block`/`stop`/`pass`/…); `exitCode` absent when the hook could not run; `stderrSummary` the truncated block-reason source. |
-
-The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see the hooks RFC).
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see [the hook-bridges RFC](../rfc/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

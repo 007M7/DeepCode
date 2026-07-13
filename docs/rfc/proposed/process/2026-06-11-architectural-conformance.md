@@ -2,8 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
 ## Problem
 
 Two architectural guarantees currently live only in prose: (1) nothing depends on the concrete loop package ([the microkernel promise](../../implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)), and (2) every LlmAdapter speaks the chunk protocol correctly. Both should be mechanical ([the quality-gates principle](../../implemented/process/2026-06-11-quality-gates.md)).
@@ -24,6 +22,13 @@ Two architectural guarantees currently live only in prose: (1) nothing depends o
 
 dependency-cruiser config + CI step first (an hour of work, permanent guarantee); the conformance kit lands with its first consumer test against MockAdapter, and is a prerequisite for the V4 adapter phase.
 
+## Acceptance criteria
+
+- dependency-cruiser runs in CI with the rule families above; a violating import fails the build.
+- The conformance kit runs against the mock adapter and both shipping adapters, and a new adapter package inherits the suite by invoking it with its factory.
+
 ## Risks
 
 Dep-cruiser rule maintenance as packages are added — keep rules pattern-based (`dsh-*`) rather than enumerated.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

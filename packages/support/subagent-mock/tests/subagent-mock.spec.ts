@@ -41,13 +41,13 @@ describe('dsh-subagent-mock', () => {
 
   it('surfaces a structured result when the request carries an outputSchema', async () => {
     const ctx = await mount({ reply: 'r', structured: { answer: 42 } })
-    const run = ctx.subagents.start('mock', baseRequest({ outputSchema: { answer: { type: 'number' } } }))
+    const run = ctx.subagents.start('mock', baseRequest({ outputSchema: { type: 'object', properties: { answer: { type: 'number' } } } }))
     await expect(run.result).resolves.toMatchObject({ structured: { answer: 42 } })
   })
 
   it('defaults structured output to { reply } when outputSchema is requested but no structured value is configured', async () => {
     const ctx = await mount({ reply: 'fallback reply' })
-    const run = ctx.subagents.start('mock', baseRequest({ outputSchema: { answer: { type: 'number' } } }))
+    const run = ctx.subagents.start('mock', baseRequest({ outputSchema: { type: 'object', properties: { answer: { type: 'number' } } } }))
     await expect(run.result).resolves.toMatchObject({ structured: { reply: 'fallback reply' } })
   })
 

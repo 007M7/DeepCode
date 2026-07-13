@@ -1,5 +1,5 @@
 /**
- * The ACP server app: the providerless agent spine ({@link
+ * The ACP server app: the default agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster an ACP
  * server needs — JSONL session persistence and the {@link @deepseek-ai/dsh-acp}
  * bridge, and DELIBERATELY NOTHING that writes to stdout.
@@ -34,40 +34,63 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-agent'
 
 /**
- * App config: the swappable per-deployment values. `model`/`systemPrompt`
- * configure the agent template the ACP bridge creates each session's agent from
- * (NOT a pre-created agent — ACP creates agents at `session/new`);
- * `persistenceRoot` is the JSONL backend's directory.
+ * App config: the swappable per-deployment values. `model` configures the
+ * agent template the ACP bridge creates each session's agent from (NOT a
+ * pre-created agent — ACP creates agents at `session/new`); `persona` is the
+ * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
+ * the explicit model-facing tool order (forwarded to the system-prompt plugin);
+ * `tools` is the tool registry's config (its presentation `mode`, forwarded
+ * through agent-core); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
-  /** Per-agent system prompt for ACP-created agents. */
-  systemPrompt: string
+  /** Deployment persona (the system-prompt plugin's `persona` config). */
+  persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
+  skills?: agentCore.SkillConfig
 }
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
-  systemPrompt: z.string().required(),
+  persona: z.string(),
+  // The array default is forced to undefined: ABSENT means "lexicographic
+  // order" (the owning dsh-system-prompt schema does the same), while
+  // schemastery's native [] default would read as an invalid configured list.
+  toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
+  tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
+  skills: agentCore.SkillConfigSchema,
 })
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
- * NO agents (its `agents` list defaults to `[]`); the JSONL backend persists
- * under `persistenceRoot`; the ACP bridge owns stdout for JSON-RPC and creates
- * one agent per `session/new` from `model`/`systemPrompt`. No logger, no `hmr` —
- * stdout stays pure.
+ * NO agents (its `agents` list defaults to `[]`) and carries the deployment
+ * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
+ * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
+ * from `model`. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore)
+  ctx.plugin(agentCore, {
+    ...config.persona !== undefined ? { persona: config.persona } : {},
+    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
+    ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...config.skills !== undefined ? { skills: config.skills } : {},
+  })
+  ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
+  ctx.plugin(acp, { model: config.model })
 }

@@ -8,10 +8,13 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
+import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
+import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -152,12 +155,20 @@ export interface LoopHandle {
  *     every prompt blocked → 'turn/end'(rejected), 0 steps
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
- *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
- *       session('step/start')                         ⟵ durable step boundary (no agent/* mirror)
- *       req = {model, system, tools, messages: session.deriveMessages(), signal}
- *       req = waterfall agent/request                 ⟵ hooks/model-switch
- *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
+ *       assembly = ctx.systemPrompt.assemble({agent}) ⟵ waterfall system-prompt/assemble; renderPrompt
+ *                                                        (persona section + {{variables}}) IS the full prompt
+ *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first step): frozen
+ *                                                        session prefix; logged on the header, never
+ *                                                        session history
+ *       await ctx.serial('agent/pre-step', …, prefix) ⟵ surface mutation (compaction) OUTSIDE the step;
+ *                                                        pressure gates see the prefix the request carries
+ *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
+ *       session('step/start')                            same sync frame, strictly before step/start
+ *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
+ *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
+ *                                                        log (initial/resume anchor, delta, fallback)
+ *       req = freeze({header..., messages: prefix+boundary, sessionId, signal})
+ *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks, frozen req)
  *         session('assistant/chunk')
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
  *       session('assistant/message' {content, usage?})   session records what actually ran
@@ -166,7 +177,7 @@ export interface LoopHandle {
  *                                                        → dispatch → tools/post-execute
  *         session('tool/result')
  *       append buffered post-execute additionalContext → session('context/message')(s)
- *       drain steering → session('steering/message'); emit agent/steering
+ *       drain steering → session('steering/message')
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
  *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
@@ -178,8 +189,18 @@ export interface LoopHandle {
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
  *   idle (emit agent/status) unless more queued
  * ```
+ * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
+ * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
+ * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
  */
 export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
+  // Per-instance transmission bookkeeping: whether THIS loop instance has
+  // anchored the log's header fold yet (its first request logs a
+  // 'initial'/'resume' request/header snapshot). Everything else the request
+  // needs is read from the session log itself — the loop holds no
+  // conversation state (the reconstructability RFC).
+  const transmission = createTransmissionLog()
+
   const { session } = agent
 
   while (!handle.isDisposed()) {
@@ -235,7 +256,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     // turn number is actually last in the log — a stale counter would collide.
     const turn = lastTurnNumber(session) + 1
     try {
-      await runTurn(ctx, agent, handle, turn)
+      await runTurn(ctx, agent, handle, turn, transmission)
     } catch (error: unknown) {
       // Backstop: runTurn rethrows only a PRE-turn throw (the invariant guard
       // before turn/start) — no turn/start was appended, so no turn is open and
@@ -270,7 +291,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
   }
 }
 
-async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, turn: number): Promise<void> {
+async function runTurn(
+  ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+): Promise<void> {
   const { session } = agent
 
   // --- Pre-turn. A throw here (the invariant guard) is owed NO turn/end —
@@ -420,7 +443,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(ctx, agent, turn)
+      drainSteering(agent, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -434,11 +457,11 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // because the pre-step seam needs it: compaction measures token pressure
       // against the system prompt (it counts toward the budget). runStep reuses
       // this same assembly for the request, so the prompt is assembled once per
-      // step.
-      const assembly = await ctx.systemPrompt.assemble()
-      const fullSystemPrompt = [renderPrompt(assembly), agent.options.systemPrompt ?? '']
-        .filter(text => text.length > 0)
-        .join('\n\n')
+      // step. renderPrompt IS the full prompt — the persona is the order-0
+      // section (registered by the AgentLoop plugin) and `{{variable}}`
+      // interpolation happens in the render, so there is no separate join.
+      const assembly = await ctx.systemPrompt.assemble({ agent })
+      const fullSystemPrompt = renderPrompt(assembly)
 
       // Interruption landing after assembly: dispose() or cancel() in a
       // turn-start listener (or a listener whose promise resolved before the
@@ -453,6 +476,50 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         break
       }
 
+      // Compose the session prefix ONCE per loop instance, lazily before the
+      // instance's first pre-step: request-only messages placed in front of
+      // the ENTIRE derived history on every request this instance sends. It
+      // MUST precede the pre-step seam so compaction gates on THIS instance's
+      // prefix — reading a previous instance's logged prefix would let a
+      // resumed/forked instance whose contributor grew skip compaction and
+      // ship an over-window first request. The result is deep-cloned
+      // (decoupled from listener-held references), deep-frozen, and cached on
+      // the transmission bookkeeping, so reuse is structural — the prefix
+      // cannot change mid-session and the provider prefix cache holds by
+      // construction (resume = a new instance = a recompose, anchored by its
+      // 'resume' snapshot). The prefix is not session history — the header
+      // event in runStep is its only durable record
+      // (EpochHeader.messagePrefix). The frozen empty seed serves both the
+      // listener chain and the no-listener fallback: a contribution is a
+      // RETURNED extension of `await next()`, never an in-place push. This
+      // runs OUTSIDE the step, before the boundary snapshot: a composing
+      // listener's session append lands before the boundary and joins the
+      // CURRENT request.
+      if (transmission.sessionPrefix === undefined) {
+        const emptyPrefix: Message[] = deepFreeze([])
+        const composed = await ctx.waterfall(
+          'agent/session-prefix', agent, emptyPrefix, abort.signal,
+          () => Promise.resolve(emptyPrefix),
+        )
+
+        // Interruption landing during prefix composition: mirror the assembly
+        // window above — drop the about-to-start step without running the
+        // seam, and DISCARD the composition instead of caching it. An
+        // abort-aware listener may have returned a degraded fallback under
+        // the firing signal; committing it would ship a prefix no request
+        // ever used (and no header ever logged) on this instance's next real
+        // request. The next turn recomposes under a live signal — the cache
+        // only ever holds a fully composed prefix. The cache-hit path needs
+        // no such check: nothing awaits between the assembly check above and
+        // the pre-step seam.
+        if (handle.isCancelled() || handle.isDisposed()) {
+          handle.setAbort(undefined)
+          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+          break
+        }
+        transmission.sessionPrefix = deepFreeze(structuredClone(composed))
+      }
+
       // Pre-step surface-mutation checkpoint (compaction), fired OUTSIDE the
       // step: after `turn/start` (and the prior step's close) but before
       // `step/start`, so a compaction's log-only `compact/*` records and its
@@ -463,8 +530,10 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // concurrent listeners cannot interleave their `session.append`s. A
       // throwing listener escapes to the outer catch, which closes the (not-yet-
       // open) step as a no-op and ends the turn via failTurn — a broken
-      // pre-step plugin ends the turn, not the loop.
-      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
+      // pre-step plugin ends the turn, not the loop. The composed session
+      // prefix rides along so token-pressure listeners count everything the
+      // request will actually carry.
+      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
@@ -472,6 +541,17 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
         break
       }
+
+      // The reconstruction boundary (the reconstructability RFC): the request's
+      // messages are snapshotted HERE, in the same synchronous frame as the
+      // step/start append directly below — so the snapshot is exactly the
+      // derivation over the log prefix strictly before step/start's seq.
+      // Anything appended later — by a step/start session/event listener, an
+      // agent/request-window inject(), any concurrent task — lands after the
+      // boundary and joins the NEXT request. An external reconstructor
+      // recovers these exact messages by folding the surface over
+      // events[0..stepStartSeq).
+      const boundaryMessages = session.deriveMessages()
 
       // Mark the step open BEFORE the append: Session.append pushes the event
       // to the log before notifying session/event listeners, so a THROWING
@@ -494,7 +574,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
-        stepOutcome = await runStep(ctx, agent, turn, step, assembly, fullSystemPrompt, abort.signal)
+        stepOutcome = await runStep(ctx, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -529,7 +609,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(ctx, agent, turn)
+      const steered = drainSteering(agent, turn)
 
       if (closeStep()) break
 
@@ -635,20 +715,21 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(ctx: Context, agent: ReactLoopAgent, turn: number): boolean {
+function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
   const messages = agent.inbox.drainSteering()
   for (const message of messages) {
     agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
-    ctx.emit('agent/steering', agent, turn, message.content, message.source)
   }
   return messages.length > 0
 }
 
-/** One step: derive request from the (already pre-step-mutated) surface →
- * stream model → record → execute tools. The caller assembles the system prompt
- * and fires the `agent/pre-step` seam BEFORE opening the step, then passes the
- * resulting `assembly`/`system` here, so the surface this step derives from
- * already reflects any compaction. */
+/** One step: build the request from the boundary snapshot + the step's
+ * header → compose the session prefix if this instance has none yet → log
+ * the header event the request owes → stream model → record → execute
+ * tools. The caller assembles the
+ * system prompt, fires the `agent/pre-step` seam, snapshots the derivation,
+ * and opens the step BEFORE calling this, so `boundaryMessages` is exactly
+ * the surface prefix at step/start and already reflects any compaction. */
 async function runStep(
   ctx: Context,
   agent: ReactLoopAgent,
@@ -656,22 +737,70 @@ async function runStep(
   step: number,
   assembly: PromptAssembly,
   system: string,
+  boundaryMessages: Message[],
+  transmission: TransmissionLog,
   signal: AbortSignal,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
 
-  let request: GenerateOptions = {
-    model: options.model ?? '',
-    messages: session.deriveMessages(),
-    ...system ? { system } : {},
-    ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
-    sessionId: session.id,
-    signal,
-  }
-  request = await ctx.waterfall('agent/request', agent, turn, step, request, () => Promise.resolve(request))
-  if (!request.model) {
+  // Seed the call config: the first request of THIS loop instance seeds from
+  // current AgentOptions — explicit options always win over the logged
+  // baseline, which is what keeps fork model-overrides and resume-time
+  // reconfiguration correct. Later steps seed from the log's folded header,
+  // which by then is exactly what this instance last logged.
+  // One deep-cloned, frozen seed serves BOTH the listener chain and the
+  // no-listener fallback: structuredClone decouples it from the session's
+  // cached header fold (a raw reference would let a delegating listener
+  // mutate the fold in place and silently skip the delta log), and the freeze
+  // makes in-place shaping unrepresentable — a switch is a RETURNED
+  // replacement, which the header event below records.
+  const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
+    ? session.requestHeader()!.config
+    : { model: options.model ?? '' }))
+
+  // Shape the call config: listeners return a replacement to switch model or
+  // sampling (the seed is frozen — content shaping is not expressible here;
+  // model-visible content flows through the log channels). The header event
+  // below records whatever the request ACTUALLY uses, so a listener's switch
+  // is a logged, reconstructable fact, never silent drift.
+  const config = await ctx.waterfall('agent/request', agent, turn, step, seedConfig, () => Promise.resolve(seedConfig))
+  if (!config.model) {
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
+
+  // The session prefix was composed (once per instance) before this step's
+  // pre-step seam — the caller guarantees it, so the cache is always set here.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
+  const sessionPrefix = transmission.sessionPrefix!
+
+  // The request header (the log's request/header* vocabulary): canonical form,
+  // recorded before dispatch so the log always explains the request —
+  // including the session prefix, which no other event carries.
+  const header = canonicalHeader({
+    config,
+    ...system ? { system } : {},
+    ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
+    ...sessionPrefix.length > 0 ? { messagePrefix: sessionPrefix } : {},
+  })
+  recordRequestHeader(session, transmission, header)
+
+  // Build and freeze: the request is a pure function of (boundary snapshot,
+  // logged header) — llm/stream listeners and adapters read it, mutation
+  // throws. sessionId + frozen is the loop-built marker the dev invariant
+  // keys on. Message order: header.messagePrefix, then the boundary
+  // snapshot — the reconstruction equation the invariant recomputes.
+  const request: GenerateOptions = deepFreeze({
+    model: header.config.model,
+    messages: [...header.messagePrefix ?? [], ...boundaryMessages],
+    ...header.system !== undefined ? { system: header.system } : {},
+    ...header.tools !== undefined ? { tools: header.tools } : {},
+    ...header.config.temperature !== undefined ? { temperature: header.config.temperature } : {},
+    ...header.config.maxTokens !== undefined ? { maxTokens: header.config.maxTokens } : {},
+    ...header.config.stop !== undefined ? { stop: header.config.stop } : {},
+    sessionId: session.id,
+    signal,
+  })
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
@@ -808,7 +937,11 @@ function withoutToolCalls(message: Message): Message {
   return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
 }
 
-/** The last turn number in a (possibly seeded) session log, or 0. */
+/**
+ * The last turn number in a (possibly seeded) session log, or 0.
+ * @param session - the session whose log is scanned for the latest `turn/start`.
+ * @returns the latest `turn/start`'s turn number, or 0 when the log has none (the next turn is this plus one).
+ */
 export function lastTurnNumber(session: Session): number {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   return lastStart?.data.turn ?? 0
@@ -822,6 +955,8 @@ export function lastTurnNumber(session: Session): number {
  * returns to idle), so status is not a reliable open-turn signal. Used by
  * `inject()` to choose between appending into an open turn vs. wrapping the
  * injection in its own one-shot turn (the turn-enclosure RFC).
+ * @param session - the session whose log is inspected.
+ * @returns true when the log's last turn boundary is a `turn/start` with no matching `turn/end` yet.
  */
 export function isTurnOpen(session: Session): boolean {
   const last = session.events.findLast(e => e.type === 'turn/start' || e.type === 'turn/end')

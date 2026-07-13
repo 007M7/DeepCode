@@ -57,13 +57,22 @@ interface Spawned {
 }
 
 // TODO(acp-test-harness): this subprocess/client boot glue is duplicated with
-// hooks.e2e.ts and partly with snapshot-harness.ts. Extract one shared ACP test
-// launcher before the TSX/env/permission-stub details drift again.
+// hooks.e2e.ts and partly with dsh-acp-snapshot's harness. Migrate both e2e
+// files onto that launcher before the TSX/env/permission-stub details drift.
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,
     ['--import', tsxLoader, binScript, configPath],
-    { cwd, env: { ...env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+    {
+      cwd,
+      env: {
+        ...env,
+        TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -80,8 +89,9 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // Permission gate is deferred (TODO(rfc010-permission-gate)); the bridge
-      // never requests permission yet, so just allow if it ever does.
+      // This example composes no ask-producing policy (no hooks), so the
+      // bridge never prompts here; answer cancelled (fail closed) if it ever
+      // does — an unexpected prompt must not grant anything.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })
@@ -91,6 +101,46 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
 
 let spawned: Spawned | undefined
 let workdir: string | undefined
+
+function hasStdoutLine(out: string[]): boolean {
+  return out.join('').split('\n').some(line => line.trim().length > 0)
+}
+
+async function waitForStdoutLine(child: ChildProcessWithoutNullStreams, out: string[], stderr: string[], timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      child.stdout.off('data', onData)
+      child.off('exit', onExit)
+      child.off('error', onError)
+    }
+    const pass = () => {
+      cleanup()
+      resolve()
+    }
+    const fail = (reason: string) => {
+      cleanup()
+      reject(new Error(`${reason}; stderr: ${stderr.join('')}`))
+    }
+    const onData = () => {
+      if (hasStdoutLine(out)) pass()
+    }
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      fail(`ACP child exited before emitting a stdout frame (code ${code ?? 'null'}, signal ${signal ?? 'null'})`)
+    }
+    const onError = (error: Error) => {
+      fail(`ACP child failed before emitting a stdout frame: ${error.message}`)
+    }
+    const timeout = setTimeout(() => {
+      fail(`ACP child did not emit a stdout frame within ${timeoutMs}ms`)
+    }, timeoutMs)
+
+    child.stdout.on('data', onData)
+    child.on('exit', onExit)
+    child.on('error', onError)
+    onData()
+  })
+}
 
 afterEach(async () => {
   if (spawned) {
@@ -110,20 +160,31 @@ describe('acp-agent over real stdio (no key required)', () => {
     // which this purity test never triggers). So this runs WITHOUT real creds.
     const child = spawn(process.execPath, ['--import', tsxLoader, binScript, configPath], {
       cwd: workdir,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
+      env: {
+        ...process.env,
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_HOME: join(workdir, '.dsh'),
+        DSH_AGENTS_HOME: join(workdir, '.agents'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []
+    const stderr: string[] = []
     child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', (c: string) => out.push(c))
+    child.stderr.on('data', (c: string) => stderr.push(c))
 
     // Send a single initialize request as a newline-delimited JSON-RPC frame.
     const req = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} } })
     child.stdin.write(req + '\n')
 
-    // Give it a moment to boot + reply, then inspect stdout.
-    await new Promise(r => setTimeout(r, 4000))
-    child.kill('SIGKILL')
+    try {
+      await waitForStdoutLine(child, out, stderr, 15_000)
+    } finally {
+      child.kill('SIGKILL')
+    }
 
     const lines = out.join('').split('\n').filter(l => l.trim().length > 0)
     expect(lines.length).toBeGreaterThan(0)

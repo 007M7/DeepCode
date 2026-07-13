@@ -22,8 +22,10 @@
  * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
  * `session/event` and `agent/*` event is routed strictly to its owning session
  * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. The `tools/pre-execute` permission gate is
- * deferred — see the TODO(rfc010-permission-gate) note below.
+ * `session/update` notifications. Permission prompts ride the same ownership
+ * map: the bridge answers `approval/request` for its own agents over
+ * `session/request_permission` (see the approval answerer below) — whether a
+ * call ASKS is policy (a hook or plugin returning `ask`), not the bridge's.
  *
  * stdout is the protocol: this plugin must run in an example that loads NO
  * stdout logger (the console logger writes to stdout and would corrupt the
@@ -47,6 +49,9 @@ import {
   type AuthenticateRequest,
   type CancelNotification,
   type ContentBlock as AcpContentBlock,
+  type CreateElicitationRequest,
+  type ElicitationContentValue,
+  type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
   type LoadSessionRequest,
@@ -57,7 +62,10 @@ import {
   type PlanEntry,
   type PromptRequest,
   type PromptResponse,
+  type SessionConfigOption,
   type SessionNotification,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
@@ -66,11 +74,26 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
+import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { ToolCallKind, ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the `approval/request` waterfall
+// the bridge answers for its own agents (see the approval answerer below).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import {
+  UserInteractionError,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionAnswerItem,
+  type AskUserQuestionItem,
+  type AskUserQuestionOption,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
 import {
   acpPromptToText,
   harnessBlockToAcpContent,
@@ -84,7 +107,7 @@ export const name = 'acp'
 // because `initialize` advertises `loadSession: true`. `tools` lets a tool own
 // how its calls render (`presentCall`/`presentResult`); the bridge looks up the
 // definition by name and falls back to a generic presentation when absent.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools']
+export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /**
  * Build an ACP "invalid params" error whose human detail rides in the message.
@@ -111,16 +134,120 @@ function sameWorkspaceCwd(left: string, right: string): boolean {
   return resolvePath(left) === resolvePath(right)
 }
 
+function optionDescription(option: AskUserQuestionOption): string {
+  return option.description === undefined
+    ? option.label
+    : `${option.label}: ${option.description}`
+}
+
+function requireStringContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = content?.[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function askAbortError(): UserInteractionError {
+  return new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(askAbortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      reject(askAbortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(new Error(String(error), { cause: error }))
+      },
+    )
+  })
+}
+
+function elicitationForQuestion(
+  sessionId: SessionId,
+  question: AskUserQuestionItem,
+  options: AskUserQuestionOption[],
+): CreateElicitationRequest {
+  const title = question.header ?? 'Question'
+  if (options.length === 0) {
+    return {
+      sessionId,
+      mode: 'form',
+      message: question.question,
+      requestedSchema: {
+        type: 'object',
+        title,
+        properties: {
+          custom: { type: 'string', title: question.question },
+        },
+        required: ['custom'],
+      },
+    }
+  }
+
+  const choiceOptions: EnumOption[] = options.map(option => ({
+    const: option.label,
+    title: optionDescription(option),
+  }))
+  const choice = question.multiSelect === true
+    ? {
+      type: 'array' as const,
+      title: question.question,
+      description: 'Choose one or more options, or fill a custom answer below.',
+      items: {
+        anyOf: choiceOptions,
+      },
+    }
+    : {
+      type: 'string' as const,
+      title: question.question,
+      description: 'Choose one option, or fill a custom answer below.',
+      oneOf: choiceOptions,
+    }
+  return {
+    sessionId,
+    mode: 'form',
+    message: question.question,
+    requestedSchema: {
+      type: 'object',
+      title,
+      properties: {
+        choice,
+        custom: {
+          type: 'string',
+          title: 'Custom answer',
+          description: 'Optional free-form answer. Leave empty to use the selected option.',
+        },
+      },
+      required: [],
+    },
+  }
+}
+
+function stringArrayContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string[] {
+  const value = content?.[key]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return typeof value === 'string' && value.length > 0 ? [value] : []
+}
+
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /** Per-agent system prompt. */
-  systemPrompt?: string
-  /** Agent/server name reported to the client in `initialize`. */
-  agentName?: string
-  /** Agent/server version reported to the client in `initialize`. */
-  agentVersion?: string
   /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
@@ -133,9 +260,6 @@ export interface AcpConfig {
 
 export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
-  systemPrompt: Schema.string(),
-  agentName: Schema.string().default('deepseek-harness-acp'),
-  agentVersion: Schema.string().default('0.0.1'),
 })
 
 /**
@@ -196,6 +320,19 @@ interface SessionRecord {
     turn: number | undefined
     logWatermark: number
   } | undefined
+  /**
+   * Config switches accepted while the session was IDLE, not yet anchored in
+   * its log. The turn-enclosure contract makes a bare between-turns append
+   * invalid (the JSONL backend treats a post-`turn/end` tail as crash
+   * garbage, and dev invariants throw), so an idle switch waits here and is
+   * anchored at the next turn's prompt-submit — before anything in that
+   * turn assembles a prompt or runs a call, and last write
+   * per knob wins (an idle flip-flop anchors as one event). Until anchored,
+   * the switch lives only in bridge memory: the set/new/load responses
+   * overlay it truthfully, and a restart before the next turn reverts it —
+   * which `session/load` then reports honestly from the log's fold.
+   */
+  pendingSwitches: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicy }
 }
 
 /**
@@ -209,13 +346,6 @@ interface SessionRecord {
  * (settle-exactly-once).
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // TODO(double-default): these literals duplicate the Config schema defaults
-  // (`agentName`/`agentVersion` `.default(...)` above). The Loader applies the
-  // schema before apply() runs, so the `??` only fires for direct-apply unit
-  // tests. Pick one home for the default to avoid drift.
-  const agentName = config.agentName ?? 'deepseek-harness-acp'
-  const agentVersion = config.agentVersion ?? '0.0.1'
-
   // Capture the injected services NOW, during apply(), while we are inside this
   // plugin's fiber (where `inject` grants access). The ACP method handlers run
   // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
@@ -227,6 +357,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
+  const userInteraction = ctx.userInteraction
   // A new ToolPresenter per session (and a throwaway per load replay), each given
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
@@ -256,6 +387,42 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // exists after `newSession`, which the client calls after construction), so
   // `notify` never observes it unset — no undefined guard needed.
   let conn: AgentSideConnection
+
+  userInteraction.registerProvider({
+    async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
+      if (request.agent === undefined) {
+        throw new UserInteractionError('ACP user questions must come from an agent-owned request', 'NO_AGENT')
+      }
+      const sessionId = bySession.get(request.agent)
+      if (sessionId === undefined) {
+        throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
+      }
+      const answers: AskUserQuestionAnswerItem[] = []
+      for (const question of request.questions) {
+        const options = question.options ?? []
+        const response = await withAbort(conn.unstable_createElicitation(
+          elicitationForQuestion(sessionId, question, options),
+        ), request.signal).catch((error: unknown) => {
+          if (error instanceof UserInteractionError) throw error
+          throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
+        })
+        if (response.action !== 'accept') {
+          throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+        }
+        const custom = requireStringContent(response.content, 'custom')
+        const selected = stringArrayContent(response.content, 'choice')
+        if (custom === undefined && selected.length === 0) {
+          throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
+        }
+        answers.push({
+          id: question.id,
+          selected: custom === undefined ? selected : [],
+          ...custom !== undefined ? { custom } : {},
+        })
+      }
+      return { answers }
+    },
+  })
 
   /**
    * Reject any RPC after the bridge has torn down. The `AgentSideConnection`
@@ -413,7 +580,135 @@ export function apply(ctx: Context, config: AcpConfig): void {
     if (status === 'idle' || status === 'disposed') settleFromLog(rec)
   })
 
+  // --- Approval answerer -----------------------------------------------------
+  // The bridge is the approval channel for the agents it owns: an `ask` routed
+  // through `ctx.approval` (dsh-tools asks and sandbox escalation) becomes
+  // an editor permission prompt attached to the already-streamed tool call. The
+  // listener occupies the single decision slot ONLY for its own agents — a
+  // foreign or call-less request delegates via next() so another answerer (or
+  // the fail-closed `unavailable` default) takes the question. A rejected
+  // `requestPermission` (client gone, bridge torn down) propagates and the
+  // ApprovalService contains it as `unavailable`. Options are one-shot only:
+  // allow_always is a grant-storage design the approval RFC defers, so the
+  // prompt never offers a durable grant the harness could not honor.
+  ctx.on('approval/request', (req, next) => {
+    const sessionId = bySession.get(req.agent)
+    // The protocol requires `toolCall` (the prompt renders attached to it), so
+    // a request without a callId has nothing to attach to — delegate.
+    if (sessionId === undefined || req.callId === undefined) return next()
+    return conn.requestPermission({
+      sessionId,
+      toolCall: { toolCallId: req.callId },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+      ],
+    }).then(({ outcome }) => {
+      if (outcome.outcome === 'cancelled') return 'cancelled'
+      // Only the two advertised options exist; an unknown optionId from a
+      // non-conforming client counts as a rejection, never a grant.
+      return outcome.optionId === 'allow-once' ? 'allowed-once' : 'rejected'
+    })
+  })
+
   // --- The ACP Agent method surface -----------------------------------------
+
+  /**
+   * The session config options this composition can honor, with current
+   * values folded from the AGENT'S OWN session log (`effectiveSandboxMode` /
+   * `effectiveApprovalPolicy` — the log is the per-session store, so a
+   * `session/load` reports a resumed session's overrides with no catch-up
+   * machinery), overlaid with the record's not-yet-anchored pending switches
+   * (see {@link SessionRecord.pendingSwitches}). Capability-gated like every
+   * advertised lever: the sandbox option exists only when the mounted
+   * executor confines (`ctx.get('bash')?.sandboxMode` defined), the approval
+   * option only when the approval seam is composed — both read
+   * opportunistically so this bridge keeps working in compositions without
+   * them.
+   */
+  const configOptionsFor = (agent: Agent, pending: SessionRecord['pendingSwitches'] = {}): SessionConfigOption[] => {
+    const options: SessionConfigOption[] = []
+    const defaultMode = ctx.get('bash')?.sandboxMode
+    if (defaultMode !== undefined) {
+      options.push({
+        id: 'sandbox-mode',
+        name: 'Sandbox',
+        description: 'The file sandbox mode bash commands in this session run under.',
+        category: 'mode',
+        type: 'select',
+        currentValue: pending.sandboxMode ?? effectiveSandboxMode(agent.session.events) ?? defaultMode,
+        options: SANDBOX_MODES.map(mode => ({ value: mode, name: mode })),
+      })
+    }
+    const approval = ctx.get('approval')
+    if (approval !== undefined) {
+      options.push({
+        id: 'approval-policy',
+        name: 'Approvals',
+        description: 'ask: permission prompts reach you; never: they are rejected automatically.',
+        type: 'select',
+        // `?? 'ask'` also shields against a provided stand-in whose config
+        // never went through the plugin schema (tests do this).
+        currentValue: pending.approvalPolicy ?? effectiveApprovalPolicy(agent.session.events) ?? approval.config.policy ?? 'ask',
+        options: APPROVAL_POLICIES.map(policy => ({ value: policy, name: policy })),
+      })
+    }
+    return options
+  }
+
+  /**
+   * Whether the session's log currently has an open turn — the last boundary
+   * event is a `turn/start`. Decides whether a config switch may append NOW
+   * (enclosed) or must wait for the next turn (see
+   * {@link SessionRecord.pendingSwitches}). Read from the LOG, not
+   * `agent.status`: status stays `running` across the gap between two queued
+   * turns, where a bare append would still land outside any turn.
+   */
+  const isTurnOpen = (agent: Agent): boolean => {
+    const events = agent.session.events
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const type = (events[index] as SessionEvent).type
+      if (type === 'turn/start') return true
+      if (type === 'turn/end') return false
+    }
+    return false
+  }
+
+  /**
+   * Anchor a record's pending switches into its (just-opened) turn, last
+   * write per knob — skipping a value the session already effectively has,
+   * so a net-zero idle flip-flop anchors NOTHING (the log records switches,
+   * not select clicks).
+   */
+  const flushPendingSwitches = (rec: SessionRecord): void => {
+    const pending = rec.pendingSwitches
+    rec.pendingSwitches = {}
+    const events = rec.agent.session.events
+    if (pending.sandboxMode !== undefined
+      && pending.sandboxMode !== (effectiveSandboxMode(events) ?? ctx.get('bash')?.sandboxMode)) {
+      setSandboxMode(rec.agent.session, pending.sandboxMode)
+    }
+    if (pending.approvalPolicy !== undefined
+      && pending.approvalPolicy !== (effectiveApprovalPolicy(events) ?? ctx.get('approval')?.config.policy ?? 'ask')) {
+      setApprovalPolicy(rec.agent.session, pending.approvalPolicy)
+    }
+  }
+
+  // Idle-accepted switches anchor at the next turn's prompt-submit: the turn
+  // is open (the seam fires inside it, per drained message — the first flush
+  // empties the slot, later ones no-op), the loop has not yet assembled
+  // anything for it, and — unlike appending from inside a `session/event`
+  // listener — this seam fires OUTSIDE any log emit, so peer listeners
+  // (the dev invariants, persistence) observe the anchored events in strict
+  // log order. A turn with no prompt (an idle inject's one-shot injection
+  // turn) leaves the switch pending — it runs no step, so nothing executes
+  // or assembles under a stale value.
+  ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
+    const sessionId = bySession.get(agent)
+    const rec = sessionId === undefined ? undefined : sessions.get(sessionId)
+    if (rec !== undefined) flushPendingSwitches(rec)
+    return next()
+  })
 
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {
     conn = connection
@@ -430,7 +725,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         terminalOutputCap = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({
           protocolVersion,
-          agentInfo: { name: agentName, version: agentVersion },
+          // Fixed server identity: this bridge IS the harness ACP server, so the
+          // branding is a literal, not config (no shipped surface sets it).
+          agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
             // Baseline prompt blocks only: text plus resource_link rendered as
@@ -466,8 +763,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
           presenter: makePresenter(),
           terminalEnabled: terminalOutputCap,
           inflight: undefined,
+          pendingSwitches: {},
         })
-        return Promise.resolve({ sessionId })
+        const configOptions = configOptionsFor(handle.agent)
+        return Promise.resolve({ sessionId, ...configOptions.length > 0 ? { configOptions } : {} })
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -543,6 +842,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             presenter: makePresenter(),
             terminalEnabled,
             inflight: undefined,
+            pendingSwitches: {},
           }
           sessions.set(sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
@@ -566,7 +866,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
           for (const event of agent.session.events) {
             streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
-          return {}
+          const configOptions = configOptionsFor(agent)
+          return configOptions.length > 0 ? { configOptions } : {}
         } finally {
           loadingIds.delete(sessionId)
         }
@@ -620,6 +921,62 @@ export function apply(ctx: Context, config: AcpConfig): void {
         rec.agent.cancel('session/cancel')
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
+      },
+
+      setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+        assertOpen()
+        const rec = requireSession(SessionId(params.sessionId))
+        // Both advertised options are selects, so the boolean-shaped variant of
+        // the request is a protocol misuse regardless of configId.
+        if (typeof params.value !== 'string') {
+          throw invalidParams(`config option ${params.configId} is a select; boolean values are not accepted`)
+        }
+        // The setters append ONE log-only event on this session's own log —
+        // the log is the store (the sandbox RFC § Per-session mode switching): execution, the
+        // prompt section, and the narrator all fold it from there, and a
+        // resumed session reports the override back through
+        // configOptionsFor. A switch while a turn is OPEN anchors
+        // immediately (the next step sees it); an IDLE switch waits in
+        // pendingSwitches for the next `turn/start` (turn-enclosure: a bare
+        // between-turns append would be dropped as crash tail on reload).
+        // Values are validated against the same closed lists the options
+        // advertised; an id this composition never advertised (or an unknown
+        // one) rejects.
+        switch (params.configId) {
+          case 'sandbox-mode': {
+            const defaultMode = ctx.get('bash')?.sandboxMode
+            if (defaultMode === undefined || !SANDBOX_MODES.includes(params.value as SandboxMode)) {
+              throw invalidParams(`unknown sandbox-mode value ${JSON.stringify(params.value)}`)
+            }
+            const value = params.value as SandboxMode
+            // A no-op switch (the value the session already shows — pending,
+            // else fold, else default) is acknowledged without recording
+            // anything: clients that re-push current selections on session
+            // start must not mint override events out of thin air.
+            const current = rec.pendingSwitches.sandboxMode ?? effectiveSandboxMode(rec.agent.session.events) ?? defaultMode
+            if (value === current) break
+            if (isTurnOpen(rec.agent)) setSandboxMode(rec.agent.session, value)
+            else rec.pendingSwitches.sandboxMode = value
+            break
+          }
+          case 'approval-policy': {
+            const approval = ctx.get('approval')
+            if (approval === undefined || !APPROVAL_POLICIES.includes(params.value as ApprovalPolicy)) {
+              throw invalidParams(`unknown approval-policy value ${JSON.stringify(params.value)}`)
+            }
+            const value = params.value as ApprovalPolicy
+            const current = rec.pendingSwitches.approvalPolicy ?? effectiveApprovalPolicy(rec.agent.session.events) ?? approval.config.policy ?? 'ask'
+            if (value === current) break
+            if (isTurnOpen(rec.agent)) setApprovalPolicy(rec.agent.session, value)
+            else rec.pendingSwitches.approvalPolicy = value
+            break
+          }
+          default:
+            throw invalidParams(`unknown config option ${JSON.stringify(params.configId)}`)
+        }
+        // The spec requires the COMPLETE refreshed config state in the response
+        // (a change may cascade); ours are independent, but the contract holds.
+        return Promise.resolve({ configOptions: configOptionsFor(rec.agent, rec.pendingSwitches) })
       },
     }
   }
@@ -715,11 +1072,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
+ * @param config - the plugin config carrying the optional model name.
+ * @returns the per-agent options, with `model` present only when configured.
  */
-export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?: string } {
+export function agentOptions(config: AcpConfig): { model?: string } {
   return {
     ...config.model !== undefined ? { model: config.model } : {},
-    ...config.systemPrompt !== undefined ? { systemPrompt: config.systemPrompt } : {},
   }
 }
 
@@ -779,6 +1137,16 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  *
  * Other event types (turn/step boundaries, context/message, …) produce
  * no client update.
+ * @param sessionId - the ACP session id stamped on every emitted notification.
+ * @param event - the harness session event to translate.
+ * @param notify - sink for each produced `session/update` notification; called
+ * zero or more times per event (best-effort UI feed, never load-bearing).
+ * @param presenter - resolves tool-owned render intent for tool events;
+ * defaults to the generic-fallback {@link nullToolPresenter}.
+ * @param terminal - the connection's terminal-rendering context; defaults to
+ * disabled (the plain-text console-block fallback).
+ * @param options - `includeUserMessages` (default `true`): live streaming
+ * passes `false` so a prompt the client just sent is not echoed back.
  */
 export function streamSessionEventUpdate(
   sessionId: SessionId,
@@ -840,6 +1208,8 @@ export function streamSessionEventUpdate(
  * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
  * plan on each `plan` update, matching the harness's whole-list-replace
  * semantics, so no per-entry diffing is needed.
+ * @param todos - the harness todo list (the whole list, not a diff).
+ * @returns the ACP plan body, one entry per todo.
  */
 export function todosToPlan(todos: TodoItem[]): Plan {
   return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
@@ -900,7 +1270,16 @@ export class ToolPresenter {
     private readonly onError: (message: string) => void = () => {},
   ) {}
 
-  /** Pending-state render intent for a `tool/call`; remembers `(name, args, card)` for the matching result. */
+  /**
+   * Pending-state render intent for a `tool/call`; remembers `(name, args, card)`
+   * for the matching result.
+   * @param callId - the call id the matching `tool/result` will look up.
+   * @param name - the tool name, resolved against the registry for `presentCall`.
+   * @param argsJson - the raw arguments JSON from the event; parsed for the view
+   * (a non-JSON string is surfaced raw).
+   * @returns the tool-owned view, or the generic fallback (title = tool name,
+   * kind `other`, parsed args as raw input) when the tool defines none or threw.
+   */
   call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
@@ -911,14 +1290,27 @@ export class ToolPresenter {
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
       present = undefined
     }
-    // No tool-owned presentation: fall back to the tool name as the title and the
-    // full parsed args as the raw input (the generic card).
-    const view: ToolCallView = present ?? { card: 'generic', title: name, kind: toolKindFor(name), rawInput: args }
+    // No tool-owned presentation: fall back to the tool name as the title, the
+    // full parsed args as the raw input, and kind `other` (the generic card).
+    // The kind is never sniffed from the name — the bridge does not special-case
+    // tool names; a tool that wants a richer kind declares `presentCall`.
+    const view: ToolCallView = present ?? { card: 'generic', title: name, kind: 'other', rawInput: args }
     this.pending.set(callId, { name, args, card: view.card })
     return view
   }
 
-  /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
+  /**
+   * Completed-state render intent for a `tool/result`; consumes the remembered
+   * `(name, args, card)`.
+   * @param callId - the id of the matching `tool/call`; an unknown or late id
+   * falls back to the raw content.
+   * @param content - the result's content blocks (the fallback and fill-in body).
+   * @param isError - whether the result is an error, forwarded to `presentResult`.
+   * @param meta - the result's machine-readable meta, forwarded when present.
+   * @returns the tool-owned view — an orphaned `terminal` result (no terminal
+   * call side) and a content-less `generic` are normalized — or the raw-content
+   * generic card when the tool defines no `presentResult` or threw.
+   */
   result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
@@ -951,16 +1343,8 @@ export class ToolPresenter {
  * results pass their raw content through unchanged.
  */
 export const nullToolPresenter: Pick<ToolPresenter, 'call' | 'result'> = {
-  call: (_callId, name, argsJson) => ({ card: 'generic', title: name, kind: toolKindFor(name), rawInput: parseToolArguments(argsJson) }),
+  call: (_callId, name, argsJson) => ({ card: 'generic', title: name, kind: 'other', rawInput: parseToolArguments(argsJson) }),
   result: (_callId, content) => ({ card: 'generic', content }),
-}
-
-/** Map a harness tool name to an ACP ToolKind (best-effort; default `other`). */
-function toolKindFor(name: string): ToolCallKind {
-  if (name === 'bash' || name === 'bash_output' || name === 'bash_kill') return 'execute'
-  if (name === 'read' || name.startsWith('read')) return 'read'
-  if (name === 'write' || name === 'edit' || name.startsWith('edit')) return 'edit'
-  return 'other'
 }
 
 /** Parse a tool-call arguments JSON string for `rawInput`; raw string on failure. */

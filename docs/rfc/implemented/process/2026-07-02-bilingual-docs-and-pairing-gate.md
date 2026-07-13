@@ -1,8 +1,10 @@
-# Bilingual documentation via paired sibling files and a pairing gate
+# RFC: Bilingual documentation via paired sibling files and a pairing gate
+
+Status: implemented
 
 English | [中文](2026-07-02-bilingual-docs-and-pairing-gate.zh.md)
 
-## Context
+## Problem
 
 This repo's README and docs tree are read by people and agents inside and outside the company, in both English and Chinese. Maintaining a second language by hand, with no mechanism, is how translations rot: one side moves on, the other silently lies, and no gate notices. The repo's standing answer to invariants of this kind is to encode them as a mechanical check (see [quality gates](2026-06-11-quality-gates.md) and [doc-sync enforcement](2026-06-11-doc-sync-enforcement.md)), so the bilingual policy ships with one.
 

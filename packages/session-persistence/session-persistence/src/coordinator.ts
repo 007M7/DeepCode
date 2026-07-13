@@ -186,6 +186,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /**
    * Register a new session's metadata (lazy: no physical write until the first
    * {@link append}). Rejects if the id is already tracked or already persisted.
+   * @param meta - the immutable header (id, version, cwd, lineage) to record; snapshotted at call time.
    */
   create(meta: SessionHeader): Promise<void> {
     // Snapshot the metadata at call time: the op runs later (behind the
@@ -216,6 +217,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /**
    * Durably persist a batch of events. Honors the append-only and contiguous-seq
    * contracts; rejects non-JSON-serializable `event.data`.
+   * @param id - the session the batch belongs to.
+   * @param events - the contiguous batch to persist, in seq order; deep-cloned at call time.
    */
   async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     // Validate serializability BEFORE cloning so a bad event surfaces the typed
@@ -252,6 +255,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Reload a session: its {@link SessionHeader} plus the event log up to the last
    * durable checkpoint, with any interrupted final turn durably closed (synthetic
    * boundary events) during load.
+   * @param id - the persisted session to reload.
+   * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.serialize(id, () => this.loadCore(id))

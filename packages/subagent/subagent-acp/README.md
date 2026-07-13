@@ -25,6 +25,8 @@ Unlike the in-process backends, the child does NOT share this cordis context —
 | `cwd` | string | parent cwd | Working directory for the child process and its ACP session. |
 | `permission` | `'allow' \| 'reject'` | `reject` | How to auto-answer the child's `session/request_permission` prompts. `reject` declines every prompt (answer `cancelled`); `allow` approves via the first allow-shaped option. The first cut surfaces no prompt to a human. |
 | `env` | Record<string,string> | `{}` | Extra env vars for the child (e.g. its own `DEEPSEEK_API_KEY`). Forwarded on top of a credential-scrubbed copy of the parent env, so an explicit key reaches the child while ambient secrets do not leak implicitly. |
+| `disposeEofGraceMs` | number | `6000` | Dispose ladder tier 1: how long the child gets to quiesce on its own after stdin EOF (flush persistence, tear down its nested subprocesses) before SIGTERM. |
+| `disposeGraceMs` | number | `3000` | Dispose ladder tier 2: grace between SIGTERM and the SIGKILL escalation. |
 
 ```yaml
 - id: subagent-acp
@@ -55,7 +57,7 @@ A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was req
 
 ## Environment scrub
 
-Credential-shaped ambient vars (`/KEY|SECRET|TOKEN/i`) are NOT forwarded to the child by default — the parent harness's own secrets must not leak into a spawned process implicitly. The child's OWN credentials are supplied explicitly via `config.env`, layered AFTER the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental `AWS_SECRET_ACCESS_KEY` does not.
+The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-subprocess`](../subagent-subprocess/README.md) — the ambient env minus credential-shaped vars, with `config.env` layered on top after the scrub; the pattern and full semantics live there. For this backend that means the parent harness's own secrets never leak into the spawned agent implicitly, while the child's OWN `DEEPSEEK_API_KEY` is supplied deliberately via `config.env` and survives.
 
 ## Testing
 

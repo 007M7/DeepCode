@@ -17,16 +17,12 @@
  */
 
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsVersion } from '@deepseek-ai/dsh-fs'
 
-/** Maximum characters returned for a single line. */
+/** Default maximum characters returned for a single line (the `readMaxLineLength` config). */
 export const READ_MAX_LINE_LENGTH = 2000
 
-/** Maximum bytes returned for selected file lines. */
+/** Default maximum bytes returned for selected file lines (the `readMaxBytes` config). */
 export const READ_MAX_BYTES = 50 * 1024
-
-const READ_MAX_LINE_SUFFIX = `... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`
-const LINE_BUFFER_CAP = READ_MAX_LINE_LENGTH + 1
 
 /** Resolved read window. The consumer applies its defaults/caps before calling. */
 export interface ReadWindow {
@@ -34,6 +30,10 @@ export interface ReadWindow {
   offset: number
   /** Maximum number of lines to return. */
   limit: number
+  /** Maximum characters returned for a single line; overflow is truncated with a suffix. */
+  maxLineLength: number
+  /** Maximum bytes of selected output; overflow stops the scan and marks `truncatedByBytes`. */
+  maxBytes: number
 }
 
 /** One line returned from a text file. */
@@ -58,16 +58,12 @@ export interface WindowResult {
 export interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
-  /** Maximum number of lines requested. */
-  limit: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
   totalLines: number
   /** Whether selected output hit the byte cap before EOF or the requested limit. */
   truncatedByBytes?: true
-  /** Opaque version of the file at read time. */
-  version: FsVersion
 }
 
 interface WindowAccumulator {
@@ -82,8 +78,8 @@ function newAccumulator(): WindowAccumulator {
   return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, done: false }
 }
 
-function truncateLine(line: string): string {
-  return line.length > READ_MAX_LINE_LENGTH ? `${line.substring(0, READ_MAX_LINE_LENGTH)}${READ_MAX_LINE_SUFFIX}` : line
+function truncateLine(line: string, maxLineLength: number): string {
+  return line.length > maxLineLength ? `${line.substring(0, maxLineLength)}... (line truncated to ${maxLineLength} chars)` : line
 }
 
 function lineByteSize(line: string, currentLineCount: number): number {
@@ -94,9 +90,9 @@ function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindo
   acc.totalLines += 1
   if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
-  const text = truncateLine(rawLine)
+  const text = truncateLine(rawLine, request.maxLineLength)
   const bytes = lineByteSize(text, acc.lines.length)
-  if (acc.outputBytes + bytes > READ_MAX_BYTES) {
+  if (acc.outputBytes + bytes > request.maxBytes) {
     acc.truncatedByBytes = true
     acc.done = true
     return
@@ -121,8 +117,12 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
  * Accepts an `AsyncIterable<string>` (a chunked `streamText`) or an
  * `Iterable<string>` (a whole-file `readText` wrapped as `[text]`), so one code
  * path serves both. Scans for newlines with a capped line buffer (a newline-free
- * giant line is truncated, never buffered past {@link READ_MAX_LINE_LENGTH}),
+ * giant line is truncated, never buffered past `request.maxLineLength`),
  * enforces the byte cap, and throws `FS_NOT_FOUND` for an offset past EOF.
+ * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
+ * @param request - the resolved window; the caller has already applied its defaults and caps.
+ * @param displayPath - the caller-facing path used in the offset-out-of-range error.
+ * @returns the numbered window lines, the total line count seen, and the byte-cap truncation flag.
  */
 export async function buildWindow(
   chunks: AsyncIterable<string> | Iterable<string>,
@@ -130,12 +130,14 @@ export async function buildWindow(
   displayPath: string,
 ): Promise<WindowResult> {
   const acc = newAccumulator()
+  // One char past the truncation point is enough to prove a line overflows.
+  const lineBufferCap = request.maxLineLength + 1
   let lineBuffer = ''
 
   function appendToLineBuffer(segment: string): void {
-    if (lineBuffer.length >= LINE_BUFFER_CAP) return
+    if (lineBuffer.length >= lineBufferCap) return
     lineBuffer += segment
-    if (lineBuffer.length > LINE_BUFFER_CAP) lineBuffer = lineBuffer.slice(0, LINE_BUFFER_CAP)
+    if (lineBuffer.length > lineBufferCap) lineBuffer = lineBuffer.slice(0, lineBufferCap)
   }
 
   function flushLine(): void {
@@ -158,7 +160,12 @@ export async function buildWindow(
   return finish(acc, request, displayPath)
 }
 
-/** Format a read outcome as one OpenCode-style line-numbered text block body. */
+/**
+ * Format a read outcome as one OpenCode-style line-numbered text block body.
+ * @param displayPath - the backend-resolved path rendered in the envelope's `<path>` element.
+ * @param outcome - the windowed read to render.
+ * @returns the model-facing envelope: numbered lines plus a continuation or end-of-file footer.
+ */
 export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
   const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
   let footer: string

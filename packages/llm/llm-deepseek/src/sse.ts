@@ -37,6 +37,8 @@ function eventData(block: string): string | undefined {
  * Parse a byte stream into SSE data payloads. Yields `[DONE]` as the final
  * value and returns; throws `LlmError('STREAM_CLOSED')` when the stream ends
  * without it (truncated response — the model call cannot be trusted).
+ * @param stream - raw SSE bytes; reads may split anywhere, including mid-UTF-8 sequence.
+ * @returns each event's data payload in arrival order, the `[DONE]` sentinel last.
  */
 export async function* parseSse(stream: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
   const decoder = new TextDecoder()

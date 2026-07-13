@@ -1,10 +1,14 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, MessageSource, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
 
-/** Brand a string as a {@link SessionId}. */
+/**
+ * Brand a string as a {@link SessionId}.
+ * @param id - the raw session id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function SessionId(id: string): SessionId {
   return id as SessionId
 }
@@ -91,7 +95,6 @@ export interface CreateSessionOptions {
  */
 export interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
-  continuation: { kind: 'continuation' }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
    * was idle. The loop wraps the injected `context/message` in a one-shot turn
@@ -103,6 +106,7 @@ export interface TurnTriggerMap {
   injection: { kind: 'injection'; source: MessageSource }
 }
 
+/** The union over {@link TurnTriggerMap} — what started a turn; plugins extend it by merging variants into the map. */
 export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 
 /**
@@ -157,6 +161,7 @@ export interface TurnEndReasonMap {
   interrupted: { kind: 'interrupted' }
 }
 
+/** The union over {@link TurnEndReasonMap} — why a turn ended; plugins extend it by merging variants into the map. */
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
@@ -175,6 +180,76 @@ export interface TodoItem {
   content: string
   /** Lifecycle state. `in_progress` marks the single task being worked now. */
   status: 'pending' | 'in_progress' | 'completed'
+}
+
+/**
+ * The request header: everything about an LLM request besides its derived
+ * message history — the call configuration plus the rendered system prompt,
+ * tool schemas, and the session prefix. Logged session state (the
+ * reconstructability RFC): a
+ * {@link SessionEventMap} `request/header` snapshot installs one, a
+ * `request/header-delta` amends it, and folding those events over the log
+ * (`foldRequestHeader`) reconstructs the header any request was built under.
+ * Canonical form: an empty system prompt, an empty tool list, and an empty
+ * prefix are ABSENT fields, matching how requests are built.
+ */
+export interface EpochHeader {
+  /** The conversation's call configuration (model + sampling scalars). */
+  config: LlmCallConfig
+  /** Rendered system prompt text; absent for a system-less request. */
+  system?: string
+  /** Assembled tool schemas; absent for a tool-less request. */
+  tools?: ToolSchema[]
+  /**
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
+   */
+  messagePrefix?: Message[]
+}
+
+/**
+ * Why a `request/header` snapshot was appended: `'initial'` — the log's first
+ * header (a new conversation); `'resume'` — a loop instance's first request
+ * over a log that already has header events (process restart, fork seed);
+ * `'fallback'` — a mid-run change the delta encoding could not round-trip
+ * (e.g. a pure tool reordering), recorded whole instead.
+ */
+export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
+
+/**
+ * Line-level edit of the system prompt: keep the first `keepStart` and last
+ * `keepEnd` lines of the previous text, with `insert` replacing everything
+ * between. Computed as a common-prefix/common-suffix trim — deterministic,
+ * library-free, degenerating to a full replacement when nothing is shared.
+ * Absence is encoded as zero lines (the canonical form has no empty-string
+ * system), so a transition to or from "no system prompt" round-trips.
+ */
+export interface SystemDelta {
+  /** Lines kept from the start of the previous system prompt. */
+  keepStart: number
+  /** Lines kept from the end of the previous system prompt. */
+  keepEnd: number
+  /** Lines replacing everything between the kept edges. */
+  insert: string[]
+}
+
+/**
+ * Tool-set edit keyed by tool name (names are unique — the registry rejects
+ * duplicates): `removed` names drop, `changed` schemas replace their
+ * predecessor in place, `added` schemas append at the end. A change this
+ * encoding cannot express (a pure reordering) fails the writer's round-trip
+ * guard and is recorded as a `'fallback'` snapshot instead.
+ */
+export interface ToolsDelta {
+  /** Schemas appended to the end of the tool list. */
+  added: ToolSchema[]
+  /** Names of schemas dropped from the tool list. */
+  removed: string[]
+  /** Schemas replacing the same-named predecessor in place. */
+  changed: ToolSchema[]
 }
 
 /**
@@ -198,9 +273,22 @@ export interface TodoItem {
  * the invariants plugin checks, is a breaking change to the on-disk format.
  */
 export interface SessionEventMap {
+  /**
+   * Opens turn `turn`. `trigger` records what started it — a drained message
+   * batch or an idle-time injection. The turn is the durability/replay
+   * boundary: every event sits between a `turn/start` and its matching
+   * `turn/end` (the turn-enclosure invariant).
+   */
   'turn/start': { turn: number; trigger: TurnTrigger }
+  /**
+   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
+   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
+   * boundary is also the durable-commit boundary.
+   */
   'turn/end': { turn: number; reason: TurnEndReason }
+  /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
+  /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
@@ -230,6 +318,11 @@ export interface SessionEventMap {
    * usage record). `usage` is absent when the adapter reported none.
    */
   'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  /**
+   * The model requested one tool invocation: `name` with the raw `arguments`
+   * JSON string exactly as the model produced it (unparsed). `callId` pairs the
+   * call with its `tool/result`.
+   */
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   /**
    * A completed tool call's model-facing result, plus an optional tool-private
@@ -257,8 +350,39 @@ export interface SessionEventMap {
    * cordis-catalog row.
    */
   'todo/write': { todos: TodoItem[] }
+  /**
+   * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
+   * with the {@link RequestHeaderReason} it was recorded whole. Appended by
+   * the loop inside the step, before dispatch, on a loop instance's first
+   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
+   * round-trip guard (`'fallback'`); always records what the request actually
+   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
+   * the latest snapshot and applies the deltas after it. NOT a
+   * {@link SurfaceEventType}: it produces no LLM message — it is the request
+   * envelope, logged so every request is a pure function of the session log
+   * (the reconstructability RFC).
+   */
+  'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Amendment to the folded {@link EpochHeader}: at least one of a
+   * {@link SystemDelta}, a {@link ToolsDelta}, a whole replacement
+   * {@link LlmCallConfig} (four scalars — not worth diffing), or a whole
+   * replacement session prefix (`messagePrefix` — small advisory content,
+   * replaced whole; an EMPTY array encodes the transition to "none",
+   * mirroring the canonical form's absent field — the loop never produces
+   * one in practice: the prefix is composed once per instance and anchored
+   * by that instance's snapshot, so this arm exists for codec totality).
+   * Appended by the
+   * loop inside the step, before dispatch, when the header for this request
+   * differs from the fold of the log so far; the writer verifies
+   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
+   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
+   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   */
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
+/** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
 
 /**

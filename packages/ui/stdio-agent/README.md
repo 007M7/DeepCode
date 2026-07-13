@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-agent
 
-The **terminal stdio chat app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
+The **terminal stdio chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
 
 It is the readline counterpart to [`@deepseek-ai/dsh-acp-agent`](../acp-agent/README.md): both consume the same spine, but each bakes in the OPPOSITE front-door cluster.
 
@@ -11,9 +11,11 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
-| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model`/`systemPrompt` |
+| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model` with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
-| `@deepseek-ai/dsh-ui-stdio` | the readline UI, bound to the `main` agent |
+| `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
+| `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
+| `stdio-chat` (in-package module) | the readline UI, bound to the `main` agent |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
@@ -24,10 +26,13 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
-| `systemPrompt` | (required) | the `main` agent's system prompt |
+| `persona` | — | the deployment persona template (may reference `{{model}}`), routed to `dsh-system-prompt` |
+| `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
+
+Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-agent` was started. Resumed sessions keep the cwd stored in the persisted session header.
 
 ## The bin
 
@@ -54,7 +59,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
     model: deepseek-v4-flash
-    systemPrompt: 'You are a CLI coding assistant. Your only tools are bash…'
+    persona: 'You are a coding assistant powered by the {{model}} model.'
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".

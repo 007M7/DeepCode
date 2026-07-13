@@ -10,11 +10,14 @@ import { Context, Service } from 'cordis'
 import type { GenerateOptions, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
 
+export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
+export { callConfigEquals, deepFreeze } from './call-config.ts'
+export type { LlmCallConfig } from './call-config.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -23,10 +26,14 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall around every streaming model call (retry, caching, routing).
+     * Waterfall around every streaming model call (retry, replay, routing).
      * Bound to the {@link LlmService}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
-     * @param options - the full request; listeners may rewrite it before delegating.
+     * @param options - the full request. A LOOP-built request arrives
+     *   deep-frozen (mutation throws): its content is a pure function of the
+     *   session log (the reconstructability RFC), so listeners read it, never
+     *   rewrite it. A hand-built one-shot (compaction summarize) is the
+     *   caller's own object and stays mutable here.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -57,9 +64,20 @@ export class LlmError extends HarnessError {
  * fetch/SSE) and `@deepseek-ai/dsh-llm-pi-ai` (pi-ai-backed) — two
  * deliberately different internals over the same contract; see the
  * adapter contract documented on `StreamChunk` in `./types.ts`.
+ *
+ * App attribution is part of the adapter contract: every HTTP request to a
+ * provider carries the headers from `attributionHeaders()` (`./attribution.ts`)
+ * — the standard `User-Agent` baseline everywhere. An adapter proves it with
+ * a wire-level test (a mock server asserting the received header), or, for a
+ * library-backed adapter, by asserting the library's header hook delivers the
+ * same value to the wire.
  */
 export abstract class LlmAdapter {
-  /** Stream one model call as raw chunks. The only required method. */
+  /**
+   * Stream one model call as raw chunks. The only required method.
+   * @param options - the fully-assembled request; implementations must honor `options.signal`.
+   * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
+   */
   abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 }
 

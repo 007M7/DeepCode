@@ -8,7 +8,7 @@
 
 import type { Agent, AgentId, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /**
  * Which START-TIME features a provider supports. Checked by the service
@@ -56,12 +56,16 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model, system prompt). */
   agentOptions?: AgentOptions
   /**
-   * Optional structured-output schema. When set AND the provider's
-   * {@link SubagentCapabilities.outputSchema} is `true`, the child's final
-   * answer is shaped to this schema and surfaced as {@link SubagentResult.structured}.
+   * Optional structured-output schema — an object-rooted JSON Schema within the
+   * enforced subset (see `assertSupportedOutputSchema` in dsh-tools; a schema
+   * outside the subset is rejected loud at start). When set AND the provider's
+   * {@link SubagentCapabilities.outputSchema} is `true`, the child is driven to
+   * report a value matching this schema, surfaced as
+   * {@link SubagentResult.structured}. The schema must be plain host-realm JSON
+   * data — a caller holding foreign-realm data materializes it first.
    * Requesting it against a provider that lacks the capability is rejected at start.
    */
-  outputSchema?: SchemaSpec
+  outputSchema?: StructuredOutputSchema
   /**
    * Optional recursion cap (max delegation depth below this child). Requires
    * {@link SubagentCapabilities.depthLimit}; rejected at start otherwise.
@@ -93,6 +97,7 @@ export interface SubagentStopReasonMap {
   refusal: 'refusal'
 }
 
+/** The union over {@link SubagentStopReasonMap} — widens automatically as backends merge in variants. */
 export type SubagentStopReason = SubagentStopReasonMap[keyof SubagentStopReasonMap]
 
 /**
@@ -163,6 +168,16 @@ export interface SubagentProvider {
   readonly name: string
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
+  /**
+   * The provider's context contract: `true` when a child SEES the parent
+   * conversation (fork — the child is seeded with the parent's completed-turn
+   * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
+   * not a start-time capability: the service validates nothing against it —
+   * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
+   * wording from it, so a tool bound to a fork provider stops telling the
+   * model the child "does not see this conversation".
+   */
+  readonly inheritsParentContext: boolean
   /**
    * Start a child run. The service has already validated that every requested
    * start-time capability is supported, so an implementation may assume e.g.

@@ -15,6 +15,7 @@ import {
   presentFetchCall,
   renderBody,
   htmlToMarkdown,
+  WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
 const available: WebProviderStatus = { available: true }
@@ -109,10 +110,9 @@ describe('fetch formatting', () => {
     expect(renderBody({ kind: 'html', content: '<p>y</p>' })).toBe('y')
   })
 
-  it('validates url and timeout', () => {
+  it('validates url (non-empty), no timeout parameter', () => {
     expect(() => parseFetchArgs({ url: ' ' })).toThrow('non-empty')
-    expect(() => parseFetchArgs({ url: 'https://a.test', timeout_ms: -1 })).toThrow('positive')
-    expect(parseFetchArgs({ url: 'https://a.test', timeout_ms: 5 })).toEqual({ url: 'https://a.test', timeoutMs: 5 })
+    expect(parseFetchArgs({ url: 'https://a.test' })).toEqual({ url: 'https://a.test' })
   })
 
   it('presents a fetch call as a fetch-kind card titled by the url', () => {
@@ -187,16 +187,19 @@ describe('tool-web registration', () => {
   })
 
   it('registers web_search even when no provider is available (schema follows enablement, not availability)', async () => {
-    const { fiber, ctx } = await mountTools()
+    const { fiber, ctx, call } = await mountTools()
     expect(ctx.tools.schemas().map(s => s.name)).toContain('web_search')
-    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'none' })
+    // No provider is registered: the schema stays visible and execution reports
+    // the structured unavailability instead.
+    const out = await call('web_search', { query: 'q' })
+    expect(out.error?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
     await fiber.dispose()
   })
 
   it('contributes prompt sections for the enabled tools', async () => {
     const { fiber, ctx } = await mountTools()
     const prompt = await ctx.systemPrompt.assemble()
-    const text = prompt.sections.map(s => (typeof s.text === 'function' ? s.text() : s.text)).join('\n')
+    const text = prompt.sections.map(s => s.text).join('\n')
     expect(text).toContain('web_search')
     expect(text).toContain('web_fetch')
     await fiber.dispose()
@@ -245,7 +248,7 @@ describe('tool-web execution through the real registry', () => {
     expect('default' in ToolWeb).toBe(false)
   })
 
-  it('executes web_fetch, forwarding timeout_ms and the abort signal to the seam', async () => {
+  it('executes web_fetch, forwarding the url (no timeout param) and the abort signal to the seam', async () => {
     const seen: { request?: { url: string; timeoutMs?: number }; signal?: AbortSignal | undefined } = {}
     const fetchProvider = {
       id: 'stub-fetch',
@@ -258,10 +261,32 @@ describe('tool-web execution through the real registry', () => {
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
     const controller = new AbortController()
-    const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test', timeout_ms: 1234 }, signal: controller.signal })
+    const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test' }, signal: controller.signal })
     expect(out.isError).toBe(false)
-    expect(seen.request).toEqual({ url: 'https://a.test', timeoutMs: 1234 })
+    // The model schema exposes no timeout: the tool forwards only the url; the
+    // tool-call budget is owned by dsh-timeout-policy over exec.signal.
+    expect(seen.request).toEqual({ url: 'https://a.test' })
     expect(seen.signal).toBe(controller.signal)
+    await fiber.dispose()
+  })
+
+  it('executes web_fetch with no caller signal (forwards undefined to the seam)', async () => {
+    const seen: { signal?: AbortSignal | undefined; passedExec?: boolean } = {}
+    const fetchProvider = {
+      id: 'stub-fetch',
+      status: () => available,
+      fetch: (request: { url: string }, exec?: { signal?: AbortSignal }) => {
+        seen.passedExec = exec !== undefined
+        seen.signal = exec?.signal
+        return Promise.resolve({ providerId: 'stub-fetch', url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
+      },
+    }
+    const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
+    // No signal on the execution: the tool passes `undefined` (not `{ signal: undefined }`).
+    const out = await ctx.tools.execute({ callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
+    expect(out.isError).toBe(false)
+    expect(seen.passedExec).toBe(false)
+    expect(seen.signal).toBeUndefined()
     await fiber.dispose()
   })
 
@@ -277,5 +302,78 @@ describe('tool-web execution through the real registry', () => {
     await ctx.tools.execute({ callId: CallId('search-1'), name: 'web_search', arguments: { query: 'q' }, signal: controller.signal })
     expect(seen.signal).toBe(controller.signal)
     await fiber.dispose()
+  })
+})
+
+describe('searchMaxResults is plugin config', () => {
+  it('forwards the default cap to the seam when unconfigured', async () => {
+    const seen: { maxResults?: number | undefined } = {}
+    const provider: WebSearchProvider = {
+      id: 'stub-search',
+      status: () => available,
+      search: (request) => { seen.maxResults = request.maxResults; return Promise.resolve({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) },
+    }
+    const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
+    await call('web_search', { query: 'q' })
+    expect(seen.maxResults).toBe(WEB_SEARCH_MAX_RESULTS)
+    await fiber.dispose()
+  })
+
+  it('forwards a configured cap to the seam, which enforces it', async () => {
+    const sources = Array.from({ length: 5 }, (_, i) => ({ url: `https://s${i}.test` }))
+    const provider: WebSearchProvider = {
+      id: 'stub-search',
+      status: () => available,
+      search: request => Promise.resolve({ providerId: 'stub-search', query: request.query, sources, truncated: false }),
+    }
+    const { fiber, call } = await mountTools({ config: { searchMaxResults: 2 }, webConfig: { searchProvider: 'stub-search' }, search: provider })
+    const out = await call('web_search', { query: 'q' })
+    expect(out.isError).toBe(false)
+    const body = out.content.map(b => b.text).join('')
+    expect(body).toContain('https://s1.test')
+    expect(body).not.toContain('https://s2.test')
+    expect(body).toContain('Showing the first 2 sources.')
+    await fiber.dispose()
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -3],
+    ['fractional', 1.5],
+  ])('rejects a %s searchMaxResults at load', async (_label, value) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, { searchMaxResults: value }))
+      .rejects.toThrow(/tool-web: searchMaxResults must be a positive integer/)
+  })
+})
+
+describe('tool-call timeout budget is plugin config', () => {
+  it('attaches the default 30s budget to web_fetch and web_search', async () => {
+    const { fiber, ctx } = await mountTools()
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(30_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(30_000)
+    await fiber.dispose()
+  })
+
+  it('honors per-tool timeout overrides from config', async () => {
+    const { fiber, ctx } = await mountTools({ config: { fetchTimeoutMs: 60_000, searchTimeoutMs: 10_000 } })
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(60_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(10_000)
+    await fiber.dispose()
+  })
+
+  it.each([
+    ['fetchTimeoutMs', { fetchTimeoutMs: 0 }],
+    ['searchTimeoutMs', { searchTimeoutMs: -5 }],
+  ])('rejects a non-positive-integer %s at load', async (key, config) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, config))
+      .rejects.toThrow(new RegExp(`tool-web: ${key} must be a positive integer`))
   })
 })

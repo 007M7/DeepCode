@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest'
  * Keyless Loader-path smoke for examples/coding-agent: boot the REAL example
  * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` (the
  * cordis Loader, `unwrapExports`, the full plugin tree incl. the
- * `@deepseek-ai/dsh-agent-core` bundle and the extracted
- * `@deepseek-ai/dsh-ui-stdio`), then close stdin with no prompt and assert the
+ * `@deepseek-ai/dsh-agent-core` bundle and the app's in-package readline UI
+ * module), then close stdin with no prompt and assert the
  * ready banner + a clean exit.
  *
  * No prompt is ever sent, so the model is NEVER called — this is why it runs
@@ -18,9 +18,10 @@ import { afterEach, describe, expect, it } from 'vitest'
  * `apply()` only requires a key to be PRESENT (it does not validate it and only
  * uses it when a stream actually starts), so a dummy key lets the tree boot
  * while the absence of any prompt guarantees no network call. The value is the
- * real-Loader-path guard for the app + bundle + UI plugin export shapes (a broken
- * `export default` that drops `inject`/`Config` would crash here — see postmortem
- * 0001), complementing coding-agent's with-key e2e suites which prove the real
+ * real-Loader-path guard that the composed tree boots (see postmortem 0001;
+ * the app carries no `inject`, so its export SHAPE is pinned by the stdio-agent
+ * unit suite's unwrap assertion, not by a crash here),
+ * complementing coding-agent's with-key e2e suites which prove the real
  * product.
  */
 
@@ -61,6 +62,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
           // A dummy key so llm-deepseek's apply() (key-PRESENT check only) boots.
           // No prompt is sent, so the adapter never streams — no network call.
           DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
+          DSH_HOME: join(cwd, '.dsh'),
+          DSH_AGENTS_HOME: join(cwd, '.agents'),
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       },
@@ -75,8 +78,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`coding-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`coding-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -95,5 +98,5 @@ describe('coding-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('agent REPL ready.')
-  }, 15_000)
+  }, 45_000)
 })

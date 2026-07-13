@@ -35,7 +35,7 @@ const stdioBin = join(repoRoot, 'packages/ui/stdio-agent/lib/bin.js')
 const dshPackages = [
   'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
-  'bash/tool-bash', 'support/invariants', 'support/ui-stdio',
+  'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/stdio-agent',
 ]
@@ -76,9 +76,10 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     await mkdir(dirname(target), { recursive: true })
     await symlink(abs, target)
   }
-  // The example's mock model + echo tool are example-local TS plugins (Node 24+
-  // strips types natively, so plain `node` loads them); they import the workspace
-  // packages the symlinked node_modules now provides.
+  // The example's mock model + echo tool are example-local TS plugins (Node
+  // 22.19+ — the engines floor — strips types natively, so plain `node` loads
+  // them); they import the workspace packages the symlinked node_modules now
+  // provides.
   await cp(join(repoRoot, 'examples/echo-agent/src'), join(dir, 'src'), { recursive: true })
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
@@ -91,7 +92,7 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     '  name: \'@deepseek-ai/dsh-stdio-agent\'',
     '  config:',
     '    model: mock-echo',
-    '    systemPrompt: \'demo\'',
+    '    persona: \'demo\'',
     `    welcome: '${welcome}'`,
     ...disabledBrokenEntry
       ? ['- id: off', '  name: \'./src/does-not-exist.ts\'', '  disabled: true']
@@ -110,7 +111,7 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
     const child = spawn(process.execPath, ['--expose-internals', stdioBin, configArg], {
       cwd,
       // Mock model: never calls the network, so no key needed.
-      env: { ...process.env },
+      env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''

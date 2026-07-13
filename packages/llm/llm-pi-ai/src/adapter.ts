@@ -13,22 +13,30 @@
 
 import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { toPiContext, toStreamChunks } from './convert.ts'
 
 /** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
 
+/** Constructor options for {@link PiAiAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface PiAiAdapterOptions {
+  /** Bearer token pi-ai sends on every request. */
   apiKey: string
+  /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
   /** Thinking level applied to every request ('off' disables thinking). */
   reasoning?: PiAiReasoning | undefined
 }
 
-/** Build the inline pi-ai model descriptor for one DeepSeek model name. */
+/**
+ * Build the inline pi-ai model descriptor for one DeepSeek model name.
+ * @param modelId - harness model name; sent verbatim on the wire.
+ * @param options - adapter options; only `baseURL` is read here (key and reasoning apply per request, not per descriptor).
+ * @returns a descriptor with every DeepSeek compat flag explicit — pi-ai's URL-based auto-detection is never relied on.
+ */
 export function buildModel(modelId: string, options: PiAiAdapterOptions): Model<'openai-completions'> {
   return {
     id: modelId,
@@ -61,7 +69,7 @@ export function buildModel(modelId: string, options: PiAiAdapterOptions): Model<
 }
 
 type Payload = {
-  tools?: { function?: { name?: unknown; strict?: unknown } }[]
+  tools?: { function?: { strict?: unknown } }[]
   messages?: {
     role?: unknown
     tool_calls?: { id?: unknown; function?: { arguments?: unknown } }[]
@@ -81,10 +89,6 @@ function rawToolArguments(options: GenerateOptions): Map<CallId, string> {
   return raw
 }
 
-function strictByToolName(tools: ToolSchema[] | undefined): Map<string, boolean | undefined> {
-  return new Map((tools ?? []).map(tool => [tool.name, tool.strict]))
-}
-
 function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiAiReasoning | undefined): unknown {
   /* v8 ignore next -- pi-ai onPayload always receives an object; tolerate unusual future hooks defensively */
   if (typeof payload !== 'object' || payload === null) return payload
@@ -97,16 +101,13 @@ function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiA
     body.stop = options.stop
   }
 
-  const strictByName = strictByToolName(options.tools)
+  // pi-ai stamps its own `strict` default on every serialized tool; the
+  // harness tool contract has no strict field and the hand-rolled twin sends
+  // none, so scrub it for wire parity.
   for (const tool of body.tools ?? []) {
     /* v8 ignore next -- malformed pi-ai payload guard: real tool entries always carry function */
     if (tool.function === undefined) continue
-    const name = tool.function.name
-    /* v8 ignore next -- malformed pi-ai payload guard: real function entries always carry a string name */
-    if (typeof name !== 'string') continue
-    const strict = strictByName.get(name)
-    if (strict === undefined) delete tool.function.strict
-    else tool.function.strict = strict
+    delete tool.function.strict
   }
 
   const rawById = rawToolArguments(options)
@@ -131,9 +132,9 @@ function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiA
  *
  * Implementation notes:
  * - `onPayload` patches provider payload details pi-ai cannot express directly:
- *   stop sequences, per-tool strict, omitted reasoning effort, and raw replayed
- *   tool-call arguments.
- * - `prefill` throws UNSUPPORTED (same contract as dsh-llm-deepseek).
+ *   stop sequences, scrubbing pi-ai's own per-tool `strict` default (the
+ *   hand-rolled twin sends no such field), omitted reasoning effort, and raw
+ *   replayed tool-call arguments.
  * - pi-ai reports request failures as in-stream error events; convert.ts
  *   maps them to `finish {kind:'error'|'aborted'}` chunks rather than
  *   throwing — both are sanctioned StreamChunk error paths.
@@ -144,13 +145,6 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (options.prefill !== undefined) {
-      throw new LlmError(
-        'prefill is not supported by the pi-ai adapter',
-        'UNSUPPORTED',
-      )
-    }
-
     const model = buildModel(options.model, this.options)
     // Undefined config means "provider default" (DeepSeek: thinking ENABLED),
     // matching llm-deepseek's omission semantics. pi-ai derives the wire
@@ -171,6 +165,9 @@ export class PiAiAdapter extends LlmAdapter {
     try {
       const events = piStream(model, toPiContext(options), {
         apiKey: this.options.apiKey,
+        // pi-ai merges caller headers last over its provider defaults, so the
+        // harness attribution always reaches the wire.
+        headers: attributionHeaders(),
         ...options.temperature !== undefined ? { temperature: options.temperature } : {},
         ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
         signal: controller.signal,

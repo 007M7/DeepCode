@@ -31,6 +31,21 @@ RESUME_SESSION_ID=<prior-session-id> pnpm run demo:repl
 
 The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing/unreadable id is non-fatal — it logs a warning and starts no `main` agent.
 
+## Code Mode
+
+[`code-mode.cordis.yml`](code-mode.cordis.yml) is this same tree flipped to [Code Mode](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md): an include overlay over `./cordis.yml` whose two patches insert the worker-thread code runtime (`@deepseek-ai/dsh-code-runtime-worker`, registering `ctx.codeRuntime`) and set `tools: { mode: code }` on the app. The model is then offered exactly ONE wire tool — `run_code` — plus a generated TypeScript SDK section declaring every other registered tool; it composes them by writing a program, each program tool call bridges back through the ordinary `tools/pre-execute`/`post-execute` pipeline one at a time and is logged as a `tool/code-dispatch` session event, and ONLY what the program prints or returns re-enters its context. (Flip the mode to `both` to offer native calls AND `run_code` side by side.)
+
+```sh
+pnpm run demo:code-mode        # this overlay under the REPL (default UI)
+pnpm run demo:code-mode acp    # the acp-agent example's same-shaped overlay
+```
+
+Try a task that spans several tool calls, e.g.:
+
+> Count the lines of every `*.md` file under docs/ and write the three largest to summary.txt.
+
+and watch the transcript: one `run_code` call, a program looping over tools, and a result the model curated instead of five round-trips of raw tool output.
+
 ## What each leaf entry demonstrates
 
 This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent) app and the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle it loads; the leaf wires the backends and model-facing optional tools:
@@ -54,4 +69,4 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 - `tests/compaction.e2e.ts` — the compaction smoke: a real multi-step bash task runs with a deliberately tiny context window so the auto-compaction listener fires MID-SESSION. Verifies the WORLD — a `compact/start…end` pair landed in the real log, the surface shrank (a replace node shadowed older nodes), and the agent still produced a correct final answer after compaction.
 - `tests/todo-write.e2e.ts` — a real model drives the real `todo_write` tool and the test verifies the resulting `todo/write` session event.
 
-These self-skip without `DEEPSEEK_API_KEY`. The keyless boot smoke is `tests/keyless-smoke.e2e.ts` (boots the full real tree with a dummy key and no prompt, so no model call), which runs in the default e2e gate.
+These self-skip without `DEEPSEEK_API_KEY`. `tests/code-mode.e2e.ts` is the with-key Code Mode proof — a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back. The keyless boot smokes run in the default e2e gate: `tests/keyless-smoke.e2e.ts` (the full real tree, dummy key, no prompt → no model call) and `tests/code-mode-keyless-smoke.e2e.ts` (the same guard for the Code Mode overlay).

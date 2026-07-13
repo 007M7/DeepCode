@@ -1,10 +1,8 @@
 # RFC: Structured error taxonomy
 
-Status: implemented (accepted 2026-06-14)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 Failures crossed seams as bare strings. A tool error flattened to a text block — name, code, and stack lost — so a future sandbox/retry plugin couldn't tell ENOENT from EACCES, and the model got less actionable feedback than it could. A non-Error throw degraded further: the loop wrapped it in `new Error(String(x))`, dropping any code. And `LlmError` was the only typed error in the system, with no shared base, so there was nothing for a consumer to `instanceof` against generically.
 
@@ -24,3 +22,5 @@ A single `HarnessError extends Error` base in `dsh-llm` (the leaf package every 
 - One base class is imported widely, but it lives in the package everyone already depends on, so the cost is a single import, not a new edge.
 - `deriveMessages` does not surface `error` into model history — the model still sees the text block; the structured field is for code and replay.
 - Reverting this PR returns the earlier errors to plain `Error`+`code` form; nothing else in the stack depends on the shared base.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

@@ -29,7 +29,12 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
  */
 export type FsTargetKey = Branded<'FsTargetKey'>
 
-/** Brand a string as an {@link FsTargetKey}. */
+/**
+ * Brand a string as an {@link FsTargetKey}. For backend use only — a consumer
+ * never manufactures a key, it receives one from `resolve()`.
+ * @param key - the backend's raw key string (the local backend passes a realpath).
+ * @returns the same string, branded; no validation is performed.
+ */
 export function FsTargetKey(key: string): FsTargetKey {
   return key as FsTargetKey
 }
@@ -42,7 +47,12 @@ export function FsTargetKey(key: string): FsTargetKey {
  */
 export type FsVersion = Branded<'FsVersion'>
 
-/** Brand a string as an {@link FsVersion}. */
+/**
+ * Brand a string as an {@link FsVersion}. For backend use only — a consumer
+ * never manufactures a version, it receives one from `stat`/write/edit outcomes.
+ * @param v - the backend's raw version string (the local backend derives it from mtime+size).
+ * @returns the same string, branded; no validation is performed.
+ */
 export function FsVersion(v: string): FsVersion {
   return v as FsVersion
 }
@@ -52,8 +62,6 @@ export function FsVersion(v: string): FsVersion {
  * this; every other operation takes it.
  */
 export interface FsTarget {
-  /** The original model/plugin-supplied path, for diagnostics only. */
-  inputPath: string
   /** Opaque key for stale guards and target lookup. */
   targetKey: FsTargetKey
   /**
@@ -142,10 +150,6 @@ export interface FsEditRequest {
 
 /** Outcome of a literal edit. */
 export interface FsEditOutcome {
-  /** Number of literal replacements applied. */
-  replacements: number
-  /** Whether every match was replaced. */
-  replaceAll: boolean
   /** Opaque version of the file after the edit. */
   version: FsVersion
   /**

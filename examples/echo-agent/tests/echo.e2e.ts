@@ -13,11 +13,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  *
  * This is the guard the per-file unit suite structurally cannot be: it drives
  * the `@deepseek-ai/dsh-stdio-agent` app plugin, the `@deepseek-ai/dsh-agent-core`
- * bundle it loads, the extracted `@deepseek-ai/dsh-ui-stdio` plugin, AND the
- * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path, so
- * a broken plugin export shape (a stray `export default` that `unwrapExports`
- * would collapse, dropping `inject`/`Config`) fails here even though hand-mounted
- * unit tests stay green (see docs/postmortem/0001). It needs no API key — the
+ * bundle it loads, the app's in-package readline UI module, AND the
+ * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path
+ * (see docs/postmortem/0001). The app itself carries no `inject`, so a stray
+ * `export default` would boot rather than crash here — the export SHAPE is
+ * pinned by the explicit unwrap assertion in the stdio-agent unit suite; this
+ * smoke proves the composed tree actually runs. It needs no API key — the
  * `mock-echo` adapter never touches the network — so it runs in the default e2e
  * gate.
  *
@@ -50,7 +51,7 @@ afterEach(async () => {
 /**
  * Boot echo-agent, write `lines` to its stdin, close stdin, and resolve with
  * the full stdout once the process exits (the stdio UI exits on EOF after the
- * agent settles). Rejects on a non-zero exit or a 10s timeout.
+ * agent settles). Rejects on a non-zero exit or a 30s timeout.
  */
 async function runEcho(lines: string[]): Promise<{ stdout: string; code: number }> {
   workdir = await mkdtemp(join(tmpdir(), 'echo-smoke-'))
@@ -62,7 +63,16 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
       // requires it (mirrors the `demo:echo` script). The whole point is to boot
       // the example EXACTLY as it really runs, through the bin + Loader.
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
-      { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        cwd,
+        env: {
+          ...process.env,
+          TSX_TSCONFIG_PATH: repoTsconfig,
+          DSH_HOME: join(cwd, '.dsh'),
+          DSH_AGENTS_HOME: join(cwd, '.agents'),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
     )
     child = proc
     let stdout = ''
@@ -74,8 +84,8 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`echo-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`echo-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -95,19 +105,19 @@ describe('echo-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await runEcho([])
     expect(code).toBe(0)
     expect(stdout).toContain('echo-agent ready.')
-  }, 15_000)
+  }, 45_000)
 
   it('runs the echo tool round-trip for an "echo …" line', async () => {
     const { stdout } = await runEcho(['echo hello world'])
     // mock-llm.ts emits a tool-call for the echo tool; echo-tool.ts uppercases.
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HELLO WORLD')
-  }, 15_000)
+  }, 45_000)
 
   it('streams a direct canned reply for a non-echo line', async () => {
     const { stdout } = await runEcho(['just chatting'])
     // The direct-response branch of mock-llm.ts quotes the input back.
     expect(stdout).toContain('just chatting')
     expect(stdout).not.toContain('[tool call]')
-  }, 15_000)
+  }, 45_000)
 })

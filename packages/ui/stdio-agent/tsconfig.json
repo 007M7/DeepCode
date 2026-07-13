@@ -18,6 +18,9 @@
       "path": "../../../vendor/loader"
     },
     {
+      "path": "../app-boot"
+    },
+    {
       "path": "../../../vendor/logger-console"
     },
     {
@@ -30,10 +33,13 @@
       "path": "../../core/agent-core"
     },
     {
-      "path": "../../session-persistence/session-persistence-jsonl"
+      "path": "../user-interaction"
     },
     {
-      "path": "../../support/ui-stdio"
+      "path": "../tool-ask-user"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
     }
   ]
 }

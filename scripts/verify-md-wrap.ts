@@ -18,16 +18,17 @@
  * A wrapped paragraph inside a list item or blockquote is still a `paragraph`
  * node, so those are caught too. Scope mirrors doc-typecheck plus the two
  * AGENTS.md files that doc-sync does NOT otherwise cover (the convention itself
- * lives there): README.md, docs/** /*.md, packages/* /*.md, AGENTS.md,
- * packages/AGENTS.md. The root and packages/ CLAUDE.md are symlinks to the
- * AGENTS.md files, so they are deduped by real path.
+ * lives there), plus generated system-prompt Markdown goldens: README.md,
+ * docs/** /*.md, packages/* /*.md, examples/** /system-prompt.golden.md,
+ * packages/** /system-prompt.golden.md, AGENTS.md, packages/AGENTS.md. The root
+ * and packages/ CLAUDE.md are symlinks to the AGENTS.md files, so they are
+ * deduped by real path.
  *
  * Run: `tsx scripts/verify-md-wrap.ts`.
  */
 
-import { readFileSync, realpathSync } from 'node:fs'
+import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -35,8 +36,18 @@ import type { Nodes } from 'mdast'
 
 const root = resolve(import.meta.dirname, '..')
 
-/** Files to check: doc-typecheck's scope plus the AGENTS.md pair. */
-const PATTERNS = ['README.md', 'README.zh.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
+/** Files to check: doc-typecheck's scope, prompt goldens, and the AGENTS.md pair. */
+const PATTERNS = [
+  'README.md',
+  'README.zh.md',
+  'docs/**/*.md',
+  'packages/*/*.md',
+  'packages/*/*/*.md',
+  'examples/**/system-prompt.golden.md',
+  'packages/**/system-prompt.golden.md',
+  'AGENTS.md',
+  'packages/AGENTS.md',
+]
 
 /** A located hard-wrap: a prose paragraph spanning more than one source line. */
 interface Violation {
@@ -76,7 +87,7 @@ const seen = new Set<string>()
 const all: Violation[] = []
 let checked = 0
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     const abs = resolve(root, match)
     // CLAUDE.md symlinks resolve onto AGENTS.md; dedupe by real path so a file
     // matched twice (or via symlink) is checked once.

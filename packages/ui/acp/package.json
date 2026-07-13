@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-acp",
-  "description": "Agent Client Protocol (ACP) bridge: drive the DeepSeek Harness coding agent from an ACP editor over JSON-RPC stdio",
+  "description": "Agent Client Protocol (ACP) bridge: drive DeepSeek Harness SDK agents from an ACP editor over JSON-RPC stdio",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -28,19 +28,27 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
+    "@deepseek-ai/dsh-user-approval": "^0.0.1",
+    "@deepseek-ai/dsh-bash": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-sandbox": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
+    "@deepseek-ai/dsh-user-interaction": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^",
+    "@deepseek-ai/dsh-bash": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
@@ -49,6 +57,8 @@
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
+    "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

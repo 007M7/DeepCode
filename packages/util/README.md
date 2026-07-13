@@ -5,5 +5,8 @@ Zero-dependency primitives shared across the other groups. A package lands here 
 | Package | Role |
 |---|---|
 | `brand/` | The type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) |
+| `timeout/` | The timing/classification half of a timeout — `clampTimeout`/`deadline`/`timeoutOf`/`TimeoutReason` (pure functions, no harness deps); termination stays in each capability |
 
 `dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-bash`'s `BashTaskId`/`OwnerToken`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.
+
+`dsh-timeout` follows the same shape for the timeout family: `dsh-bash` and `dsh-web-fetch-local` each fuse a caller's cancellation with a deadline and later classify "timed out" vs "cancelled" by depending on `dsh-timeout` alone. It deliberately owns only the timing/classification half — the *termination* (SIGKILL a process group, tear down a fetch socket) stays in each capability, because no shared layer can own every capability's kill (see [the timeout-library RFC](../../docs/rfc/implemented/architecture/2026-07-06-timeout-deadline-library.md)).

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
 
@@ -17,9 +18,8 @@ class StubCompactService extends CompactService {
 
   override async compactIfNeeded(
     _agent: CompactAgentContext,
-    _turn: number,
-    _step: number,
     _fullSystemPrompt: string,
+    _sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     this.lastSignal = signal
@@ -31,8 +31,6 @@ class StubCompactService extends CompactService {
     start: number,
     end: number,
     _agent: CompactAgentContext,
-    _turn: number,
-    _step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
     this.lastSignal = signal
@@ -43,6 +41,7 @@ class StubCompactService extends CompactService {
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
+      model: 'stub',
     })
     const endEvent = session.append('compact/end', { turn: 0 })
     return {
@@ -81,7 +80,7 @@ describe('CompactService seam', () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
-    expect(await svc.compactIfNeeded(stubAgent(session), 1, 1, '', new AbortController().signal)).toBeNull()
+    expect(await svc.compactIfNeeded(stubAgent(session), '', [], new AbortController().signal)).toBeNull()
   })
 
   it('compact/* events merge into SessionEventMap and are log-only', async () => {
@@ -89,7 +88,7 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
 
-    const result = await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'), 1, 1)
+    const result = await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'))
 
     const startEvent = session.events.find(e => e.type === 'compact/start')
     expect(startEvent).toBeDefined()
@@ -107,10 +106,10 @@ describe('CompactService seam', () => {
     const session = new Session(SessionId('s'))
     const controller = new AbortController()
 
-    await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'), 1, 1, controller.signal)
+    await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
 
-    await svc.compactIfNeeded(stubAgent(session), 1, 1, '', controller.signal)
+    await svc.compactIfNeeded(stubAgent(session), '', [], controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
   })
 })

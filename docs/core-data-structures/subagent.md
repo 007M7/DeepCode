@@ -20,7 +20,7 @@ interface SubagentCapabilities {
 
 ## The start request
 
-What a caller asks for when starting a subagent. The tool layer builds this from the model's `{ description, prompt }` plus its own config; the service validates the start-time capabilities against the named provider, then passes it to `provider.start`. `parent` is REQUIRED — in-process backends read `parent.session.header` for the working directory, the `parentSession` lineage, and the delegation depth. The three optional fields (`outputSchema`, `maxDepth`, `toolFilter`) each gate on the matching `SubagentCapabilities` flag.
+What a caller asks for when starting a subagent. The tool layer builds this from the model's `{ description, prompt }` plus its own config; the service validates the start-time capabilities against the named provider, then passes it to `provider.start`. `parent` is REQUIRED — in-process backends read `parent.session.header` for the working directory, the `parentSession` lineage, and the delegation depth. The three optional fields (`outputSchema`, `maxDepth`, `toolFilter`) each gate on the matching `SubagentCapabilities` flag. `outputSchema` is an object-rooted JSON Schema within the subset `assertSupportedOutputSchema` (dsh-tools) enforces — a schema outside it is rejected loud at start; the in-process backends realize it with a forced `structured_output` capture tool (see the [driver README](../../packages/subagent/subagent-inprocess/README.md)).
 
 ```ts type-equiv
 interface SubagentStartRequest {
@@ -28,7 +28,7 @@ interface SubagentStartRequest {
   parent: Agent
   signal?: AbortSignal
   agentOptions?: AgentOptions
-  outputSchema?: SchemaSpec
+  outputSchema?: StructuredOutputSchema
   maxDepth?: number
   toolFilter?: { allow?: string[]; deny?: string[] }
 }
@@ -75,17 +75,18 @@ interface SubagentRun {
 
 ## The provider seam: `SubagentProvider`
 
-One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present.
+One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present. `inheritsParentContext` is a DESCRIPTIVE fact beside the capabilities (nothing validates against it): whether a child sees the parent conversation (`fork`: true, `spawn`/`acp`: false) — the model-facing consumer derives truthful tool wording from it.
 
 ```ts type-equiv
 interface SubagentProvider {
   readonly name: string
   readonly capabilities: SubagentCapabilities
+  readonly inheritsParentContext: boolean
   start(request: SubagentStartRequest): SubagentRun
 }
 ```
 
-The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). `subagent/end` carries `lastAssistantMessage` (the child's final `output`) on the settle path, so an observer sees WHAT the subagent produced without holding the run (absent when the run rejected at the infrastructure level — no result was produced). These are **observe-only** events: both are plain `emit`s (the `subagent/end` fires from a detached `.then` after the result settles and awaits no listener), so a subscriber observes but cannot change the run. Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
+The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events.md)). `subagent/end` carries `lastAssistantMessage` (the child's final `output`) on the settle path, so an observer sees WHAT the subagent produced without holding the run (absent when the run rejected at the infrastructure level — no result was produced). These are **observe-only** events: both are plain `emit`s (the `subagent/end` fires from a detached `.then` after the result settles and awaits no listener), so a subscriber observes but cannot change the run. Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
 
 ## In-process backends: depth and seed
 

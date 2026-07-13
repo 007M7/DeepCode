@@ -1,10 +1,8 @@
 # RFC: Real-API e2e in CI against the external DeepSeek API
 
-Status: implemented (accepted 2026-06-19)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness leans hard on real-API tests by policy: [docs/testing.md](../../../testing.md) argues that a no-key suite proves the plumbing but not the product, and the [ACP inject postmortem](../../../postmortem/0001-acp-default-export-drops-inject.md) is the standing proof — 178 keyless tests stayed green while a real editor session crashed instantly. The real-API e2e suite (`pnpm run test:e2e`, the `*.e2e.ts` files) exists precisely to close that gap: it drives the agent against the live DeepSeek API — real model calls, real bash tools, multi-turn, resume, ACP-over-stdio.
 
@@ -14,7 +12,7 @@ This RFC records the decision to add a **second, secret-consuming workflow** tha
 
 ## Decision
 
-Add a dedicated workflow, [.github/workflows/e2e.yml](../../../../.github/workflows/e2e.yml), separate from ci.yml. It runs only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. ci.yml is left untouched.
+Add a dedicated workflow, [.github/workflows/e2e.yml](../../../../.github/workflows/e2e.yml), separate from ci.yml. It runs only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. The keyless workflow remains separate so forkable quality gates and secret-consuming real-API gates keep different trigger and credential policies.
 
 ### A separate workflow, not a job in ci.yml
 
@@ -22,7 +20,7 @@ ci.yml's value is that it is keyless, forkable, and always-green: any contributo
 
 ### Cost is not the constraint; reliability is
 
-The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all six `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the [docs/testing.md](../../../testing.md) with-key policy.
+The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all matching `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the [docs/testing.md](../../../testing.md) with-key policy.
 
 ### Triggers: trusted events only
 
@@ -56,7 +54,7 @@ The repo secret is named `DEEPSEEK_API_KEY_EXTERNAL`; it is mapped to the `DEEPS
 
 ### Scope, runtime shape
 
-Run **only** `test:e2e`. The keyless gates (typecheck/lint/coverage/snapshot/build/hygiene) already run in ci.yml on every push and PR; repeating them here would duplicate signal and slow the real-API job. No build step — e2e tests run unbuilt via tsx + the tsconfig paths map. Single Node 24 (the `engines` floor): these tests exercise *API integration*, not node-version compat, which ci.yml's `[24, 26]` matrix already owns; a second Node version would double real-API calls for no added signal. `timeout-minutes: 45` bounds a wedged run given serial files (`fileParallelism: false`), 120s/test, and `retry: 2`. `cancel-in-progress` is enabled only for `pull_request` runs — a superseded PR run is on a stale commit and worth cancelling, whereas a push/schedule run is already producing the post-merge/nightly signal and is never cancelled.
+Run **only** `test:e2e`. The keyless gates (typecheck/lint/coverage/snapshot/build/hygiene) already run in ci.yml on every push and PR; repeating them here would duplicate signal and slow the real-API job. No build step — e2e tests run unbuilt via tsx + the tsconfig paths map. Single Node 24 (the primary line): these tests exercise API integration, not node-version compatibility, which ci.yml's Node 22.19/24/26 matrix owns. `vitest.e2e.config.ts` runs files through a bounded worker pool (`DSH_E2E_MAX_WORKERS`, default `4`, CI value `14`) so CI and local with-key runs parallelize independent files while retaining a one-line serial escape hatch for quota investigations. `timeout-minutes: 45` bounds a wedged run given 120s/test and `retry: 2`. `cancel-in-progress` is enabled only for `pull_request` runs — a superseded PR run is on a stale commit and worth cancelling, whereas a push/schedule run is already producing the post-merge/nightly signal and is never cancelled.
 
 ## Security
 
@@ -85,6 +83,11 @@ What gets worse is the *surrounding* model, and these are the things to address 
 - **Settle the secret behind controls.** Confirm Settings → Actions → *"Send secrets to workflows from fork pull requests"* stays **off** (the one setting that would actually break the fork boundary), and consider moving the key into a GitHub **Environment** with required reviewers so even merged code uses it only under controlled conditions and rotation has a single home.
 
 None of these require changing the workflow to go public; they are operational steps plus the already-added `pull_request_target` guard comment.
+
+## Alternatives considered
+
+- **A secret-consuming job inside ci.yml** — rejected: it would couple the keyless, forkable, always-green gate to credential availability and a different trigger/concurrency policy; different lifecycles, different files.
+- **Omitting the `pull_request` trigger** (the smaller key-exposure surface) — rejected for the pre-merge signal; the Security section carries the accepted exposure analysis.
 
 ## Consequences
 

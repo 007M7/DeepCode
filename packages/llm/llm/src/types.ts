@@ -22,14 +22,10 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId } from './brand.ts'
 
-/** Cache hint attached to a content block (provider-interpreted). */
-export type CacheHint = 'ephemeral'
-
 /** Plain text visible to the end user. */
 export interface TextBlock {
   type: 'text'
   text: string
-  cache?: CacheHint
 }
 
 /** Reasoning / thinking content, distinct from visible text. */
@@ -54,30 +50,29 @@ export interface ToolResultBlock {
   toolCallId: CallId
   content: ContentBlock[]
   isError?: boolean
-  cache?: CacheHint
-}
-
-/** An image, by URL or data URL. */
-export interface ImageBlock {
-  type: 'image'
-  url: string
-  mimeType?: string
-  cache?: CacheHint
 }
 
 /**
  * All known content block shapes, keyed by their `type` tag.
  * Merge-extensible: plugins add new block types via declaration merging.
+ *
+ * The core set is deliberately limited to blocks every shipping path honors.
+ * Multimodal content (images, audio, …) has no core block type: a feature
+ * that needs one adds it via declaration merging in the same coordinated
+ * change that maps it in the adapters, surfaces it in the UI bridges, and
+ * prices it in compaction — a producer never lands without its consumers
+ * (see docs/rfc/implemented/simplification/2026-07-04-drop-image-content-block.md).
  */
 export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
-  'image': ImageBlock
 }
 
+/** The block `type` tag vocabulary; widens as plugins merge new shapes into {@link ContentBlockMap}. */
 export type ContentBlockType = keyof ContentBlockMap
+/** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
 /** A single message in a conversation history. */
@@ -93,9 +88,9 @@ export interface Message {
 export interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
-  agent: { kind: 'agent'; agentId: string }
 }
 
+/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
 
 /**
@@ -110,6 +105,7 @@ export interface FinishReasonMap {
   'error': { kind: 'error'; message: string; code?: string }
 }
 
+/** Any known finish reason, derived from {@link FinishReasonMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
 
 /**
@@ -171,19 +167,22 @@ export interface ToolSchema {
   description: string
   /** JSON Schema object for the arguments. */
   parameters: Record<string, unknown>
-  strict?: boolean
 }
 
 /** A single model request, fully assembled. */
 export interface GenerateOptions {
   model: string
+  /**
+   * Ordered conversation messages, exactly as the provider sees them (after
+   * the `system` slot). A loop-built request assembles them as
+   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
+   * hand-built one-shot passes any list.
+   */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
   system?: string
   /** Tool schemas (adapters map to the provider's `tools` field). */
   tools?: ToolSchema[]
-  /** Assistant prefix continuation (prefill). */
-  prefill?: ContentBlock[]
   temperature?: number
   maxTokens?: number
   /**

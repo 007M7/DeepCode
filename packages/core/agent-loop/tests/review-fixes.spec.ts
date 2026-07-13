@@ -399,9 +399,8 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
-      options.model = 'mock'
-      return next()
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+      return { ...config, model: 'mock' }
     })
 
     send(agent, 'go')
@@ -410,7 +409,7 @@ describe('MEDIUM: misc registry and config fixes', () => {
     expect(agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: 'routed' }])
   })
 
-  it('agent/queued carries the resolved source; agent/steering carries its source', async () => {
+  it('agent/queued carries the resolved source; steering/message records its source', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -425,15 +424,16 @@ describe('MEDIUM: misc registry and config fixes', () => {
     }))
 
     const queuedSources: { source: MessageSource; steering: boolean }[] = []
-    const steeringSources: MessageSource[] = []
     ctx.on('agent/queued', (_agent, _content, info) => void queuedSources.push(info))
-    ctx.on('agent/steering', (_agent, _turn, _content, source) => void steeringSources.push(source))
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
     await waitForIdle(ctx, agent)
 
     expect(queuedSources[0]).toEqual({ source: { kind: 'user' }, steering: false })
     expect(queuedSources[1]).toEqual({ source: { kind: 'plugin', plugin: 'goal' }, steering: true })
+    // The drain appends the durable steering/message with the caller's source
+    // intact — the log, not a transient emit, is where consumers read it.
+    const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
     expect(steeringSources).toEqual([{ kind: 'plugin', plugin: 'goal' }])
   })
 })
@@ -1015,7 +1015,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Blocking listener on the parent context (survives fiber disposal).
-    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocked
       return next()
     })
@@ -1071,7 +1071,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(Invariants, { freeze: false })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocker
       return next()
     })
@@ -1228,7 +1228,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(Invariants, { freeze: false })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocker
       return next()
     })

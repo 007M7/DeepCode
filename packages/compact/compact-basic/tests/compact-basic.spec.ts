@@ -58,13 +58,13 @@ class TestCompactService extends BasicCompactService {
     return blocks.length * 10
   }
 
-  override async summarize(text: string, agent: Agent): Promise<ContentBlock[]> {
+  override async summarize(text: string, agent: Agent): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const model = this.config.summarizationModel || agent.options.model || ''
     this.summarizeCalls.push({ text, model })
     if (this.summarizeError) throw this.summarizeError
     const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
     this.summaryOutputs.add(summary)
-    return summary
+    return { summary, model }
   }
 }
 
@@ -402,6 +402,9 @@ describe('BasicCompactService.compactRegion', () => {
     expect(startEvent).toBeDefined()
     expect(summaryEvent).toBeDefined()
     expect(endEvent).toBeDefined()
+    // The provenance record carries the summarize call's envelope, so "which
+    // model wrote this summary" is answerable from the log alone.
+    expect(summaryEvent?.type === 'compact/summary' && summaryEvent.data.model).toBe('test-model')
 
     // compact/* events are log-only — no surfaceOp (type system enforces this).
     const startRaw = startEvent as unknown as { surfaceOp?: unknown }
@@ -552,6 +555,24 @@ describe('BasicCompactService.compactIfNeeded', () => {
     const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
     expect(result).not.toBeNull()
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
+  })
+
+  it('counts the session prefix toward pressure (every request carries it in front of the history)', async () => {
+    const svc = createTestService({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 10 })
+    const session = multiTurnSession(3, 1) // 6 derived messages ≈ 84 estimated tokens — under the 100 threshold alone
+    expect(await compactIfNeeded(svc, session, '', 'm', SIGNAL)).toBeNull()
+
+    // The loop composes the agent/session-prefix product before the pre-step
+    // seam and hands it to the gate; it rides every request, so pressure must
+    // include it — the same history now crosses the threshold.
+    const sessionPrefix: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: `opener one.${LONG_FIXTURE_TEXT}` }] },
+      { role: 'user', content: [{ type: 'text', text: `opener two.${LONG_FIXTURE_TEXT}` }] },
+    ]
+    const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL, sessionPrefix)
+    expect(result).not.toBeNull()
+    // The prefix itself is NOT history: compaction shadowed surface nodes only.
+    expect(sessionPrefix).toHaveLength(2)
   })
 
   it('returns the first compaction result when a zero-retry pass converges after the loop', async () => {
@@ -811,14 +832,22 @@ describe('BasicCompactService token estimation (char/4 heuristic)', () => {
     ])).toBe(10)
   })
 
-  it('estimates image blocks at fixed 85 tokens', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
-    expect(svc.estimateContentTokens([{ type: 'image', url: 'https://example.com/img.png' }])).toBe(85)
-  })
-
   it('returns 0 for empty content blocks', () => {
     const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
     expect(svc.estimateContentTokens([])).toBe(0)
+  })
+
+  it('honors a configured charsPerToken (fractional densities included)', () => {
+    // 'this is a somewhat longer text block' = 36 chars.
+    const blocks: ContentBlock[] = [{ type: 'text', text: 'this is a somewhat longer text block' }]
+    // charsPerToken 2: ceil(36/2)+4 = 22 — a CJK-density config doubles the estimate.
+    const dense = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 2 }))
+    expect(dense.estimateContentTokens(blocks)).toBe(22)
+    // Fractional density is legal: ceil(36/1.5)+4 = 28.
+    const fractional = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 1.5 }))
+    expect(fractional.estimateContentTokens(blocks)).toBe(28)
+    // The system-prompt term scales with the same knob: 36-char prompt at density 2 → ceil(36/2) = 18.
+    expect(dense.estimateTokens([], 'this is a somewhat longer text block')).toBe(18)
   })
 })
 
@@ -862,6 +891,10 @@ describe('BasicCompactService config validation', () => {
     )).toThrow(/summarizationModel must be a string/)
     expect(() => new BasicCompactService(new Context(), cfg({ auto: 'no' } as unknown as Partial<BasicCompactConfig>)))
       .toThrow(/auto must be a boolean/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 0 })))
+      .toThrow(/charsPerToken .* positive finite number/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: Number.NaN })))
+      .toThrow(/charsPerToken .* positive finite number/)
   })
 
   it('accepts a large retain budget because convergence is enforced dynamically', () => {
@@ -967,8 +1000,9 @@ function compactIfNeeded(
   fullSystemPrompt: string,
   model: string,
   signal: AbortSignal,
+  sessionPrefix: readonly Message[] = [],
 ) {
-  return svc.compactIfNeeded(stubAgent(session, model), 1, 1, fullSystemPrompt, signal)
+  return svc.compactIfNeeded(stubAgent(session, model), fullSystemPrompt, sessionPrefix, signal)
 }
 
 function compactRegion(
@@ -979,11 +1013,11 @@ function compactRegion(
   model: string,
   signal?: AbortSignal,
 ) {
-  return svc.compactRegion(session, start, end, stubAgent(session, model), 1, 1, signal)
+  return svc.compactRegion(session, start, end, stubAgent(session, model), signal)
 }
 
 function summarize(svc: BasicCompactService, text: string, model: string) {
-  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model), 1, 1)
+  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model))
 }
 
 describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
@@ -991,8 +1025,12 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
     const svc = new BasicCompactService(ctx, cfg({ auto: false, maxTokens: 512 }))
 
-    const summary = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
+    const { summary, model, maxTokens } = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
     expect(summary).toEqual([{ type: 'text', text: 'SUMMARY TEXT' }])
+    // The returned envelope reports what the call actually used — the caller
+    // logs it on compact/summary (the reconstructability RFC).
+    expect(model).toBe('test-model')
+    expect(maxTokens).toBe(512)
     // The fixed system prompt and maxTokens flow through.
     expect(adapter.lastOptions!.system).toContain('compaction engine')
     expect(adapter.lastOptions!.system).toContain('## Next Step')
@@ -1023,7 +1061,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     ])
     const svc = new BasicCompactService(ctx, cfg({ auto: false }))
 
-    const summary = await summarize(svc, 'User: hi', 'test-model')
+    const { summary } = await summarize(svc, 'User: hi', 'test-model')
 
     expect(summary).toEqual([{ type: 'text', text: 'PUBLIC SUMMARY' }])
   })
@@ -1132,7 +1170,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
 describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => {
   /** Fire the agent/pre-step serial checkpoint as the loop does. */
   function firePreStep(ctx: Context, agent: Agent, step: number, fullSystemPrompt: string): Promise<unknown> {
-    return ctx.serial('agent/pre-step', agent, 1, step, fullSystemPrompt, SIGNAL)
+    return ctx.serial('agent/pre-step', agent, 1, step, fullSystemPrompt, [], SIGNAL)
   }
 
   it('compacts (mutating the surface) when over threshold', async () => {
@@ -1219,17 +1257,22 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
-  it('routes summarization through agent/request so router agents can choose the model', async () => {
+  it('summarization is interceptable at llm/stream (model routing for direct calls)', async () => {
     const { ctx, adapter } = await ctxWithModel('ROUTED SUMMARY', 'routed-model')
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
+    // The summarize call is a direct one-shot model call, not a loop step: it
+    // does not run agent/request (that seam shapes the loop's conversation
+    // requests). llm/stream is its interception surface, and a hand-built
+    // request is not frozen, so mutate-then-next model routing works — the
+    // adapter resolves AFTER the waterfall, so the rewrite picks the adapter.
+    ctx.on('llm/stream', (options, next) => {
       options.model = 'routed-model'
       return next()
     })
     void new BasicCompactService(ctx, cfg({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 }))
     const session = multiTurnSession(5, 1)
-    const agent = stubAgent(session)
+    const agent = stubAgent(session, 'agent-model')
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
 
     expect(adapter.lastOptions?.model).toBe('routed-model')
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
@@ -1254,7 +1297,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
   })
 })
 
-describe('BasicCompactService._extractText branches', () => {
+describe('BasicCompactService transcript rendering (delegated to dsh-compact)', () => {
   it('renders reasoning, context, and steering messages', async () => {
     const svc = createTestService()
     const s = new Session(SessionId('rich'))
@@ -1324,7 +1367,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [
-        { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'image', url: 'https://x/n.png' }] },
+        { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'chart', data: 'x' } as unknown as ContentBlock] },
         { type: 'custom-widget', payload: 'x' } as unknown as ContentBlock,
         { type: 'tool-call', id: CallId('b1'), name: 'bash', arguments: '{}' },
       ],
@@ -1343,7 +1386,7 @@ describe('BasicCompactService edge cases', () => {
     const nodes = s.surface.nodes
     await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
     const { text } = svc.summarizeCalls[0]!
-    expect(text).toContain('[tool-result: [image]]') // nested tool-result with content
+    expect(text).toContain('[tool-result: [chart]]') // nested tool-result with content
     expect(text).toContain('[custom-widget]') // unknown block placeholder
     expect(text).toContain('Tool result (call b1): [tool-result]') // empty nested → bare placeholder
   })
@@ -1368,7 +1411,7 @@ describe('BasicCompactService edge cases', () => {
     const session = multiTurnSession(4, 1)
     const agent = stubAgent(session, 'test-model')
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
     // The surface was mutated; the head message is the framed summary checkpoint.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
@@ -1448,7 +1491,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const before = session.surface.nodes.length
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
     // The failure was swallowed; the surface is untouched and a warning logged.
     expect(session.surface.nodes.length).toBe(before)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
@@ -1465,7 +1508,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const bigSystem = 'x'.repeat(900) // ceil(900/4)=225 > threshold 200
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, bigSystem, SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, bigSystem, [], SIGNAL)
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
     expect(svc.summarizeCalls.length).toBe(0)
   })
@@ -1510,25 +1553,28 @@ describe('BasicCompactService edge cases', () => {
   it('renders non-text blocks as type-tagged placeholders across all message kinds', async () => {
     const svc = createTestService()
     const s = new Session(SessionId('placeholders'))
+    // A plugin-added block type (merge-extensible ContentBlockMap) — the
+    // placeholder path must cover every message kind, not just assistant.
+    const chart = (id: string): ContentBlock => ({ type: 'chart', data: id } as unknown as ContentBlock)
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    // user/message with only an image block → '[image]' placeholder.
-    s.append('user/message', { content: [{ type: 'image', url: 'https://x/y.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    // assistant/message with an image block AND the tool-call its tool/result
-    // answers (so the surface is tool-pairing balanced) → '[image]' placeholder.
+    // user/message with only a plugin-added block → '[chart]' placeholder.
+    s.append('user/message', { content: [chart('y')], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    // assistant/message with a plugin-added block AND the tool-call its
+    // tool/result answers (so the surface is tool-pairing balanced).
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [
-        { type: 'image', url: 'https://x/z.png' },
+        chart('z'),
         { type: 'tool-call', id: CallId('e1'), name: 'bash', arguments: '{}' },
       ],
     }, { surfaceOp: 'append' })
-    // tool/result with an image block → '[image]' placeholder.
+    // tool/result with a plugin-added block → '[chart]' placeholder.
     s.append('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'bash', arguments: '{}' })
-    s.append('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'image', url: 'https://x/r.png' }], isError: false }, { surfaceOp: 'append' })
-    // context/message and steering/message with image content.
-    s.append('context/message', { content: [{ type: 'image', url: 'https://x/c.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('steering/message', { turn: 1, content: [{ type: 'image', url: 'https://x/s.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [chart('r')], isError: false }, { surfaceOp: 'append' })
+    // context/message and steering/message with plugin-added content.
+    s.append('context/message', { content: [chart('c')], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('steering/message', { turn: 1, content: [chart('s')], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -1537,11 +1583,11 @@ describe('BasicCompactService edge cases', () => {
     await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
     const { text } = svc.summarizeCalls[0]!
     // Every non-text block surfaces as a placeholder rather than being dropped.
-    expect(text).toContain('User: [image]')
-    expect(text).toContain('Assistant: [image]')
-    expect(text).toContain('Tool result (call e1): [image]')
-    expect(text).toContain('[Context: [image]]')
-    expect(text).toContain('[Steering: [image]]')
+    expect(text).toContain('User: [chart]')
+    expect(text).toContain('Assistant: [chart]')
+    expect(text).toContain('Tool result (call e1): [chart]')
+    expect(text).toContain('[Context: [chart]]')
+    expect(text).toContain('[Steering: [chart]]')
   })
 
 })

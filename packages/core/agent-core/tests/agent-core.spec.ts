@@ -1,12 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Message } from '@deepseek-ai/dsh-llm'
+
+async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
+  const empty: Message[] = []
+  return await ctx.waterfall(
+    'agent/session-prefix', { session: { header: { cwd } } } as never,
+    empty, new AbortController().signal, () => Promise.resolve(empty),
+  )
+}
 
 /**
  * Unit coverage for the @deepseek-ai/dsh-agent-core bundle: mounting it brings
- * up the whole providerless spine in one `ctx.plugin`, and the forwarded
+ * up the whole default spine in one `ctx.plugin`, and the forwarded
  * `agents` config reaches the loop (default `[]`, or a pre-created agent).
  *
  * The bundle is exercised through `ctx.plugin(agentCore, …)` — the NAMESPACE
@@ -15,16 +28,54 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
  * bin smokes; here we assert the composition + config forwarding.
  */
 async function mount(config?: agentCore.Config): Promise<Context> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-home-'))
+  process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-agents-'))
   const ctx = new Context()
-  await ctx.plugin(agentCore, config)
-  // The bundle mounts its children inside apply() (not awaited there); let their
-  // fibers settle so the spine services and any pre-created agent are ready.
-  await new Promise(resolve => setTimeout(resolve, 50))
-  return ctx
+  try {
+    await ctx.plugin(agentCore, config)
+    // The bundle mounts its children inside apply() (not awaited there); let their
+    // fibers settle so the spine services and any pre-created agent are ready.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    return ctx
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-home-'))
+  process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-agents-'))
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
 }
 
 describe('dsh-agent-core bundle', () => {
-  it('brings up the full providerless spine', async () => {
+  it('brings up the full default spine', async () => {
     const ctx = await mount()
     // One service from each layer of the spine proves the children loaded.
     expect(ctx.get('timer')).toBeDefined()
@@ -32,8 +83,19 @@ describe('dsh-agent-core bundle', () => {
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('systemPrompt')).toBeDefined()
     expect(ctx.get('tools')).toBeDefined()
+    expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('includes the skill registry, local provider, and skill tool without builtin skills', async () => {
+    const ctx = await mount()
+
+    expect(ctx.skills).toBeDefined()
+    expect(ctx.tools.schemas().map(tool => tool.name)).toContain('skill')
+    expect(await ctx.skills.list()).toEqual([])
+
     await ctx.fiber.dispose()
   })
 
@@ -43,11 +105,78 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards a pre-created agent to the loop', async () => {
+  it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), model: 'mock', systemPrompt: 'hi' }],
+      agents: [{ id: AgentId('main'), model: 'mock' }],
+      persona: 'You are main.',
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are main.')
+    await ctx.fiber.dispose()
+  })
+
+  it('tolerates a schema-bypassing direct apply (the ?? fallbacks fire)', async () => {
+    // ctx.plugin validates + defaults the bundle config first; a direct apply
+    // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.
+    const ctx = new Context()
+    agentCore.apply(ctx, {})
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(ctx.get('agentLoop')).toBeDefined()
+    expect(ctx.get('agents')?.list()).toHaveLength(0)
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards skill config to the registry, local provider, and model-facing consumer', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-home-'))
+    const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-agents-'))
+    const custom = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-custom-'))
+    await mkdir(custom, { recursive: true })
+    await writeFile(join(custom, 'custom-skill.md'), '---\nname: custom-skill\ndescription: Custom skill\n---\n\nCustom body.\n')
+    const ctx = await mount({
+      agents: [],
+      skills: {
+        registry: { collectCacheMaxEntries: 4 },
+        local: {
+          dshHome: join(home, '.dsh'),
+          agentsHome: join(agentsHome, '.agents'),
+          customSkillDirs: [custom],
+        },
+        tool: { catalogDescriptionMaxLength: 6 },
+      },
+    })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['custom-skill'])
+    expect(JSON.stringify(await composePrefix(ctx, '/tmp'))).toContain('- `custom-skill`: Cus...')
+    await ctx.fiber.dispose()
+  })
+
+  it('uses the default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      agentCore.apply(ctx, { agents: [] })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(ctx.skills).toBeDefined()
+      expect(await ctx.skills.list()).toEqual([])
+      await ctx.fiber.dispose()
+    })
+  })
+
+  it('forwards toolOrder to the system-prompt assembly', async () => {
+    const ctx = await mount({ toolOrder: ['zulu', TOOL_ORDER_REST] })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill'])
     await ctx.fiber.dispose()
   })
 

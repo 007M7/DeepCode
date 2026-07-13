@@ -1,0 +1,105 @@
+/**
+ * Vocabulary types for the code-execution seam: what a caller hands a
+ * {@link ../index.ts | CodeRuntime} and what it gets back. Pure types — no
+ * runtime code lives here.
+ *
+ * @module @deepseek-ai/dsh-code-runtime/src/types
+ */
+
+/**
+ * One host-side function exposed to the program as an async callable. The
+ * runtime bridges calls to it (possibly across a serialization boundary), so
+ * `args` and the resolution value MUST be structured-cloneable; a runtime
+ * rejects a non-cloneable value with a descriptive error rather than
+ * corrupting the run. A rejection of this function surfaces inside the
+ * program as a rejection of the corresponding call.
+ */
+export type CodeBindingFunction = (args: unknown) => Promise<unknown>
+
+/**
+ * A named group of {@link CodeBindingFunction}s the runtime exposes to the
+ * program as one global object (e.g. `tools`). Function names are arbitrary
+ * strings — a runtime must treat names like `__proto__` or `constructor` as
+ * ordinary own properties (null-prototype construction), never as prototype
+ * collisions.
+ */
+export interface CodeBindingNamespace {
+  /** The global identifier the program sees (must be a valid JS identifier). */
+  global: string
+  /** The callable members, keyed by the exact name the program calls. */
+  functions: Record<string, CodeBindingFunction>
+}
+
+/**
+ * One run: the program source plus everything the runtime acts on. Per the
+ * explicit-over-implicit convention, defaulting (time budgets, output caps)
+ * is the implementation's validated config — a request carries no optional
+ * tuning knobs for a hidden `??` to fill in.
+ */
+export interface CodeRunRequest {
+  /**
+   * The program source, in the runtime's {@link ../index.ts | language}. It
+   * runs as the body of an async function: top-level `await` and `return`
+   * are available, and the completion value becomes
+   * {@link CodeRunResult.value}.
+   */
+  program: string
+  /** Host functions exposed to the program, one global object per namespace. */
+  bindings: CodeBindingNamespace[]
+  /**
+   * Abort the run: the runtime stops the program (hard, even mid-loop) and
+   * resolves with a {@link CodeRunFailure} of kind `'abort'`. In-flight
+   * binding calls are the CALLER's to settle — the runtime only stops asking.
+   */
+  signal?: AbortSignal
+}
+
+/**
+ * One captured output entry, in emission order. `source` says which channel
+ * produced it: the program's `console` (shimmed by the runtime), or a stray
+ * write to the underlying stdout/stderr streams.
+ */
+export interface CodeLogEntry {
+  /** Which channel produced the text. */
+  source: 'console' | 'stdout' | 'stderr'
+  /** The console method used; present only when `source` is `'console'`. */
+  level?: 'log' | 'info' | 'warn' | 'error' | 'debug'
+  /** The captured text (possibly truncated by the implementation's caps, marked in-band). */
+  text: string
+}
+
+/**
+ * Why a run failed. The kinds are orthogonal outcomes reported independently
+ * (per docs/defensive-patterns.md): a budget expiry is not an exception, an
+ * abort is not a timeout, and a substrate death is neither.
+ *
+ * - `'exception'` — the program threw or failed to parse/transform.
+ * - `'timeout'` — an implementation-owned budget expired; the message says which.
+ * - `'abort'` — {@link CodeRunRequest.signal} fired.
+ * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
+ */
+export interface CodeRunFailure {
+  /** The failure class (see the interface doc for each kind's meaning). */
+  kind: 'exception' | 'timeout' | 'abort' | 'worker-exit'
+  /** Human-readable detail, suitable for feeding back to a model to self-correct. */
+  message: string
+}
+
+/**
+ * The outcome of one run. An error is a FIELD on a resolved result, never a
+ * rejection of `run()` — reporting a failed program is the caller's job, not
+ * an exception path.
+ */
+export interface CodeRunResult {
+  /**
+   * The program's completion value (its top-level `return`), when it ran to
+   * completion and the value survived the runtime's serialization boundary;
+   * a non-transferable value is replaced by a string rendering, and a failed
+   * or value-less run leaves this absent.
+   */
+  value?: unknown
+  /** Everything the program emitted, in order (capped by the implementation). */
+  logs: CodeLogEntry[]
+  /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
+  error?: CodeRunFailure
+}
