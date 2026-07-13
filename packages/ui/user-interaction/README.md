@@ -25,7 +25,9 @@ This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-
 
 ## Model Experience
 
-Indirectly, through consumers such as `dsh-tool-ask-user`, which return human answers as retained tool-result tokens.
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Human-answer result, indirectly | Through `dsh-tool-ask-user`, a successful provider answer becomes that consumer's exact compact JSON result. Seam-level failures become exactly `Error: ask_user_question was aborted before the user answered`, `Error: ask_user_question requires at least one question`, or `Error: no user-interaction provider is registered`; provider-owned failures receive the same `Error: <message>` wrapper. | This seam adds no prompt or schema. Only the consumer's completed or failed tool call adds retained tokens; waiting for the human adds none. |
 
 ## Known Limitations and Deferred Work
 

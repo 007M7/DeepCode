@@ -31,8 +31,35 @@ A non-`completed` stop reason becomes an `isError` tool result; partial child ou
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Tool schema | While the configured provider exists, the parent model sees one `{ description, prompt }` tool under `toolName`. Its description explicitly says whether the child inherits completed turns or needs a standalone prompt; persona, model, filter, depth, and provider choice remain deployment config. For a capable in-process provider, the filter changes the child's global wire schemas, lookup, execution, and Code Mode SDK bindings, not standalone guidance or an inherited authority ceiling. | Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema; exposing multiple providers adds one independently named schema per load. |
-| Tool-call history and result | The task description and full prompt remain in the parent assistant tool call. The result contains only the child's final text or a stop-reason error, never intermediate child steps. | Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent. |
+| Standalone-provider schema | While a fresh-context provider exists, the configured tool uses the exact [standalone tool](#standalone-provider-tool-description) and [`prompt` parameter](#standalone-provider-prompt-description) descriptions. | Fixed schema cost per parent request while mounted. Removing the provider removes the whole schema. |
+| Inherited-context-provider schema | A provider that seeds completed turns uses the exact [inherited-context tool](#inherited-context-provider-tool-description) and [`prompt` parameter](#inherited-context-provider-prompt-description) descriptions. Both variants describe `description` exactly as `A short (3-5 word) description of the delegated task, for display.` | Fixed schema cost per parent request while mounted. Exposing multiple providers adds one independently named schema per load. |
+| Tool-call history and result | The task description and full prompt remain in the parent assistant tool call. Success contains only the child's data-dependent final text. Other stop reasons become exactly `Error: subagent run was cancelled`, `Error: subagent run failed`, `Error: subagent run hit its token limit before finishing`, `Error: subagent declined the task`, or `Error: subagent run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: subagent tool requires a calling agent (exec.agent was undefined)`. Intermediate child steps never enter the parent. | Prompt and final output are data-dependent retained tokens. All child working context is paid in the child and omitted from the parent. |
+
+### Verbatim model-visible text
+
+#### Standalone-provider tool description
+
+```text
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation.
+```
+
+#### Standalone-provider prompt description
+
+```text
+The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.
+```
+
+#### Inherited-context-provider tool description
+
+```text
+Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps.
+```
+
+#### Inherited-context-provider prompt description
+
+```text
+The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new.
+```
 
 ## Known Limitations and Deferred Work
 

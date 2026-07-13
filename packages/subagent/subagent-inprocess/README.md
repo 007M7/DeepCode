@@ -44,8 +44,18 @@ A clean turn that never commits the required structured value reports `error`; t
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Child-agent request | The shared driver sends the task as the child's user message and, when requested, shadows the persona and restricts global tool schemas, lookup, execution, and Code Mode SDK bindings in the unpublished child's fresh scope; parent restrictions are not inherited, and standalone tool-guidance sections remain. Structured runs add a scoped instruction plus `structured_output` in the visible schema or Code Mode SDK, then stop after a committed capture. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. A persona changes repeated prompt text; filtering changes schema or generated SDK cost but not independently registered guidance. Structured output adds fixed instruction and capability tokens for that child. |
+| Child-agent request | The shared driver sends the task verbatim as the child's user message and, when requested, shadows the persona and restricts global tool schemas, lookup, execution, and Code Mode SDK bindings in the unpublished child's fresh scope; parent restrictions are not inherited, and standalone tool-guidance sections remain. Spawn supplies no history; fork supplies its balanced seed. | Child input is isolated from the parent and grows through the child's own steps. A persona changes repeated prompt text; filtering changes schema or generated SDK cost but not independently registered guidance. |
+| Structured child request and results | A structured run adds the exact [structured-output instruction](#structured-output-instruction). The tool description is exactly `Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.` with the requested schema. Success returns `Structured output recorded.`; a later call becomes ``Error: structured output already recorded: the run is complete, so `<tool>` is not executed``. | Fixed instruction and capability tokens are paid only by that child. Result text enters the child history, while the captured value alone becomes the parent result. |
+| Parent start error, indirectly | Through `dsh-tool-subagent`, invalid depth state becomes exactly `Error: agent subagentDepth must be a non-negative safe integer`, `Error: subagent child depth exceeds the safe-integer range`, or `Error: subagent depth <attempted> exceeds maxDepth <max>`. A pre-publication cancellation passes its abort reason through the registry's `Error: <message>` wrapper. | Zero tokens on a successful start; only the failed parent tool call retains this text. |
 | Parent result, indirectly | The driver extracts only the child's own last assistant output or captured structured value; seeded parent messages and intermediate child work do not become the result. | The parent receives one data-dependent result through the consumer; all other child tokens stay in the child session. |
+
+### Verbatim model-visible text
+
+#### Structured-output instruction
+
+```text
+When you have your final answer, you MUST report it by calling the `structured_output` tool with arguments matching its parameter schema exactly. Do not finish with a plain text answer: only the tool call counts as your result.
+```
 
 ## Known Limitations and Deferred Work
 

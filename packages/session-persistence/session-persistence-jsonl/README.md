@@ -34,7 +34,7 @@ The plugin generalizes the example `session-jsonl.ts`: it subscribes to `session
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Resumed conversation history | JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. An interrupted tail is balanced with error tool results. Raw `assistant/chunk` records do not duplicate messages. | Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus small repair results only after an interrupted tool turn. |
+| Resumed conversation history | JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. Each unanswered call in an interrupted tail is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Raw `assistant/chunk` records do not duplicate messages. | Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus the quoted repair result for each interrupted call. |
 
 ## Known Limitations and Deferred Work
 

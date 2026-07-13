@@ -24,8 +24,68 @@ The tool does not call `agent.inject()` in v1. Its result is already recorded as
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Session prefix | If model-invocable skills exist and this exact `skill` tool is visible, the agent receives one user-role `<system-reminder>` listing sorted names and capped descriptions. The composed catalog is frozen for the loop instance and prepended to every request, outside ordinary history. | Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed. |
-| Tool schema and result | The model sees the fixed `skill(name)` schema. A successful call returns the selected full instructions plus resource-resolution guidance; no duplicate `agent.inject()` copy is made. | Fixed schema cost per request. Loaded instructions are data-dependent tool-result tokens, resent on later steps until compaction. |
+| Session prefix | If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the exact [catalog template](#skill-catalog-template), with one data-dependent entry per sorted skill. The catalog is a frozen user-role session prefix. | Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed. |
+| Tool schema | The model sees `skill(name)` with exact description `Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.` and parameter description `The exact skill name from the available skills list.` | Fixed schema cost per request where the tool is visible. |
+| Tool result | A successful call uses the exact [result template](#skill-result-template) with the exact [provider-managed](#provider-managed-resource-guidance), [directory](#directory-resource-guidance), [URL](#url-resource-guidance), or [opaque](#opaque-resource-guidance) resource guidance. | Loaded instructions are data-dependent tool-result tokens, resent on later steps until compaction; no duplicate `agent.inject()` copy is made. |
+| Tool errors | Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper. | Only a failing call adds these retained tokens. |
+
+### Verbatim model-visible text
+
+#### Skill catalog template
+
+```text
+<system-reminder>
+A skill is a reusable set of task-specific instructions. The following skills are available in this session:
+
+<available_skills>
+- `<name>`: <normalized-and-capped-description>
+</available_skills>
+
+If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+</system-reminder>
+```
+
+#### Skill result template
+
+```text
+<skill_content name="<escaped-name>">
+<skill_resources>
+<resource-guidance>
+</skill_resources>
+
+<skill_instructions>
+<provider-owned-instruction-body>
+</skill_instructions>
+</skill_content>
+```
+
+#### Provider-managed resource guidance
+
+```text
+Resources for this skill are managed by provider "<provider>".
+Load referenced resources only as needed.
+```
+
+#### Directory resource guidance
+
+```text
+Base directory for this skill: <path>
+Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.
+```
+
+#### URL resource guidance
+
+```text
+Base URL for this skill: <url>
+Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.
+```
+
+#### Opaque resource guidance
+
+```text
+Resources for this skill: <description>
+Load referenced resources only as needed.
+```
 
 ## Known Limitations and Deferred Work
 

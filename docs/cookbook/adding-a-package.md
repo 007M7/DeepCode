@@ -44,21 +44,29 @@ For a swappable capability, split interface / implementation / consumer into sep
 
 Keep package-specific service API, config, events, extension points, and design notes first. End a package README with this canonical sequence:
 
-```markdown
+````markdown
 ## Model Experience
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Request surface and condition | Verbatim stable text, or the exact data-dependent shape visible to the model | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
+| Request surface and condition | Short verbatim text, an exact data-dependent shape, or a link to the long literal below | Fixed, conditional, retained, replaced, capped, or zero-direct token effect |
+
+### Verbatim model-visible text
+
+#### Descriptive title matching the table row
+
+```text
+Long stable prompt or schema description, copied exactly from source.
+```
 
 ## Known Limitations and Deferred Work
 
 - **Consumer-visible gap** — exact boundary or deliberately deferred work.
-```
+````
 
-Fill Model Experience from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Quote stable model-visible source literals verbatim in inline code, using named placeholders such as `<mode>` only for interpolated values. Summarize only data-dependent payloads, provider-owned text, or schemas too large to reproduce, and identify their exact shape and renderer. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
+Fill Model Experience from the implementation. Direct, multi-surface, conditional, capped, or lifetime effects use the table; name each request contribution and token-growth condition. Quote short stable model-visible source literals verbatim in inline code, using named placeholders such as `<mode>` only for interpolated values. Put a long stable prompt or schema description under the optional exact `### Verbatim model-visible text` heading: give each literal an H4 title and its own `text` fence, then link it from the table instead of putting long prose in a cell. Summarize only data-dependent payloads, provider-owned text, or schemas too large to reproduce, and identify their exact shape and renderer. Do not infer prompt visibility from tool-schema visibility because independently registered guidance can remain after a scoped tool restriction.
 
-An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
+An audited package with no context effect or one simple consumer-owned path joins [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) and replaces the table with one line beginning `None, as ` or `Indirectly, through `. Every package outside that allowlist must keep the exact table; the verifier also gates the optional verbatim appendix's heading, H4-plus-`text`-fence shape, and placement after the table. A package with genuinely no limitations joins the separate allowlist in [`verify-readme-limitations.ts`](../../scripts/verify-readme-limitations.ts) and ends after Model Experience. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
 
 ## 5. Verify
 

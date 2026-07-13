@@ -37,7 +37,7 @@ The numeric limits are validated at plugin construction: every cap except `maxRe
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Web fetch result, indirectly | Through `dsh-tool-web`, the conversation model sees the final URL, HTTP status, and decoded text or markdown-shaped HTML, or a structured retrieval error. Redirects, headers, and transport mechanics are not added to context unless reflected in an error. | Zero direct tokens. `maxBodyChars` bounds decoded result length before the tool records it; the retained result is resent until compaction. |
+| Web fetch result, indirectly | Through `dsh-tool-web`, the conversation model sees that consumer's exact fetch header plus the data-dependent decoded text or markdown-shaped HTML. This provider's stable failures become `Error: <message>`; messages include `web fetch aborted`, `web fetch timed out`, `web fetch failed: <error>`, `exceeded the maximum of <count> redirects`, `redirect response (HTTP <status>) without a Location header`, `invalid redirect Location "<location>"`, `cross-origin redirect to <origin> is not followed automatically; retry against that URL directly`, `unsupported content type "<type>"`, `response exceeds the maximum of <bytes> bytes`, `URL exceeds the maximum length of <chars>`, `invalid URL: <url>`, `unsupported URL scheme "<scheme>" (only http and https are allowed)`, `credentials in URLs are not allowed`, and `unsupported charset "<charset>"`. Redirects, headers, and transport mechanics are otherwise absent. | Zero direct tokens. `maxBodyChars` bounds decoded result length before the tool records it; the retained result or error is resent until compaction. |
 
 ## Known Limitations and Deferred Work
 

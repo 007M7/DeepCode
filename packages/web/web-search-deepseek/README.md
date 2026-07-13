@@ -39,8 +39,8 @@ DeepSeek returns no provider-generated answer surface this provider trusts as `c
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Auxiliary DeepSeek search request | A separate DeepSeek model receives the search query and native `web_search` server-tool definition. This request is not part of the conversation model's context. | Separate provider input and output tokens are incurred for each search; `maxTokens` caps generated output and `maxUses` caps native search uses. |
-| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees deduplicated URLs, titles, dates, and citation snippets from structured search blocks; provider prose is not trusted as an answer. | Zero direct conversation tokens from registration. Result tokens scale with returned sources and snippets, then the seam enforces the requested source bound. |
+| Auxiliary DeepSeek search request | A separate DeepSeek model receives exactly `Perform a web search for the query: <query>` as its user text and one native `web_search` server-tool definition. This request is not part of the conversation model's context. | Separate provider input and output tokens are incurred for each search; `maxTokens` caps generated output and `maxUses` caps native search uses. |
+| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees deduplicated URLs, titles, dates, and citation snippets from structured search blocks; provider prose is not trusted as an answer. Provider failures become `Error: DeepSeek search aborted`, `Error: DeepSeek search request failed: <error>`, `Error: DeepSeek returned no web_search_tool_result blocks; the request may not have triggered native web search`, or `Error: DeepSeek returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`. | Zero direct conversation tokens from registration. Result tokens scale with returned sources and snippets, then the seam enforces the requested source bound. |
 
 ## Known Limitations and Deferred Work
 

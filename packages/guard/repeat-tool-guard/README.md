@@ -40,7 +40,26 @@ Unit suites drive a real agent loop against a mock adapter (no network) and cove
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Conditional context message | At configured consecutive-repeat thresholds, that agent receives a source-attributed synthetic user reminder after the tool results, asking it to inspect the prior result and change approach or finish. No tool schema or normal-call text is added. | Zero tokens before a threshold. Each reminder is retained history; the detailed form caps the quoted canonical arguments at `argumentsPreviewChars`, while agents keep independent counters. |
+| First-threshold context message | At the first configured consecutive-repeat threshold, that agent receives the exact [gentle reminder](#first-threshold-reminder). No tool schema or normal-call text is added. | Zero tokens before the threshold. The reminder is retained history for that agent. |
+| Later-threshold context message | A later threshold receives the exact [detailed reminder template](#later-threshold-reminder). A capped argument preview ends exactly `… (+<omitted> more chars)`. | Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters. |
+
+### Verbatim model-visible text
+
+#### First-threshold reminder
+
+```text
+You are repeating the exact same tool call with identical arguments. Carefully analyze the previous result before calling again: if the task is not complete, try a different approach or different arguments instead of repeating the call.
+```
+
+#### Later-threshold reminder
+
+```text
+Repeated tool call detected:
+- tool: <toolName>
+- consecutive_calls: <count>
+- arguments: <canonicalArguments>
+The repeated calls are not making progress. Do not call this tool with these exact arguments again. Inspect the latest result and choose a different action, different arguments, or finish the task if enough evidence has been gathered.
+```
 
 ## Known Limitations and Deferred Work
 

@@ -62,7 +62,9 @@ The current model-facing tool collects synchronously: it awaits the child result
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-subagent` and registered providers, which expose delegation schemas, child contexts, and retained parent results.
+| Context surface | What the model sees | Token effect |
+|---|---|---|
+| Delegation result, indirectly | Through `dsh-tool-subagent`, registered providers create child contexts and return data-dependent final output. A missing provider or unsupported requested capability becomes exactly `Error: no subagent provider registered for "<name>"` or `Error: subagent provider "<name>" does not support the "<capability>" capability`. Provider-specific start errors receive the same `Error: <message>` wrapper. | This seam adds no parent schema itself. The parent retains only the final output or start error; child working tokens remain in the child. |
 
 ## Known Limitations and Deferred Work
 

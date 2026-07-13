@@ -52,9 +52,31 @@ The read rendering (line windowing + output formatting) lives in `src/read-rende
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt | Every request in this plugin's registration scope receives three short sections explaining line-windowed reads, whole-file writes, literal edits, and the default read-before-mutate habit. Scoped tool restrictions can hide schemas without removing these independently registered sections. | Fixed guidance cost per request while the plugin is active, even when a restriction hides one or more tools. |
-| Tool schemas | The model sees `read`, `write`, and `edit` with their snake_case arguments. Scoped tool restrictions can remove any definition for one agent. | Fixed schema cost on every request in that tool view. |
-| Tool-call history and results | Read returns numbered UTF-8 lines and a pagination or cap footer; write and edit return concise success text or structured errors. The model-emitted write or edit content also remains in the assistant tool-call arguments. | Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`. Call arguments and results are resent until compaction, so large write payloads can dominate history even though the success result is small. |
+| System prompt | Every request in this plugin's registration scope receives the exact independently registered [read](#read-guidance), [write](#write-guidance), and [edit](#edit-guidance) sections. Scoped tool restrictions can hide schemas without removing these sections. | Fixed guidance cost per request while the plugin is active, even when a restriction hides one or more tools. |
+| Tool schemas | The model sees the exact `read`, `write`, and `edit` descriptions and JSON schemas from their definitions, with snake_case arguments. Scoped tool restrictions can remove any definition for one agent. | Fixed schema cost on every request in that tool view. |
+| Read result | A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered lines as `<lineNumber>: <text>`, a blank line, one footer, and `</content>`. The footer is exactly `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. A long line ends exactly `... (line truncated to <max> chars)`. | Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`; the retained call and result are resent until compaction. |
+| Write and edit results | Write returns the exact five-line envelope `<path><displayPath></path>`, `<type>file</type>`, `<content>`, `Created file` or `Updated file`, then `</content>`. Edit returns exactly `The file <displayPath> has been updated successfully.` or, for `replace_all`, `The file <displayPath> has been updated. All occurrences were successfully replaced.` The full write or replacement text remains in the assistant tool-call arguments. | Success text is small, but large mutation arguments and any result are resent until compaction. |
+| Tool errors | Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs. | Only a failing call adds these retained tokens. |
+
+### Verbatim model-visible text
+
+#### Read guidance
+
+```text
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+```
+
+#### Write guidance
+
+```text
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-policy requires it) and prefer edit for targeted changes.
+```
+
+#### Edit guidance
+
+```text
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-policy requires it), unless you just created or edited it in this session.
+```
 
 ## Known Limitations and Deferred Work
 

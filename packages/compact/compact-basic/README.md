@@ -61,8 +61,55 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Conversation history | Before a step whose estimated system prompt, session prefix, and history exceed the threshold, the conversation model receives one framed summary checkpoint in place of the older balanced surface range, followed by the retained recent units. | The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget. |
-| Auxiliary summarizer request | The summarization model sees a fixed checkpoint-writing system instruction and a flattened transcript of the selected range. The conversation model never sees this private request or its reasoning; only returned text is stored. | This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once. |
+| Conversation history | Before a step whose estimated envelope and history exceed the threshold, the conversation model receives the exact [checkpoint preamble](#conversation-checkpoint-preamble), a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. This one checkpoint replaces the selected older range and is followed by the retained recent units. | The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget. |
+| Auxiliary summarizer user message | The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored. | This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once. |
+| Auxiliary summarizer system prompt | The summarization model receives the exact [checkpoint-writing instruction](#auxiliary-summarizer-system-prompt). | Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt. |
+
+### Verbatim model-visible text
+
+#### Conversation checkpoint preamble
+
+```text
+This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
+```
+
+#### Auxiliary summarizer system prompt
+
+```text
+You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.
+
+Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+
+## Primary Request and Intent
+- [the user's original and evolving goals; quote verbatim where the exact wording matters]
+
+## Key Technical Concepts
+- [technologies, frameworks, patterns, and conventions in play]
+
+## Files and Code
+- [exact path: why it matters, key changes or snippets]
+
+## Errors and Fixes
+- [error: how it was resolved, plus any related user feedback]
+
+## Pending Tasks
+- [explicitly requested work not yet completed]
+
+## Current Work
+- [precisely what was in progress at this checkpoint]
+
+## Next Step
+- [the single next action, directly in line with the most recent request, or "(none)"]
+
+## Critical Context
+- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
+
+Rules:
+- Preserve exact file paths, commands, error strings, identifiers, and function signatures.
+- Capture user feedback and explicit instructions faithfully, especially corrections.
+- Do NOT mention this summarization process or that the context was compacted.
+- If the transcript already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
+```
 
 ## Known Limitations and Deferred Work
 

@@ -142,8 +142,32 @@ The wire collapse is the registry's own contribution (`systemPrompt.tools()` is 
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Tool schemas and Code Mode SDK | In normal mode the model sees each visible definition's name, description, and JSON schema. Code Mode instead contributes one reserved `run_code` wire schema and a generated TypeScript `tools` SDK section; `both` exposes both forms. Agent-scoped restrictions and shadows change that agent's end-tool set and registry-owned SDK without filtering the transport or another plugin's independently registered prompt sections. The expert `system-prompt/assemble` waterfall can replace the final assembly and then owns preserving Code Mode protocol coherence. | Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction. |
-| Tool-call history and results | The loop retains model-emitted arguments and the registry's final normalized content or structured error. Post-execute listeners may append source-attributed context after the result. Code Mode exposes only the outer program's printed or returned value; inner dispatch events stay log-only. | Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them. |
+| Normal tool schemas | In normal mode the model sees each visible definition's exact name, description, and JSON schema. Agent-scoped restrictions and shadows change that agent's end-tool set. | Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent. |
+| Code Mode schema and SDK | Code Mode exposes `run_code` with the exact [tool description](#run_code-tool-description), parameter description `The program: the body of an async TypeScript function.`, and [SDK instructions](#code-mode-sdk-instructions) followed by the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface. | Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction. |
+| Tool-call history and results | The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result. | Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them. |
+
+### Verbatim model-visible text
+
+#### `run_code` tool description
+
+```text
+Execute a TypeScript program against the available tools. Write the BODY of an async function (erasable syntax only; top-level `await` and `return` work) and call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return comes back — curate it.
+```
+
+#### Code Mode SDK instructions
+
+```text
+## Writing code for run_code
+
+Pass `run_code` the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:
+
+- Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's text output as a string. Tool arguments must be JSON-serializable.
+- A FAILED tool call rejects with an `Error` carrying the tool's error text — `try/catch` it to handle and continue.
+- Calls execute sequentially, even under `Promise.all`.
+- Emit results with `return` and/or `console.log(...)`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
+
+The available tools:
+```
 
 ## Known Limitations and Deferred Work
 

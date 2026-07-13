@@ -33,7 +33,7 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Resumed conversation history | SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Interrupted rows are balanced with error tool results. Row metadata and raw chunks are not messages. | Zero live-request tokens. Resume restores retained history and pays the current envelope, with small repair-result tokens only for an interrupted tool turn. |
+| Resumed conversation history | SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages. | Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call. |
 
 ## Known Limitations and Deferred Work
 

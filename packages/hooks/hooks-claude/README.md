@@ -55,7 +55,7 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | Hook-provided context | `SessionStart`, accepted prompt, post-tool, and live in-process subagent-start hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering. Remote-child injection has no local target. | No cost when hooks return no context. Hook text is data-dependent, logged, and resent in later conversation requests until compaction. |
-| Blocked prompt or tool outcome | A hook can prevent a user prompt from reaching the model, deny or ask before a tool, block a post-tool result with feedback, or force another model step. `systemMessage` and `updatedInput` are logged or warned but are not model-visible in this implementation. | Blocking a prompt removes that prompt's request tokens; denial or feedback adds a retained error or context result; forced continuation pays another full request. |
+| Blocked prompt or tool outcome | Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. `systemMessage` and `updatedInput` are logged or warned but are not model-visible in this implementation. | Blocking a prompt removes that prompt's request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request. |
 
 ## Known Limitations and Deferred Work
 

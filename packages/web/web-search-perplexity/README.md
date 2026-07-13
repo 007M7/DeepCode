@@ -29,8 +29,8 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| Auxiliary Perplexity request | A separate Perplexity model receives the search query through its chat-completions endpoint. This request is not part of the conversation model's context. | Separate provider tokens are incurred per search; `maxTokens` caps the generated answer. |
-| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. | Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result is resent until compaction. |
+| Auxiliary Perplexity request | A separate Perplexity model receives `<query>` verbatim as its sole user message through the chat-completions endpoint. This request is not part of the conversation model's context. | Separate provider tokens are incurred per search; `maxTokens` caps the generated answer. |
+| Conversation tool result, indirectly | Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. Failures become `Error: Perplexity search aborted`, `Error: Perplexity search request failed: <error>`, or `Error: Perplexity returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`. | Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result or error is resent until compaction. |
 
 ## Known Limitations and Deferred Work
 

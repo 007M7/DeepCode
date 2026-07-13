@@ -24,7 +24,7 @@ This is the consumer package for the user-interaction seam. It does not render U
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | Tool schema | The model sees `ask_user_question` with question ids, prompts, headings, options, and multi-select flags. | Fixed schema cost on every request where the tool is visible. |
-| Tool-call history and result | The model's full questions remain in the assistant tool-call arguments. After the human answers, the next step sees JSON containing selected labels and optional custom text. UI interaction while the call is pending is not model context. | Arguments and answer JSON are data-dependent retained tokens; there is no token cost while waiting for the human. |
+| Tool-call history and result | The model's full questions remain in the assistant tool-call arguments. After the human answers, the next step sees compact JSON in the exact shape `{"answers":[{"id":"<id>","selected":["<label>"],"custom":"<text>"}]}`; `custom` is omitted when unused and `selected` can contain zero, one, or several labels. UI interaction while the call is pending is not model context. | Arguments and answer JSON are data-dependent retained tokens; there is no token cost while waiting for the human. |
 
 ## Known Limitations and Deferred Work
 

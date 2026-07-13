@@ -25,9 +25,17 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
-| System prompt | Every parent request in this plugin's registration scope receives a short use-only-for-large-orchestration section. A scoped tool restriction can hide the schema without removing this independently registered guidance. | Small fixed guidance cost per request while the plugin is active. |
+| System prompt | Every parent request in this plugin's registration scope receives the exact [workflow guidance](#workflow-guidance). A scoped tool restriction can hide the schema without removing this independently registered guidance. | Small fixed guidance cost per request while the plugin is active. |
 | Tool schema | When visible, the `workflow` schema description carries the complete JavaScript hook and metadata contract; the model submits script, metadata, and optional args. | Substantial fixed schema cost on each request where the tool is visible. |
-| Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. The result contains the workflow name, child count, and final JSON value or a shaped error; intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
+| Tool-call history and result | The full model-written script, metadata, and args remain in the assistant tool call. Success is exactly `workflow "<name>" completed (<count> agent<optional-s>).`, newline, `Return value:`, newline, and pretty-printed data-dependent JSON; a cap adds `… [truncated: <omitted> more characters]` on a new line. Failures are exactly `Error: workflow run was cancelled`, optionally suffixed ` (<error>)`, `Error: workflow run failed: <error-or-unknown error>`, or defensively `Error: workflow run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: workflow tool requires a calling agent (exec.agent was undefined)`. Intermediate child messages are omitted. | Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context. |
+
+### Verbatim model-visible text
+
+#### Workflow guidance
+
+```text
+Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
+```
 
 ## Known Limitations and Deferred Work
 

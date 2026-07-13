@@ -54,6 +54,7 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 | Context surface | What the model sees | Token effect |
 |---|---|---|
 | Conversation history, when a backend is invoked | A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite. | Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged. |
+| Transcript supplied to a compaction consumer | `renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`. | Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript. |
 
 ## Known Limitations and Deferred Work
 
