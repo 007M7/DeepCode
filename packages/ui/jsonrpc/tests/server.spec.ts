@@ -272,14 +272,25 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir, parentSession: SessionId('main') },
         agentOptions: { model: 'deepseek' },
       })
+      const parentlessHandle = await ctx.agents.create({
+        sessionId: SessionId('parentless-child-session'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
       // The backend may dispose the child before publishing its run outcome;
-      // only the cached parent lineage should be needed at this point.
+      // cached locality must survive with or without optional parent lineage.
       await handle.dispose()
+      await parentlessHandle.dispose()
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('child-session'),
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'child done' }],
+      })
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'spawn',
+        id: SessionId('parentless-child-session'),
+        stopReason: 'error',
       })
 
       expect(transport.notifications).toContainEqual({
@@ -292,6 +303,16 @@ describe('HarnessSdkServer', () => {
           status: 'ok',
           stopReason: 'completed',
           lastAssistantMessage: [{ type: 'text', text: 'child done' }],
+        },
+      })
+      expect(transport.notifications).toContainEqual({
+        method: 'subagent.finished',
+        params: {
+          provider: 'spawn',
+          agentId: 'parentless-child-session',
+          childSessionId: 'parentless-child-session',
+          status: 'error',
+          stopReason: 'error',
         },
       })
 

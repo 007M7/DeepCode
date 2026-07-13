@@ -37,7 +37,7 @@ interface BashExecRequest {
   env?: Record<string, string> | undefined
   /**
    * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
+   * (the tool layer passes the owning agent's shared `id`). The
    * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
    * the executor itself NEVER interprets it (no access policy lives in the
    * seam — that is the consumer's job). Absent for foreground runs and for an
