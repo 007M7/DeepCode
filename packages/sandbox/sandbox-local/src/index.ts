@@ -23,14 +23,13 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { grantArgs as landlockGrantArgs, LAUNCHER_BIN, launcherPath as landlockLauncherPath, probe as defaultProbeLandlock } from 'node-addon-landlock-run'
+import { LAUNCHER_BIN, launcherPath as landlockLauncherPath, probe as defaultProbeLandlock } from 'node-addon-landlock-run'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
@@ -71,103 +70,6 @@ export interface Config {
    * per provider lifetime.
    */
   probeTimeoutMs?: number
-}
-
-/**
- * The `bwrap` profile arguments for one policy. The whole host tree is bound
- * read-only; a fresh `/dev` keeps `>/dev/null` redirects working and a fresh
- * `/proc` keeps process-inspecting tools working. `workspace-write`
- * additionally mounts an ephemeral writable `/tmp` and rebinds the workspace
- * root read-write (bind order matters: later binds overlay earlier ones).
- * Deliberately NO `--unshare-pid` (it would break the process-group kill
- * semantics shell consumers rely on) and NO network unsharing (the seam's
- * mode vocabulary promises file effects only).
- * @param policy - the file-effect policy to express as bwrap arguments.
- * @returns the bwrap profile arguments (before the trailing `--` + argv).
- */
-export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
-  const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent']
-  if (policy.mode === 'workspace-write') {
-    args.push('--tmpfs', '/tmp')
-    args.push('--bind', policy.workspaceRoot, policy.workspaceRoot)
-  }
-  return args
-}
-
-/**
- * The `landlock-run` grant arguments for one policy — the bwrap
- * profile's file-effect semantics expressed as a Landlock allow-list
- * (Landlock cannot mount, so there are no fresh/ephemeral filesystems). The
- * whole tree is readable and executable; of `/dev`, ONLY `/dev/null` is
- * writable — a whole-`/dev` grant would expose real host paths beneath it
- * (`/dev/shm`, a shared tmpfs) to persistent writes, which `read-only`
- * promises never happen. bwrap can hand out a fresh ephemeral `/dev`; on the
- * host's own `/dev` the write grant must be node-by-node, and `>/dev/null`
- * is the one redirects need. `workspace-write` adds the HOST `/tmp` (shared
- * and persistent, where bwrap's is ephemeral — the honest difference,
- * recorded in the sandbox RFC's runner notes) plus the workspace
- * root read-write. The flag spelling belongs to `node-addon-landlock-run`'s
- * `grantArgs`; this function owns only the policy → grants mapping.
- * @param policy - the file-effect policy to express as launcher grants.
- * @returns the launcher grant arguments (before `--` + argv).
- */
-export function landlockProfileArgs(policy: SandboxPolicy): string[] {
-  const readWrite = ['/dev/null']
-  if (policy.mode === 'workspace-write') {
-    readWrite.push('/tmp', policy.workspaceRoot)
-  }
-  return landlockGrantArgs({ readOnly: ['/'], readWrite })
-}
-
-/**
- * Resolve a granted root to the path the kernel actually sees. Seatbelt path
- * filters match the CANONICAL path (symlinks resolved), and the roots this
- * profile grants are symlinked on every macOS: `/tmp` is `/private/tmp` and
- * the user temp dir lives under `/var` → `/private/var` — an as-spelled
- * grant would match nothing.
- */
-function canonicalPath(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    // realpathSync failed: the path (or a prefix) is missing or unreadable.
-    // Grant the spelling as-is — an unresolvable root matches nothing until
-    // it exists, which is the conservative outcome, and inventing a fallback
-    // resolution here would grant a path the caller never named.
-    return path
-  }
-}
-
-/** Quote one path as an SBPL string literal (backslashes and double quotes escaped). */
-function sbplString(path: string): string {
-  return `"${path.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`
-}
-
-/**
- * The `sandbox-exec` arguments for one policy: `-p` plus a Seatbelt (SBPL)
- * profile with the same file-effect semantics as the other dialects, built
- * as allow-default → `(deny file-write*)` → write allow-list (later rules
- * win), so exactly the mode's promised file effects are governed — network
- * and process visibility stay unrestricted, which is all the seam's mode
- * vocabulary claims. Of `/dev`, ONLY the `/dev/null` literal is writable
- * (the same node-not-directory reasoning as the Landlock grant).
- * `workspace-write` adds the workspace root, the host `/tmp`, and the
- * per-user darwin temp dir (`os.tmpdir()`, launchd's `TMPDIR`, inherited by
- * the confined child) — on darwin that directory IS the platform's `/tmp`
- * for every mkstemp-family tool, so omitting it would deny the mode's
- * promised temp area. All granted roots are canonicalized because Seatbelt
- * matches resolved paths ({@link canonicalPath}); duplicates after
- * resolution collapse.
- * @param policy - the file-effect policy to express as an SBPL profile.
- * @returns the `sandbox-exec` arguments (`-p` + profile, before `--` + argv).
- */
-export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
-  const forms = ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* (literal ${sbplString('/dev/null')}))`]
-  if (policy.mode === 'workspace-write') {
-    const roots = [...new Set([policy.workspaceRoot, '/tmp', tmpdir()].map(canonicalPath))]
-    forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
-  }
-  return ['-p', forms.join(' ')]
 }
 
 /**

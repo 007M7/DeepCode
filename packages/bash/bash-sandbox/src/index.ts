@@ -49,6 +49,7 @@ import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
+import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } from './helpers.ts'
 
 /**
  * Plugin config: the local executor's knobs plus the sandbox policy. All
@@ -65,75 +66,6 @@ export interface Config extends LocalConfig {
    * executor's default working directory — `cwd`, else `process.cwd()`).
    */
   workspaceRoot?: string
-}
-
-/**
- * Quote one string as a single-quoted POSIX shell word (embedded single
- * quotes become `'\''`), so a wrapped argv element survives the outer
- * `bash -c` re-parse byte-for-byte.
- * @param text - the raw argv element to quote.
- * @returns the single-quoted shell word.
- */
-export function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", String.raw`'\''`)}'`
-}
-
-/**
- * Conservative sandbox-denial classifier: a run counts as denied only when it
- * FAILED (nonzero exit — a signal kill is not a denial) and its stderr
- * carries one of the SELECTED BACKEND's own denial signatures — the dialect
- * the provider stamps on every wrap (`ConfinedArgv.denialSignatures`:
- * `Read-only file system` under bwrap's EROFS mounts, `Permission denied`
- * under Landlock's EACCES, `Operation not permitted` under Seatbelt's
- * EPERM). Matching the backend's dialect rather than a cross-backend union
- * keeps the classifier from claiming denials the active backend never
- * produces (bare EPERM text under a Linux runner names non-file boundaries —
- * mount, kill, ptrace — that fail the same way unsandboxed). Text inference
- * is the fallback signal until a runner provides a structured one (which
- * wins once it exists); it errs toward NOT claiming a denial, and its known
- * residual imprecision is non-sandbox text in the active dialect (an ssh
- * auth failure reads as a denial under Landlock, a refused `kill` under
- * Seatbelt).
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's denial dialect, case-insensitive
- *   stderr substrings.
- * @returns whether the run's failure reads as a sandbox denial.
- */
-export function classifyDenial(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * Runner-failure classifier: a failed run whose stderr carries the SELECTED
- * BACKEND's own runner-failure signature (`ConfinedArgv.
- * runnerFailureSignatures`: the runner's error prefix, which also matches
- * the shell's runner-not-found message) means the SANDBOX itself failed and
- * the command never ran. Checked BEFORE {@link classifyDenial} — a runner's
- * error text can contain denial words (an unopenable grant root reports
- * `Permission denied`) — and surfaced as the fail-closed
- * `SANDBOX_UNAVAILABLE` error on the foreground path, `sandbox.runnerFailed`
- * on a settled background task. Same conservative-text-inference stance and
- * residual imprecision as the denial classifier (a failing task that itself
- * prints the runner's prefix reads as a runner failure).
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's runner-failure signatures,
- *   case-insensitive stderr substrings.
- * @returns whether the run's failure reads as the runner itself failing.
- */
-export function classifyRunnerFailure(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * The classifier core shared by foreground results and settled background
- * tasks: failed AND signature present. Lowercases BOTH sides — the seam
- * declares its signatures case-insensitive, and producers compose them from
- * runtime data of any case (an `argv0` path, `No such file or directory`).
- */
-function matchesSignature(exitCode: number | null, stderr: string, signatures: readonly string[]): boolean {
-  if (exitCode === null || exitCode === 0) return false
-  const lowered = stderr.toLowerCase()
-  return signatures.some(signature => lowered.includes(signature.toLowerCase()))
 }
 
 /**
