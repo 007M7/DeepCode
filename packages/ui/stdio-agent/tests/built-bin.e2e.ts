@@ -109,7 +109,7 @@ async function makeConsumer(
     '  name: \'@deepseek-ai/dsh-stdio-agent\'',
     '  config:',
     '    model: mock-echo',
-    '    systemPrompt: \'demo\'',
+    '    persona: \'demo\'',
     `    welcome: '${welcome}'`,
     ...extraEntries,
     ...disabledBrokenEntry
@@ -129,7 +129,7 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
     const child = spawn(process.execPath, ['--expose-internals', stdioBin, configArg], {
       cwd,
       // Mock model: never calls the network, so no key needed.
-      env: { ...process.env },
+      env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''

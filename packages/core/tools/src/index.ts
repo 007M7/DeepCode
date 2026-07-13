@@ -6,15 +6,29 @@
  * (inspect/replace the result, attach context) for sandbox, permission, and hook
  * plugins to gate or transform a call.
  *
+ * The registry also owns HOW its tools are presented to the model — its
+ * `mode` config: `'native'` (every tool as a wire function definition,
+ * today's behavior and the default), `'code'` (the wire carries exactly one
+ * tool, `run_code`, plus a generated TypeScript SDK prompt section), or
+ * `'both'`. See `code-mode.ts` (the tool + dispatch bridge) and
+ * `ts-types.ts` (the SDK codegen); design in the Code Mode RFC.
+ *
  * @module @deepseek-ai/dsh-tools
  */
 
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
+// Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
+// augmentation. The seam stays optional at runtime — see `serviceAsk`.
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
+import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
+import { renderToolsSdk } from './ts-types.ts'
 
 export {
   defineTool,
@@ -38,6 +52,9 @@ export {
   type StructuredSchemaType,
   type StructuredScalar,
 } from './json-schema.ts'
+
+export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
+export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
@@ -69,8 +86,8 @@ declare module 'cordis' {
      * or return a {@link PreToolDecision} without calling `next()` to
      * short-circuit. A `deny` skips dispatch and yields an `isError` result; the
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
-     * {@link PreToolDecision}); `ask` degrades to deny until the permission
-     * system lands (`FIXME(permissions)`).
+     * {@link PreToolDecision}); `ask` is serviced by the `ctx.approval` seam
+     * when one is mounted, and degrades to deny otherwise.
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
@@ -254,8 +271,9 @@ export interface ToolExecutionResult {
  *   would desync the UI from what RAN. That consistency redesign is its own
  *   `proposed` RFC; `TODO(pre-tool-input-rewrite)` anchors it at the call site.)
  * - `deny` skips dispatch; the loop records an `isError` result carrying `reason`.
- * - `ask` is the permission-prompt intent; until the permission system exists it
- *   degrades to `deny` (`FIXME(permissions)`).
+ * - `ask` is the permission-prompt intent: serviced as a one-shot decision by
+ *   the `ctx.approval` seam when one is mounted (`allowed-once` proceeds to
+ *   dispatch; every other outcome denies), degrading to `deny` when none is.
  */
 export type PreToolDecision =
   | { kind: 'allow' }
@@ -298,20 +316,100 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
   return error instanceof HarnessError ? { name: error.name, code: error.code } : undefined
 }
 
+/** How the registry presents its tools to the model (see {@link Config.mode}). */
+export type ToolPresentationMode = 'native' | 'code' | 'both'
+
+/** Plugin config: how the registered tools are presented to the model. */
+export interface Config {
+  /**
+   * The presentation mode. `'native'` (the default) contributes every
+   * registered tool as a wire function definition — byte-for-byte today's
+   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
+   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * TypeScript API the program calls. `'both'` contributes every native
+   * definition AND `run_code` + the SDK section. Non-native modes require a
+   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
+   * or mismatched runtime rejects every prompt assembly with an actionable
+   * error (misconfiguration fails loud, before any model request). A
+   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
+   * every assembly under `'code'` (those names are no longer contributed) —
+   * a deployment switching modes updates its order config or drops it.
+   */
+  mode?: ToolPresentationMode
+}
+
 /**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
  * loop executes calls through the `tools/pre-execute` → `tools/execute` →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
- * system-prompt assembly.
+ * system-prompt assembly — WHICH schemas is governed by its `mode` config
+ * (see {@link Config.mode}); under a non-native mode it also registers the
+ * `run_code` tool and the `tools:sdk` prompt section itself.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
 
-  private store = new Map<string, ToolDefinition>()
+  static Config: z<Config> = z.object({
+    mode: z.union(['native', 'code', 'both'] as const).default('native'),
+  })
 
-  constructor(ctx: Context) {
+  private store = new Map<string, ToolDefinition>()
+  private readonly mode: ToolPresentationMode
+
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
-    ctx.systemPrompt.tools(() => this.schemas())
+    // The schema already defaulted an omitted mode; the ?? narrows the
+    // optional-input type for direct (non-Loader) construction in tests.
+    this.mode = config.mode ?? 'native'
+    ctx.systemPrompt.tools(() => this.wireSchemas())
+    if (this.mode !== 'native') {
+      this.register(createRunCodeTool(this, () => this.requireCodeRuntime()))
+      ctx.systemPrompt.section({
+        name: 'tools:sdk',
+        order: SDK_SECTION_ORDER,
+        // A lazy thunk over the live store: regenerated at each assembly, in
+        // lexicographic tool order, so an unchanged tool set renders
+        // byte-identical text (prefix-cache-friendly) and a mid-session
+        // registration surfaces exactly like a native-mode tool change.
+        text: () => {
+          this.requireCodeRuntime()
+          return renderToolsSdk(this.schemas().filter(schema => schema.name !== RUN_CODE_NAME))
+        },
+      })
+    }
+  }
+
+  /**
+   * The registry's contribution to the wire tool list, per {@link Config.mode}.
+   * Because `PromptAssembly.tools` is what the loop's request header
+   * snapshots, the mode's collapse is logged and reconstructable for free.
+   * Under a non-native mode this is also the loud misconfiguration gate: no
+   * usable code runtime → every assembly rejects before any model request.
+   */
+  private wireSchemas(): ToolSchema[] {
+    if (this.mode === 'native') return this.schemas()
+    this.requireCodeRuntime()
+    const all = this.schemas()
+    return this.mode === 'code' ? all.filter(schema => schema.name === RUN_CODE_NAME) : all
+  }
+
+  /**
+   * Resolve the code runtime or throw the actionable misconfiguration error.
+   * Read at use time (assembly / run_code execution), NOT via static
+   * `inject`: an inject entry would hold `ctx.tools` — and every tool plugin
+   * behind it — hostage to a code runtime existing even under `mode:
+   * 'native'` (the loop's optional-backend idiom, same as
+   * `sessionPersistence`).
+   */
+  private requireCodeRuntime(): CodeRuntime {
+    const runtime = this.ctx.get('codeRuntime')
+    if (!runtime) {
+      throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+    }
+    if (runtime.language !== 'typescript') {
+      throw new Error(`dsh-tools: mode "${this.mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+    }
+    return runtime
   }
 
   /**
@@ -392,22 +490,17 @@ export class ToolRegistry extends Service {
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {
-      // --- Gate: tools/pre-execute. A deny (or an ask, which degrades to deny
-      // until the permission system lands) skips dispatch entirely. ---
-      const decision = await this.ctx.waterfall(
+      // --- Gate: tools/pre-execute. An `ask` resolves through the approval
+      // seam (or degrades) to allow/deny before the shared deny path. ---
+      const gate = await this.ctx.waterfall(
         this, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
+      const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
       if (decision.kind !== 'allow') {
-        // deny → isError. ask has no permission UI yet, so degrade to deny
-        // (FIXME(permissions)): a forthcoming permission system turns `ask` into
-        // a real prompt; today it is the conservative "not allowed".
-        const reason = decision.kind === 'deny'
-          ? decision.reason
-          : decision.reason ?? `tool "${exec.name}" requires approval (not yet supported)`
         const denied: ToolExecutionResult = {
           callId: exec.callId,
-          content: [{ type: 'text', text: `Error: ${reason}` }],
+          content: [{ type: 'text', text: `Error: ${decision.reason}` }],
           isError: true,
         }
         return await this.postExecute(exec, denied)
@@ -443,6 +536,44 @@ export class ToolRegistry extends Service {
       // Outer backstop: a throwing pre/post-execute listener (or the waterfall
       // machinery) becomes an isError result, never a turn failure.
       return toolErrorResult(exec.callId, error)
+    }
+  }
+
+  /**
+   * Resolve an `ask` decision to allow/deny through the approval seam. The
+   * seam is consumed opportunistically with `ctx.get('approval')` — a
+   * deployment that composes no ApprovalService keeps the historical degrade
+   * to deny, and an unmount mid-session degrades the same way on the next ask.
+   * An agent-less execution also degrades: without an agent there is no
+   * session to audit to and no UI to route to. Otherwise the outcome maps
+   * one-to-one — `allowed-once` proceeds; the three non-grants deny with
+   * distinct reasons so the model can tell a human "no" from an absent
+   * approval channel.
+   */
+  private async serviceAsk(
+    exec: ToolExecution,
+    ask: Extract<PreToolDecision, { kind: 'ask' }>,
+  ): Promise<Extract<PreToolDecision, { kind: 'allow' | 'deny' }>> {
+    const approval = this.ctx.get('approval')
+    if (approval === undefined) {
+      return { kind: 'deny', reason: ask.reason ?? `tool "${exec.name}" requires approval (not yet supported)` }
+    }
+    if (exec.agent === undefined) {
+      return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but the call has no agent to route it through` }
+    }
+    const outcome = await approval.request({
+      agent: exec.agent,
+      toolName: exec.name,
+      callId: exec.callId,
+      ...ask.reason !== undefined ? { reason: ask.reason } : {},
+      ...exec.signal !== undefined ? { signal: exec.signal } : {},
+    })
+    switch (outcome) {
+      case 'allowed-once': return { kind: 'allow' }
+      case 'rejected': return { kind: 'deny', reason: `the user rejected tool "${exec.name}"` }
+      case 'cancelled': return { kind: 'deny', reason: `approval for tool "${exec.name}" was cancelled` }
+      case 'unavailable': return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but no approval channel is available` }
+      default: return assertNever(outcome, 'ApprovalOutcome')
     }
   }
 

@@ -85,6 +85,8 @@ export type InputStep =
   | { op: 'promptExpectError'; text: string }
   | { op: 'promptAndCancel'; text: string }
   | { op: 'cancel' }
+  | { op: 'setConfigOption'; configId: string; value: string }
+  | { op: 'setConfigOptionExpectError'; configId: string; value: string }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
@@ -166,6 +168,15 @@ export interface RunOptions {
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Alternate LIVE config path for the boot (absolute), overriding
+   * {@link AgentUnderTest.configPath} for this run. A scenario needing a
+   * differently-composed tree (the Code Mode scenarios) ships an overlay
+   * whose basename still ends in `cordis.yml`, so the bin's replay swap
+   * resolves the sibling `*cordis.snapshot.yml` the same way it does for
+   * the default.
+   */
+  configPath?: string
 }
 
 /**
@@ -205,6 +216,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
       DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
@@ -213,7 +226,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, opts.agent.configPath],
+      ['--import', tsxLoader, opts.agent.binScript, opts.configPath ?? opts.agent.configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 
@@ -400,6 +413,24 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
       await client.cancel({ sessionId })
+      return
+    }
+    case 'setConfigOption': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOption before newSession')
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value })
+      return
+    }
+    case 'setConfigOptionExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOptionExpectError before newSession')
+      // The bridge rejects an unknown id / out-of-vocabulary value; the SDK
+      // surfaces that as a rejected RPC — swallow it so the run completes and
+      // the error frame is captured in the transcript.
+      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value }).then(
+        () => { throw new Error('snapshot-harness: expected set_config_option to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the id or value */ },
+      )
       return
     }
     default:

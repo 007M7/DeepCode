@@ -49,6 +49,10 @@ Follow tool-bash's background pattern: a `run_in_background` flag returns a task
 
 Prefer not to build policy into the tool. The seam is the `tools/pre-execute` gate (deny/ask — see the permission-gate example in [extension-cookbook.md](./extension-cookbook.md)) and the `tools/post-execute` inspect/transform seam, or a sandboxing implementation behind the tool's executor seam.
 
+## Code Mode reaches your tool for free
+
+Under the registry's non-native `mode` ([Code Mode](../../packages/core/tools/README.md)), a registered tool is ALSO callable from a `run_code` program as `await tools.<name>(args)` — nothing to add. The generated SDK declares your parameters from the same JSON Schema `defineTool` emits (constructs outside that subset degrade to `unknown`), each program call re-enters `execute()` through both waterfalls, and a failed call rejects the program-side promise with your error text. Two consequences worth designing for: your `description` and parameter `description`s become JSDoc a model reads while WRITING CODE, and non-text result blocks reach programs as placeholders (text is the lingua franca of the bridge).
+
 ## How your tool renders in an editor (ACP presentation)
 
 Your tool's `execute` returns model-facing content; its **editor card** is a separate, optional concern you declare with two pure display methods on the `defineTool` options. Design this alongside `execute`, not after — an editor (Zed, over the ACP bridge) shows the card, and a tool with no presentation falls back to a bland generic card (title = tool name, raw args as input).

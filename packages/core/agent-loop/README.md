@@ -8,7 +8,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` with optional session metadata. Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -28,11 +28,12 @@ interface Config {
   agents: Array<{
     id: string                 // required
     model?: string
+    cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup. (There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context.) The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Classes
 
@@ -55,12 +56,15 @@ forever:
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
-      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
+                                                session prefix; on the header, never history
+      await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
+                                                pressure gates see the prefix the request carries
       boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
       session('step/start')                     strictly before step/start
       config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
       session('request/header'[-delta])      ⟵ the header event this request owes the log
-      stream llm.stream(freeze({header..., messages: boundary})) → session('assistant/chunk')
+      stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
       each tool-call: session('tool/call')
@@ -84,7 +88,7 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/session-prefix`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
 - Compaction: `agent/pre-step`
 - Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.

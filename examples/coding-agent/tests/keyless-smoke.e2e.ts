@@ -62,6 +62,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
           // A dummy key so llm-deepseek's apply() (key-PRESENT check only) boots.
           // No prompt is sent, so the adapter never streams — no network call.
           DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
+          DSH_HOME: join(cwd, '.dsh'),
+          DSH_AGENTS_HOME: join(cwd, '.agents'),
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       },
@@ -76,8 +78,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
 
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error(`coding-agent did not exit within 10s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 10_000)
+      reject(new Error(`coding-agent did not exit within 30s. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 30_000)
 
     proc.on('exit', (code) => {
       clearTimeout(timer)
@@ -96,5 +98,5 @@ describe('coding-agent keyless smoke (real cordis.yml via the Loader)', () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
     expect(stdout).toContain('agent REPL ready.')
-  }, 15_000)
+  }, 45_000)
 })

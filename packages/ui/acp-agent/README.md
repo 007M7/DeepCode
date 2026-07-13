@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp-agent
 
-The **ACP server app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster an [Agent Client Protocol](../acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
+The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster an [Agent Client Protocol](../acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
 
 It is the structured counterpart to [`@deepseek-ai/dsh-stdio-agent`](../stdio-agent/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
 
@@ -11,8 +11,10 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | Plugin | Why |
 |---|---|
 | `@deepseek-ai/dsh-agent-core` | the spine, pre-creating **no** agents (ACP `session/new` creates them on demand) |
+| `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
-| `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC |
+| `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
+| ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 

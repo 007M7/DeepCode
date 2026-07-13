@@ -11,7 +11,7 @@ A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml`
 
 ## `@deepseek-ai/dsh-acp`
 
-Requires: `agents` · `sessions` · `sessionPersistence` · `tools`
+Requires: `agents` · `sessions` · `sessionPersistence` · `tools` · `userInteraction`
 
 ```ts config-catalog
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:115`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -42,7 +42,8 @@ Source: [`packages/ui/acp/src/index.ts:115`](../packages/ui/acp/src/index.ts)
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * `persistenceRoot` is the JSONL backend's directory.
+ * `tools` is the tool registry's config (its presentation `mode`, forwarded
+ * through agent-core); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
@@ -51,12 +52,18 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
+  skills?: agentCore.SkillConfig
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:49`](../packages/ui/acp-agent/src/index.ts)
+Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/ui/acp-agent/src/index.ts:52`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
@@ -66,10 +73,12 @@ Source: [`packages/ui/acp-agent/src/index.ts:49`](../packages/ui/acp-agent/src/i
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order). Every field is optional INPUT here because each owner's schema
- * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
- * the INTERSECTION of the owners' own schemas, so validation and defaulting
- * can never drift from them.
+ * order), the `tools` object to the tool registry (its presentation `mode`),
+ * and `skills` to the skill registry/local provider/tool consumer. Every field
+ * is optional INPUT here because each owner's schema supplies the default;
+ * the schema is the INTERSECTION of the owners' own schemas (with registry
+ * schemas nested under their bundle keys), so validation and defaulting can
+ * never drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -78,12 +87,26 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
+  /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
+  tools?: ToolsConfig
+  /** Skill registry, local provider, and model-facing consumer config. */
+  skills?: SkillConfig
+}
+
+/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
+export interface SkillConfig {
+  /** Registry-level discovery cache settings. */
+  registry?: SkillRegistryConfig
+  /** Local filesystem skill provider settings. */
+  local?: SkillLocal.Config
+  /** Model-facing skill catalog and tool settings. */
+  tool?: toolSkill.Config
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:87`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -99,6 +122,8 @@ export interface Config {
   agents: (AgentOptions & {
     /** Agent id to register under; also seeds the fresh per-run session id (`${id}-session-<uuid>`). */
     id: AgentId
+    /** Optional workspace cwd for the config-created fresh session. */
+    cwd?: string
     /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
@@ -140,6 +165,33 @@ export interface Config {
 ```
 
 Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local/src/index.ts)
+
+## `@deepseek-ai/dsh-bash-sandbox`
+
+Requires: `sandbox`
+
+```ts config-catalog
+/**
+ * Plugin config: the local executor's knobs plus the sandbox policy. All
+ * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
+ * fail-safe default; an example that wants a workspace-writable agent opts in
+ * explicitly). The runner choice is NOT configured here: which platform
+ * backend confines the command is the `ctx.sandbox` provider's config.
+ */
+export interface Config extends LocalConfig {
+  /** File-sandbox mode commands run under (default: `read-only`). */
+  mode?: SandboxMode
+  /**
+   * Root directory `workspace-write` mode may write under (default: the
+   * executor's default working directory — `cwd`, else `process.cwd()`).
+   */
+  workspaceRoot?: string
+}
+```
+
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/bash/bash-sandbox/src/index.ts:60`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -421,6 +473,53 @@ export interface Config {
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:55`](../packages/guard/repeat-tool-guard/src/index.ts)
 
+## `@deepseek-ai/dsh-sandbox-local`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
+   * appended). A NON-EMPTY argv is the operator's assertion that this runner
+   * exists and FULLY enforces the profile (confinement reports
+   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
+   * — carries both Linux file-denial dialects as its denial signatures) —
+   * the runner chain and its probes are skipped,
+   * and a broken runner fails loudly at execution time. The operator also
+   * supplies {@link runnerFailureSignatures}, which distinguish the runner
+   * refusing its profile from the wrapped command failing normally.
+   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
+   * built-in platform chains — Linux `bwrap` then the Landlock launcher
+   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
+   * selected without a probe). Used for custom/alternative runners and
+   * for deterministic fake runners in keyless test tiers.
+   */
+  runnerCommand?: string[]
+  /**
+   * Case-insensitive stderr substrings emitted when a configured
+   * {@link runnerCommand} refuses its profile before executing the wrapped
+   * command. Required and non-empty with `runnerCommand`; rejected without
+   * it. Missing/unexecutable runner errors are added automatically from
+   * `runnerCommand[0]`, while these signatures cover an executable runner's
+   * own failure dialect.
+   */
+  runnerFailureSignatures?: string[]
+  /**
+   * Per-probe timeout in milliseconds for the chain's functional probes
+   * (default: 5000; must be a positive finite number — Node treats a 0
+   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
+   * probe that exceeds it reads as an unusable rung, so a
+   * host slow enough to trip the default — cold NFS mounts, heavily loaded
+   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
+   * config escape. Bounds ONE probe, and the chain walk runs each at most once
+   * per provider lifetime.
+   */
+  probeTimeoutMs?: number
+}
+```
+
+Source: [`packages/sandbox/sandbox-local/src/index.ts:36`](../packages/sandbox/sandbox-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
@@ -474,6 +573,36 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:50`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
+## `@deepseek-ai/dsh-skill`
+
+```ts config-catalog
+/** Skill registry configuration. */
+export interface Config {
+  /** Maximum number of completed cwd/provider catalog snapshots kept in memory. */
+  collectCacheMaxEntries?: number
+}
+```
+
+Source: [`packages/skill/skill/src/index.ts:112`](../packages/skill/skill/src/index.ts)
+
+## `@deepseek-ai/dsh-skill-local`
+
+Requires: `skills`
+
+```ts config-catalog
+/** Local filesystem skill provider configuration. */
+export interface Config {
+  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+  /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
+  agentsHome?: string
+  /** Additional skill roots scanned after project roots and before user roots. */
+  customSkillDirs?: string[]
+}
+```
+
+Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-spill-local`
 
 ```ts config-catalog
@@ -517,7 +646,9 @@ Source: [`packages/spill/spill-policy/src/index.ts:45`](../packages/spill/spill-
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
+ * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
+ * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
+ * `welcome` is the UI banner.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
@@ -526,10 +657,14 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-core. */
+  skills?: agentCore.SkillConfig
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -539,7 +674,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/stdio-agent/src/index.ts:60`](../packages/ui/stdio-agent/src/index.ts)
+Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/ui/stdio-agent/src/index.ts:65`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -704,6 +841,24 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-cordis`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Config for the tool-cordis plugin: the sandbox evaluation bound. */
+export interface Config {
+  /**
+   * Milliseconds the SYNCHRONOUS portion of mount code may run in the vm
+   * before evaluation is aborted (default 5000). An async body escapes this
+   * bound — see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
+   */
+  vmTimeoutMs?: number
+}
+```
+
+Source: [`packages/cordis/tool-cordis/src/index.ts:53`](../packages/cordis/tool-cordis/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-fs`
 
 Requires: `tools` · `fs` · `systemPrompt`
@@ -745,6 +900,20 @@ export interface Config {
 ```
 
 Source: [`packages/fs/tool-fs-search/src/index.ts:59`](../packages/fs/tool-fs-search/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-skill`
+
+Requires: `tools` · `skills`
+
+```ts config-catalog
+/** Model-facing skill catalog configuration. */
+export interface Config {
+  /** Maximum normalized description length rendered in the session catalog; minimum 3. */
+  catalogDescriptionMaxLength?: number
+}
+```
+
+Source: [`packages/skill/tool-skill/src/index.ts:19`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -798,6 +967,83 @@ export interface Config {
 ```
 
 Source: [`packages/web/tool-web/src/index.ts:40`](../packages/web/tool-web/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-workflow`
+
+Requires: `tools` · `workflows` · `systemPrompt`
+
+```ts config-catalog
+/** Config: the model-facing tool name plus result rendering caps. */
+export interface Config {
+  /** The model-facing tool name to register (default `workflow`). */
+  toolName?: string
+  /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
+  maxResultChars?: number
+}
+```
+
+Source: [`packages/workflow/tool-workflow/src/index.ts:39`](../packages/workflow/tool-workflow/src/index.ts)
+
+## `@deepseek-ai/dsh-tools`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Plugin config: how the registered tools are presented to the model. */
+export interface Config {
+  /**
+   * The presentation mode. `'native'` (the default) contributes every
+   * registered tool as a wire function definition — byte-for-byte today's
+   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
+   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * TypeScript API the program calls. `'both'` contributes every native
+   * definition AND `run_code` + the SDK section. Non-native modes require a
+   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
+   * or mismatched runtime rejects every prompt assembly with an actionable
+   * error (misconfiguration fails loud, before any model request). A
+   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
+   * every assembly under `'code'` (those names are no longer contributed) —
+   * a deployment switching modes updates its order config or drops it.
+   */
+  mode?: ToolPresentationMode
+}
+
+/** How the registry presents its tools to the model (see {@link Config.mode}). */
+export type ToolPresentationMode = 'native' | 'code' | 'both'
+```
+
+Source: [`packages/core/tools/src/index.ts:323`](../packages/core/tools/src/index.ts)
+
+## `@deepseek-ai/dsh-user-approval`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * The deployment's default {@link ApprovalPolicy} for sessions without an
+   * `approval/policy` override — `'ask'` delegates to the composed answerers
+   * (fail-closed with none); `'never'` auto-rejects every ask without
+   * prompting (the deterministic CI/unattended stance).
+   */
+  policy?: ApprovalPolicy
+}
+
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
+export type ApprovalPolicy = 'ask' | 'never'
+```
+
+Source: [`packages/ui/user-approval/src/index.ts:258`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -912,6 +1158,34 @@ export interface Config {
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
+## `@deepseek-ai/dsh-workflow-workerthread`
+
+Requires: `subagents`
+
+```ts config-catalog
+/** Plugin config (all optional — `static Config` supplies the defaults). */
+export interface Config {
+  /** The `ctx.subagents` provider children run on (default `spawn`). */
+  provider?: string
+  /** Concurrent `agent()` ceiling; `0` (the default) auto-resolves to `min(16, max(1, cores - 2))`. */
+  maxConcurrentAgents?: number
+  /** Total `agent()` calls one run may start — the runaway-loop backstop (default 1000). */
+  maxTotalAgents?: number
+  /** Items accepted by a single `parallel()`/`pipeline()` call (default 4096). */
+  maxItemsPerCall?: number
+  /** vm timeout for the script's initial synchronous slice, inside the worker (default 5000 ms). */
+  syncTimeoutMs?: number
+  /**
+   * How long after a cancellation an unsettled script may keep running before
+   * the run force-settles `cancelled` and its worker is TERMINATED (default
+   * 5000 ms); also bounds `dispose()`.
+   */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/workflow/workflow-workerthread/src/index.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
@@ -922,9 +1196,10 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
+- `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
-- `@deepseek-ai/dsh-tools` — requires `systemPrompt` ([`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts))
+- `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 
 ## Seam packages (not directly loadable)
 
@@ -934,8 +1209,10 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
+- `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillFiles` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
+- `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 
 ## Library packages (no plugin entry)
 
@@ -947,4 +1224,5 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
+- `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))
 - `@deepseek-ai/dsh-timeout` ([`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts))

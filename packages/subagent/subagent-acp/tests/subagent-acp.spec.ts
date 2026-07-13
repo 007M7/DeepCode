@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import { buildChildEnv, SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subagent-subprocess'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
-import { acpStopReason, acpContentText, buildChildEnv, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, SENSITIVE_ENV_PATTERN, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
+import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 
 /**
  * Keyless integration tests for the ACP subagent backend. Each spawns a REAL
@@ -479,6 +480,28 @@ describe('dsh-subagent-acp', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.stopReason).toBe('error')
     expect(errors[0]!.message.length).toBeGreaterThan(0)
+    await run.dispose()
+  })
+
+  it('resolves error (never rejects) even when the onError sink itself throws', async () => {
+    // onError is a caller-supplied callback boundary: its own exception must be
+    // contained, or it would reject `result` and break the seam's "result never
+    // rejects" contract that the flattening above exists to uphold.
+    const run = startAcpRun(
+      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+      {
+        command: '/nonexistent/acp-agent-binary',
+        args: [],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: {},
+        disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+        disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+        onError: () => { throw new Error('sink boom') },
+      },
+    )
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
     await run.dispose()
   })
 

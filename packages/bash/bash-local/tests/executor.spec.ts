@@ -40,12 +40,14 @@ async function readUntil(
 ): Promise<BashTaskRead> {
   const deadline = Date.now() + timeoutMs
   let last: BashTaskRead | undefined
+  let delta = ''
   while (Date.now() < deadline) {
     last = bash.readOutput(id)
-    if (last.delta.includes(expected)) return last
+    delta += last.delta
+    if (delta.includes(expected)) return { ...last, delta }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
-  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; last delta was ${JSON.stringify(last?.delta ?? '')}`)
+  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; output was ${JSON.stringify(delta)}, last delta was ${JSON.stringify(last?.delta ?? '')}`)
 }
 
 describe('LocalBashExecutor.run', () => {

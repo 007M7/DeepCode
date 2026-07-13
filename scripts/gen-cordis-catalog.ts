@@ -92,11 +92,17 @@ export const LINK_MAP: Record<string, string> = {
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
   ToolExecutionResult: 'tools.md',
+  ApprovalOutcome: 'approval.md',
+  ApprovalPolicy: 'approval.md',
+  ApprovalRequest: 'approval.md',
   BashExecRequest: 'bash.md',
   BashExecSpec: 'bash.md',
   BashRunResult: 'bash.md',
   BashTask: 'bash.md',
   BashTaskRead: 'bash.md',
+  ConfinedArgv: 'sandbox.md',
+  SandboxMode: 'sandbox.md',
+  SandboxPolicy: 'sandbox.md',
   CodeRunRequest: 'code-runtime.md',
   CodeRunResult: 'code-runtime.md',
   FsEditOutcome: 'filesystem.md',
@@ -327,7 +333,7 @@ const INHERITED_EVENTS: InheritedEntry[] = [
   { name: 'loader/patch-context', summary: 'A context is being patched during a reload.', source: 'vendor/loader/src/index.ts:27' },
 ]
 
-const INHERITED_SERVICES: InheritedEntry[] = [
+export const INHERITED_SERVICES: InheritedEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.', source: 'vendor/cordis/src/registry.ts:144' },

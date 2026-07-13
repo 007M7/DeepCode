@@ -74,16 +74,15 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Amendment to the folded {@link EpochHeader}: at least one of a
-   * {@link SystemDelta}, a {@link ToolsDelta}, or a whole replacement
-   * {@link LlmCallConfig} (four scalars — not worth diffing). Appended by the
-   * loop inside the step, before dispatch, when the header for this request
-   * differs from the fold of the log so far; the writer verifies
-   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
-   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
-   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   * Amendment to the folded {@link EpochHeader}: system line-trim, name-keyed
+   * tools delta, whole replacement config, or whole replacement session
+   * prefix (an EMPTY array encodes the transition to "none"). The
+   * writer verifies `applyHeaderDelta(previous, delta)` reproduces the new
+   * header exactly and falls back to a `'fallback'` `request/header` snapshot
+   * when it cannot, so a logged delta ALWAYS round-trips. NOT a
+   * {@link SurfaceEventType}.
    */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 ```
 
@@ -100,7 +99,7 @@ export interface TodoItem {
 
 ### The request header events: `request/header` and `request/header-delta`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
 
 ```ts type-equiv
 export interface EpochHeader {
@@ -110,10 +109,18 @@ export interface EpochHeader {
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
+  /**
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
+   */
+  messagePrefix?: Message[]
 }
 ```
 
-Canonical form: an empty system prompt and an empty tool list are ABSENT fields, matching how requests are built. The delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
+Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are ABSENT fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); composed once per loop instance and anchored by that instance's snapshot, so the loop never produces a prefix delta in practice — the delta arm (whole-array replacement, an empty array encoding the transition back to absence) exists for codec totality. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
 
 ## `SessionEvent<T>` — one log entry
 

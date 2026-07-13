@@ -2,7 +2,7 @@
 
 The **code-execution seam**: an abstract `CodeRuntime` service (`ctx.codeRuntime`) defining WHAT a code runtime does — run one model-written program against a set of host-provided async bindings and report `{ value, logs, error? }` — without saying HOW.
 
-This package is the interface third of the capability (the bash trio is the template — see [capability seams](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): implementations subclass `CodeRuntime` and register the service; the consumer is the tool registry's Code Mode, which generates the model-facing SDK and bridges tool dispatch — both specified in the [Code Mode RFC](../../../docs/rfc/proposed/feature/2026-06-15-code-mode.md), whose first implementation is a Node worker-thread backend. The runtime knows nothing about tools or sessions: it is handed named async functions and a program string, and everything tool-shaped stays with the consumer.
+This package is the interface third of the capability (the bash trio is the template — see [capability seams](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): implementations subclass `CodeRuntime` and register the service; the consumer is the tool registry's Code Mode, which generates the model-facing SDK and bridges tool dispatch — both specified in the [Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md), whose first implementation is a Node worker-thread backend. The runtime knows nothing about tools or sessions: it is handed named async functions and a program string, and everything tool-shaped stays with the consumer.
 
 ## Service API (`ctx.codeRuntime`)
 

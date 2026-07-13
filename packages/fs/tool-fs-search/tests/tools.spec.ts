@@ -66,6 +66,7 @@ class FakeBash extends BashExecutor {
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
       owner: request.owner,
+      sandboxMode: request.sandboxMode,
     }
   }
   override run(spec: BashExecSpec): Promise<BashRunResult> {
