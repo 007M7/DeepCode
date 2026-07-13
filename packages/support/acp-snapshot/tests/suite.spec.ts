@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -69,7 +69,13 @@ const RECORD_SCENARIOS: Scenario[] = [
 // committed record fixtures/goldens in place.
 const BOOTSTRAP = process.env.ACP_SNAPSHOT_SPEC_BOOTSTRAP === '1'
 const recordDir = BOOTSTRAP ? RECORD_SRC : mkdtempSync(join(tmpdir(), 'acp-snap-record-suite-'))
-if (!BOOTSTRAP) cpSync(RECORD_SRC, recordDir, { recursive: true })
+if (!BOOTSTRAP) {
+  cpSync(RECORD_SRC, recordDir, { recursive: true })
+  // Record mode owns its output inventory: a new scenario has no primary yet,
+  // while a changed child count can leave old numbered fixtures behind.
+  rmSync(join(recordDir, 'rec-pin', 'session.jsonl'))
+  writeFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'stale child\n')
+}
 const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
 cpSync(REPLAY_DIR, refreshDir, { recursive: true })
 staleRefreshFixtures(refreshDir)
@@ -138,6 +144,13 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
       'NEW PROMPT LINE',
       '',
     ].join('\n'))
+  })
+})
+
+describe('defineAcpSnapshotSuite: record inventory write-back', () => {
+  it('creates a missing primary fixture and prunes stale child fixtures', () => {
+    expect(readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')).toContain('"type":"session"')
+    expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
   })
 })
 
