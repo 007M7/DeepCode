@@ -21,13 +21,13 @@ agent 作用域落地之后（[agent-scope RFC](../../implemented/architecture/2
 
 `dsh-scope` 新增与键类型无关的 `store.ts`，peer 依赖仍只有 Cordis。模块只抽取六个现有登记口已经共同证明的最小形状：**业务状态与校验留在显式层类里；一个 helper 统一负责选层、挂 effect、回滚、通知与回收**。一个 helper 实例属于一个服务；一个层实例聚合某 scope 对该服务的全部贡献。
 
-- **`ScopedLayers<L>`** 是具体调度器，不作基类。它持有全局层与一张 `Map<ScopeKey, L>`，通过显式工厂按需构造专属层，并在层 `isEmpty()` 时回收。`effect(ctx, action, options?)` 只接受一个同步 action，action 只返回一个同步 undo，因为六个现有登记口的完整形状就是如此。单一 `ctx` 同时决定可见层（`scopeOf(ctx)`）与属主 Cordis fiber（`ctx.effect`），「对 X 可见、随 Y 销毁」因此不可表达。helper 在通知监听器前 yield undo，返回 Cordis 的原始 disposer，并在校验或变更抛错时回收刚建出的空层。读取接口是 `global`/`peek`，以及 `merge`（命名条目的专属遮蔽与可选全局放行谓词）、`values`（不遮蔽地依次拼接全局与专属条目）、`keys`（限制前名字全集）和 `some`（跨层不变量检查）。
+- **`ScopedLayers<L>`** 是具体调度器，不作基类。它持有全局层与一张 `Map<ScopeKey, L>`，通过显式工厂按需构造专属层，并在层 `isEmpty()` 时回收。`effect(ctx, action, options?)` 只接受一个同步 action，action 只返回一个同步 undo，因为六个现有登记口的完整形状就是如此。单一 `ctx` 同时决定可见层（`scopeOf(ctx)`）与属主 Cordis fiber（`ctx.effect`），「对 X 可见、随 Y 销毁」因此不可表达。helper 在通知监听器前 yield undo，返回 Cordis 的原始 disposer，并在校验或变更抛错时回收刚建出的空层。读取接口是 `global`/`peek`，以及 `merge`（命名条目的专属遮蔽与可选全局放行谓词）、`values`（不遮蔽地依次拼接全局与专属条目）和 `keys`（限制前名字全集）。
 - **显式 `ScopeLayer` 类**让每个服务的状态一眼可见。`ToolLayer` 与 `PromptLayer` 直接声明各自三项表属性与 `isEmpty()` 聚合；一个小工厂只向构造器传入 scope，闭包仍可捕获真实构造依赖。领域方法仍是普通类方法。代价是几行重复声明，收益是不用引入 mapped-type 类工厂、scheduler/layer 属主环、保留属性名和生成式运行时结构。
 - **`NamedEntries<V>` 与 `AnonymousEntries<V>`** 是两种共用的保插入序条目表。命名表暴露 `insert`/查询，并通过领域 `kind` 与 per-agent alternative 标签保持现有全局/专属重名文案；匿名表只暴露 `append`，以进程内唯一 symbol 作键支持 O(1) 撤销删除。分成两类以后，无意义的命名/匿名混用不可表达，key 类型也保持健全。迭代器借用表成员与带类型的贡献值，不会 clone 或 freeze 值；`ScopedLayers` 只物化服务读路径本来就需要的合并数组或 Map。
 
-`dsh-tools` 把工具、已编译 restriction 与 guard 三张表合并进一个 `ToolLayer`。restriction 放行判断与 guard 求值归层所有；`run_code` 保留名、当前已知全局名集合等依赖服务配置的领域校验仍留在门面。只读 allow/deny 输入只编译一次，成为内部 Set。`dsh-system-prompt` 同样把 section、tool provider 与 variable 合并进一个 `PromptLayer`；门面通过 `layers.some` 完成 owner-final 跨层冲突检查。每个登记门面先完成公开参数校验，再以 label 做一次 `effect` 调用；guard 额外传 `silent: true`。通用 helper 不理解「restriction 必须由 scoped context 调用」之类领域规则。
+`dsh-tools` 把工具、已编译 restriction 与 guard 三张表合并进一个 `ToolLayer`。restriction 放行判断与 guard 求值归层所有；`run_code` 保留名、当前已知全局名集合等依赖服务配置的领域校验仍留在门面。只读 allow/deny 输入只编译一次，成为内部 Set。`dsh-system-prompt` 同样把 section、tool provider 与 variable 合并进一个 `PromptLayer`。每个登记门面先完成公开参数校验，再以 label 做一次 `effect` 调用；guard 额外传 `silent: true`。通用 helper 不理解「restriction 必须由 scoped context 调用」之类领域规则。
 
-`assemble` 留在 `SystemPrompt` 门面，三条理由：主体 scope 的层可能不存在，读路径不得创建它；遮蔽语义要求先合并再求值，被遮蔽的 section provider 绝不能被调用；组装 waterfall、`toolOrder` 与 owner-final 恢复使用服务级资源。section 与 tool provider 保持既有的派生视图物化；variable provider 则直接遍历全局与专属 `NamedEntries`，保留 provider 在组装期间登记另一 variable 时的现有活 Map 行为。tool guard 同样直接遍历其 `AnonymousEntries`。owner-final 仍是 section 与 tool 贡献上的元数据，不是第二张 protection 注册表。
+`assemble` 留在 `SystemPrompt` 门面，三条理由：主体 scope 的层可能不存在，读路径不得创建它；遮蔽语义要求先合并再求值，被遮蔽的 section provider 绝不能被调用；组装 waterfall 与 `toolOrder` 使用服务级资源。section 与 tool provider 保持既有的派生视图物化；variable provider 则直接遍历全局与专属 `NamedEntries`，保留 provider 在组装期间登记另一 variable 时的现有活 Map 行为。tool guard 同样直接遍历其 `AnonymousEntries`。
 
 迁移保持公开行为与精确重名文案不变。内部聚合层会在三张表全部清空后才回收，而不是某一张表清空时回收；服务 API 不暴露层身份。直接活遍历保留现有 variable-provider 与 guard 重入行为，selector helper 则继续物化门面今天已经在构造的 section、tool-provider 与工具解析视图。
 
@@ -47,7 +47,6 @@ export class ScopedLayers<L extends ScopeLayer> {
   merge<T>(scope: ScopeKey | undefined, pick: (layer: L) => NamedEntries<T>, admitGlobal?: (name: string) => boolean): Map<string, T>
   values<T>(scope: ScopeKey | undefined, pick: (layer: L) => EntryValues<T>): T[]
   keys<T>(scope: ScopeKey | undefined, pick: (layer: L) => NamedEntries<T>): string[]
-  some(fn: (layer: L, scope: ScopeKey | undefined) => boolean): boolean
   effect(ctx: Context, action: (layer: L) => () => void, options: { label: string; silent?: boolean }): () => void
 }
 
@@ -133,7 +132,7 @@ class ToolRegistry extends Service {
 
 ## 验收标准
 
-- `store.ts` 落在 `dsh-scope`（peer 依赖不变：仅 Cordis；模块图位置不变），逐文件 100% 覆盖选层与回收、同步 action/undo 顺序、action 抛错清理、change 监听器抛错回滚、原始 disposer 身份、`label`/`silent`、工厂类型、跨层 `some`、合并 selector，以及分开的命名/匿名条目语义。五个公开符号从 package 根重导出并带 export JSDoc。
+- `store.ts` 落在 `dsh-scope`（peer 依赖不变：仅 Cordis；模块图位置不变），逐文件 100% 覆盖选层与回收、同步 action/undo 顺序、action 抛错清理、change 监听器抛错回滚、原始 disposer 身份、`label`/`silent`、工厂类型、合并 selector，以及分开的命名/匿名条目语义。五个公开符号从 package 根重导出并带 export JSDoc。
 - `dsh-tools` 与 `dsh-system-prompt` 各收敛为一个 `ScopedLayers`；每个登记门面先校验领域契约再做一次 `effect` 调用，并继续返回 Cordis effect 的原始 disposer。
 - 既有行为、重名文案、校验顺序、variable-provider 活重入与 guard 活重入不变。测试另行钉住聚合回收时机与 selector 物化。
 - 文档随同一变更落地：`dsh-scope`/`dsh-tools`/`dsh-system-prompt` 的 README；实现后本 RFC 移入 `implemented/`，并就地更新[运行时设计 RFC](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md) 的注册章节。
