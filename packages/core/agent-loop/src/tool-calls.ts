@@ -60,6 +60,7 @@ interface Slot {
  * @param step - the current step number (for the session events).
  * @param toolCalls - the assistant message's `tool-call` blocks, in model order.
  * @param signal - the step's abort signal (shared by every call).
+ * @param maxParallel - the already-validated cap snapshot for parallel groups.
  * @returns the per-step `additionalContext` buffer in model call order.
  */
 export async function executeToolCalls(
@@ -69,9 +70,9 @@ export async function executeToolCalls(
   step: number,
   toolCalls: ToolCallBlock[],
   signal: AbortSignal,
+  maxParallel: number,
 ): Promise<HookContext[]> {
-  const { session, options } = agent
-  const maxParallel = options.maxParallelToolCalls ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
+  const { session } = agent
 
   // Plan: parse each call's raw JSON arguments exactly once, and build one
   // distinct ToolExecution per call so a `tools/execute` wrapper that mutates
@@ -106,6 +107,20 @@ export async function executeToolCalls(
     }
   }
   return pendingContext
+}
+
+/**
+ * Resolve and validate the per-step parallel dispatch cap before the assistant
+ * tool-call message is logged, so invalid mutable options fail without leaving
+ * dangling model-visible tool calls in the session transcript.
+ *
+ * @param maxParallelToolCalls - the live agent option value.
+ * @returns the positive integer cap to use for this step.
+ */
+export function resolveMaxParallelToolCalls(maxParallelToolCalls: number | undefined): number {
+  const maxParallel = maxParallelToolCalls ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
+  assertMaxParallelToolCalls(maxParallel)
+  return maxParallel
 }
 
 /** Parse a model-produced raw arguments string, falling back to the raw string on invalid JSON (empty ⇒ `{}`). */

@@ -101,6 +101,8 @@ Snapshot coverage pins the transcript-facing ACP behavior for a multi-call step:
 
 Parallel execution can expose latent shared-state bugs in tools that declare themselves safe too broadly. The default is exclusive, the shipped declarations are conservative, and input-sensitive tools such as bash stay exclusive until their owning package proves a narrower classifier.
 
+Tool registration changes are a scheduling boundary. A call classified against one tool definition can become unsafe if an earlier exclusive tool replaces that definition before dispatch, so registry-mutating tools stay exclusive and scheduler changes that cross such barriers must either reclassify against the live registry view or bind dispatch to the classified definition.
+
 An around-dispatch plugin can also violate the contract even when the tool itself is safe. The scheduler limits that risk to `tools/execute`; shipped wrappers are per-call, and third-party wrappers with shared mutable state must serialize internally.
 
 Parallel groups change abort timing: a sibling call may have started in a case where the serial loop would not have reached it yet. The pool makes this explicit by logging only started calls, stopping replenishment on abort, draining those calls to results, and preventing later calls from starting.

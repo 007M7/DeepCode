@@ -218,6 +218,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
 
     expect(gated.started).toEqual([])
     expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).some(e => e.type === 'assistant/message')).toBe(false)
     expect(events(agent).filter(e => e.type === 'tool/call' || e.type === 'tool/result')).toEqual([])
     const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')

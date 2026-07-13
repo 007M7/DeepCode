@@ -19,7 +19,7 @@ import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import { executeToolCalls } from './tool-calls.ts'
+import { executeToolCalls, resolveMaxParallelToolCalls } from './tool-calls.ts'
 import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
 
@@ -858,6 +858,11 @@ async function runStep(
   //
   // sourceEventSeqs records the assistant/chunk provenance, but is omitted when
   // no chunks streamed (the surface invariant rejects an empty sourceEventSeqs).
+  const toolCalls = message.content.filter(block => block.type === 'tool-call')
+  const scheduling = toolCalls.length > 0
+    ? { maxParallel: resolveMaxParallelToolCalls(agent.options.maxParallelToolCalls) }
+    : undefined
+
   if (message.content.length > 0 || assembler.usage) {
     session.append(
       'assistant/message',
@@ -874,13 +879,14 @@ async function runStep(
   // ordered the same way. Tool failures (including aborts) become isError
   // results; the scheduler re-checks the shared signal around calls and throws
   // the abort so this step's caller ends the turn.
-  const toolCalls = message.content.filter(block => block.type === 'tool-call')
   // Per-step buffer of `additionalContext` attached by tools/post-execute
   // listeners. Appended as context/message(s) only AFTER every tool/result for
   // the step, so a multi-call step keeps tool-call/result adjacency
   // (interleaving context between a call's result and the next call's would
   // break the pairing the next model request relies on).
-  const pendingContext = await executeToolCalls(ctx, agent, turn, step, toolCalls, signal)
+  const pendingContext = scheduling !== undefined
+    ? await executeToolCalls(ctx, agent, turn, step, toolCalls, signal, scheduling.maxParallel)
+    : []
 
   // Append buffered post-execute context AFTER every tool/result, preserving
   // tool-call/result adjacency across the whole batch. inject() appends into the
