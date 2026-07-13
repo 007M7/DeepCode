@@ -80,6 +80,35 @@ interface EffectRunner<T> {
   getOuterStack: () => string[]
 }
 
+// Public effect disposers remain single-shot, but structural owners and outer
+// effects must still be able to join a cleanup that another caller started.
+const effectInertia = new WeakMap<Disposable, () => void | Promise<void>>()
+
+function runDisposable(dispose: Disposable) {
+  const result = dispose()
+  return effectInertia.get(dispose)?.() ?? result
+}
+
+/** Notify plugin teardown without allowing one observer to break ownership cleanup. */
+function emitPluginDisposed(context: Context, fiber: Fiber) {
+  const args: any[] = ['internal/plugin', fiber]
+  let callbacks: Function[]
+  try {
+    callbacks = context.events.dispatch('emit', args)
+  } catch (error) {
+    context.logger.error(error)
+    return
+  }
+  for (const callback of callbacks) {
+    try {
+      const returned = callback(...args)
+      void Promise.resolve(returned).catch(error => context.logger.error(error))
+    } catch (error) {
+      context.logger.error(error)
+    }
+  }
+}
+
 /** Lifecycle state for one plugin fiber. */
 export const enum FiberState {
   PENDING,
@@ -175,24 +204,19 @@ export class Fiber {
         collect,
       }
 
-      this.context.emit('internal/plugin', this)
-
-      for (const name of Object.keys(this.inject)) {
-        this._checkImpl(name)
-      }
-
+      let shouldRefresh = false
       this.dispose = parent.fiber.effect(() => {
         const remove = runtime.fibers.push(this)
         try {
           this.config = resolveConfig(runtime, config)
-          this._refresh()
+          shouldRefresh = true
         } catch (error) {
           this.ctx.logger.error(error)
           this._error = error
         }
         return async () => {
           this.uid = null
-          this.context.emit('internal/plugin', this)
+          emitPluginDisposed(this.context, this)
           if (this.ctx.registry.has(runtime.callback)) {
             remove()
             if (!runtime.fibers.length) {
@@ -200,6 +224,16 @@ export class Fiber {
             }
           }
           this._setEpoch(INACTIVE)
+          // A PENDING fiber can already own effects registered by an
+          // internal/plugin observer. Its epoch is still INACTIVE, so
+          // _setEpoch() has no transition to drive; explicitly unload that
+          // pre-activation work before reporting disposal complete.
+          if (!this.inertia) {
+            this._updateState(() => {
+              this.inertia = this._unload()
+              return FiberState.UNLOADING
+            })
+          }
           // `this.inertia` itself should never reject — both `_reload` and
           // `_unload` swallow their own work errors via `ctx.logger.error`.
           // If it *does* reject, the only remaining cause is the logger
@@ -211,6 +245,28 @@ export class Fiber {
           }
         }
       }, 'ctx.plugin()')
+
+      try {
+        // Publish only after the parent owns a fully assigned disposer. A
+        // synchronous observer may dispose either this fiber or its parent.
+        this.context.emit('internal/plugin', this)
+      } catch (error) {
+        // Publication failed synchronously. The disposer removes the child
+        // from both the parent and runtime before control escapes.
+        void Promise.resolve(this.dispose()).catch(reason => this.ctx.logger.error(reason))
+        throw error
+      }
+
+      // Keep the initial notification's historical PENDING view. The loader
+      // may also extend `inject` in that notification, so resolve dependencies
+      // only after publication. A reentrant parent unload makes the child
+      // disposer responsible for draining any PENDING effects instead.
+      if (this.uid !== null && parent.fiber.state !== FiberState.UNLOADING) {
+        for (const name of Object.keys(this.inject)) {
+          this._checkImpl(name)
+        }
+        if (shouldRefresh) this._refresh()
+      }
     } else {
       this.uid = 0
       this.ctx = this.context = parent
@@ -292,21 +348,28 @@ export class Fiber {
   effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
   effect(execute: () => Effect, label = 'anonymous'): any {
     this.assertActive()
+    if (this.state === FiberState.UNLOADING) {
+      throw new CordisError('INACTIVE_EFFECT')
+    }
 
     const disposables: Disposable[] = []
+    let disposing = false
+    let disposalTask: void | Promise<void>
     const dispose = () => {
+      if (disposing) return disposalTask
+      disposing = true
       let task!: void | Promise<void>
-      for (const dispose of disposables.splice(0).reverse()) {
+      for (const disposable of disposables.splice(0).reverse()) {
         if (task) {
-          task = task.then(dispose)
+          task = task.then(() => runDisposable(disposable))
         } else {
-          const result = dispose()
+          const result = runDisposable(disposable)
           if (isObject(result) && 'then' in result) {
             task = result as any
           }
         }
       }
-      return task
+      return disposalTask = task
     }
 
     const meta: EffectMeta = { label, children: [] }
@@ -324,34 +387,107 @@ export class Fiber {
     }
 
     let task: void | Promise<void>
+    let executing = true
+    let resolveSetup: (() => void) | undefined
+    let rejectSetup: ((reason: unknown) => void) | undefined
+    let setupBarrier: Promise<void> | undefined
+    let setupFailed = false
+    let inFlight: void | Promise<void>
+    let removeWrapper = () => false
+
+    const waitForSetup = () => {
+      setupBarrier ??= new Promise<void>((resolve, reject) => {
+        resolveSetup = resolve
+        rejectSetup = reject
+      })
+      return setupBarrier
+    }
+
+    const disposeAfter = (setup: PromiseLike<void>) => {
+      return Promise.resolve(setup).then(
+        () => dispose(),
+        async (reason) => {
+          await dispose()
+          throw reason
+        },
+      )
+    }
+
+    const finalizeDisposal = (callback: () => void | Promise<void>) => {
+      let result: void | Promise<void>
+      try {
+        result = callback()
+      } catch (error) {
+        removeWrapper()
+        throw error
+      }
+      if (isObject(result) && 'then' in result) {
+        const pending = Promise.resolve(result).finally(() => {
+          removeWrapper()
+          if (inFlight === pending) inFlight = undefined
+        })
+        return inFlight = pending
+      }
+      removeWrapper()
+      return result
+    }
+
+    const wrapper = defineProperty(() => {
+      // A synchronous setup failure can race an owner unload that already
+      // captured this wrapper but has not invoked it yet. The failed effect is
+      // never returned publicly, so let that internal caller await rollback.
+      if (!runner.epoch) return setupFailed ? inFlight : undefined
+      runner.epoch = false
+      return finalizeDisposal(() => {
+        if (executing) return disposeAfter(waitForSetup())
+        return task ? disposeAfter(task) : dispose()
+      })
+    }, symbols.effect, meta) as AsyncDisposable
+    effectInertia.set(wrapper, () => inFlight)
+
+    // Make the effect visible to a reentrant owner unload before execute()
+    // runs any plugin code. Async teardown stays owner-visible until it
+    // settles, allowing an outer effect to join cleanup another caller began.
+    removeWrapper = this._disposables.push(wrapper)
     try {
       task = this._execute(runner)
     } catch (reason) {
-      dispose()
+      executing = false
+      setupFailed = true
+      runner.epoch = false
+      let cleanup: void | Promise<void>
+      try {
+        cleanup = finalizeDisposal(dispose)
+      } finally {
+        rejectSetup?.(reason)
+      }
+      if (isObject(cleanup) && 'then' in cleanup) {
+        cleanup.catch(error => this.ctx.logger.error(error))
+      }
       throw reason
+    }
+    executing = false
+    if (setupBarrier) {
+      Promise.resolve(task).then(resolveSetup, rejectSetup)
     }
 
     // prevent unhandled rejection — both from `task` itself and from the
     // disposer chain if it fails to settle cleanly.
-    task?.catch(dispose).catch((error) => this.ctx.logger.error(error))
-
-    const wrapper = defineProperty(() => {
-      if (!runner.epoch) return
-      runner.epoch = false
-      return task ? task.then(dispose) : dispose()
-    }, symbols.effect, meta) as AsyncDisposable
+    task?.catch(() => {
+      if (!runner.epoch) return dispose()
+      return finalizeDisposal(dispose)
+    }).catch((error) => this.ctx.logger.error(error))
 
     const disposeAsync = () => {
       if (!runner.epoch) return
       runner.epoch = false
-      return dispose()
+      return finalizeDisposal(dispose)
     }
     wrapper.then = async (onFulfilled, onRejected) => {
       return Promise.resolve(task)
         .then(() => disposeAsync)
         .then(onFulfilled, onRejected)
     }
-    disposables.push(this._disposables.push(wrapper))
     return wrapper
   }
 
@@ -434,7 +570,12 @@ export class Fiber {
     const oldEpoch = this._runner.epoch
     try {
       await Promise.resolve()
-      await this._execute(this._runner)
+      // A disposer queued before this checkpoint may already have invalidated
+      // the load. Do not run plugin code for a stale epoch; the state update
+      // below will drain any effects collected while the fiber was PENDING.
+      if (this._runner.epoch === oldEpoch) {
+        await this._execute(this._runner)
+      }
     } catch (reason) {
       // impl guarantees that the error is non-null (?)
       this.ctx.logger.error(reason)
@@ -457,7 +598,7 @@ export class Fiber {
         await composeError(async (info) => {
           await Promise.resolve()
           info.error = new Error()
-          await dispose()
+          await runDisposable(dispose)
         }, this._runner.getOuterStack)
       } catch (reason) {
         this.ctx.logger.error(reason)

@@ -19,7 +19,7 @@ A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + th
 
 Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
-Its `code-mode.cordis.yml` overlay flips the same tree to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so the model gets exactly one wire tool — `run_code` — plus a generated TypeScript SDK section, and composes the other tools by writing a program whose output it curates. Run with: `pnpm run demo:code-mode` (the REPL is the default UI; `acp` as the argument serves the acp-agent example's same-shaped overlay instead) — see the [Code Mode section](coding-agent/README.md#code-mode) for what to try.
+Its `code-mode.cordis.yml` overlay flips the same tree to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so its registry contribution is the reserved `run_code` transport plus a generated TypeScript SDK section, and the model composes the other tools by writing a program whose output it curates. Run with: `pnpm run demo:code-mode` (the REPL is the default UI; `acp` as the argument serves the acp-agent example's same-shaped overlay instead) — see the [Code Mode section](coding-agent/README.md#code-mode) for what to try.
 
 ## cordis-agent
 

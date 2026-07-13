@@ -20,10 +20,14 @@
  *
  * User flips go through {@link ModesService.set}: every session event is
  * turn-enclosed and an idle agent has no open turn, so `set()` records a
- * pending intent and the service flushes it at the next boundary
- * (`turn/start` / `step/end` — both outside the step's tool-execution window).
- * A flush that changes what the last logged request header told the model
- * appends one coalesced `context/message` notice in the same frame.
+ * pending intent and the service flushes it on the loop's interception seams
+ * — `agent/prompt-submit` (inside the just-opened turn, before its first
+ * assembly) and `agent/turn-continuation` (after each step closed, before the
+ * next assembly) — both outside the step's tool-execution window and outside
+ * any log emit (post-commit `session/event` observers are observe-only and
+ * cannot append). A flush that changes what the last logged request header
+ * told the model appends one coalesced `context/message` notice in the same
+ * frame.
  *
  * RFC: docs/rfc/implemented/feature/2026-07-07-plan-mode.md
  *
@@ -270,15 +274,32 @@ export class ModesService extends Service {
     super(ctx, 'modes')
     this.resolved = resolveConfig(config)
 
-    ctx.on('session/event', (session, event) => {
-      if (event.type !== 'turn/start' && event.type !== 'step/end') return
+    // Boundary flushes ride the loop's interception seams, NOT the
+    // `session/event` feed: post-commit session observers are observe-only
+    // (an append from one would re-enter the publishing append and be
+    // contained away), while these two waterfalls fire OUTSIDE any log emit
+    // and bracket exactly the boundaries the flush wants — prompt-submit
+    // inside the just-opened turn before its first assembly, and
+    // turn-continuation after each step closed before the next assembly (or
+    // the turn's end), so a flushed mode always lands before the prompt that
+    // should reflect it. Contained: a policy plugin must never block a
+    // prompt or a turn; the only throw path in onBoundary is session.append
+    // rejecting mid-teardown.
+    ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
       try {
-        this.onBoundary(session, event.type === 'turn/start')
+        this.onBoundary(agent.session, true)
       } catch (error) {
-        // Contained (a policy plugin must never kill the session feed): the only
-        // throw path in onBoundary is session.append rejecting mid-teardown.
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
+      return next()
+    })
+    ctx.on('agent/turn-continuation', (agent, _turn, _decision, next) => {
+      try {
+        this.onBoundary(agent.session, false)
+      } catch (error) {
+        ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+      }
+      return next()
     })
 
     ctx.on('agent/created', (agent) => {
@@ -508,11 +529,14 @@ export class ModesService extends Service {
   }
 
   /**
-   * One turn-boundary pass: narrate a folded mode the config dropped (once per
-   * name, turn starts only), then flush the pending intent — append the
+   * One boundary pass (`turnStart` = a prompt-submit flush, else a
+   * turn-continuation flush): narrate a folded mode the config dropped (once
+   * per name, turn starts only), then flush the pending intent — append the
    * `mode/set` (skipped when the fold already matches: a net-zero flip
    * sequence) and the one coalesced notice when the flushed mode differs from
-   * what the last logged request header told the model.
+   * what the last logged request header told the model. Idempotent per
+   * boundary, so the per-message prompt-submit dispatches of one batch flush
+   * once.
    */
   private onBoundary(session: Session, turnStart: boolean): void {
     if (turnStart) this.noticeDroppedDefinition(session)

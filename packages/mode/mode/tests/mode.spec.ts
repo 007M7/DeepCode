@@ -4,8 +4,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { BashExecutor, setSandboxMode } from '@deepseek-ai/dsh-bash'
@@ -17,8 +16,9 @@ import type { ModeConfig } from '../src/index.ts'
  * Drives the REAL plugin: mounts `dsh-mode` beside real `SystemPrompt` and
  * `ToolRegistry` services, with fake Agents carrying real `Session`s (the
  * tool-todo test shape). Turn boundaries are simulated by appending the real
- * boundary events and emitting `session/event` by hand — exactly the feed the
- * store wires in production.
+ * boundary events and dispatching the interception seams the loop fires there
+ * (`agent/prompt-submit` / `agent/turn-continuation`) — exactly the seams the
+ * flush rides in production.
  */
 
 function agentWithSession(id = 'agent-1', options: { mode?: string } = {}): Agent & { session: Session } {
@@ -34,12 +34,21 @@ async function setup(config?: ModeConfig): Promise<Context> {
   return ctx
 }
 
-/** Append a boundary event and hand-emit the `session/event` feed the store would. */
-function boundary(ctx: Context, session: Session, type: 'turn/start' | 'step/end'): void {
-  const event = type === 'turn/start'
-    ? session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    : session.append('step/end', { turn: 1, step: 1 })
-  ctx.emit('session/event', session, event as SessionEvent)
+/**
+ * Append a boundary event and dispatch the interception seam the loop fires
+ * there — `agent/prompt-submit` inside the just-opened turn,
+ * `agent/turn-continuation` after the step closed — exactly the seams the
+ * flush rides (post-commit `session/event` observers are observe-only).
+ */
+async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
+  const events = agentEvents(ctx, agent)
+  if (type === 'turn/start') {
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await events.waterfall('agent/prompt-submit', [{ type: 'text', text: 'boundary probe' }], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' }))
+    return
+  }
+  agent.session.append('step/end', { turn: 1, step: 1 })
+  await events.waterfall('agent/turn-continuation', 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' }))
 }
 
 /** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */
@@ -189,7 +198,7 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
-    boundary(ctx, agent.session, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
   })
@@ -198,7 +207,7 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
   })
 
@@ -207,7 +216,7 @@ describe('the boundary flush', () => {
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
     ctx.modes.set(agent, DEFAULT_MODE)
-    boundary(ctx, agent.session, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
     expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(false)
     expect(noticeTexts(agent.session)).toEqual([])
   })
@@ -216,7 +225,7 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
-    boundary(ctx, agent.session, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
     expect(noticeTexts(agent.session)).toEqual([])
   })
 
@@ -225,9 +234,9 @@ describe('the boundary flush', () => {
     const agent = agentWithSession()
     header(agent.session)
     ctx.modes.set(agent, PLAN_MODE)
-    boundary(ctx, agent.session, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
   })
 
@@ -237,7 +246,7 @@ describe('the boundary flush', () => {
     agent.session.append('mode/set', { mode: PLAN_MODE })
     header(agent.session)
     ctx.modes.set(agent, DEFAULT_MODE)
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session back to the default mode.'])
   })
 
@@ -248,7 +257,7 @@ describe('the boundary flush', () => {
     header(agent.session)
     agent.session.append('mode/set', { mode: DEFAULT_MODE })
     ctx.modes.set(agent, PLAN_MODE)
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(noticeTexts(agent.session)).toEqual([])
   })
@@ -257,46 +266,54 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'retired' })
-    boundary(ctx, agent.session, 'turn/start')
-    boundary(ctx, agent.session, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
     expect(noticeTexts(agent.session)).toEqual([
       'Mode "retired" is no longer defined in this deployment\'s configuration; the session continues in the default mode.',
     ])
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(noticeTexts(agent.session)).toHaveLength(1)
   })
 
-  it('ignores non-boundary session events on the feed', async () => {
-    const ctx = await setup()
-    const agent = agentWithSession()
-    ctx.modes.set(agent, PLAN_MODE)
-    const event = agent.session.append('mode/set', { mode: DEFAULT_MODE })
-    ctx.emit('session/event', agent.session, event as SessionEvent)
-    expect(ctx.modes.get(agent).pending).toBe(PLAN_MODE)
-  })
-
-  it('contains an append failure instead of killing the session feed', async () => {
+  it('contains an append failure instead of blocking the prompt or the turn', async () => {
     const ctx = await setup()
     const warn = vi.fn()
     ctx.logger.warn = warn as never
     const agent = agentWithSession()
     ctx.modes.set(agent, PLAN_MODE)
     const original = agent.session.append.bind(agent.session)
-    agent.session.append = (() => { throw new Error('backend gone') })
-    expect(() => { boundary({ emit: ctx.emit.bind(ctx) } as never as Context, agent.session, 'step/end') }).toThrow('backend gone')
-    agent.session.append = original
-    const event = agent.session.append('step/end', { turn: 1, step: 2 })
-    agent.session.append = (() => { throw new Error('backend gone') })
-    ctx.emit('session/event', agent.session, event as SessionEvent)
+    // Only the flush's own mode/set append fails; the boundary event itself
+    // lands (the loop appended it before the seam fires).
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'mode/set') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+    await boundary(ctx, agent, 'step/end')
     expect(warn).toHaveBeenCalledOnce()
     // The failed flush re-parks the intent (cleared only after a landed
     // append), so the next healthy boundary converges the log with the
     // picker's optimistic state instead of dropping the switch forever.
     expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
     agent.session.append = original
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(ctx.modes.get(agent).pending).toBeUndefined()
+  })
+
+  it('contains an append failure on the prompt-submit seam the same way', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = agentWithSession()
+    ctx.modes.set(agent, PLAN_MODE)
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'mode/set') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+    await boundary(ctx, agent, 'turn/start')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
   })
 })
 
@@ -571,7 +588,7 @@ describe('exit_plan_mode', () => {
     // step's end, so the plan policy covers any remaining call of the SAME batch.
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE, pending: DEFAULT_MODE })
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
     expect(asked).toHaveLength(1)
     expect(asked[0]?.agent).toBe(agent)
@@ -587,7 +604,7 @@ describe('exit_plan_mode', () => {
     // requested under the plan-shaped header — the read-only clamp must
     // still hold for it; the boundary flush is what widens the next step.
     expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
   })
 
@@ -595,7 +612,7 @@ describe('exit_plan_mode', () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
     header(agent.session)
     await callExit(ctx, agent)
-    boundary(ctx, agent.session, 'step/end')
+    await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
     expect(noticeTexts(agent.session)).toEqual([])
   })

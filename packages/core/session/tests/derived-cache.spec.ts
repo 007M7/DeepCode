@@ -89,15 +89,15 @@ describe('Session.deriveEventMessage — the per-event projection', () => {
     expect(session.deriveEventMessage(event)).toEqual(session.deriveMessages().at(-1))
   })
 
-  it('clones content off the log: the projection never aliases the logged event', () => {
+  it('reuses the logged event\'s already frozen content', () => {
     const session = new Session(SessionId('per-event-clone'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const event = session.append('user/message', { content: [{ type: 'text', text: 'orig' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const message = session.deriveEventMessage(event)!
-    expect(message.content).not.toBe(event.data.content)
-    // deriveEventMessage returns an unfrozen clone (the cache freezes ITS
-    // copies); mutating it must not reach the log.
-    ;(message.content[0] as { text: string }).text = 'mutated'
+    expect(message.content).toBe(event.data.content)
+    expect(Object.isFrozen(message.content)).toBe(true)
+    expect(Object.isFrozen(message.content[0])).toBe(true)
+    expect(() => { (message.content[0] as { text: string }).text = 'mutated' }).toThrow()
     expect(session.deriveMessages().at(-1)!.content).toEqual([{ type: 'text', text: 'orig' }])
   })
 

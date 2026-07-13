@@ -1,23 +1,28 @@
 # @deepseek-ai/dsh-tool-subagent
 
-The model-facing `subagent` tool: delegate a self-contained task to a child agent and return its final output. Pure schema + lifecycle shaping over the [`ctx.subagents`](../subagent/README.md) provider registry — an in-process, ACP, or future A2A backend swaps in without changing what the model sees.
+The `subagent` tool lets the model delegate one self-contained task and collect the child's final output. It is a thin consumer of `ctx.subagents`; changing the configured provider changes the transport without changing the model-facing execution contract.
 
-## Provider selection is config, not model-facing
+## Provider selection
 
-This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
+Each plugin instance binds to exactly one provider. The model sees `{ description, prompt }`, not a provider selector. To expose multiple transports, load the plugin multiple times with distinct `toolName` values.
 
-## The description states the provider's context contract
+The description is derived from `provider.inheritsParentContext`: spawn and ACP tell the model to provide a standalone prompt, while fork says the child already sees completed conversation turns. The plugin follows `subagent/provider-added` and `subagent/provider-removed`, so concurrent Cordis plugin loading does not create a registration-order dependency.
 
-The tool description and the `prompt` parameter description are DERIVED from the bound provider's `inheritsParentContext` (`providerWording`): a fresh-context provider (spawn, ACP) gets the standalone-prompt wording ("it does not see this conversation"), an inheriting provider (fork) tells the model the child already sees the conversation's completed turns and its prompt should state only what is new. Because the description is fixed at tool registration, the tool **mirrors the provider's lifecycle** (`subagent/provider-added`/`-removed`): it registers when the bound provider is (or becomes) available and unregisters when the provider goes away — no load-order requirement (the cordis Loader starts sibling entries concurrently, so "listed first" never guaranteed "registered first"), and an HMR reload of the backend re-derives the wording from the fresh provider. While the provider is absent the tool simply does not exist (a `ctx.logger` note records the wait; a typo'd provider name shows up as a tool that never materializes).
+## Lifecycle
 
-| Config key | Meaning |
+`execute` passes the tool execution's abort signal when present, otherwise supplies an inert signal to satisfy the required `SubagentStartRequest.signal`. It awaits `ctx.subagents.start(...)`, then awaits `run.result` inside a `try/finally` that always calls `run.dispose()`. The selected signal therefore covers startup and live execution, while disposal guarantees quiescence on success, failure, and abort.
+
+A non-`completed` stop reason becomes an `isError` tool result; partial child output is never reported as success. The current tool blocks the parent turn until collection finishes; background and polling modes are deferred.
+
+## Config
+
+| Key | Meaning |
 |---|---|
-| `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
-| `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
-| `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
+| `provider` | Required `ctx.subagents` provider name. |
+| `toolName` | Model-facing tool name (default `subagent`). Must be unique per plugin instance. |
+| `agentOptions` | Default child agent options, currently including `model`. |
+| `persona` | Per-child persona; requires provider `persona` capability. |
+| `toolFilter` | Per-child global-tool restriction; requires provider `toolFilter` capability. |
+| `maxDepth` | Absolute delegation-depth cap; requires provider `depthLimit` capability. |
 
-## Lifecycle (synchronous collect)
-
-`execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
-
-Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+`toolFilter` changes the child's visible global tool layer; it is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-explicit-non-goals).

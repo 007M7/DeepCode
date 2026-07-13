@@ -7,6 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -48,6 +49,33 @@ function send(agent: ReactLoopAgent, text: string) {
 }
 
 describe('ReactLoopAgent', () => {
+  it('rejects access before context binding and a second driver for one session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('exclusive-driver'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('first-driver'), { model: 'mock' }, session)
+
+    expect(() => prepared.agent.ctx).toThrow('context is not bound')
+    expect(() => prepareReactLoopAgent(ctx, AgentId('second-driver'), { model: 'mock' }, session))
+      .toThrow('already has a concrete agent driver')
+
+    await prepared.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('borrows caller options and binds its scoped context exactly once', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('unused')]))
+    const options = { model: 'mock' }
+    const agent = ctx.agentLoop.create(AgentId('owned-bindings'), options)
+
+    expect(agent.options).toBe(options)
+    expect(agent.id).toBe('owned-bindings')
+    expect(agent.session.id).toMatch(/^owned-bindings-session-/)
+    expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
+
+    await ctx.fiber.dispose()
+  })
+
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -158,10 +186,8 @@ describe('ReactLoopAgent', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    // A session/event listener that throws on the synthetic turn/end. Append
-    // pushes before notifying, so turn/end is in the log (turn balanced) but the
-    // throw must NOT skip the durability checkpoint — the flush decision is made
-    // from the log, not a flag set after the (throwing) append.
+    // Session contains a throwing post-commit turn/end observer. The accepted
+    // boundary still triggers the idle injection's durability checkpoint.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }
@@ -226,24 +252,43 @@ describe('ReactLoopAgent', () => {
   })
 
   it('disposer is idempotent (double-stop)', async () => {
-    // Create a bare ReactLoopAgent and call start() directly to get the disposer.
-    // Then call it twice — the second call hits the early-return branch.
+    // Create a bare ReactLoopAgent and start it through the package-internal
+    // test seam. Then call its disposer twice — the second call hits the
+    // early-return branch.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
-    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const { agent } = prepared
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
-    const dispose = agent.start()
+    prepared.markPublished()
+    const dispose = prepared.startDriver()
 
     // First dispose
-    dispose()
+    const firstDisposal = dispose()
     expect(agent.status).toBe('disposed')
+    await firstDisposal
 
     // Second dispose — idempotent, no throw
-    expect(() => { dispose() }).not.toThrow()
+    await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
+  })
+
+  it('a pre-start disposal makes a later driver-start attempt inert', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('pre-start-dispose'))
+    const prepared = prepareReactLoopAgent(ctx, AgentId('pre-start-dispose'), { model: 'mock' }, session)
+
+    await prepared.dispose()
+    expect(prepared.agent.status).toBe('disposed')
+    const dispose = prepared.startDriver()
+    await dispose()
+    await expect(prepared.agent.done).resolves.toBeUndefined()
+    expect(prepared.agent.session.events).toEqual([])
+    await ctx.fiber.dispose()
   })
 
   it('setting the same status does not emit agent/status again', async () => {
@@ -324,7 +369,7 @@ describe('ReactLoopAgent', () => {
     // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
     // while running (not the fast path), then the disposer settles it and chains
     // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
-    // start() disposer keeps the emit synchronous.
+    // internal driver disposer keeps the emit synchronous.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -334,17 +379,19 @@ describe('ReactLoopAgent', () => {
     const adapter = new MockAdapter(['hang'])
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create(SessionId('bare'))
-    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
-    const dispose = agent.start()
+    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const { agent } = prepared
+    prepared.markPublished()
+    const dispose = prepared.startDriver()
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 
     const idle = agent.whenIdle() // queues an internal waiter (running)
-    dispose() // settles the waiter synchronously; whenIdle chains done
+    const disposal = dispose() // settles the waiter synchronously; whenIdle chains done
     await idle
     expect(agent.status).toBe('disposed')
-    await agent.done
+    await disposal
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
@@ -409,7 +456,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on running'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 
@@ -427,7 +474,7 @@ describe('ReactLoopAgent', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.status).toBe('idle')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on idle'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent event "agent/status" listener threw'))
     warn.mockRestore()
   })
 })

@@ -25,9 +25,9 @@
  */
 
 import { Context } from 'cordis'
-import { interruptedTurnClosers, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { assertSerializable, seedCoversPrefix } from './index.ts'
+import { seedCoversPrefix } from './index.ts'
 
 /**
  * A stored session's durable prefix as read back from a backend: its
@@ -186,14 +186,18 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /**
    * Register a new session's metadata (lazy: no physical write until the first
    * {@link append}). Rejects if the id is already tracked or already persisted.
-   * @param meta - the immutable header (id, version, cwd, lineage) to record; snapshotted at call time.
+   * @param meta - the header (id, version, cwd, lineage) to record; materialized
+   *   as a detached lossless-JSON snapshot at call time.
    */
   create(meta: SessionHeader): Promise<void> {
     // Snapshot the metadata at call time: the op runs later (behind the
     // per-session chain) and the snapshot is stored as the lazy state, so keeping
     // the caller's object by reference would let a later mutation of `id`/`cwd`
     // register under one key but materialize under a different path/header.
-    const snapshot: SessionHeader = { ...meta }
+    const snapshot = snapshotJsonValue(meta)
+    if (snapshot === undefined) {
+      return Promise.reject(new TypeError('session metadata must be losslessly JSON-serializable'))
+    }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
@@ -212,23 +216,25 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     this.states.set(meta.id, { meta, cursor: 0, materialized: false })
   }
 
-  // `async` so the synchronous validate/clone below reject (not throw) per the
-  // Promise<void> contract — callers use `await expect(...).rejects`.
+  // `async` so synchronous materialization failures below reject (not throw) per
+  // the Promise<void> contract — callers use `await expect(...).rejects`.
   /**
    * Durably persist a batch of events. Honors the append-only and contiguous-seq
    * contracts; rejects non-JSON-serializable `event.data`.
    * @param id - the session the batch belongs to.
-   * @param events - the contiguous batch to persist, in seq order; deep-cloned at call time.
+   * @param events - the contiguous batch to persist, in seq order; materialized
+   *   as a detached lossless-JSON snapshot at call time.
    */
   async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
-    // Validate serializability BEFORE cloning so a bad event surfaces the typed
-    // error rather than an opaque DataCloneError from structuredClone.
-    assertSerializable(events)
-    // Deep-snapshot the batch HERE, before the op waits behind the per-session
-    // chain: a caller that mutates a live array (e.g. session.events) — or an
-    // event inside it — before the op runs would otherwise have those changes
-    // persisted. The clone is taken synchronously (at call time).
-    const batch = events.map(e => structuredClone(e))
+    // Validate and deep-snapshot the complete batch HERE, in one traversal,
+    // before the op waits behind the per-session chain. A check followed by
+    // structuredClone would reread accessors and could sanitize an exotic value
+    // into an apparently valid record; the single-pass materializer makes the
+    // checked value exactly the value persisted.
+    const batch = snapshotJsonValue(events)
+    if (batch === undefined) {
+      throw new TypeError('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
+    }
     return this.serialize(id, () => this.appendCore(id, batch))
   }
 
@@ -338,9 +344,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // promise so flush/dispose can await it (onCreated is async).
     ctx.on('session/created', (session) => { void this.initFor(session) })
 
-    // Snapshot + buffer every event (the live object is mutable; clone so a later
-    // in-place mutation cannot rewrite a buffered event). Serializability is
-    // guaranteed at the source (Session.append), so structuredClone is safe.
+    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
+    // so the write-behind queue owns exactly the record it will flush rather than
+    // retaining a product-layer record by identity. Serializability is guaranteed
+    // at the source, so structuredClone is safe.
     ctx.on('session/event', (session, event) => {
       let buffer = this.buffers.get(session)
       if (!buffer) this.buffers.set(session, buffer = [])
@@ -391,8 +398,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const existing = this.inits.get(session)
     if (existing) return existing
     // Snapshot the seed SYNCHRONOUSLY — initFor runs inside the `session/created`
-    // emit, before any later `append` adds non-seed events. A clone freezes it
-    // against later mutation of the live event objects.
+    // emit, before any later append invalidates the public array snapshot. Events
+    // are already frozen; cloning gives persistence independent ownership.
     const seed = session.events.map(e => structuredClone(e))
     const p = this.onCreated(session, seed)
     // Attach a no-op rejection handler so a failing init does not surface as an
