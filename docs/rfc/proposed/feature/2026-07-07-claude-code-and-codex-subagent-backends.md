@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-The subagent seam ([the seam RFC](../../implemented/feature/2026-06-21-subagent-capability-seam.md)) hosts multiple named providers on `ctx.subagents`, and the ACP backend ([the ACP backend RFC](../../implemented/feature/2026-06-22-acp-subagent-backend.md)) proved the seam generalizes across a process boundary; its Future-providers section explicitly named the Codex app-server and the Claude Code Agent SDK as mechanically similar siblings. Those two are the engines actually worth delegating to today: a harness turn should be able to hand a self-contained task to a real Claude Code or a real Codex — a separate product with its own model, tools, and sandbox — and get back one final answer, without the parent deployment leaking its secrets into the child or the child's behavior silently depending on whatever `~/.claude` / `~/.codex` state exists on the host machine.
+Add isolated subagent providers for Claude Code and Codex. A harness turn should be able to delegate a self-contained task to either product and receive its final answer without exposing parent secrets or inheriting host configuration from `~/.claude` or `~/.codex`.
 
 ## Proposal
 
@@ -14,7 +14,7 @@ Two sibling provider packages, structural variants of the ACP backend, plus one 
 - `@deepseek-ai/dsh-subagent-codex` — spawns `codex app-server` and drives one thread/turn over its JSON-RPC-over-stdio protocol with a hand-rolled newline-JSON client (~200–300 lines) in the package.
 - `@deepseek-ai/dsh-subagent-process` — a pure library (the `subagent-inprocess` precedent) extracting what `dsh-subagent-acp` already carries and both new backends need: the credential env scrub (`SENSITIVE_ENV_PATTERN`/`buildChildEnv`), the EOF → SIGTERM → SIGKILL dispose ladder, and new isolated-config-dir helpers (`mkdtemp` create, best-effort remove). The ACP backend migrates onto it; `bash-local`'s sibling copy is left alone to bound the change.
 
-Both providers copy the ACP backend's seam posture verbatim: fresh child per `start`, exactly one prompt round-trip, capabilities all `false`, `inheritsParentContext: false`, `request.parent`/`request.agentOptions` ignored, `id = AgentId(randomUUID())`, `result` never rejects — child-level failure flattens to a stop reason and the original error goes to `ctx.logger` via an `onError` spec callback. Model exposure is zero new code: `dsh-tool-subagent` is loaded once per provider with a distinct `toolName` (`subagent_claude_code`, `subagent_codex`). No new session events are needed — the only model-visible artifact is the tool result, so reconstructability holds exactly as it did for ACP. To be explicit about the boundary: the session log reconstructs the model-visible transcript, not workspace mutation history — a child granted write access mutates files as an ambient side effect outside the log, exactly as the bash tools and the ACP backend already do; replay reproduces requests, not the disk.
+Both providers follow the ACP backend contract: a fresh child per `start`, one prompt round-trip, no inherited parent context or advertised optional capabilities, and a non-rejecting `result` that maps child failures to stop reasons while logging the original error. Each mounts `dsh-tool-subagent` under a distinct tool name. The tool result is the only new model-visible artifact, so no new session event is required; workspace mutations remain ambient side effects outside transcript replay.
 
 ## Verified interface facts (pinned versions)
 
@@ -31,11 +31,11 @@ Both integration surfaces were verified against pinned implementations before th
 
 ## Isolation and credentials
 
-Deployments authenticate with API keys only, and the child must not see the host user's Claude Code / Codex configuration: behavior has to be a function of `cordis.yml` alone. Each run gets a fresh `mkdtemp` config dir — `CLAUDE_CONFIG_DIR` for Claude Code (paired with an explicit `settingSources: []`), `CODEX_HOME` for Codex — removed best-effort on dispose; a config field can pin a persistent dir instead. The child env reuses the ACP backend's `buildChildEnv` semantics verbatim via the extraction: the ambient env is forwarded MINUS credential-shaped vars (`/KEY|SECRET|TOKEN/i`), with `config.env` layered on top — so `PATH`, `HOME`, `TMPDIR`, locale, and proxy vars survive and the CLIs run normally, while only credential-shaped ambient vars are scrubbed (`ANTHROPIC_API_KEY` enters explicitly through `config.env` for Claude Code), and the Codex key travels via the `account/login/start` RPC into the isolated `CODEX_HOME` rather than a hand-written `auth.json`.
+Each run uses a fresh config directory (`CLAUDE_CONFIG_DIR` with `settingSources: []`, or `CODEX_HOME`) that is removed on dispose; config may instead select a persistent directory. The shared child-env helper forwards ordinary environment variables, removes credential-shaped names, and overlays explicit `config.env`. Claude Code receives its API key through that overlay, while Codex receives it through `account/login/start`.
 
 ## Permission and approval policy
 
-Instead of collapsing to ACP's single `permission: allow|reject` knob, each backend exposes its engine's native vocabulary as config, with conservative defaults: Claude Code gets `permissionMode` (default `default`) plus `permission: allow|reject` (default `reject`) as the `canUseTool` auto-answer for whatever falls through; Codex gets `sandboxMode` (default `read-only`) and `approvalPolicy` (default `never`) plus the same `permission` fallback for approval requests that still arrive. Defaults are deliberately do-no-harm (the out-of-box child cannot write files); examples demonstrate opening up (`acceptEdits` / `workspace-write`). The mechanical rule: EVERY server-initiated request is settled programmatically and promptly — the enumerated approval/user-input/elicitation requests by the configured policy, an unknown request method with a JSON-RPC method-not-found error response (never left pending), unknown notifications consumed — so no child request can wedge a turn waiting on an answer that will never come. Prompts never reach a human in this cut, matching ACP.
+Each backend exposes its engine's native policy vocabulary. Claude Code defaults to `permissionMode: default` with rejected fallback permissions; Codex defaults to `sandboxMode: read-only`, `approvalPolicy: never`, and the same rejected fallback. Every server request is answered programmatically, including unknown methods, so a child cannot wait indefinitely for unavailable human input.
 
 ## StopReason mapping
 
@@ -45,11 +45,11 @@ Liveness posture, stated explicitly: teardown timing is config, turn duration is
 
 ## Testing
 
-Named at every tier per the root AGENTS.md rule, and de-risked up front:
+Coverage is required at each applicable tier:
 
-- **Keyless unit/integration**, mirroring the ACP spec list per backend (round-trip and output accumulation, every stop mapping, both cancel paths, already-aborted, permission auto-answer under both policies, unknown-message tolerance, bad-command spawn failure, HMR provider cleanup, export shape, isolation assertions on child env and temp-dir removal; Codex adds the auth-precheck failure path). Claude Code's harness is a scripted fake `claude` executable behind `pathToClaudeCodeExecutable` driven by the REAL SDK — a spike already passed end-to-end keyless in 24ms (the fake CLI answers one `control_request/initialize` and speaks plain stream-json, ~40 lines). Codex's harness is a scripted mock app-server subprocess speaking the verified wire protocol, the `mock-acp-server.ts` shape.
-- **With-key e2e** per backend: the real engine does real file work verified on disk, under a pinned opened-up config so acceptance and the do-no-harm defaults don't collide — `permissionMode: 'acceptEdits'` for Claude Code, `sandboxMode: 'workspace-write'` + `approvalPolicy: 'never'` for Codex; self-skips report exactly what is missing (binary vs key). CI has no secrets, so these run locally per the with-key policy.
-- **Snapshot**: deferred as `TODO(claude-code-subagent-replay)` / `TODO(codex-subagent-replay)` — the same distinct replay shape the ACP backend deferred ([the per-session replay RFC](../../implemented/testing/2026-06-22-subagent-snapshot-replay.md)); the keyless suites carry deterministic coverage meanwhile.
+- **Keyless unit/integration:** use scripted child processes through the real SDK or wire client to cover round trips, stop mapping, cancellation, permissions, isolation, failures, and cleanup.
+- **With-key e2e:** each real engine performs file work under an explicitly writable policy; skips name the missing binary or key.
+- **Snapshot:** deferred under provider-specific TODOs pending the per-session replay shape described by the [subagent replay RFC](../../implemented/testing/2026-06-22-subagent-snapshot-replay.md).
 
 ## Alternatives considered
 

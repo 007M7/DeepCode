@@ -167,10 +167,7 @@ describe('ReactLoopAgent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
+    // A post-turn-start append failure still closes and checkpoints the turn.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
@@ -366,10 +363,7 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
-    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
-    // while running (not the fast path), then the disposer settles it and chains
-    // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
-    // internal driver disposer keeps the emit synchronous.
+    // The disposed waiter must chain the driver exit, not resolve eagerly.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -395,11 +389,7 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
-    // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
-    // disposing the OWNING fiber runs the agent's listener disposers, which would
-    // have dropped a ctx.on-based waiter before the 'disposed' transition and
-    // hung the promise. With internal waiters, the fiber disposer still settles
-    // it. Regression for the round-3 whenIdle finding.
+    // Fiber disposal must settle the agent-owned waiter.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent
@@ -417,10 +407,7 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() on a disposed agent awaits the loop exit (done), not just the status flip', async () => {
-    // The disposer emits agent/status('disposed') BEFORE the driver loop
-    // unwinds, so whenIdle() must chain `done` (true quiescence) on the
-    // disposed path. Dispose a running agent, then assert whenIdle() resolves
-    // only after `done` — i.e. the loop has actually exited.
+    // Disposed status precedes driver exit; whenIdle must await both.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent

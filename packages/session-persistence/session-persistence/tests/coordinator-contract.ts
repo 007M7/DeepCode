@@ -16,26 +16,10 @@ import { meta, oneTurnLog, appendLog } from './contract.ts'
  * the suite mounts/disposes backend instances on it and cleans it up at the end.
  */
 export interface CoordinatorFixture {
-  /**
-   * Mount the REAL backend plugin (via `ctx.plugin`, the Loader path) on `ctx`,
-   * over THIS fixture's shared storage scope. Returns the plugin fiber so the
-   * suite can dispose a single instance (HMR/reload) while the storage — and any
-   * still-live session in another fiber — survives. The caller has already
-   * mounted `SessionStore` on `ctx`.
-   */
+  /** Mount a backend over shared fixture storage and return its disposable fiber. */
   mount: (ctx: Context) => Promise<Fiber>
 
-  /**
-   * Inject a NEVER-COMMITTED torn tail into the backend's storage for `id` at
-   * the given `cwd` (the cwd the session was created with): a half-written
-   * record past the committed region (JSONL: a partial line with no newline;
-   * SQLite: a row with invalid `data` JSON past the committed seq). This drives
-   * the coordinator's `loadCore` `tornMarker !== undefined` → `commitRepair`
-   * branch against real storage.
-   *
-   * OMITTED by a backend that structurally has no torn tails (memory): the
-   * torn-tail scenario then self-skips (asserted explicitly in the suite).
-   */
+  /** Inject an uncommitted torn tail; absent for backends that cannot produce one. */
   corruptTail?: (id: SessionId, cwd: string | undefined) => Promise<void>
 
   /** Tear down the storage scope (remove the temp dir / file). */

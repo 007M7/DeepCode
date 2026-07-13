@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-The tree's layout is uniform — [the classification scheme](2026-06-20-rfc-classification.md) path-encodes lifecycle and class and gates both — but the file insides never were. The corpus the format decision faced had two H1 spellings; some twenty-seven `Status:` line spellings once free-text rejection reasons are collapsed — bare enums, dated parentheticals duplicating what the filename and git already carry — plus three English files (and the zh counterpart of one of them) with no status at all; two body genres side by side (ADR-style `Context`/`Decision`/`Consequences` beside proposal-style `Problem`/`Proposal`/`Risks`), so every new RFC guessed its shape from whichever neighbor its author opened; thirty-nine files carrying a debt comment that flagged them as "legacy ADR/RFC body format" awaiting a unified template that was never actually defined; and nineteen implemented RFCs still carrying thirty occurrences of the proposal-era headings (`Acceptance criteria`, `Plan`, `Migration plan`, `Proposal`) that the [documentation standard's slop checklist](../../../AGENTS.md) outlaws for `implemented/` — outlawed, but enforced by nothing, so the `proposed/` → `implemented/` move could silently skip the rewrite [implemented/AGENTS.md](../AGENTS.md) requires.
+RFC paths encoded lifecycle and class, but file contents still mixed headings, status formats, ADR and proposal templates, and proposal-era sections in implemented records. Authors copied whichever neighbor they found, and lifecycle moves could skip the required rewrite because no gate enforced an in-file contract.
 
 ## Decision
 

@@ -30,12 +30,8 @@ export function resolveConfigPath(
 }
 
 /**
- * Load `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` from a gitignored `.env` in
- * `dir` (Node native `process.loadEnvFile`). An absent file is fine — the
- * environment may already carry the variables; the leaf `cordis.yml` reads
- * them via the `!!js` tag. A present-but-unreadable `.env` is a real
- * misconfiguration: surface it via `warn` (one line, default stderr) rather
- * than silently running with the wrong environment.
+ * Load the optional gitignored `.env` from `dir`. Missing files fall back to the
+ * ambient environment; other read failures are reported through `warn`.
  * @param binName - the diagnostic prefix on the warn line.
  * @param dir - the directory whose `.env` to load.
  * @param warn - sink for the one-line misconfiguration diagnostic.

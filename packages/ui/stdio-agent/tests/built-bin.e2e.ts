@@ -32,14 +32,8 @@ async function pkgName(absDir: string): Promise<string> {
 }
 
 /**
- * Build a temp consumer dir: `node_modules` with the workspace + vendor packages
- * symlinked in, a `src/` carrying the example mock backend, and a `cordis.yml`
- * that wires them onto the stdio app. Returns the dir (caller removes it).
- *
- * `disabledBrokenEntry` appends an entry that points at a non-existent plugin but
- * is marked `disabled: true`. The Loader leaves a disabled entry fiber-less by
- * design, so it exercises that the fail-loud entry-load guard does NOT mistake a
- * valid disabled entry for a failed import.
+ * Build a temporary symlinked consumer for the stdio app. The optional disabled
+ * broken entry verifies that load guards accept intentionally fiber-less entries.
  */
 async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stdio-built-bin-'))

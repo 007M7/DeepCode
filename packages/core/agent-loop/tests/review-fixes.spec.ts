@@ -168,21 +168,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
   })
 
   it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
-    // The /goal pattern steers from a step boundary so the model addresses a
-    // standing goal before stopping. Step boundaries have no agent/* mirror, so
-    // the surviving hook point is the durable step/end session event. With a
-    // no-tools first step the default continuation is stop; the steering queued
-    // here must force the `!shouldContinue && hasSteering` override so the SAME
-    // turn runs another step.
-    //
-    // The override is what this test guards, so it asserts the same-turn shape —
-    // NOT merely that the content reaches requests[1]. Without the override the
-    // turn would stop, and leftover steering is re-enqueued as a next-turn queued
-    // message, which ALSO lands in requests[1] (just one turn later). So a
-    // content-only assertion passes with the override disabled and guards
-    // nothing. The discriminator is the turn/step shape: override ⇒ ONE turn with
-    // TWO steps and the steering recorded as a `steering/message` BEFORE step 2;
-    // re-enqueue fallback ⇒ TWO turns.
+    // Assert the same-turn shape; content alone cannot distinguish re-enqueue.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
       textResponse('after goal reminder'),
@@ -200,12 +186,10 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // Same-turn continuation: the steering forced step 2 within turn 1.
     const events = [...agent.session.events]
     expect(events.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(events.filter(e => e.type === 'step/start')).toHaveLength(2)
-    // The steered content is recorded as steering (same turn), BEFORE step 2 —
-    // not as a fresh turn's user/message. This is the mechanism the override uses.
+    // Same-turn steering precedes the second step.
     const steeringIdx = events.findIndex(e => e.type === 'steering/message')
     const step2Idx = events.map(e => e.type).lastIndexOf('step/start')
     expect(steeringIdx).toBeGreaterThanOrEqual(0)
@@ -582,10 +566,7 @@ describe('LOW: discriminated SessionEvent narrows without casts', () => {
 
 describe('HIGH: a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
-    // The second sanctioned adapter error path (besides throwing): an
-    // adapter that cannot throw mid-stream ends the stream with a
-    // finish-error chunk (e.g. the pi-ai adapter mapping a provider 401).
-    // The loop must NOT log a normal assistant/message + completed turn.
+    // A finish-error chunk must not produce a completed assistant turn.
     const errorStream: StreamChunk[] = [
       { type: 'finish', reason: { kind: 'error', message: 'provider 401', code: 'AUTH' } },
     ]
@@ -652,10 +633,7 @@ describe('step boundary publication order', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-step-order'), { model: 'mock' })
 
-    // Session.append pushes the event BEFORE notifying session/event listeners,
-    // so a step/start listener always finds the matching event already in the
-    // log. (Step boundaries have no agent/* mirror — the session log is the live
-    // feed.)
+    // Append commits before observers run.
     const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/start') return
@@ -678,10 +656,7 @@ describe('step boundary publication order', () => {
 })
 
 describe('turn and step boundary recovery', () => {
-  // Harness with the invariants plugin loaded as an oracle: it throws on
-  // append if the log goes unbalanced (turn/end while a step is open,
-  // turn/start while a turn is open, etc.), so a regression surfaces as an
-  // InvariantError on the NEXT turn's append rather than a silent imbalance.
+  // The invariants plugin makes an unbalanced log fail the test.
   async function balancedHarness(adapter: MockAdapter) {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -833,9 +808,7 @@ describe('turn and step boundary recovery', () => {
   })
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
-    // First turn: model stream ends with a finish-error → step error path →
-    // failTurn emits agent/error, whose listener throws. The turn must still
-    // close balanced. Second turn proves the loop survived.
+    // Listener failure cannot interrupt error finalization or the next turn.
     const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
@@ -894,9 +867,7 @@ describe('turn and step boundary recovery', () => {
   })
 
   it('preserves reason disposed when a pre-step listener disposes then throws (outer-catch disposed branch)', async () => {
-    // A pre-step listener requests disposal and then throws before the ordinary
-    // post-listener disposal check. The outer catch sees disposal already won
-    // and must preserve reason=disposed rather than rewrite it as a plugin error.
+    // Disposal remains authoritative when the listener also throws.
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: ReactLoopAgent
@@ -908,9 +879,6 @@ describe('turn and step boundary recovery', () => {
     ctx.on('agent/pre-step', () => {
       if (threw) return
       threw = true
-      // Request disposal, then throw in the same synchronous tick: status flips
-      // to 'disposed' (the disposer aborts the step controller) and the throw
-      // drives control into the outer catch with isDisposed() already true.
       void fiber.dispose()
       throw new Error('boom pre-step during disposal')
     })
@@ -1001,10 +969,7 @@ describe('turn and step boundary recovery', () => {
   })
 
   it('a throwing step/end observer cannot interrupt error finalization', async () => {
-    // A finish-error stream opens a step then fails it, driving finalization
-    // through closeStep() with the step open. Session contains the observer
-    // failure after committing step/end, so closeTurn still records the model
-    // failure and balances the turn.
+    // Observer failure after step/end commit cannot interrupt turn finalization.
     const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
@@ -1112,11 +1077,7 @@ describe('tool result call identity', () => {
 
 describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
   it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // An empty stream yields zero assistant/chunk events (finish defaults to
-    // `stop`), so chunkSeqs is empty. A step-result listener injects content, so
-    // the content-or-usage guard fires and an assistant/message is appended. Its
-    // sourceEventSeqs MUST be omitted (not `[]`) — the surface invariant rejects
-    // an empty sourceEventSeqs, and the dev invariants plugin would throw on it.
+    // Injected result content with no chunks must omit empty sourceEventSeqs.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
     await ctx.plugin(Invariants)
@@ -1143,12 +1104,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
 
 describe('disposal and cancellation during pre-step assembly', () => {
   it('disposal during system-prompt assembly drops the about-to-start step as disposed', { timeout: 30000 }, async () => {
-    // Block `system-prompt/assemble` on a promise. Start disposal (which
-    // calls stop() synchronously, setting status=disposed), then release the
-    // block. The loop must check isDisposed() after assembly and end the turn
-    // `disposed` — no LLM call. Don't await fiber.dispose() before releasing
-    // the blocker: the dispose chain awaits agent.done, which hangs until the
-    // loop unblocks.
+    // Release assembly only after disposal has marked the agent disposed.
     const adapter = new MockAdapter(['hang'])
     let releaseAssemble!: () => void
     const blocked = new Promise<void>(r => void (releaseAssemble = r))
@@ -1163,7 +1119,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(Invariants)
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    // Blocking listener on the parent context (survives fiber disposal).
+    // Parent-owned listener survives agent-fiber disposal.
     const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocked
       return next()
@@ -1259,9 +1215,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
   })
 
   it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
-    // Block the `agent/pre-step` serial seam on a promise we control, then
-    // dispose the agent's fiber. When the block releases, the loop must see
-    // isDisposed() at the post-seam check and end the turn disposed.
+    // Release pre-step only after disposal has marked the agent disposed.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))
@@ -1312,8 +1266,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
   })
 
   it('cancel during agent/pre-step seam ends the turn aborted', { timeout: 15000 }, async () => {
-    // Block `agent/pre-step`, then cancel() the agent. When the block releases,
-    // the post-seam check catches cancellation and ends the turn aborted.
+    // Release pre-step after cancellation to exercise the post-seam check.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))

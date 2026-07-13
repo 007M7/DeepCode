@@ -81,15 +81,7 @@ function rawJsDoc(text: string, node: ts.Node): string {
   return jsdoc ? text.slice(jsdoc.pos, jsdoc.end) : ''
 }
 
-/**
- * Parse a raw JSDoc block into description prose, flagging whether any `@mode`
- * tag is present (forbidden on log events). Output obeys the repo's markdown
- * conventions so the generated file passes verify-md-wrap: each prose paragraph
- * collapses to ONE physical line, and a `-` bullet list is preserved with each
- * item on its own single line (continuation lines folded in). `{@link Foo}`
- * unwraps to `Foo`. Description prose ends at the FIRST block tag (standard
- * JSDoc semantics): tag lines and their continuation lines are never prose.
- */
+/** Parse pre-tag JSDoc prose into one-line paragraphs and bullets for the catalog. */
 function parseJsDoc(raw: string): { doc: string; hasMode: boolean } {
   const inner = raw
     .replace(/^\/\*\*/, '')

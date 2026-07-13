@@ -21,12 +21,7 @@ const STOP_REASONS = ['completed', 'aborted', 'error', 'max-tokens', 'refusal'] 
 
 const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
 
-/**
- * A scripted provider: every {@link start} returns a ready run whose `result`
- * resolves on the next task with the configured reply (and a structured value
- * when the request asked for one and the capability is on). The required
- * signal and `dispose()` both flip an unsettled result to `aborted`.
- */
+/** Scripted provider whose configured result aborts if disposed or signalled first. */
 class MockSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities
   readonly inheritsParentContext: boolean

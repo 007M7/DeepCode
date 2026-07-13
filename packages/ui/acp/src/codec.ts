@@ -36,13 +36,8 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
 }
 
 /**
- * Translate a harness {@link ContentBlock} from a prompt into ACP content for
- * replay, or `undefined` for block kinds the bridge does not surface to the
- * client as message content. Today only `text` maps; `resource_link` is an
- * ACP prompt-only input rendered into text by {@link acpPromptToText};
- * `reasoning` is surfaced via `agent_thought_chunk`
- * streaming rather than as a message block, and `tool-call`/`tool-result`
- * are handled by the tool-call update path.
+ * Map replayable text to ACP message content. Other block kinds use their
+ * prompt, thought-stream, or tool-update paths.
  * @param block - the harness content block to translate.
  * @returns the ACP block, or `undefined` for a kind with no message-content mapping.
  */

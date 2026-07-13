@@ -67,9 +67,7 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 ## CI 门禁
 
-keyless GitHub 工作流有八个 job：五个 Node 24 lane 分别运行 static gates、lint、coverage、snapshot replay 和 artifact gates，三个兼容性 job 在 Node 22.19、24 和 26 上运行 `pnpm run check:node-compat`。兼容性命令会在每个运行时上运行 TypeScript 类型检查和 keyless 的 workflow-workerthread 源码启动冒烟测试，因此该矩阵既证明源码图能通过类型检查，也会实际执行一条未构建的 Worker loader 路径；其他 lane 调度器并发运行来自 `package.json` 的独立门禁：constraints、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
-
-`pnpm run build` 供给 artifact lane，`publint`、`verify-node-next-types` 和 built-bin 冒烟测试等待 build 输出。单独的真实 API 工作流带密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=14`。
+keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 
 ## 日常命令
 

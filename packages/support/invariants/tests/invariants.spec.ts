@@ -803,12 +803,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
 describe('request cross-check ordering (prepend)', () => {
   it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
-    // The replay adapter returns its chunks WITHOUT calling next(), which
-    // would silence a later-registered check — snapshot compositions load
-    // replay before the app bundle that loads invariants. The check prepends,
-    // so it fires ahead of append-registered listeners regardless of load
-    // order. (Prepend orders it against APPENDED listeners only; correctness
-    // rests on the seq-bounded rebuild, not on listener timing.)
+    // The prepended check must run before a short-circuiting replay listener.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()

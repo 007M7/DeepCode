@@ -10,7 +10,7 @@ Status: implemented
 
 Generate `docs/persistence-catalog.md` from source, with a freshness gate, as the fourth reference surface: the *records* a persisted session log can contain, complementing the cordis catalog (wiring), core-data-structures (vocabulary), and the tool catalog (tools).
 
-`scripts/gen-persistence-catalog.ts` is a pure TypeScript-AST pass, like `gen-cordis-catalog.ts` — log events ARE statically knowable: every member is a string-literal-named property with a static type annotation, so the AST is the whole truth. The walk collects every `interface SessionEventMap` declaration under `packages/*/*/src` — the owning top-level interface and every `declare module '@deepseek-ai/dsh-session'` merge — so a brand-new event, core or merged, appears in the next regenerate and an un-regenerated file fails `--check` (`verify-persistence-catalog`, a `doc-sync` member, so pre-push and CI both run it). Each entry renders the member's JSDoc prose, its payload (printed through the TypeScript printer, so a newline-separated multi-line type literal still yields a valid one-line fragment), a surface badge, cross-links into core-data-structures, and the declaration's source pointer, grouped by scope.
+`gen-persistence-catalog.ts` scans every owning and declaration-merged `SessionEventMap` with the TypeScript AST. It renders source JSDoc, payload type, derived surface badge, reference links, and source location. The doc-sync freshness check rejects a vocabulary change whose catalog was not regenerated.
 
 Specific choices:
 

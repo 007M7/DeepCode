@@ -55,7 +55,9 @@ Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standar
 - A war story told inline where a one-line rule plus a postmortem/RFC link would do.
 - Implementation-status annotations in prose or diagrams ("implemented!", "future: …"). Status rots; the repo layout and package manifests carry it.
 - Hand-restating a generated catalog or JSDoc: event tables, tool arg tables, method signatures. Link instead.
+- Hand-maintained inventories of tests, packages, or implementation status when the tree or a generator is authoritative.
 - Reasoning transcripts: step-by-step implementation narration, proof of obvious branches, test walkthroughs, or rejected local alternatives. Keep the resulting contract or durable rationale; delete the path used to derive it.
+- The same rationale repeated beside sibling methods. State it once at the owning seam or shared helper.
 - Paragraph walls: one paragraph carrying several rules and parenthetical asides. Split it, or demote the detail to the linked home.
 - Emphasis inflation: bold, CAPS, or "critically" everywhere means nothing stands out. Reserve emphasis for the clause that changes behavior.
 - Spec-speak in `implemented/` RFCs: "should", migration plans, acceptance checklists. An implemented RFC describes what is, per [rfc/implemented/AGENTS.md](rfc/implemented/AGENTS.md).

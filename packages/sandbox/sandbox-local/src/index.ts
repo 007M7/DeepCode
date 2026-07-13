@@ -28,16 +28,7 @@ export interface Config {
    * own failure dialect.
    */
   runnerFailureSignatures?: string[]
-  /**
-   * Per-probe timeout in milliseconds for the chain's functional probes
-   * (default: 5000; must be a positive finite number — Node treats a 0
-   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
-   * probe that exceeds it reads as an unusable rung, so a
-   * host slow enough to trip the default — cold NFS mounts, heavily loaded
-   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
-   * config escape. Bounds ONE probe, and the chain walk runs each at most once
-   * per provider lifetime.
-   */
+  /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
 }
 
@@ -112,17 +103,7 @@ export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
   return ['-p', forms.join(' ')]
 }
 
-/**
- * Functional `bwrap` probe: can it actually build the read-only profile on
- * this host? (`--version` alone would miss a disabled unprivileged user
- * namespace.) Synchronous by design — it runs once, lazily, before the first
- * confined wrap, and the chain's verdict is cached for the provider's
- * lifetime. `timeoutMs` bounds the probe (the `probeTimeoutMs` config).
- * The Landlock rung needs no such helper: resolution (`launcherPath`) and
- * the functional probe (`probe`) come from `node-addon-landlock-run`, the
- * package family that ships the launcher binary itself, so the probe-report
- * parsing can never drift against the binary.
- */
+/** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
 function defaultProbeBwrap(timeoutMs: number): boolean {
   const probe = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--', 'true'], {
     timeout: timeoutMs,

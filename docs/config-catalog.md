@@ -18,20 +18,14 @@ Requires: `agents` · `sessions` · `sessionPersistence` · `tools` · `userInte
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /**
-   * Transport stream override. Production omits this (the plugin wires
-   * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
-   * in-memory `Stream` (e.g. an `ndJsonStream` over a `Duplex` pair) to drive
-   * the bridge without a subprocess. Not part of the schemastery `Config` —
-   * it is a runtime-only seam, never set from a `cordis.yml`.
-   */
+  /** Runtime-only transport override for tests; production uses stdio. */
   stream?: Stream
 }
 ```
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:203`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -124,7 +118,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:325`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:318`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -401,7 +395,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:312`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:300`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -453,16 +447,7 @@ export interface Config {
    * own failure dialect.
    */
   runnerFailureSignatures?: string[]
-  /**
-   * Per-probe timeout in milliseconds for the chain's functional probes
-   * (default: 5000; must be a positive finite number — Node treats a 0
-   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
-   * probe that exceeds it reads as an unusable rung, so a
-   * host slow enough to trip the default — cold NFS mounts, heavily loaded
-   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
-   * config escape. Bounds ONE probe, and the chain walk runs each at most once
-   * per provider lifetime.
-   */
+  /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
 }
 ```
@@ -634,16 +619,7 @@ export interface Config {
   disposeGraceMs?: number
 }
 
-/**
- * How the client answers a child's `session/request_permission`. The first cut
- * does not surface permission prompts to a human, so every request is
- * auto-answered by this fixed policy:
- *
- * - `reject` — decline every prompt (answer `cancelled`). Safe default: a child
- *   that asks before a side effect does not get to take it.
- * - `allow` — approve every prompt by selecting its first `allow_*` option (or,
- *   if none is offered, `cancelled`). Use when the child is trusted to act.
- */
+/** Fixed response to child permission requests: reject, or first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
@@ -696,7 +672,7 @@ export interface Config {
 
 Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
 
-Source: [`packages/support/subagent-mock/src/index.ts:90`](../packages/support/subagent-mock/src/index.ts)
+Source: [`packages/support/subagent-mock/src/index.ts:85`](../packages/support/subagent-mock/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -718,48 +694,20 @@ Source: [`packages/subagent/subagent-spawn/src/index.ts:20`](../packages/subagen
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
-   * The deployment's persona — the ONE deployment-authored fragment of the
-   * system prompt, rendered as the order-0 `deployment:persona` section
-   * (after the harness identity, before all tool guidance). Every agent in
-   * the context shares it by default; a per-agent persona is a SCOPED section
-   * of the same name registered through that agent's `agent.ctx` (it shadows
-   * this one for that agent — the subagent seam's `persona` request field does
-   * exactly that). Template, not free-form text:
-   * every complete `{{…}}` group is interpreted strictly against the
-   * registered prompt variables (the shipped agent loop registers `{{model}}`
-   * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
-   * yet (a deliberate deferral; see the prompt-variables RFC). Defaults to
-   * `''` — the empty section is dropped at render, so a persona-less
-   * deployment opens with the harness identity alone.
+   * Deployment-wide order-0 persona template. A scoped section named
+   * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
   /**
-   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
-   * tools take their listed position, and tools absent from the list are
-   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
-   * lexicographic name order. A configured list must contain the rest entry
-   * exactly once, no duplicate names, and no name without a registered tool —
-   * a misconfigured order blocks work instead of silently reaching a model
-   * request: shape violations throw at load, and an unregistered name rejects
-   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
-   * not be a collected tool name; such a provider output also rejects the
-   * assembly. The single assembly-time validation rejects either failure
-   * before any model request — the earliest moment the registered tool set
-   * exists to check against, since tool plugins register after this service
-   * constructs. When omitted, tools are ordered lexicographically by name.
-   * Applied to the tools
-   * {@link SystemPrompt.assemble} collects, BEFORE the
-   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
-   * canonicalizes what the registry contributed (registration order is a
-   * plugin-load artifact); a waterfall listener that mutates the tool list
-   * owns the determinism of what it emits. Rationale (and why not per-plugin
-   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   * Model-facing tool names in order, with {@link TOOL_ORDER_REST} exactly once.
+   * Shape errors fail at load and unknown names fail at assembly. Omitted means
+   * lexicographic order. See the explicit-tool-order RFC for rationale.
    */
   toolOrder?: string[]
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:225`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:145`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -872,7 +820,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:47`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:19`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -919,20 +867,7 @@ Requires: `systemPrompt`
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
-  /**
-   * The presentation mode. `'native'` (the default) contributes every
-   * visible end capability as a native wire function definition. Under
-   * `'code'` this registry contributes exactly ONE wire tool,
-   * `run_code`, plus the generated `tools:sdk` prompt section declaring every other tool as a
-   * TypeScript API the program calls. `'both'` contributes every native
-   * definition AND `run_code` + the SDK section. Non-native modes require a
-   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
-   * or mismatched runtime rejects every prompt assembly with an actionable
-   * error (misconfiguration fails loud, before any model request). A
-   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
-   * every assembly under `'code'` (those names are no longer contributed) —
-   * a deployment switching modes updates its order config or drops it.
-   */
+  /** Model presentation: native schemas, `run_code` plus SDK, or both. Code modes require a TypeScript runtime. */
   mode?: ToolPresentationMode
 }
 
@@ -940,7 +875,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:401`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:300`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -971,7 +906,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:270`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:213`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 

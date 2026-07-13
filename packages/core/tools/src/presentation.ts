@@ -43,14 +43,8 @@ export interface FileDiff {
 }
 
 /**
- * How a tool wants ONE of its calls shown in a UI (an editor's tool-call card, a
- * CLI log line) BEFORE the result is known — the *pending* state. A `card`-tagged
- * discriminated union: a tool declares its render INTENT once and a UI bridge
- * switches on `card` to map it to the bridge's own wire shape. Provider-neutral —
- * the tool owns its presentation, so a UI never special-cases tool names.
- *
- * Returned by `ToolDefinition.presentCall`. See the render-intent-union
- * RFC (docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
+ * Provider-neutral pending-call presentation. Tools declare one tagged intent;
+ * UI bridges map it without special-casing tool names.
  */
 export type ToolCallView = GenericCallView | TerminalCallView | DiffCallView
 

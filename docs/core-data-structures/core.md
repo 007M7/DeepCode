@@ -201,7 +201,9 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, the tool schemas in the authoritative returned assembly order (initially canonicalized by dsh-system-prompt's `toolOrder` config, or lexicographically when unset), and the session prefix — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/session-prefix` waterfall — fired once per loop instance — composes the request-only messages fronting the derived history (recorded as the header's `messagePrefix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative tool order, and session prefix through `request/header` snapshots and deltas. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta) and the [reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+
+`agent/request` may replace the frozen call config. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records its result. Requests reaching `llm/stream` are deep-frozen.
 
 On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
 
@@ -353,7 +355,9 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `AgentId` is branded. `AgentOptions` is merge-extensible and currently includes `model?`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+
+The [event taxonomy](../architecture.md#event-taxonomy) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
 ## Interception decisions
 
@@ -396,7 +400,7 @@ type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 
-`agent/session-prefix` composes the session prefix — a plain `Message[]`, no dedicated payload type. Fired ONCE per loop instance, lazily on its first request: the composed list is deep-frozen, recorded as the header's `messagePrefix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and placed in front of the ENTIRE derived history on every request the instance sends — the home for session-stable openers like a skills catalog or an AGENTS.md digest, never returned by `deriveMessages()`. Reuse is structural, so the prefix cannot drift mid-session (resume = a new instance = a recompose); content that changes mid-session goes through the append-only history channels instead (`agent.inject()`, `tools/post-execute` / prompt-submit `additionalContext`). Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself.
+`agent/session-prefix` composes a `Message[]` once per loop instance. The deep-frozen result is recorded in the request header and prepended to every derived history, making it the home for session-stable openers. A resumed instance recomposes; mid-session changes use append-only context channels. The waterfall returns content directly because it contributes rather than decides.
 
 ## `ToolDefinition`
 

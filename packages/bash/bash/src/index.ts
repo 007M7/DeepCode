@@ -60,12 +60,7 @@ export abstract class BashExecutor extends Service {
   }
 
   /**
-   * Resolve a caller's {@link BashExecRequest} into a fully-specified
-   * {@link BashExecSpec}, applying this implementation's config defaults and
-   * caps (working directory, default/max timeout). Consumers (tool layer)
-   * call this, then pass the result to {@link run}/{@link start} — keeping
-   * defaulting in the implementation that owns the config while the seam type
-   * stays explicit (no hidden `?? default` inside run/start).
+   * Apply implementation-owned defaults and caps to a request before execution.
    * @param request - the caller's request; omitted fields get this
    *   implementation's defaults, capped fields are clamped.
    * @returns the fully-specified spec to hand to {@link run}/{@link start}.

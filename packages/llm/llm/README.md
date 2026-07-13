@@ -35,7 +35,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 ### App attribution (`attribution.ts`)
 
-Every product adapter must identify the application on every provider HTTP request - attribution is part of the adapter contract, not an adapter-local nicety. `attributionHeaders(identity?)` builds the standard `User-Agent` header (`product/version (+url)`, from `userAgent()`) for every request. The default `APP_IDENTITY` carries only static public product facts (its version is read from this package's manifest); a white-label deployment passes its own `AppIdentity`, and omission falls back to the default - nothing can suppress attribution. OpenRouter-specific app attribution headers are intentionally not supported by this contract. An adapter proves compliance with a wire-level test: a mock server asserting the received header (or, for a library-backed adapter, that the library's header hook delivers the same value). Policy and rationale: [Mandatory `User-Agent` attribution](../../../docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+Every product adapter sends application identity on provider HTTP requests. `attributionHeaders(identity?)` builds the standard `User-Agent`, defaulting to public `APP_IDENTITY`; white-label deployments may replace but not suppress it. Adapters verify the wire header directly or through their library hook. See [the attribution RFC](../../../docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
 
 ### Classes
 

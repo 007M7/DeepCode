@@ -19,11 +19,7 @@ Four pieces of the `dsh-hook-protocol`/bridge contract missed the discipline the
 
 ### Why not keep them?
 
-The [hook-protocol-lib RFC](../feature/2026-06-30-hook-protocol-lib.md) deliberately recorded "parses the full CC superset" — the strongest counterargument was that this proposal re-litigates decisions that RFC records. But parsing a field whose value can never influence anything is not protocol faithfulness, it is a reader trap; a dialect variant that the design's own thesis says will never be stamped is vocabulary without an interpreter; Each returns trivially with its first real consumer (a transcript surface with hook stdout to suppress; a native-provenance feature that logs hook events). On `durationMs` the review reached the opposite verdict: a persistence log is written for future readers, and wall-clock hook timing is audit signal worth carrying before a reader exists — so it stays, with replay normalization as the accepted cost. On item 4, the lib RFC chose per-bridge explicitness over a parameterized engine — but that choice governed payload construction and Decision mapping; the semantics of the SHARED durable event are precisely the "primitives where duplication would actually be dangerous" that the same RFC assigns to the lib.
-
-## Verification
-
-`HookDialect` is two-valued (`rg "'native'"` in the hooks packages returns nothing); `suppressOutput` appears nowhere in source, parsed-field doc lists, or the normalizer, while `durationMs` stays on `hook/result` and in the fixtures with the replay scrub intact; the literals `600_000` and `500` each live once, in the lib's `DEFAULT_HOOK_TIMEOUT_MS`/`DEFAULT_STDERR_SUMMARY_MAX_CHARS`, with per-hook `timeoutSec` still overriding; and the truncation rule and decision-string rule are defined once, in `dsh-hook-protocol`'s `appendHookResult`, exercised by both bridges' suites.
+Unsupported vocabulary can return when a real consumer exists. `durationMs` remains because durable audit timing is useful independently of a current reader. Bridge-specific payload construction stays in each bridge, while shared durable-event normalization belongs in the protocol library.
 
 ## Consequences
 

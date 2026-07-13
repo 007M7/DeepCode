@@ -29,7 +29,7 @@ Live session ids are freshly random every run and never equal the recorded ones,
 
 This keys by WHO calls, not by global call order — so it stays correct even if subagents ever run concurrently or in the background (a global cursor would interleave them). A call carrying no `sessionId` (a direct unit-test `stream()`) is treated as one anonymous session bound to the primary script, so the single-session path is byte-for-byte the old behavior. More distinct live sessions than recorded scripts is a fail-loud error (an unrecorded subagent appeared), never a silent mis-route.
 
-The ordering key is the session header `createdAt`. In the current synchronous cut this is sound because sibling children are created **strictly sequentially** — the subagent tool awaits one child's result and disposes it before the parent's next tool call starts the next child — so their `createdAt` values are strictly ordered and match first-call order exactly. A same-millisecond sibling tie is therefore unreachable; the `recordedId` tiebreak only keeps such a degenerate collision deterministic, it does not recover first-call order. A future cut that runs siblings concurrently/backgrounded WOULD be able to create two children in the same millisecond, and must then thread a real first-call ordinal (the order live sessions first stream) rather than leaning on `createdAt` — flagged with `XXX(concurrent-subagents)` at the sort site.
+Child fixtures sort by `createdAt`, which matches call order while siblings run strictly sequentially. The id tiebreak only makes degenerate collisions deterministic. Concurrent or background children must introduce an explicit first-call ordinal instead of relying on timestamps.
 
 ## Alternatives considered
 

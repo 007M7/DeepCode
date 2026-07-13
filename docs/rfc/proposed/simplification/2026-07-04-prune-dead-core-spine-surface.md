@@ -12,7 +12,7 @@ Three pieces of public spine surface share one defect class: their only possible
 
 ## Proposal
 
-Delete the method and its test; delete the three export lines and their `packages/core/agent-loop/README.md` rows, pointing the inbox spec at the source module; drop the result field from the type, the registry's construction sites (deny, dispatch, `toolErrorResult`, post-execute snapshots), its around-wrapper mismatch validation, the loop's ignore-comment, and the tests that prove the duplicate id cannot matter. The result's consumed `additionalContext` ferry and the execution object's authoritative `callId` stay untouched. Update the `ToolExecutionResult` paste in [tools.md](../../../core-data-structures/tools.md) (and its `scripts/type-equiv.manifest.json` row) and the result-shape row in `packages/core/tools/README.md`; for the `invalidate()` removal, amend the [session-surface RFC](../../implemented/architecture/2026-06-18-session-surface.md)'s full-rebuild-after-wholesale-replacement sentence per [implemented/AGENTS.md](../../implemented/AGENTS.md).
+Delete the dead method, exports, duplicate result id, construction and validation branches, and tests that exist only for them. Keep `ToolExecution.callId` and result `additionalContext`. Update the owning tools reference and session-surface record with the changed public shapes.
 
 Sequencing: the surface-cache work (tool-pairing balance caching) neither uses nor touches `invalidate`, so that removal can land after or alongside it mechanically. The full execution pipeline carries the immutable execution object through pre-policy, guards, around-dispatch wrappers, post-policy, and final result observation; nothing needs the result to repeat its id.
 

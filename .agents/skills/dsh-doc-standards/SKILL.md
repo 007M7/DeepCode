@@ -25,13 +25,13 @@ Run the placement test in the standard's taxonomy table, then check the constrai
 
 ## Auditing the corpus
 
-The audit is a hunt for the standard's slop checklist, cheapest probes first:
+The audit is a hunt for the standard's slop checklist, cheapest probes first. Establish the PR's current base first; after a retarget or base merge, repeat the audit for prose introduced by the new base rather than relying on the earlier result.
 
 1. Measure: `pnpm run verify-doc-budgets --list`, then `git ls-files '*.md' | grep -v '^vendor/' | xargs wc -w | sort -rn | head -30` to spot unbudgeted outliers.
 2. Hunt narrated history: `rg -n -g '!vendor' "no longer|used to|previously|was moved|renamed" --glob '*.md' --glob '*.ts'` and keep only contrasts against a live alternative.
-3. Inspect long comments for reasoning transcripts: control-flow narration, test walkthroughs, proof of obvious branches, review findings, and rejected local alternatives. Preserve only a non-obvious contract or durable rationale; otherwise delete the comment.
+3. Inspect long comments for reasoning transcripts: control-flow narration, test walkthroughs, proof of obvious branches, review findings, rejected local alternatives, and the same rationale repeated beside sibling methods. Preserve only a non-obvious contract or durable rationale; otherwise delete the comment.
 4. Hunt duplication by grepping distinctive phrases. Keep one home and replace other copies with links.
-5. Replace hand-written catalog or JSDoc restatements with links to generated references.
+5. Replace hand-written catalogs, test/status inventories, and JSDoc restatements with the authoritative tree, script, or generated reference.
 6. In `implemented/` RFCs, remove migration plans, test checklists, and future-tense spec language; keep the decision, rationale, and shipped constraints.
 7. If removing prose changes a promised behavior rather than its explanation, use a proposed RFC first (follow [dsh-find-simplifications](../dsh-find-simplifications/SKILL.md)).
 

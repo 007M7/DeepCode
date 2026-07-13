@@ -37,7 +37,7 @@ Three `fs/*` events (declared by `@deepseek-ai/dsh-fs`, dispatched by `@deepseek
 
 ## Observed state is the prior-observation record; freshness is provider CAS
 
-Observed state is a `WeakMap<owner, Map<targetKey, FsVersion>>`. An entry exists **iff** the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence is the prior-observation record — there is no `hasRead` flag and no `full`/`partial` view. This plugin does **no** filesystem I/O: "have you observed this file?" is a `WeakMap` lookup, and "is the version you read still current?" is decided inside `ctx.fs.editText`/`writeText` in the same atomic lock that performs the mutation — this plugin only supplies `vObserved` as the basis. A windowed read of lines 100-150 records the file's version, and a later edit of line 120 is authorized as long as the file is unchanged. State is held weakly and dropped on disposal (HMR safety); persistence across sessions is deferred.
+Observed state is a weak owner-to-target version map updated after every successful read or mutation. The plugin performs no filesystem I/O: it checks whether a version was observed and supplies that version to the provider's atomic mutation guard. State is discarded on plugin disposal and is not persisted across sessions.
 
 ## Single-slot, first-wins
 

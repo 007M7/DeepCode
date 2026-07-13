@@ -82,15 +82,7 @@ function createTestService(overrides: Partial<BasicCompactConfig> = {}): TestCom
   return new TestCompactService(new Context(), cfg({ auto: false, ...overrides }))
 }
 
-/**
- * Build a multi-turn session with surface markers (simulating real agent-loop
- * output). Compaction always runs inside an OPEN turn (the loop fires the
- * `agent/pre-step` seam after a turn's start and before a step's start), so by
- * default the session is left with a trailing open turn: turns `1..turns`
- * close, then one more `turn/start` opens with no matching `turn/end`. Pass
- * `{ leaveOpen: false }` for a fully-closed session (e.g. to assert that manual
- * compaction is rejected when no turn is open).
- */
+/** Build closed turns plus an open compaction turn unless `leaveOpen` is false. */
 function multiTurnSession(turns: number, messagesPerTurn: number = 2, opts: { leaveOpen?: boolean } = {}): Session {
   const leaveOpen = opts.leaveOpen ?? true
   const s = new Session(SessionId('test'))

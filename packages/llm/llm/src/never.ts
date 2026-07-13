@@ -4,10 +4,8 @@
  */
 
 /**
- * Marks unreachable code on a closed union. If this is reachable, either a
- * variant was added without updating the switch (compile error at the call
- * site — the desired outcome) or a value escaped its type (runtime throw
- * with diagnostics — the safety net).
+ * Mark an unreachable closed-union branch and diagnose values that escaped
+ * static exhaustiveness.
  * @param value - the impossible value; typed `never` so an unhandled variant fails compilation at the call site.
  * @param context - optional label (e.g. the switch site) prefixed into the throw message.
  * @returns never — it always throws, with the offending value JSON-rendered in the message.

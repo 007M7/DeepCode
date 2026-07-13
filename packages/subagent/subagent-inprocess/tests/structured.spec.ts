@@ -35,14 +35,7 @@ const SCHEMA: StructuredOutputSchema = {
   required: ['answer'],
 }
 
-/**
- * Real loop + scripted mock model + an INLINE fresh-conversation provider over the
- * shared driver. The concrete backend plugins are deliberately NOT loaded —
- * they would devDep-cycle this package (spawn/fork already depend on the
- * driver), and the runtime under test is the driver's; plugin-level structured
- * coverage lives in the spawn/fork specs. The mock model script drives the
- * child's structured_output calls.
- */
+/** Real loop and inline provider without a backend package dependency cycle. */
 async function setup(script: Script, options: SetupOptions = {}) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
@@ -216,11 +209,7 @@ describe('in-process structured output', () => {
     ])
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     let wrapperInstalled = false
-    // Register before the ready-only start. The child session-start boundary is
-    // after unpublished setup attached structured output but before the loop
-    // can run. The wrapper awaits the
-    // explicit downstream stop above, then overwrites that result with continue.
-    // The later terminal checkpoint still wins.
+    // Install a wrapper before the child loop can run.
     ctx.on('agent/session-start', (child) => {
       if (child === parent) return
       wrapperInstalled = true
@@ -244,10 +233,7 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    // The downstream ordinary policy says stop. A wrapper registered after
-    // start() delegates to that stop, then queues steering; ordinary folding
-    // would turn the stop back into continue. The terminal checkpoint runs
-    // afterwards and discards that steering.
+    // The terminal checkpoint must discard steering queued by a wrapper.
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {

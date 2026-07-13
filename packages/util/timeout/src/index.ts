@@ -6,15 +6,8 @@
  */
 
 /**
- * The internal reason attached to a timeout abort so consumers can classify it
- * after the fact. It carries the failing `code` (each capability's own string —
- * `BASH_TIMEOUT`, `WEB_FETCH_TIMEOUT`, …) and the `timeoutMs` that elapsed.
- *
- * It is an INTERNAL classification reason, not a public error: providers
- * translate it into their seam-specific error code or result field (via
- * {@link timeoutOf}) before returning to callers. Native `AbortSignal.timeout()`
- * yields a fixed `TimeoutError` indistinguishable across timeout kinds; this
- * type is identifiable and carries the code/duration.
+ * Internal abort reason carrying a capability-owned code and elapsed deadline.
+ * Providers translate it through {@link timeoutOf} before returning to callers.
  */
 export class TimeoutReason extends Error {
   override name = 'TimeoutReason'

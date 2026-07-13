@@ -71,14 +71,8 @@ export interface BashSandboxInfo {
    */
   enforcement?: SandboxEnforcement
   /**
-   * True when the executor classifies this failure as the SANDBOX RUNNER
-   * itself failing (missing binary, refused profile, fail-closed refusal
-   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
-   * task failure, and it outranks `denied` (a runner's own error text can
-   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
-   * foreground run surfaces the same condition as the thrown
-   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
-   * channel; a settled task's facts are its only channel).
+   * The sandbox runner failed before executing the command. Set only on settled
+   * background tasks; foreground runs throw `SANDBOX_UNAVAILABLE` instead.
    */
   runnerFailed?: boolean
 }

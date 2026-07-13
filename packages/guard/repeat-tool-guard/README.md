@@ -30,7 +30,7 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 ## Reminder delivery
 
-Reminders ride the post-execute decision's `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as a `context/message` after the step's tool results, which the session renders as the tagged synthetic-user envelope — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and folds its reminder onto the downstream decision (both variants — a blocked call still gets the nudge); when a downstream listener attached its own `additionalContext`, the fold concatenates content and carries the guard's `source` (a `HookContext` holds one `MessageSource`; `source.kind` is what framing depends on).
+Reminders use source-attributed `additionalContext`, preserving the tool's original result. The loop records them after the step's results as reconstructable `context/message` events. The guard always delegates and folds its reminder onto downstream context, including blocked calls.
 
 ## Testing
 

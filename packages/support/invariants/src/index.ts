@@ -1,19 +1,6 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts relationships in
- * the harness event contract at runtime.
- *
- * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, `agent/status`, and the scoped dispatch and request seams.
- * It is **off in production**: enable it in tests and demos, where a contract
- * violation should be a loud failure rather than a subtle one. It doubles as
- * executable documentation of the event taxonomy: the assertions below are
- * the contract.
- *
- * Session owns immutable log storage: it snapshots and deep-freezes every
- * accepted event at the source. This plugin checks relationships that one
- * event's types and immutability cannot express, including turn/step nesting,
- * scoped dispatch, status transitions, and request reconstructability.
- *
+ * Dev-only listener plugin for cross-event lifecycle, scope, and request
+ * invariants that types cannot express.
  * @module @deepseek-ai/dsh-invariants
  */
 

@@ -21,16 +21,7 @@ export function SessionId(id: string): SessionId {
 export const SESSION_FORMAT_VERSION = 0
 
 /**
- * Immutable session metadata — written once at creation and never rewritten.
- * {@link Session} enforces that contract at runtime: it validates and detaches
- * the accepted scalar fields, requires this header's id to match the session
- * id, and deep-freezes the published record.
- *
- * Kept SEPARATE from the event log deliberately: format-version, cwd, and
- * lineage are storage concerns, not conversation events, so they stay out of
- * {@link SessionEventMap} and never reach `deriveMessages()`. Every reference
- * system (pi's `version: 3` header, Codex's `SessionMeta`, Claude Code's tail
- * metadata) writes such a header.
+ * Immutable validated storage metadata, kept outside the conversation event log.
  */
 export interface SessionHeader {
   /**
@@ -63,17 +54,8 @@ export interface CreateSessionOptions {
   /** Events to seed the new session with (replay/fork). */
   readonly seed?: readonly SessionEvent[]
   /**
-   * Creation metadata. The store reads this plain record and each accepted
-   * field once, then fills in `version`/`id` and defaults
-   * `createdAt` to now; the caller supplies the storage-level fields (validated
-   * absolute `cwd`, `parentSession` lineage, the seed boundary `seedLength`, and
-   * — when reconstructing a persisted session — the original `createdAt` to
-   * preserve it).
-   *
-   * `seedLength` is EXPLICIT, not inferred from `seed.length`: a reconstruction
-   * (resume/load) seeds the WHOLE stored log, so its `seed.length` is the full
-   * length, not the original boundary — the caller must pass the persisted
-   * boundary back. A fresh fork passes its actual seeded-prefix length.
+   * Storage metadata read once before publication. `seedLength` is explicit
+   * because a resumed seed contains the full stored log, not only its inherited prefix.
    */
   readonly meta?: {
     readonly cwd?: string
@@ -119,13 +101,8 @@ export interface TurnEndReasonMap {
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * The turn's entire prompt batch was BLOCKED before any step ran — every
-   * drained queued message was vetoed by an `agent/prompt-submit` listener (a
-   * hook). The turn still opened (so the boundary stays balanced and the block
-   * is a durable in-turn fact), but ran zero steps. `reason` carries the block
-   * message from the vetoing decision. Distinct from `aborted` (a user-driven
-   * cancel) and `error` (a failure): the prompt was rejected by policy, not
-   * interrupted or broken. A UI renders it as "prompt blocked by hook".
+   * Policy blocked every prompt before the first step. The zero-step turn still
+   * records a balanced durable boundary and the veto reason.
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
@@ -157,15 +134,9 @@ export interface TodoItem {
 }
 
 /**
- * The request header: everything about an LLM request besides its derived
- * message history — the call configuration plus the rendered system prompt,
- * tool schemas, and the session prefix. Logged session state (the
- * reconstructability RFC): a
- * {@link SessionEventMap} `request/header` snapshot installs one, a
- * `request/header-delta` amends it, and folding those events over the log
- * (`foldRequestHeader`) reconstructs the header any request was built under.
- * Canonical form: an empty system prompt, an empty tool list, and an empty
- * prefix are ABSENT fields, matching how requests are built.
+ * Logged request state outside derived history: call config, system prompt,
+ * tools, and session prefix. Header snapshots and deltas reconstruct it;
+ * canonical empty optional fields are absent.
  */
 export interface EpochHeader {
   /** The conversation's call configuration (model + sampling scalars). */
@@ -356,16 +327,8 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }
 
 /**
- * Surface metadata passed to {@link Session.append}.
- * `surfaceOp` controls how the event enters the surface linked list;
- * `sourceEventSeqs` records the seq numbers of events that are provenance
- * sources of this one (e.g. the `assistant/chunk` seqs behind an
- * `assistant/message`, or the shadowed nodes behind a compaction replacement).
- *
- * Required for {@link SurfaceEventType} events — every message-producing event
- * MUST declare how it enters the surface, because the surface is the sole
- * source of derived history. Non-surface event types (`turn/start`,
- * `assistant/chunk`, `error`, …) cannot carry surface metadata.
+ * Surface placement and provenance for {@link Session.append}. Required on
+ * message-producing events and forbidden on log-only events.
  */
 export interface SurfaceIntent {
   surfaceOp: SurfaceOp

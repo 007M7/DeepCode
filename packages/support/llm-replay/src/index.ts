@@ -46,15 +46,7 @@ export interface ReplayConfig {
   childFiles?: string[]
 }
 
-/**
- * One recorded session's replay script: the per-call entries plus the header
- * facts needed to ORDER and key it. Live session ids are freshly random at
- * replay time and never equal the recorded `id`, so the recorded id is only a
- * diagnostic; `createdAt` is the load-bearing field — scripts are ordered by it
- * (a parent is created before its children) and each newly-seen live session is
- * bound to the next script in that order (= first-call order in the synchronous
- * nested cut, where the parent streams before it delegates).
- */
+/** Recorded calls plus header facts used to order parent and child replay scripts. */
 export interface SessionScript {
   /** The recorded session id (diagnostics only — the live id differs). */
   recordedId: string
@@ -90,11 +82,7 @@ export function parseSessionLog(text: string): SessionEvent[] {
 }
 
 /**
- * Read the identifying facts off a session log's header line (line 0): the recorded session
- * `id` (diagnostics), `createdAt` (the deterministic ordering key that binds a recorded script
- * to a live session — see {@link SessionScript}), and `seedLength` (the seed boundary — how
- * many leading events were INHERITED via a fork seed rather than produced by this session's
- * own model calls; absent ⇒ 0).
+ * Read replay identity, ordering, and fork-seed facts from the JSONL header.
  *
  * @param text - the raw `.jsonl` file contents (only the header line is read).
  * @returns the header's `id`, `createdAt`, and `seedLength`, defaulted when absent.

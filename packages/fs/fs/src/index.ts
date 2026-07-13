@@ -128,10 +128,8 @@ export abstract class FileSystem extends Service {
   abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 
   /**
-   * Create or fully replace a UTF-8 text file atomically. `expected` is the
-   * create-vs-replace decision and stale guard when supplied; OMITTING it is an
-   * unconditional create-or-overwrite (the bare provider — no version guard, no
-   * read-first requirement). Atomic either way.
+   * Atomically create or replace UTF-8 text. `expected` guards intent and
+   * staleness; omission allows unconditional overwrite.
    * @param target - the resolved target to write.
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.

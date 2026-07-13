@@ -54,14 +54,8 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
-   * Optional structured-output schema — an object-rooted JSON Schema within the
-   * enforced subset (see `assertSupportedOutputSchema` in dsh-tools; a schema
-   * outside the subset is rejected loud at start). When set AND the provider's
-   * {@link SubagentCapabilities.outputSchema} is `true`, the child is driven to
-   * report a value matching this schema, surfaced as
-   * {@link SubagentResult.structured}. The schema must be plain host-realm JSON
-   * data — a caller holding foreign-realm data materializes it first.
-   * Requesting it against a provider that lacks the capability is rejected at start.
+   * Supported object-rooted JSON Schema for {@link SubagentResult.structured}.
+   * Requires the provider capability and plain host-realm JSON data.
    */
   readonly outputSchema?: StructuredOutputSchema
   /**
@@ -130,14 +124,8 @@ export interface SubagentResult {
 }
 
 /**
- * A live subagent run: a handle the consumer holds while a child executes.
- * Returned by {@link SubagentProvider.start} (via the service) only after the
- * child is ready. The consumer awaits {@link result} and MUST {@link dispose}
- * on every path to cancel any remaining work and reach child quiescence.
- *
- * {@link sendMessage} and {@link resume} are OPTIONAL: a provider that supports
- * the runtime capability defines the method; one that doesn't omits it. The
- * presence of the method IS the capability — narrow before calling.
+ * Ready child handle. Consumers await {@link result} and always {@link dispose}
+ * for quiescence. Optional methods indicate their runtime capabilities.
  */
 export interface SubagentRun {
   /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
@@ -182,15 +170,9 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
-   * The provider's conversation-history descriptor: `true` when a child SEES the parent
-   * conversation (fork — the child is seeded with the parent's completed-turn
-   * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
-   * not a start-time capability: the service validates nothing against it —
-   * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
-   * wording from it, so a tool bound to a fork provider stops telling the
-   * model the child "does not see this conversation". This descriptor concerns
-   * conversation history only; it says nothing about tool registrations,
-   * injected services, or authority inheritance.
+   * Whether a child receives the parent's completed conversation history. This
+   * descriptive fact drives tool wording; it says nothing about services, tools,
+   * or authority.
    */
   readonly inheritsParentContext: boolean
   /**

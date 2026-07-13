@@ -73,12 +73,8 @@ function unwrapExpression(e: ts.Expression): ts.Expression {
 }
 
 /**
- * Classify a declarator's type annotation for the function contract: an
- * inline function type or a type literal that is EXACTLY one call signature
- * is the surface signature itself; a literal mixing call/construct
- * signatures with anything else cannot be classified syntactically and is
- * refused (fail closed — extract a named type); everything else is a plain
- * value shape.
+ * Classify inline callable annotations. Mixed callable literals fail closed;
+ * other annotations are ordinary value shapes.
  * @param type - the declarator's type annotation.
  * @returns the signature to check, 'refuse' for an unclassifiable callable literal, or null for a non-callable shape.
  */

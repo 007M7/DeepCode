@@ -7,10 +7,8 @@ import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
 
 /**
- * Scan `events` for an open turn/step at the tail and return the synthetic boundary events
- * that close them, with `seq` continuing the log and `time` copied from the last real event
- * (the closers stand in for the crash moment; reusing the last timestamp keeps them
- * deterministic and never invents a "future" time).
+ * Return deterministic synthetic events that close an open tail turn or step.
+ * Sequences continue the log and timestamps reuse the last real event.
  *
  * @param events - the loaded durable log to scan (a valid committed prefix, possibly with a crash tail).
  * @returns the synthetic closer events to append after `events`, in order; empty when the log is already balanced.

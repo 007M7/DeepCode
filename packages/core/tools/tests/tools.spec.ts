@@ -703,16 +703,7 @@ describe('ToolRegistry', () => {
   })
 
   it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
-    // The registry-disposer convention (set by agents.register): the returned
-    // function IS the cordis effect disposer, so a composite (generator)
-    // effect that yields it has the unregistration run at that yield's LIFO
-    // position on owner unload. A wrapper would leave the inner effect
-    // disposing as a CONCURRENT SIBLING of the composite; the async probe
-    // below (disposed first, LIFO) yields the event loop exactly like the
-    // agent factory's stop-and-drain link, and a sibling unregistration fires
-    // in that window — the probe would observe the tool already gone. Pins
-    // the convention for the whole register-method family (system-prompt
-    // registrars, registerProvider, setFactory share the same return).
+    // The async probe distinguishes nested LIFO teardown from a sibling effect.
     const ctx = await setup()
     const order: string[] = []
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {

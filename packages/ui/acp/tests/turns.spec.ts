@@ -124,11 +124,7 @@ describe('acp bridge — turn outcomes', () => {
   })
 
   it('with the terminal_output capability ON, a real bash call renders as a TERMINAL card (content + _meta + exit)', async () => {
-    // Drive the REAL bash tool, and advertise the Zed `_meta.terminal_output`
-    // capability in initialize. The bridge must then emit the terminal CARD: the
-    // description content block THEN a terminal content block + `_meta.terminal_info`
-    // (cwd header) on the call, and `_meta.terminal_output`/`terminal_exit` on the
-    // result — and OMIT the update's text content (it would clobber the card).
+    // Terminal capability moves output to card metadata.
     harness = await makeBridgeHarness({
       storageDir,
       withBash: true,
@@ -164,11 +160,7 @@ describe('acp bridge — turn outcomes', () => {
   })
 
   it('the terminal capability is snapshotted per-session: a later initialize cannot desync a call/result', async () => {
-    // The session is created with the capability ON. A SECOND initialize then
-    // turns it OFF at the connection level — but this session keeps its snapshot,
-    // so its bash call STILL renders as a terminal card (call + result agree).
-    // Without the snapshot, the result path would re-read the now-OFF capability
-    // and either clobber the card (content sent) or be inconsistent with the call.
+    // Session creation snapshots the capability for both call and result.
     harness = await makeBridgeHarness({
       storageDir,
       withBash: true,
@@ -324,11 +316,7 @@ describe('acp bridge — turn outcomes', () => {
   })
 
   it('cancel right after prompt settles cancelled and leaves the agent idle, no leaked turn', async () => {
-    // Over the async JSON-RPC transport the loop usually wakes before cancel
-    // arrives, so this is a running/mid-step cancel (the synchronous pre-step
-    // DROP is unit-tested in agent-loop/cancel.spec.ts). The ACP-level guarantee:
-    // the prompt settles cancelled, the agent reaches idle, and no second/leaked
-    // turn runs afterward.
+    // The cancelled prompt must not leave queued work for another turn.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('answer'), textResponse('leaked')] })
     const sessionId = await newSession(harness)
     const promptDone = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
@@ -337,18 +325,12 @@ describe('acp bridge — turn outcomes', () => {
     expect(res.stopReason).toBe('cancelled')
     const agent = harness.ctx.agents.get(AgentId(sessionId))!
     await agent.whenIdle()
-    // At most ONE turn ran (the cancelled one) — the cancel cleared the queue, so
-    // no second turn was batched or leaked. (A best-effort abort that left queued
-    // work could have started a second turn.)
     const turnStarts = agent.session.events.filter(e => e.type === 'turn/start').length
     expect(turnStarts).toBeLessThanOrEqual(1)
   })
 
   it('idle session/cancel then session/prompt runs the prompt (no intervening whenIdle)', async () => {
-    // The ACP bridge settles the cancel RPC synchronously and accepts the next
-    // prompt WITHOUT awaiting quiescence — so this drives cancel→prompt with NO
-    // whenIdle() between, the production race. An idle cancel must be a no-op that
-    // does NOT drop the following prompt.
+    // Exercise cancel→prompt without an intervening quiescence wait.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
     // Cancel while idle (no prompt in flight) — a no-op.
@@ -364,9 +346,7 @@ describe('acp bridge — turn outcomes', () => {
   })
 
   it('mid-stream cancel then an IMMEDIATE next prompt runs (no intervening whenIdle)', async () => {
-    // Cancel a running turn, then send the next prompt WITHOUT awaiting quiescence
-    // (the synchronous-settle path). The new prompt must run — the cancel marker
-    // must not leak onto it.
+    // A cancel marker must not leak onto an immediate next prompt.
     harness = await makeBridgeHarness({ storageDir, script: ['hang', textResponse('next answer')] })
     const sessionId = await newSession(harness)
     const a = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'A' }] })
@@ -384,10 +364,7 @@ describe('acp bridge — turn outcomes', () => {
   })
 
   it('a cancelled turn\'s late turn/end does not settle the NEXT prompt', async () => {
-    // Regression: prompt A runs; cancel settles A and frees the slot; A's
-    // aborted turn/end is still pending in the loop. Prompt B is sent before
-    // A's turn/end arrives. A's late turn/end (an EARLIER turn number) must NOT
-    // settle B — B owns a later turn. B then completes on its OWN turn/end.
+    // Correlation must keep A's late turn/end from settling B.
     harness = await makeBridgeHarness({ storageDir, script: ['hang', textResponse('B answer')] })
     const sessionId = await newSession(harness)
 
@@ -396,8 +373,7 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     expect((await a).stopReason).toBe('cancelled')
 
-    // Immediately send B; its turn (2) is distinct from A's (1). If A's late
-    // turn/end leaked onto B, B would settle 'cancelled' instead of 'end_turn'.
+    // B owns a later turn number than A.
     const b = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'B' }] })
     expect(b.stopReason).toBe('end_turn')
     const text = harness.updates

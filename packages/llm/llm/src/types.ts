@@ -36,15 +36,8 @@ export interface ToolResultBlock {
 }
 
 /**
- * All known content block shapes, keyed by their `type` tag.
- * Merge-extensible: plugins add new block types via declaration merging.
- *
- * The core set is deliberately limited to blocks every shipping path honors.
- * Multimodal content (images, audio, …) has no core block type: a feature
- * that needs one adds it via declaration merging in the same coordinated
- * change that maps it in the adapters, surfaces it in the UI bridges, and
- * prices it in compaction — a producer never lands without its consumers
- * (see docs/rfc/implemented/simplification/2026-07-04-drop-image-content-block.md).
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
  */
 export interface ContentBlockMap {
   'text': TextBlock

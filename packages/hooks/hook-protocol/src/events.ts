@@ -83,12 +83,8 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
 }
 
 /**
- * Append a `hook/result` outcome event to `session` (pairs with a prior
- * `hook/invoked`). Owns the durable event's semantics: `decision` is the hook's
- * parsed decision, else `'stop'` when it asked to halt (`continue: false`),
- * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to
- * `record.stderrSummaryMaxChars` characters (omitted when empty); `exitCode`
- * is omitted when the hook never ran.
+ * Append the durable result paired with `hook/invoked`, normalizing its decision,
+ * bounded stderr summary, and optional exit code.
  * @param session - the session whose open turn records the event.
  * @param record - the outcome to record: the decoded output plus the summary cap and duration.
  */

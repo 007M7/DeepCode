@@ -73,14 +73,7 @@ function signalAbortError(id: AgentId, signal: AbortSignal): Error {
   return new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
 }
 
-/**
- * One create/resume transaction from caller ownership through unpublished
- * setup, rollback-covered publication, and final quiescent teardown.
- *
- * The class deliberately owns the state machine in one place. Registries only
- * arbitrate identity at their final `enter()` calls; before that point every
- * resource is private to this transaction.
- */
+/** Caller-owned create/resume transaction through publication and teardown. */
 class AgentCreationTransaction {
   private active = true
   private failure: Error | undefined

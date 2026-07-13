@@ -23,12 +23,8 @@ const SURFACE_EVENT_TYPES = new Set<string>([
 ])
 
 /**
- * Whether an event's `type` is surface-eligible (one of the five
- * message-producing {@link SurfaceEventType} values). This is the TYPE check
- * only — it does NOT require `surfaceOp` to be present. Use it to detect a
- * surface-eligible event that is MISSING its mandatory marker (e.g. validating
- * a seed/load log); use {@link isSurfaceEvent} to narrow to a fully-formed
- * {@link SurfaceEvent} with `surfaceOp` present.
+ * Check only whether a type may enter the message surface. Use
+ * {@link isSurfaceEvent} when the mandatory `surfaceOp` must also be present.
  * @param type - the event type string to test.
  * @returns true when the type is one of the five message-producing types.
  */
