@@ -9,8 +9,6 @@
  * @module @deepseek-ai/dsh-code-runtime-worker/src/protocol
  */
 
-import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
-
 /** What the host hands the worker at spawn, via `workerData`. */
 export interface WorkerBootData {
   /** The type-stripped (plain JS) program body. */
@@ -36,10 +34,10 @@ export interface CallMessage {
   args: unknown
 }
 
-/** Worker → host: one captured log entry, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
-export interface LogMessage {
+/** Worker → host: captured text, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
+interface LogMessage {
   type: 'log'
-  entry: CodeLogEntry
+  text: string
 }
 
 /**
