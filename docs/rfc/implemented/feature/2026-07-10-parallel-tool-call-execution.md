@@ -33,13 +33,13 @@ export type ToolExecutionMode =
 
 ```text
 class ToolRegistry {
-  executionMode(exec: ToolExecution): ToolExecutionMode
+  executionMode(exec: ToolExecutionInput): ToolExecutionMode
 }
 ```
 
 `ctx.tools.executionMode(exec)` looks up the registered tool and calls `tool.isConcurrencySafe?.(exec.arguments)`. Unknown tools, missing declarations, malformed typed args, and thrown safety checks all resolve to `{ kind: 'exclusive' }`. The method is not a Cordis waterfall; it is the future insertion point if hook, MCP, or provider policy needs to downgrade a tool's baseline decision. The object-tagged union leaves room for future resource grouping, for example `{ kind: 'exclusive', group: 'session:...' }`.
 
-A parallel-safe declaration is a contract. The tool body must not mutate the parent agent's session or other parent-owned async state during `execute`; parent-session writes such as `exec.agent.session.append(...)`, `agent.inject(...)`, or other tool-owned parent events belong to exclusive tools unless the mutation moves behind the loop's ordered result path. The only parent-step outputs a parallel-safe call may produce are its returned content, `meta`, structured error, and `additionalContext` carried through the ordered post-execute path. The narrow exception is a synchronous, side-effect-only recorder whose updates are commutative for concurrent calls by the same session. `fs/observed` is the worked example: `read` emits it synchronously after a successful read, `dsh-fs-policy` records `WeakMap<session, target, version>` state synchronously, same-target reads converge to an observed version, and write/edit remain exclusive barriers that re-check versions before mutating.
+A parallel-safe declaration is a contract. The tool body must not mutate the parent agent's session or other parent-owned async state during `execute`; parent-session writes such as `exec.agent.session.append(...)`, `agent.inject(...)`, or other tool-owned parent events belong to exclusive tools unless the mutation moves behind the loop's ordered result path. The only parent-step outputs a parallel-safe call may produce are its returned content, `meta`, structured error, and `additionalContext` carried through the ordered post-execute path. The narrow exception is a synchronous, side-effect-only recorder whose updates are commutative or fail closed for concurrent calls by the same session. `fs/observed` is the worked example: `read` emits it synchronously after a successful read, `dsh-fs-policy` records `WeakMap<session, target, version>` state synchronously, and write/edit remain exclusive barriers that re-check versions before mutating; a stale observation can only make the provider CAS reject with `FS_STALE_VERSION`.
 
 ## Scheduling
 

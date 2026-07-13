@@ -22,7 +22,7 @@ import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionInput, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
@@ -30,12 +30,14 @@ import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 interface PlannedCall {
   /** The model-transcript call (authoritative `id`/`name`/raw `arguments`). */
   block: ToolCallBlock
-  /** The distinct per-call execution object handed to the tool pipeline. */
-  exec: ToolExecution
+  /** The distinct per-call execution input handed to the tool pipeline. */
+  exec: ToolExecutionInput
 }
 
 /** A settled call's slot, filled in model order before ordered finalization. */
 interface Slot {
+  /** The registry-minted execution object, carrying this call's token. */
+  exec: ToolExecution
   /** The raw dispatch/pre result. */
   result: ToolExecutionResult
   /** Whether the result still needs ordered `tools/post-execute` finalization. */
@@ -213,9 +215,8 @@ async function runParallelGroup(
       if (slot === undefined) break
       const call = group[committed]
       const result = slot.needsPost
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
-        ? await ctx.tools[TOOL_REGISTRY_SCHEDULER].finalize(call!.exec, slot.result)
-        : slot.result
+        ? await ctx.tools[TOOL_REGISTRY_SCHEDULER].finalize(slot.exec, slot.result)
+        : ctx.tools[TOOL_REGISTRY_SCHEDULER].finish(slot.exec, slot.result)
       // committed < group.length, so call and its callSeq (set at start) exist.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
@@ -235,18 +236,18 @@ async function runParallelGroup(
     const prepared = await ctx.tools[TOOL_REGISTRY_SCHEDULER].prepare(call.exec)
     switch (prepared.kind) {
       case 'dispatch': {
-        const promise = ctx.tools[TOOL_REGISTRY_SCHEDULER].dispatch(call.exec).then((result) => {
-          slots[index] = { result, needsPost: true }
+        const promise = ctx.tools[TOOL_REGISTRY_SCHEDULER].dispatch(prepared.exec).then((outcome) => {
+          slots[index] = { exec: prepared.exec, result: outcome.result, needsPost: outcome.kind === 'post-result' }
           return index
         })
         inFlight.set(index, promise)
         break
       }
       case 'post-result':
-        slots[index] = { result: prepared.result, needsPost: true }
+        slots[index] = { exec: prepared.exec, result: prepared.result, needsPost: true }
         break
       case 'final-result':
-        slots[index] = { result: prepared.result, needsPost: false }
+        slots[index] = { exec: prepared.exec, result: prepared.result, needsPost: false }
         break
       /* v8 ignore next -- closed-union exhaustiveness guard */
       default:

@@ -1,32 +1,31 @@
 # @deepseek-ai/dsh-subagent-acp
 
-The out-of-process **ACP subagent backend**: runs each child agent in a spawned subprocess, driven over the [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) (ACP) as the *client*. Registers a `SubagentProvider` on `ctx.subagents` (the [subagent seam](../subagent)), alongside the in-process [`-spawn`](../subagent-spawn)/[`-fork`](../subagent-fork) backends — multiple backends coexist by name.
+The ACP provider runs each subagent in a fresh subprocess and drives it as an Agent Client Protocol client. It is the out-of-process alternative to spawn and fork: the child has its own runtime, session, model configuration, and tools.
 
-It is the direction-inverted twin of the server-side bridge in [`@deepseek-ai/dsh-acp`](../../ui/acp): that package is the ACP *agent* (it answers `initialize`/`newSession`/`prompt`); this one is the ACP *client* (it *calls* them and implements the `sessionUpdate`/`requestPermission` callbacks). Point the configured command at the `acp-agent` example to "talk to our own process".
+## Start and ownership
 
-## What it does
+`start(request)` performs `spawn` → ACP `initialize` → `newSession` before it fulfills. Fulfillment therefore means a remote session is ready and ownership has transferred to the caller. A spawn, initialization, new-session, or pre-publication cancellation failure rejects only after the subprocess has been reaped.
 
-`start(request)` spawns the configured command, wraps its stdio in an ACP `ClientSideConnection`, and drives one session: `initialize` → `newSession` → `prompt`. The child's streamed `agent_message_chunk` text becomes the `SubagentResult.output`; the prompt's terminal `StopReason` maps to the stop reason. `dispose()` kills the subprocess and awaits its exit.
+After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
-**Fresh process per run.** Each `start` spawns a new child, runs exactly one ACP session, and disposes it. Persistent-process pooling is a future optimization (see the RFC).
+`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, waits `disposeEofGraceMs`, escalates to SIGTERM, waits `disposeGraceMs`, and finally uses SIGKILL if necessary. Every run uses a fresh process; process pooling is not implemented.
 
-Unlike the in-process backends, the child does NOT share this cordis context — it is a separate process with its own session, model client, and tools. So this backend:
-- injects only `subagents` (no `ctx.agents`);
-- advertises NO start-time capabilities (an out-of-process child can't enforce the parent's depth/tool-filter);
-- ignores `request.parent`.
+## Capabilities and context
 
-## Config
+ACP advertises no start-time capabilities because this process cannot enforce the remote child's depth, tool filter, persona, or structured-output runtime. It also reports `inheritsParentContext: false`: the remote session starts fresh and ignores `request.parent` beyond the seam's required attribution field.
 
-| Key | Type | Default | Notes |
-|---|---|---|---|
-| `providerName` | string | `acp` | Registry name on `ctx.subagents`. |
-| `command` | string | — (required) | The executable to spawn for each run (the child ACP agent). |
-| `args` | string[] | `[]` | Arguments passed to `command`. |
-| `cwd` | string | parent cwd | Working directory for the child process and its ACP session. |
-| `permission` | `'allow' \| 'reject'` | `reject` | How to auto-answer the child's `session/request_permission` prompts. `reject` declines every prompt (answer `cancelled`); `allow` approves via the first allow-shaped option. The first cut surfaces no prompt to a human. |
-| `env` | Record<string,string> | `{}` | Extra env vars for the child (e.g. its own `DEEPSEEK_API_KEY`). Forwarded on top of a credential-scrubbed copy of the parent env, so an explicit key reaches the child while ambient secrets do not leak implicitly. |
-| `disposeEofGraceMs` | number | `6000` | Dispose ladder tier 1: how long the child gets to quiesce on its own after stdin EOF (flush persistence, tear down its nested subprocesses) before SIGTERM. |
-| `disposeGraceMs` | number | `3000` | Dispose ladder tier 2: grace between SIGTERM and the SIGKILL escalation. |
+## Configuration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `providerName` | `acp` | Registry name on `ctx.subagents`. |
+| `command` | required | Executable spawned for each run. |
+| `args` | `[]` | Command arguments. |
+| `cwd` | process cwd | Child process and ACP session working directory. |
+| `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first allow-shaped option. |
+| `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment. |
+| `disposeEofGraceMs` | `6000` | Grace after stdin EOF before SIGTERM. |
+| `disposeGraceMs` | `3000` | Grace after SIGTERM before SIGKILL. |
 
 ```yaml
 - id: subagent-acp
@@ -40,32 +39,20 @@ Unlike the in-process backends, the child does NOT share this cordis context —
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 ```
 
-## StopReason mapping
+## Stop-reason mapping
 
-ACP `StopReason` → harness `SubagentStopReason`:
-
-| ACP | harness |
+| ACP | Harness |
 |---|---|
 | `end_turn` | `completed` |
 | `max_tokens` | `max-tokens` |
 | `refusal` | `refusal` |
 | `cancelled` | `aborted` |
-| `max_turn_requests` | `error` (no clean equivalent; the task did not finish) |
-| _(unknown)_ | `error` |
+| `max_turn_requests` or unknown | `error` |
 
-A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was requested) — `result` never rejects on a child-level failure, per the seam contract.
+## Process boundary
 
-## Environment scrub
+The child environment is built by [`buildChildEnv`](../subagent-subprocess/README.md): credential-shaped ambient variables are removed, then explicit `config.env` values are applied. The ACP wire is the real serialization boundary; same-process subagent values are not defensively cloned.
 
-The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-subprocess`](../subagent-subprocess/README.md) — the ambient env minus credential-shaped vars, with `config.env` layered on top after the scrub; the pattern and full semantics live there. For this backend that means the parent harness's own secrets never leak into the spawned agent implicitly, while the child's OWN `DEEPSEEK_API_KEY` is supplied deliberately via `config.env` and survives.
+The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 
-## Testing
-
-- **Keyless** (`subagent-acp.spec.ts`): spawns a scripted mock ACP server subprocess (`tests/mock-acp-server.ts`) and drives it through the real backend over real ACP stdio — connection setup, client callbacks, the prompt round-trip, stop-reason mapping, cancellation (including the early-cancel race and a torn-pipe-after-cancel), permission auto-answer, and quiescent disposal. No model, no key.
-- **With-key e2e** (`subagent-acp.e2e.ts`): the harness drives ITSELF — the backend spawns the real `acp-agent` example process and a real model in that child answers a prompt and does real file work (verified on disk). Self-skips without `DEEPSEEK_API_KEY`.
-
-`TODO(acp-subagent-replay)`: snapshot-tier coverage of an ACP child is a separate replay shape (each child is its own PROCESS with its own single-agent replay, distinct from the in-process per-session keying), deferred — see the RFC.
-
-## Plugin export shape
-
-Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+Keyless tests drive a scripted ACP subprocess over real stdio. The with-key e2e drives the repository's real ACP agent and self-skips without `DEEPSEEK_API_KEY`.

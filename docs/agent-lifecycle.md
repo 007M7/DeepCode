@@ -43,6 +43,7 @@ sequenceDiagram
   Driver->>Session: <code>tool/result</code> in model order
   Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
+  Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint
   Driver->>Session: <code>turn/end</code>
   Driver->>Persistence: <code>session/flush</code> parallel checkpoint
   Driver-->>SDK: <code>agent/status</code> idle

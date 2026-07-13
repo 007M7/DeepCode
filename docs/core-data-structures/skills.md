@@ -6,13 +6,13 @@ Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/ind
 
 ## Provider registry
 
-`ctx.skills` is a multi-provider registry. Providers can represent local directories, embedded plugin data, HTTP catalogs, or another source. Provider plugins register synchronously during `apply()`; remote initialization, authentication, and discovery are awaited by `list()`. The registry validates candidates, resolves duplicate skill names first-wins by rank/provider order/local order, and sorts the final summaries by `name` for deterministic consumers. A provider `list()` rejection is logged and skipped without caching the degraded catalog; malformed candidates still fail fast because they violate the provider contract.
+`ctx.skills` is a multi-provider registry. Providers can represent local directories, embedded plugin data, HTTP catalogs, or another source. Provider plugins register synchronously during `apply()`; remote initialization, authentication, and discovery are awaited by `list()`. Provider objects, lookup options, and candidates are readonly same-process contracts, so the registry borrows them instead of manufacturing defensive snapshots. The registry still validates semantic fields, resolves duplicate skill names first-wins by rank/provider order/local order, and sorts the final summaries by `name` for deterministic consumers. A provider `list()` rejection is logged and skipped without caching the degraded catalog; malformed candidates still fail fast because they violate the provider contract.
 
 ```ts type-equiv
 interface SkillProvider {
-  name: string
-  list(options: SkillLookupOptions): Promise<SkillCandidate[]>
-  get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>
+  readonly name: string
+  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
+  readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
 }
 ```
 
@@ -28,7 +28,7 @@ The shipped local provider scans roots in rank order:
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child, and DeepSeek Harness no longer ships built-in system skills from the local provider. Additional built-ins can be supplied later by another provider.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not ship built-in system skills; deployments supply built-ins through another provider.
 
 ## Skill identity
 
@@ -44,13 +44,13 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ```ts type-equiv
 interface SkillSummary {
-  name: string
-  description: string
-  whenToUse?: string
-  disableModelInvocation?: boolean
-  source: SkillSource
-  provider: string
-  resourceBase?: SkillResourceBase
+  readonly name: string
+  readonly description: string
+  readonly whenToUse?: string
+  readonly disableModelInvocation?: boolean
+  readonly source: SkillSource
+  readonly provider: string
+  readonly resourceBase?: SkillResourceBase
 }
 ```
 
@@ -58,10 +58,10 @@ interface SkillSummary {
 
 ```ts type-equiv
 interface SkillCandidate extends SkillSummary {
-  rank: number
-  locator: unknown
-  path?: string
-  metadata?: Record<string, unknown>
+  readonly rank: number
+  readonly locator: unknown
+  readonly path?: string
+  readonly metadata?: Readonly<Record<string, unknown>>
 }
 ```
 
@@ -69,16 +69,16 @@ interface SkillCandidate extends SkillSummary {
 
 ```ts type-equiv
 type SkillResourceBase =
-  | { kind: 'directory'; path: string }
-  | { kind: 'url'; url: string }
-  | { kind: 'opaque'; description: string }
+  | { readonly kind: 'directory'; readonly path: string }
+  | { readonly kind: 'url'; readonly url: string }
+  | { readonly kind: 'opaque'; readonly description: string }
 ```
 
 ```ts type-equiv
 interface SkillDefinition extends SkillSummary {
-  content: string
-  path?: string
-  metadata?: Record<string, unknown>
+  readonly content: string
+  readonly path?: string
+  readonly metadata?: Readonly<Record<string, unknown>>
 }
 ```
 
@@ -86,18 +86,18 @@ Runtime skills use the same complete shape and participate in the same first-win
 
 ```ts type-equiv
 type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
-  provider?: string
+  readonly provider?: string
 }
 ```
 
 ## Lookup and configuration
 
-Skill lookup is cwd-sensitive because providers may expose workspace-local skills, and its optional signal cancels provider work for the caller. If no git root is found, the local provider treats the supplied cwd itself as the project root.
+Skill lookup is cwd-sensitive because providers may expose workspace-local skills, and its optional signal cancels provider work for the caller. Providers receive the same readonly options object used for cache identity and loading. Cancellation is checked before and after catalog selection, including cache hits, and races both discovery and full-definition loading. If no git root is found, the local provider treats the supplied cwd itself as the project root.
 
 ```ts type-equiv
 interface SkillLookupOptions {
-  cwd?: string | undefined
-  signal?: AbortSignal | undefined
+  readonly cwd?: string | undefined
+  readonly signal?: AbortSignal | undefined
 }
 ```
 
@@ -105,7 +105,7 @@ The registry owns only its discovery-cache bound. The local provider owns filesy
 
 ```ts type-equiv
 interface Config {
-  collectCacheMaxEntries?: number
+  readonly collectCacheMaxEntries?: number
 }
 ```
 

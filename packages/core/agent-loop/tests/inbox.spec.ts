@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Inbox } from '@deepseek-ai/dsh-agent-loop'
+import { Inbox } from '../src/inbox.ts'
 
 function resolverPair() {
   let r!: () => void

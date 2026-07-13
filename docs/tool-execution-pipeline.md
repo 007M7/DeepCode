@@ -3,7 +3,7 @@
 
 # Tool Execution Pipeline
 
-This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls.
+This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.
 
 ```mermaid
 flowchart TD
@@ -11,24 +11,29 @@ flowchart TD
   toolCall["Session event: <code>tool/call</code><br/>logged before execution"]
   presentCall["UI pending card<br/>presentCall(args)"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
-  denied["denied<br/>tool body skipped"]
+  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]
+  denied["denied or approval refused<br/>tool body skipped"]
   approval["<code>ctx.approval</code> one-shot prompt<br/>absent or unanswerable: deny"]
   around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
   owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
+  final["<code>tools/result</code> synchronous notification<br/>frozen authoritative outcome"]
   context["Buffered additionalContext<br/>context/message after all tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
+  allResults["All calls in the step settled<br/>and tool/result events recorded"]
   presentResult["UI completed card<br/>presentResult(args, result)"]
   model --> toolCall
   toolCall --> presentCall
   toolCall --> pre
-  pre -->|allow| around
+  pre -->|allow| guards
+  guards -->|allow| around
+  guards -->|deny| denied
   around --> toolBody
   pre -->|deny| denied
   pre -->|ask| approval
-  approval -->|allowed-once| around
+  approval -->|allowed-once| guards
   approval -->|rejected, cancelled, unavailable| denied
   denied --> post
   toolBody --> fsGate
@@ -36,11 +41,13 @@ flowchart TD
   toolBody --> owned
   toolBody --> around
   around --> post
-  post --> context
-  post --> toolResult
+  post --> final
+  final --> toolResult
   toolResult --> presentResult
+  toolResult --> allResults
+  allResults --> context
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and the approval seam's permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The synchronous `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution's opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call's `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

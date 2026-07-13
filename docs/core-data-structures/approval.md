@@ -39,21 +39,21 @@ interface ApprovalRequest {
    * UI answerer only answers for agents it owns) and receives the audit
    * events on its session log.
    */
-  agent: Agent
+  readonly agent: Agent
   /** The tool the question is about (presentation and audit). */
-  toolName: string
+  readonly toolName: string
   /**
    * The exact tool call being decided, when the asker has one — lets a UI
    * attach the prompt to the tool call it already streamed.
    */
-  callId?: CallId
+  readonly callId?: CallId
   /** The asker's human-readable explanation of WHY it is asking. */
-  reason?: string
+  readonly reason?: string
   /**
    * Aborting withdraws the question: the request settles `'cancelled'`
    * immediately and a late answer from a still-pending answerer is discarded.
    */
-  signal?: AbortSignal
+  readonly signal?: AbortSignal
 }
 ```
 

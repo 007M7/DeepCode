@@ -12,7 +12,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
   defineTool,
   type ToolDefinition,
-  type ToolExecution,
+  type ToolExecutionInput,
   type ToolExecutionMode,
 } from '@deepseek-ai/dsh-tools'
 
@@ -23,7 +23,7 @@ async function setup() {
   return ctx
 }
 
-function exec(name: string, args: unknown): ToolExecution {
+function exec(name: string, args: unknown): ToolExecutionInput {
   return { callId: CallId('c1'), name, arguments: args }
 }
 

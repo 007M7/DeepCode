@@ -195,11 +195,11 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
 
     expect(() => ctx.agentLoop.create(AgentId('bad-zero'), { model: 'mock', maxParallelToolCalls: 0 }))
       .toThrow('maxParallelToolCalls must be a positive integer')
-    expect(() => ctx.agentLoop.createAgent({
+    await expect(ctx.agents.create({
       agentId: AgentId('bad-fractional'),
       sessionId: SessionId('bad-fractional-session'),
       agentOptions: { model: 'mock', maxParallelToolCalls: 1.5 },
-    })).toThrow('maxParallelToolCalls must be a positive integer')
+    })).rejects.toThrow('maxParallelToolCalls must be a positive integer')
   })
 
   it('starts at most the cap, replenishing as calls settle', async () => {

@@ -23,9 +23,10 @@ export async function spawnHarness(workdir: string): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  // The deployment persona is context-wide (parent AND spawned children
-  // render it), so it stays neutral for both roles; the delegation nudge
-  // lives in the e2e's user prompt and the subagent tool's own description.
+  // This harness installs only the global default persona, so both parent and
+  // spawned children render it. It stays neutral for both roles; the
+  // delegation nudge lives in the e2e's user prompt and the subagent tool's
+  // own description.
   await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent. Report only when the requested work is done.' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)

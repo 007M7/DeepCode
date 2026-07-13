@@ -202,7 +202,7 @@ describe('Agent.cancel()', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('a-dispose-prefix'),
       sessionId: SessionId('dispose-prefix-session'),
       agentOptions: { model: 'mock' },
@@ -333,7 +333,7 @@ describe('Agent.cancel()', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('a-dispose-step-start'),
       sessionId: SessionId('dispose-step-start-session'),
       agentOptions: { model: 'mock' },
