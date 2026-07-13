@@ -45,6 +45,7 @@
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
+import { parseJsDoc, pointer, rawJsDoc, reportViolations } from './jsdoc.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/persistence-catalog.md'
@@ -95,12 +96,6 @@ export interface AnnotatedLogEventEntry extends LogEventEntry {
   surface: boolean
 }
 
-/** Repo-relative source pointer `file:line` for a node's first character. */
-function pointer(rel: string, sf: ts.SourceFile, node: ts.Node): string {
-  const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
-  return `${rel}:${line + 1}`
-}
-
 const printer = ts.createPrinter({ removeComments: true })
 
 /**
@@ -116,87 +111,6 @@ function payloadText(type: ts.TypeNode, sf: ts.SourceFile): string {
     .replace(/\s+/g, ' ')
     .replace(/;\s*\}/g, ' }')
     .trim()
-}
-
-/** The raw `/** … *​/` JSDoc block immediately preceding a node, or '' if none. */
-function rawJsDoc(text: string, node: ts.Node): string {
-  const ranges = ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []
-  const jsdoc = ranges.filter(r => text.slice(r.pos, r.pos + 3) === '/**').at(-1)
-  return jsdoc ? text.slice(jsdoc.pos, jsdoc.end) : ''
-}
-
-/**
- * Parse a raw JSDoc block into description prose, flagging whether any `@mode`
- * tag is present (forbidden on log events). Output obeys the repo's markdown
- * conventions so the generated file passes verify-md-wrap: each prose paragraph
- * collapses to ONE physical line, and a `-` bullet list is preserved with each
- * item on its own single line (continuation lines folded in). `{@link Foo}`
- * unwraps to `Foo`. Description prose ends at the FIRST block tag (standard
- * JSDoc semantics): tag lines and their continuation lines are never prose.
- */
-function parseJsDoc(raw: string): { doc: string; hasMode: boolean } {
-  const inner = raw
-    .replace(/^\/\*\*/, '')
-    .replace(/\*\/$/, '')
-    .split('\n')
-    .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
-  let hasMode = false
-  let inTags = false
-  const blocks: string[] = []
-  let para: string[] = []
-  let list: string[] = []
-  let item: string[] = []
-  const join = (parts: string[]): string => parts.join(' ').replace(/\s+/g, ' ').trim()
-  const flushItem = (): void => {
-    if (item.length) list.push(join(item))
-    item = []
-  }
-  const flushList = (): void => {
-    flushItem()
-    if (list.length) blocks.push(list.join('\n')) // one block, items on own lines
-    list = []
-  }
-  const flushPara = (): void => {
-    flushList()
-    if (para.length) blocks.push(join(para))
-    para = []
-  }
-  for (const line of inner) {
-    // Tag detection runs on the trimmed line: the normalization above strips at
-    // most one post-`*` space, so an extra-indented `*  @mode` still reaches
-    // here with leading whitespace and must not leak into prose.
-    const tagLine = line.trimStart()
-    if (/^@mode\b/.test(tagLine)) { hasMode = true; flushPara(); inTags = true; continue }
-    if (tagLine.startsWith('@')) { flushPara(); inTags = true; continue }
-    if (inTags) continue // block-tag territory: continuations are never prose
-    if (line.trim() === '') { flushPara(); continue }
-    if (/^-\s+/.test(line)) {
-      // A list item starts: a pending paragraph (e.g. an intro line directly
-      // above the list, no blank between) flushes FIRST so it renders above.
-      flushItem()
-      if (para.length) { blocks.push(join(para)); para = [] }
-      item.push(line)
-      continue
-    }
-    if (item.length) { item.push(line); continue } // continuation of current item
-    para.push(line)
-  }
-  flushPara()
-  const doc = blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim()
-  return { doc, hasMode }
-}
-
-/**
- * Throw one aggregate error for every completeness violation a walk collected.
- * Aggregation is deliberate: a remediation pass sees the whole list at once
- * instead of replaying the gate once per offender.
- */
-function reportViolations(violations: string[]): void {
-  if (violations.length === 0) return
-  throw new Error(
-    `gen-persistence-catalog: ${violations.length} JSDoc completeness violation(s):\n`
-    + violations.map(v => `  ${v}`).join('\n'),
-  )
 }
 
 /**
@@ -323,7 +237,7 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
       }
     }
   }
-  reportViolations(violations)
+  reportViolations('gen-persistence-catalog', violations)
   return entries
 }
 

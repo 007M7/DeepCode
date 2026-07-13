@@ -26,8 +26,9 @@
  * Run: `tsx scripts/verify-doc-refs.ts`.
  */
 
-import { existsSync, globSync, readFileSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { findReferenceViolations, uniqueRepoFiles, type ReferenceViolation as Violation } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -46,42 +47,14 @@ const isExcluded = (p: string): boolean =>
  */
 const DOC_REF = /\bdocs\/[A-Za-z0-9._/-]+\.md/g
 
-/** A broken doc reference: a root-relative `docs/….md` token with no file. */
-interface Violation {
-  file: string
-  /** 1-based line where the reference appears. */
-  line: number
-  ref: string
-}
-
 /** Find every broken `docs/….md` reference in one TypeScript file. */
 function findViolations(absPath: string): Violation[] {
-  const file = relative(root, absPath)
-  const source = readFileSync(absPath, 'utf8')
-  const out: Violation[] = []
-  const lines = source.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (line === undefined) continue
-    for (const m of line.matchAll(DOC_REF)) {
-      const ref = m[0]
-      if (!existsSync(resolve(root, ref))) {
-        out.push({ file, line: i + 1, ref })
-      }
-    }
-  }
-  return out
+  return findReferenceViolations(root, absPath, DOC_REF, ref => ref, ref => !existsSync(resolve(root, ref)))
 }
 
-const all: Violation[] = []
-let checked = 0
-for (const pattern of PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) {
-    if (isExcluded(match)) continue
-    checked++
-    all.push(...findViolations(resolve(root, match)))
-  }
-}
+const files = uniqueRepoFiles(root, PATTERNS, isExcluded)
+const all = files.flatMap(file => findViolations(file.abs))
+const checked = files.length
 
 if (all.length === 0) {
   console.log(`verify-doc-refs: ${checked} file(s) checked, all docs/*.md references resolve.`)
