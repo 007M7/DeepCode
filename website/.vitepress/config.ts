@@ -13,6 +13,14 @@ const sectionOrder = [
   '基础',
   '框架能力',
   '实战',
+  '概念',
+  '生成参考',
+  '数据结构',
+  '开发手册',
+  'Guide',
+  'Basics',
+  'Framework',
+  'Practice',
   'Concepts',
   'Generated reference',
   'Data structures',
@@ -20,7 +28,7 @@ const sectionOrder = [
 ]
 
 function sidebar(collection: DocsPage['sidebar']): DefaultTheme.SidebarItem[] {
-  const pages = docsPages.filter(page => page.sidebar === collection && page.route !== 'index.md')
+  const pages = docsPages.filter(page => page.sidebar === collection)
   const sections = new Map<string, DocsPage[]>()
   for (const page of pages) {
     const entries = sections.get(page.section) ?? []
@@ -51,7 +59,36 @@ function escapeVueInterpolation(html: string): string {
 }
 
 const sharedTheme: Pick<DefaultTheme.Config, 'search' | 'socialLinks' | 'editLink'> = {
-  search: { provider: 'local' },
+  search: {
+    provider: 'local',
+    options: {
+      locales: {
+        root: {
+          translations: {
+            button: {
+              buttonText: '搜索文档',
+              buttonAriaLabel: '搜索文档',
+            },
+            modal: {
+              displayDetails: '显示详细列表',
+              resetButtonTitle: '清除搜索',
+              backButtonTitle: '关闭搜索',
+              noResultsText: '未找到相关结果',
+              footer: {
+                selectText: '选择',
+                selectKeyAriaLabel: '回车键',
+                navigateText: '切换',
+                navigateUpKeyAriaLabel: '上方向键',
+                navigateDownKeyAriaLabel: '下方向键',
+                closeText: '关闭',
+                closeKeyAriaLabel: 'Esc 键',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   socialLinks: [
     { icon: 'github', link: 'https://github.com/deepseek-harness/deepseek-harness' },
   ],
@@ -81,14 +118,22 @@ export default withMermaid({
         nav: [
           { text: '入门', link: '/guide/', activeMatch: '^/guide/' },
           { text: '开发', link: '/develop/basic/', activeMatch: '^/develop/' },
-          { text: 'Reference', link: '/en/', activeMatch: '^/en/' },
+          { text: '参考', link: '/reference/', activeMatch: '^/reference/' },
         ],
         sidebar: {
           '/guide/': sidebar('zh-guide'),
           '/develop/': sidebar('zh-develop'),
+          '/reference/': sidebar('zh-reference'),
         },
         outline: { label: '本页目录' },
         docFooter: { prev: '上一篇', next: '下一篇' },
+        darkModeSwitchLabel: '外观',
+        lightModeSwitchTitle: '切换到浅色主题',
+        darkModeSwitchTitle: '切换到深色主题',
+        sidebarMenuLabel: '菜单',
+        returnToTopLabel: '返回顶部',
+        langMenuLabel: '切换语言',
+        skipToContentLabel: '跳至内容',
       },
     },
     en: {
@@ -97,12 +142,14 @@ export default withMermaid({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Concepts', link: '/en/' },
-          { text: 'Reference', link: '/en/config-catalog' },
-          { text: '中文指南', link: '/guide/' },
+          { text: 'Guide', link: '/en/guide/', activeMatch: '^/en/guide/' },
+          { text: 'Develop', link: '/en/develop/basic/', activeMatch: '^/en/develop/' },
+          { text: 'Reference', link: '/en/reference/', activeMatch: '^/en/reference/' },
         ],
         sidebar: {
-          '/en/': sidebar('en-docs'),
+          '/en/guide/': sidebar('en-guide'),
+          '/en/develop/': sidebar('en-develop'),
+          '/en/reference/': sidebar('en-reference'),
         },
         editLink: {
           pattern: ({ frontmatter }: PageData) => {

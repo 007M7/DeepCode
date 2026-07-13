@@ -133,14 +133,14 @@ defineTool({
   // ...
   presentCall(args) {
     return {
-      intent: 'terminal',
-      title: `bash(${JSON.stringify(args.command).slice(0, 60)})`,
+      card: 'terminal',
+      title: args.command,
     }
   },
   presentResult(args, result) {
     return {
-      intent: 'terminal',
-      body: result.content.map(b => b.type === 'text' ? b.text : '').join(''),
+      card: 'terminal',
+      output: result.content.map(b => b.type === 'text' ? b.text : '').join(''),
     }
   },
 })
@@ -156,9 +156,7 @@ defineTool({
 // 这样就够了:
 ctx.tools.register(defineTool({ /* ... */ }))
 
-// 不需要:
-// const dispose = ctx.tools.register(...)
-// ctx.on('dispose', dispose)
+// 不需要额外保存 disposer 或注册清理逻辑
 ```
 
 ## 完整实战示例

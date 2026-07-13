@@ -13,7 +13,7 @@ hero:
       link: /develop/basic/
 features:
   - title: 插件化架构
-    details: 基于 Cordis 效果系统，所有能力通过插件注册，加载即生效、卸载即还原。
+    details: 基于 Cordis 插件系统，所有能力通过插件注册，加载即生效、卸载即还原。
   - title: 配置即组合
     details: 一个 cordis.yml 决定整个 Agent 的能力组合——换模型、加工具，只需改一行配置。
   - title: 开箱即用

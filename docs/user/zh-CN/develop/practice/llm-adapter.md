@@ -114,6 +114,8 @@ interface GenerateOptions {
   maxTokens?: number
   /** 温度 */
   temperature?: number
+  /** 取消或卸载时中止进行中的请求 */
+  signal?: AbortSignal
 }
 ```
 
@@ -160,7 +162,10 @@ mock 适配器是学习 StreamChunk 协议的最佳起点——它用纯本地�
 
 ```typescript
 async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-  const response = await fetch(this.endpoint, { /* ... */ })
+  const response = await fetch(this.endpoint, {
+    // ...method、headers 和 body
+    signal: options.signal,
+  })
   if (!response.ok) {
     throw new Error(`API error: ${response.status}`)
   }

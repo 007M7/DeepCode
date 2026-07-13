@@ -4,10 +4,11 @@
 
 ## 定义 Config 类型
 
-在插件中导出一个 `Config` 类型和可选的默认值：
+在插件中导出一个 `Config` 类型和同名的 Schemastery schema；默认值直接写在 schema 中：
 
 ```typescript
 import type { Context } from 'cordis'
+import Schema from 'schemastery'
 
 export const name = 'my-plugin'
 
@@ -17,11 +18,11 @@ export interface Config {
   verbose?: boolean
 }
 
-export const Config = {
-  greeting: 'Hello',
-  maxRetries: 3,
-  verbose: false,
-}
+export const Config: Schema<Config> = Schema.object({
+  greeting: Schema.string().default('Hello'),
+  maxRetries: Schema.number().default(3),
+  verbose: Schema.boolean().default(false),
+})
 
 export function apply(ctx: Context, config: Config) {
   console.log(config.greeting)  // 用户配置或默认值
@@ -37,7 +38,7 @@ export function apply(ctx: Context, config: Config) {
     maxRetries: 5
 ```
 
-未提供的字段使用导出的 `Config` 对象中的默认值。
+插件加载时，Cordis 会通过导出的 schema 校验配置，并填充未提供字段的默认值。不要导出普通对象作为 `Config`，因为它不满足 Cordis 要求的 Standard Schema 接口。
 
 ## Schema 校验
 
@@ -92,7 +93,7 @@ export interface Config {
 
 ```typescript
 export function apply(ctx: Context, config: Config) {
-  if (!ctx.llm.hasAdapter(config.model)) {
+  if (!ctx.llm.models().includes(config.model)) {
     throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
   }
 }

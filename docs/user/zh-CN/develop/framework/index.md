@@ -105,14 +105,6 @@ fiber.dispose()
 export function apply(ctx: Context) {
   console.log('plugin loading')
 
-  ctx.on('ready', () => {
-    console.log('context ready')
-  })
-
-  ctx.on('dispose', () => {
-    console.log('plugin disposing')
-  })
-
   ctx.effect(() => {
     console.log('effect registered')
     return () => console.log('effect cleaned up')
@@ -124,12 +116,10 @@ export function apply(ctx: Context) {
 ```
 plugin loading
 effect registered
-context ready
 ```
 
-卸载时输出（逆序）：
+卸载时输出：
 ```
-plugin disposing
 effect cleaned up
 ```
 

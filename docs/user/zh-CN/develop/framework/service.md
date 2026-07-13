@@ -90,8 +90,11 @@ export default class MetricsService extends Service {
 // 必选：服务不存在时，插件不会加载
 export const inject = ['tools']
 
-// 可选：服务不存在时，插件仍然加载，但 ctx.xxx 可能是 undefined
-export const inject = { optional: ['metrics'] }
+// 可选：不写入 inject，使用时通过 ctx.get() 查询
+export function apply(ctx: Context) {
+  const metrics = ctx.get('metrics')
+  metrics?.record('plugin_loaded', 1)
+}
 ```
 
 ### 服务消失时的行为
@@ -109,7 +112,10 @@ export const inject = { optional: ['metrics'] }
 
 ```yaml
 - id: group-a
-  name: 'group:'
+  name: '@cordisjs/plugin-group'
+  group: true
+  isolate:
+    bash: true
   config:
     - name: '@deepseek-ai/dsh-bash-local'
       config:
@@ -117,7 +123,10 @@ export const inject = { optional: ['metrics'] }
     - name: './src/plugin-a.ts'
 
 - id: group-b
-  name: 'group:'
+  name: '@cordisjs/plugin-group'
+  group: true
+  isolate:
+    bash: true
   config:
     - name: '@deepseek-ai/dsh-bash-local'
       config:

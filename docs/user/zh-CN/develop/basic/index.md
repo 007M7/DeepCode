@@ -28,10 +28,8 @@ import type { Context } from 'cordis'
 export const name = 'hello-plugin'
 
 export function apply(ctx: Context) {
-  // 监听 agent-loop 的 ready 事件
-  ctx.on('ready', () => {
-    console.log('[hello-plugin] 插件已加载!')
-  })
+  // apply 被调用时，插件的必选依赖已就绪
+  console.log('[hello-plugin] 插件已加载!')
 }
 ```
 
@@ -100,17 +98,14 @@ export default {
 ### 类形式
 
 ```typescript
-import { Service } from 'cordis'
+import { Service, type Context } from 'cordis'
 
 export default class MyService extends Service {
   static inject = ['tools']
 
   constructor(ctx: Context) {
     super(ctx, 'myService')
-  }
-
-  start() {
-    // 服务启动逻辑
+    // 构造函数内完成同步初始化
   }
 }
 ```

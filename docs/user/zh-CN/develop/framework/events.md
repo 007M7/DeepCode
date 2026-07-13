@@ -24,15 +24,15 @@ Cordis 提供多种事件触发模式，适用于不同场景：
 
 ### emit — 广播
 
-所有监听器并行执行，不关心返回值：
+所有监听器同步执行，不关心返回值：
 
 ```typescript
 // 触发
-ctx.emit('agent/turn-end', { agentId, turnIndex })
+ctx.emit('my-plugin/ready', { id: 'worker-1' })
 
 // 监听
-ctx.on('agent/turn-end', ({ agentId, turnIndex }) => {
-  console.log(`Turn ${turnIndex} ended`)
+ctx.on('my-plugin/ready', ({ id }) => {
+  console.log(`${id} is ready`)
 })
 ```
 
@@ -53,7 +53,7 @@ ctx.on('some-check', (input) => {
 
 ### serial — 顺序执行
 
-所有监听器按注册顺序依次执行（异步安全）：
+监听器按注册顺序依次执行，并等待异步结果；第一个返回非空值的监听器会终止后续执行：
 
 ```typescript
 await ctx.serial('setup-phase', context)
@@ -61,18 +61,16 @@ await ctx.serial('setup-phase', context)
 
 ### waterfall — 管道
 
-每个监听器接收前一个的输出，形成数据管道。**必须调用 `next()` 传递给下游**，不调用即为否决：
+每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即为否决：
 
 ```typescript
 // 触发
-const finalMessages = await ctx.waterfall('llm/pre-request', messages)
+const output = await ctx.waterfall('my-plugin/transform', input, async () => input)
 
 // 监听（必须调用 next）
-ctx.on('llm/pre-request', async (messages, next) => {
-  // 可以修改 messages
-  messages.push(extraMessage)
-  // 必须调用 next() 传递给下一个监听器
-  return next(messages)
+ctx.on('my-plugin/transform', async (_input, next) => {
+  const downstream = await next()
+  return downstream.trim()
 })
 ```
 
@@ -89,6 +87,7 @@ declare module 'cordis' {
   interface Events {
     'my-plugin/ready': (payload: { id: string }) => void
     'my-plugin/check': (input: string) => boolean | undefined
+    'my-plugin/transform': (input: string, next: () => Promise<string>) => Promise<string>
   }
 }
 
@@ -96,20 +95,11 @@ declare module 'cordis' {
 // 都有正确的类型推导
 ```
 
-## 命名约定
+## Cordis 事件与会话记录
 
-Harness 事件遵循 `namespace/action` 命名：
+Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/pre-step`、`agent/request`、`agent/step-result`、`tools/result` 和 `session/event`。完整签名与触发模式见[Events 目录](../../../../cordis-catalog/events.md)。
 
-```
-agent/pre-step      — agent 执行一步之前
-agent/post-step     — agent 执行一步之后
-tool/call           — tool 被调用
-tool/result         — tool 返回结果
-llm/pre-request     — LLM 请求发送前
-session/event       — 会话事件被记录
-compact/start       — 压缩开始
-compact/end         — 压缩结束
-```
+`turn/*`、`step/*`、`tool/call`、`tool/result` 和 `compact/*` 是持久化的会话事件类型，不是同名 Cordis 事件。需要观察它们时，监听 `session/event` 并检查 `event.type`。
 
 ## 事件也是效果
 
@@ -118,7 +108,7 @@ compact/end         — 压缩结束
 ```typescript
 export function apply(ctx: Context) {
   // 这个监听器在插件 dispose 时自动清理
-  ctx.on('agent/turn-end', handler)
+  ctx.on('tools/result', handler)
 }
 ```
 
@@ -132,14 +122,10 @@ import type { Context } from 'cordis'
 export const name = 'tool-logger'
 
 export function apply(ctx: Context) {
-  ctx.on('tool/call', ({ name, args }) => {
-    console.log(`[tool] ${name}(${JSON.stringify(args)})`)
-  })
-
-  ctx.on('tool/result', ({ name, result }) => {
+  ctx.on('tools/result', (exec, result) => {
+    console.log(`[tool] ${exec.name}(${JSON.stringify(exec.arguments)})`)
     const text = result.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
+      .map(block => block.type === 'text' ? block.text : '')
       .join('')
     console.log(`[tool result] ${text.slice(0, 100)}`)
   })

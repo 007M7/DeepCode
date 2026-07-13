@@ -11,7 +11,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
-import { docsPages, type DocsPage } from '../website/docs.ts'
+import { docsPages, type DocsLocale, type DocsPage } from '../website/docs.ts'
 
 const REPOSITORY_URL = 'https://github.com/deepseek-harness/deepseek-harness'
 const root = resolve(import.meta.dirname, '..')
@@ -25,6 +25,7 @@ interface Replacement {
 
 /** Inputs for rewriting one canonical Markdown page. */
 export interface RewriteMarkdownOptions {
+  locale: DocsLocale
   sourcePath: string
   route: string
   pages: DocsPage[]
@@ -62,14 +63,16 @@ function routeTarget(fromRoute: string, toRoute: string, suffix: string): string
   return `${target.startsWith('.') ? target : `./${target}`}${suffix}`
 }
 
-function sourceMap(pages: DocsPage[]): Map<string, DocsPage> {
-  const map = new Map<string, DocsPage>()
+function sourceMap(pages: DocsPage[]): Map<string, Map<DocsLocale, DocsPage>> {
+  const map = new Map<string, Map<DocsLocale, DocsPage>>()
   for (const page of pages) {
     for (const source of [page.source, ...(page.sourceAliases ?? [])]) {
-      if (map.has(source)) {
-        throw new Error(`project-doc-site: duplicate source or alias ${JSON.stringify(source)}.`)
+      const localized = map.get(source) ?? new Map<DocsLocale, DocsPage>()
+      if (localized.has(page.locale)) {
+        throw new Error(`project-doc-site: duplicate source or alias ${JSON.stringify(source)} for locale ${JSON.stringify(page.locale)}.`)
       }
-      map.set(source, page)
+      localized.set(page.locale, page)
+      map.set(source, localized)
     }
   }
   return map
@@ -132,7 +135,7 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
     if (path === '') return
     const { absPath, line } = resolveRepositoryTarget(sourceAbs, path, options.repoRoot)
     const targetPath = repoPath(absPath, options.repoRoot)
-    const page = published.get(targetPath)
+    const page = published.get(targetPath)?.get(options.locale)
     const nextUrl = page === undefined
       ? githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
       : routeTarget(options.route, page.route, suffix)
@@ -205,6 +208,7 @@ export function projectDocs(): void {
     const markdown = readFileSync(sourceAbs, 'utf8')
     const projected = rewriteMarkdown(markdown, {
       sourcePath: page.source,
+      locale: page.locale,
       route: page.route,
       pages: docsPages,
       repoRoot: root,

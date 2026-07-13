@@ -1,20 +1,38 @@
 /**
  * Canonical publication manifest for the documentation website.
  *
- * Markdown stays in its owning repository tier. This manifest only maps a
- * source file to its public route and navigation placement.
+ * Markdown stays in its owning repository tier. This manifest maps each
+ * canonical source into matching route trees for both site locales; when a
+ * translation is absent, both routes intentionally project the available
+ * source instead of copying Markdown.
  */
+
+/** Locale key used by the VitePress site. */
+export type DocsLocale = 'root' | 'en'
+
+/** Sidebar collection rendered for one locale and top-level module. */
+type DocsSidebar =
+  | 'zh-guide'
+  | 'zh-develop'
+  | 'zh-reference'
+  | 'en-guide'
+  | 'en-develop'
+  | 'en-reference'
 
 /** A page projected into the VitePress source tree. */
 export interface DocsPage {
+  /** VitePress locale whose route tree owns this projection. */
+  locale: DocsLocale
+  /** Language of the canonical source currently projected at this route. */
+  contentLocale: 'zh-CN' | 'en-US'
   /** Repository-relative canonical Markdown source. */
   source: string
   /** VitePress route, including the `.md` suffix. */
   route: string
   /** Navigation label shown in the sidebar. */
   label: string
-  /** Sidebar collection that owns the page. */
-  sidebar: 'zh-guide' | 'zh-develop' | 'en-docs'
+  /** Sidebar collection that owns the page, or null for a locale home page. */
+  sidebar: DocsSidebar | null
   /** Section label within the sidebar. */
   section: string
   /** Stable order within the section. */
@@ -23,191 +41,228 @@ export interface DocsPage {
   sourceAliases?: string[]
 }
 
-const zhGuide: DocsPage[] = [
+interface MirroredPage {
+  source: string
+  route: string
+  contentLocale: DocsPage['contentLocale']
+  label: Record<DocsLocale, string>
+  sidebar: Record<DocsLocale, DocsSidebar | null>
+  section: Record<DocsLocale, string>
+  order: number
+  sourceAliases?: string[]
+}
+
+function mirroredPages(pages: MirroredPage[]): DocsPage[] {
+  return pages.flatMap(page => (['root', 'en'] as const).map(locale => ({
+    locale,
+    contentLocale: page.contentLocale,
+    source: page.source,
+    route: locale === 'root' ? page.route : `en/${page.route}`,
+    label: page.label[locale],
+    sidebar: page.sidebar[locale],
+    section: page.section[locale],
+    order: page.order,
+    ...(page.sourceAliases === undefined ? {} : { sourceAliases: page.sourceAliases }),
+  })))
+}
+
+const homeAndGuide = mirroredPages([
   {
     source: 'docs/user/zh-CN/index.md',
     route: 'index.md',
-    label: 'DeepSeek Harness',
-    sidebar: 'zh-guide',
-    section: '入门',
+    contentLocale: 'zh-CN',
+    label: { root: 'DeepSeek Harness', en: 'DeepSeek Harness' },
+    sidebar: { root: null, en: null },
+    section: { root: '首页', en: 'Home' },
     order: 0,
   },
   {
     source: 'docs/user/zh-CN/guide/index.md',
     route: 'guide/index.md',
-    label: '介绍',
-    sidebar: 'zh-guide',
-    section: '入门',
+    contentLocale: 'zh-CN',
+    label: { root: '介绍', en: 'Introduction' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
     order: 1,
     sourceAliases: ['docs/user/zh-CN/guide'],
   },
   {
     source: 'docs/user/zh-CN/guide/quickstart.md',
     route: 'guide/quickstart.md',
-    label: '快速开始',
-    sidebar: 'zh-guide',
-    section: '入门',
+    contentLocale: 'zh-CN',
+    label: { root: '快速开始', en: 'Quick start' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
     order: 2,
   },
   {
     source: 'docs/user/zh-CN/guide/config.md',
     route: 'guide/config.md',
-    label: '配置文件',
-    sidebar: 'zh-guide',
-    section: '入门',
+    contentLocale: 'zh-CN',
+    label: { root: '配置文件', en: 'Configuration' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
     order: 3,
   },
-]
+])
 
-const zhDevelop: DocsPage[] = [
+const develop = mirroredPages([
   {
     source: 'docs/user/zh-CN/develop/basic/index.md',
     route: 'develop/basic/index.md',
-    label: '第一个插件',
-    sidebar: 'zh-develop',
-    section: '基础',
+    contentLocale: 'zh-CN',
+    label: { root: '第一个插件', en: 'First plugin' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
     order: 1,
     sourceAliases: ['docs/user/zh-CN/develop/basic'],
   },
   {
     source: 'docs/user/zh-CN/develop/basic/tool.md',
     route: 'develop/basic/tool.md',
-    label: '开发一个 Tool',
-    sidebar: 'zh-develop',
-    section: '基础',
+    contentLocale: 'zh-CN',
+    label: { root: '开发一个 Tool', en: 'Build a tool' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
     order: 2,
   },
   {
     source: 'docs/user/zh-CN/develop/basic/config.md',
     route: 'develop/basic/config.md',
-    label: '插件配置',
-    sidebar: 'zh-develop',
-    section: '基础',
+    contentLocale: 'zh-CN',
+    label: { root: '插件配置', en: 'Plugin configuration' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
     order: 3,
   },
   {
     source: 'docs/user/zh-CN/develop/framework/index.md',
     route: 'develop/framework/index.md',
-    label: '插件与生命周期',
-    sidebar: 'zh-develop',
-    section: '框架能力',
+    contentLocale: 'zh-CN',
+    label: { root: '插件与生命周期', en: 'Plugin lifecycle' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '框架能力', en: 'Framework' },
     order: 1,
     sourceAliases: ['docs/user/zh-CN/develop/framework'],
   },
   {
     source: 'docs/user/zh-CN/develop/framework/service.md',
     route: 'develop/framework/service.md',
-    label: '服务与依赖',
-    sidebar: 'zh-develop',
-    section: '框架能力',
+    contentLocale: 'zh-CN',
+    label: { root: '服务与依赖', en: 'Services and dependencies' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '框架能力', en: 'Framework' },
     order: 2,
   },
   {
     source: 'docs/user/zh-CN/develop/framework/events.md',
     route: 'develop/framework/events.md',
-    label: '事件系统',
-    sidebar: 'zh-develop',
-    section: '框架能力',
+    contentLocale: 'zh-CN',
+    label: { root: '事件系统', en: 'Event system' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '框架能力', en: 'Framework' },
     order: 3,
   },
   {
     source: 'docs/user/zh-CN/develop/practice/index.md',
     route: 'develop/practice/index.md',
-    label: '能力的三层拆分',
-    sidebar: 'zh-develop',
-    section: '实战',
+    contentLocale: 'zh-CN',
+    label: { root: '能力的三层拆分', en: 'Capability layering' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '实战', en: 'Practice' },
     order: 1,
     sourceAliases: ['docs/user/zh-CN/develop/practice'],
   },
   {
     source: 'docs/user/zh-CN/develop/practice/llm-adapter.md',
     route: 'develop/practice/llm-adapter.md',
-    label: 'LLM 适配器',
-    sidebar: 'zh-develop',
-    section: '实战',
+    contentLocale: 'zh-CN',
+    label: { root: 'LLM 适配器', en: 'LLM adapter' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '实战', en: 'Practice' },
     order: 2,
   },
-]
+])
 
-const enOverview: DocsPage[] = ([
-  ['docs/architecture.md', 'en/index.md', 'Architecture'],
-  ['docs/cordis-primer.md', 'en/cordis-primer.md', 'Cordis primer'],
-  ['docs/capability-seams.md', 'en/capability-seams.md', 'Capability services'],
-  ['docs/agent-lifecycle.md', 'en/agent-lifecycle.md', 'Agent lifecycle'],
-  ['docs/tool-execution-pipeline.md', 'en/tool-execution-pipeline.md', 'Tool execution'],
-] as const).map(([source, route, label], order) => ({
-  source,
-  route,
-  label,
-  sidebar: 'en-docs',
-  section: 'Concepts',
-  order,
-}))
-
-const enCatalogs: DocsPage[] = ([
-  ['docs/config-catalog.md', 'en/config-catalog.md', 'Plugin configuration'],
-  ['docs/tool-catalog.md', 'en/tool-catalog.md', 'Tool schemas'],
-  ['docs/cordis-catalog/services.md', 'en/cordis-catalog/services.md', 'Services'],
-  ['docs/cordis-catalog/events.md', 'en/cordis-catalog/events.md', 'Events'],
-  ['docs/persistence-catalog.md', 'en/persistence-catalog.md', 'Persistence events'],
-] as const).map(([source, route, label], order) => ({
-  source,
-  route,
-  label,
-  sidebar: 'en-docs',
-  section: 'Generated reference',
-  order,
-}))
-
-const corePages = [
-  ['core.md', 'Core data structures'],
-  ['session.md', 'Sessions'],
-  ['tools.md', 'Tools'],
-  ['llm-streaming.md', 'LLM streaming'],
-  ['bash.md', 'Bash execution'],
-  ['filesystem.md', 'Filesystem'],
-  ['code-runtime.md', 'Code runtime'],
-  ['compaction.md', 'Compaction'],
-  ['subagent.md', 'Subagents'],
-  ['workflow.md', 'Workflows'],
-  ['skills.md', 'Skills'],
-  ['approval.md', 'Approvals'],
-  ['user-interaction.md', 'User interaction'],
-  ['sandbox.md', 'Sandboxing'],
-  ['web.md', 'Web access'],
-  ['persistence.md', 'Session persistence'],
-] as const
-
-const enCore: DocsPage[] = corePages.map(([file, label], order) => ({
-  source: `docs/core-data-structures/${file}`,
-  route: `en/core-data-structures/${file}`,
-  label,
-  sidebar: 'en-docs',
-  section: 'Data structures',
-  order,
-  ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
-}))
-
-const enCookbook: DocsPage[] = ([
-  ['adding-a-package.md', 'Adding a package'],
-  ['adding-a-tool.md', 'Adding a tool'],
-  ['adding-an-llm-adapter.md', 'Adding an LLM adapter'],
-  ['extension-cookbook.md', 'Extension patterns'],
-] as const).map(([file, label], order) => ({
-  source: `docs/cookbook/${file}`,
-  route: `en/cookbook/${file}`,
-  label,
-  sidebar: 'en-docs',
-  section: 'Cookbook',
-  order,
-}))
+const reference = mirroredPages([
+  ...([
+    ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture'],
+    ['docs/cordis-primer.md', 'reference/cordis-primer.md', 'Cordis 入门', 'Cordis primer'],
+    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services'],
+    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle'],
+    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution'],
+  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    source,
+    route,
+    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '概念', en: 'Concepts' },
+    order,
+  })),
+  ...([
+    ['docs/config-catalog.md', 'reference/config-catalog.md', '插件配置', 'Plugin configuration'],
+    ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
+    ['docs/cordis-catalog/services.md', 'reference/cordis-catalog/services.md', '服务', 'Services'],
+    ['docs/cordis-catalog/events.md', 'reference/cordis-catalog/events.md', '事件', 'Events'],
+    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events'],
+  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    source,
+    route,
+    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '生成参考', en: 'Generated reference' },
+    order,
+  })),
+  ...([
+    ['core.md', '核心数据结构', 'Core data structures'],
+    ['scope.md', '作用域', 'Scopes'],
+    ['session.md', '会话', 'Sessions'],
+    ['system-prompt.md', '系统提示词', 'System prompts'],
+    ['tools.md', '工具', 'Tools'],
+    ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming'],
+    ['bash.md', 'Bash 执行', 'Bash execution'],
+    ['filesystem.md', '文件系统', 'Filesystem'],
+    ['code-runtime.md', '代码运行时', 'Code runtime'],
+    ['compaction.md', '上下文压缩', 'Compaction'],
+    ['subagent.md', '子代理', 'Subagents'],
+    ['workflow.md', '工作流', 'Workflows'],
+    ['skills.md', '技能', 'Skills'],
+    ['approval.md', '审批', 'Approvals'],
+    ['user-interaction.md', '用户交互', 'User interaction'],
+    ['sandbox.md', '沙箱', 'Sandboxing'],
+    ['web.md', 'Web 访问', 'Web access'],
+    ['persistence.md', '会话持久化', 'Session persistence'],
+  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+    source: `docs/core-data-structures/${file}`,
+    route: `reference/core-data-structures/${file}`,
+    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '数据结构', en: 'Data structures' },
+    order,
+    ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
+  })),
+  ...([
+    ['adding-a-package.md', '新增 Package', 'Adding a package'],
+    ['adding-a-tool.md', '新增 Tool', 'Adding a tool'],
+    ['adding-an-llm-adapter.md', '新增 LLM Adapter', 'Adding an LLM adapter'],
+    ['extension-cookbook.md', '扩展模式', 'Extension patterns'],
+  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+    source: `docs/cookbook/${file}`,
+    route: `reference/cookbook/${file}`,
+    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '开发手册', en: 'Cookbook' },
+    order,
+  })),
+])
 
 /** Every canonical page published by the documentation website. */
 export const docsPages: DocsPage[] = [
-  ...zhGuide,
-  ...zhDevelop,
-  ...enOverview,
-  ...enCatalogs,
-  ...enCore,
-  ...enCookbook,
+  ...homeAndGuide,
+  ...develop,
+  ...reference,
 ]

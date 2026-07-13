@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DocsPage } from '../website/docs.ts'
+import { docsPages, type DocsPage } from '../website/docs.ts'
 import { addProjectionFrontmatter, rewriteMarkdown } from './project-doc-site.ts'
 
 const roots: string[] = []
@@ -25,8 +25,10 @@ function fixture(): { root: string; pages: DocsPage[] } {
   return {
     root,
     pages: [
-      { source: 'docs/a.md', route: 'en/a.md', label: 'A', sidebar: 'en-docs', section: 'Test', order: 1 },
-      { source: 'docs/b.md', route: 'en/reference/b.md', label: 'B', sidebar: 'en-docs', section: 'Test', order: 2 },
+      { locale: 'root', contentLocale: 'en-US', source: 'docs/a.md', route: 'a.md', label: 'A', sidebar: 'zh-reference', section: 'Test', order: 1 },
+      { locale: 'root', contentLocale: 'en-US', source: 'docs/b.md', route: 'reference-root/b.md', label: 'B', sidebar: 'zh-reference', section: 'Test', order: 2 },
+      { locale: 'en', contentLocale: 'en-US', source: 'docs/a.md', route: 'en/a.md', label: 'A', sidebar: 'en-reference', section: 'Test', order: 1 },
+      { locale: 'en', contentLocale: 'en-US', source: 'docs/b.md', route: 'en/reference/b.md', label: 'B', sidebar: 'en-reference', section: 'Test', order: 2 },
     ],
   }
 }
@@ -36,6 +38,7 @@ describe('rewriteMarkdown', () => {
     const { root, pages } = fixture()
     const source = '[B](b.md#part) [source](../packages/tool.ts:2) [web](https://example.com)\n'
     expect(rewriteMarkdown(source, {
+      locale: 'en',
       sourcePath: 'docs/a.md',
       route: 'en/a.md',
       pages,
@@ -48,9 +51,22 @@ describe('rewriteMarkdown', () => {
     )
   })
 
+  it('selects the published target in the current site locale', () => {
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('[B](b.md)\n', {
+      locale: 'root',
+      sourcePath: 'docs/a.md',
+      route: 'a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+    })).toBe('[B](./reference-root/b.md)\n')
+  })
+
   it('uses raw GitHub content for unpublished images', () => {
     const { root, pages } = fixture()
     expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
+      locale: 'en',
       sourcePath: 'docs/a.md',
       route: 'en/a.md',
       pages,
@@ -63,6 +79,7 @@ describe('rewriteMarkdown', () => {
     const { root, pages } = fixture()
     const source = '```md\n[B](b.md)\n```\n'
     expect(rewriteMarkdown(source, {
+      locale: 'en',
       sourcePath: 'docs/a.md',
       route: 'en/a.md',
       pages,
@@ -74,12 +91,26 @@ describe('rewriteMarkdown', () => {
   it('fails loud when a relative target is missing', () => {
     const { root, pages } = fixture()
     expect(() => rewriteMarkdown('[missing](missing.md)\n', {
+      locale: 'en',
       sourcePath: 'docs/a.md',
       route: 'en/a.md',
       pages,
       repoRoot: root,
       repositoryRef: 'abc123',
     })).toThrow('links to missing path "missing.md"')
+  })
+})
+
+describe('docsPages locale routes', () => {
+  it('publishes the same canonical source at every corresponding locale route', () => {
+    const byRoute = new Map(docsPages.map(page => [page.route, page]))
+    for (const page of docsPages.filter(page => page.locale === 'root')) {
+      const counterpart = byRoute.get(`en/${page.route}`)
+      expect(counterpart, page.route).toBeDefined()
+      expect(counterpart?.locale).toBe('en')
+      expect(counterpart?.source).toBe(page.source)
+      expect(counterpart?.contentLocale).toBe(page.contentLocale)
+    }
   })
 })
 
