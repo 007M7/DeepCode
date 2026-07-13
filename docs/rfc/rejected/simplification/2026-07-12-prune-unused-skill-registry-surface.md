@@ -1,6 +1,6 @@
 # RFC: Prune unused skill registry surface
 
-Status: proposed
+Status: rejected — Direct runtime skill registration is an intentional extension path for third-party plugins.
 
 ## Problem
 

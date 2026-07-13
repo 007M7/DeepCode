@@ -18,7 +18,7 @@ Make an agent's registry id equal its session id. `CreateAgentOptions` accepts o
 
 The config-driven path must first settle its currently hidden resume-or-create policy. Today it uses a stable agent label and fresh UUID-suffixed session id to avoid colliding with a durable log on the next run. Under unification it must deliberately resume the fixed id, mint a fresh combined id, or expose an explicit policy; implementation must not pick silently.
 
-`agent/created` and `agent/disposed` remain outside this proposal. They are paired publication lifecycle events, not identity aliases; any later consumer-free removal belongs in the dedicated [registry-event simplification](./2026-07-12-drop-unconsumed-registry-events.md) after a fresh search.
+`agent/created` and `agent/disposed` remain outside this proposal. They are paired publication lifecycle events, not identity aliases; any later consumer-free removal needs its own proposal after a fresh search.
 
 ## Alternatives considered
 

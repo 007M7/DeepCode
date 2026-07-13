@@ -1,6 +1,6 @@
 # RFC: Collapse workflows to the exercised foreground core
 
-Status: proposed
+Status: rejected — Workflow progress is an intentional observation surface; make it useful through a consumer instead of deleting it.
 
 ## Problem
 
