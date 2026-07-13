@@ -105,7 +105,12 @@ export function traceLineage(
   let unresolvedParentId: SessionId | undefined
   let parentId = target.header.parentSession
   while (parentId !== undefined) {
-    if (ancestrySeen.has(parentId)) lineageCycle(parentId)
+    if (ancestrySeen.has(parentId)) {
+      throw new SessionQueryError(
+        `session lineage contains a cycle at "${parentId}"`,
+        'SESSION_QUERY_INVALID_LINEAGE',
+      )
+    }
     ancestrySeen.add(parentId)
     const parent = byId.get(parentId)
     if (parent === undefined) {
@@ -146,7 +151,17 @@ function analyzeEventLog(
   sessionId: SessionId,
   events: readonly SessionEvent[],
 ): EventLogAnalysis {
-  const folded = safeFold(events)
+  let folded: ReturnType<typeof foldSurface>
+  try {
+    folded = foldSurface(events)
+  } catch (error: unknown) {
+    throw new SessionQueryError(
+      /* v8 ignore next -- foldSurface throws Error instances */
+      `invalid session surface: ${error instanceof Error ? error.message : 'unknown error'}`,
+      'SESSION_QUERY_INVALID_SURFACE',
+      { cause: error },
+    )
+  }
   const current = new Set(folded.nodes.map(node => node.seq))
   const shadowed = new Set<number>()
   const replacedBy = new Map<number, number>()
@@ -182,15 +197,24 @@ function validateProvenance(
     const sources = rawEventSources(event)
     if (sources === undefined) continue
     if (!isSurfaceEligibleType(event.type)) {
-      invalidProvenance(`non-surface event at seq ${event.seq} carries sourceEventSeqs`)
+      throw new SessionQueryError(
+        `invalid session provenance: non-surface event at seq ${event.seq} carries sourceEventSeqs`,
+        'SESSION_QUERY_INVALID_PROVENANCE',
+      )
     }
     if (!Array.isArray(sources) || sources.length === 0) {
-      invalidProvenance(`event at seq ${event.seq} has an empty or invalid sourceEventSeqs`)
+      throw new SessionQueryError(
+        `invalid session provenance: event at seq ${event.seq} has an empty or invalid sourceEventSeqs`,
+        'SESSION_QUERY_INVALID_PROVENANCE',
+      )
     }
     const unique = new Set<unknown>()
     for (const source of sources as unknown[]) {
       if (unique.has(source)) {
-        invalidProvenance(`event at seq ${event.seq} repeats source seq ${String(source)}`)
+        throw new SessionQueryError(
+          `invalid session provenance: event at seq ${event.seq} repeats source seq ${String(source)}`,
+          'SESSION_QUERY_INVALID_PROVENANCE',
+        )
       }
       unique.add(source)
       if (
@@ -200,7 +224,10 @@ function validateProvenance(
         || source >= event.seq
         || events[source]?.seq !== source
       ) {
-        invalidProvenance(`event at seq ${event.seq} references unknown or non-earlier source seq ${String(source)}`)
+        throw new SessionQueryError(
+          `invalid session provenance: event at seq ${event.seq} references unknown or non-earlier source seq ${String(source)}`,
+          'SESSION_QUERY_INVALID_PROVENANCE',
+        )
       }
     }
   }
@@ -212,12 +239,18 @@ function validateProvenance(
     const replacement = events[replacementSeq]!
     const sources = rawEventSources(replacement)
     if (!Array.isArray(sources)) {
-      invalidProvenance(`replacement at seq ${replacementSeq} omits its shadowed surface sources`)
+      throw new SessionQueryError(
+        `invalid session provenance: replacement at seq ${replacementSeq} omits its shadowed surface sources`,
+        'SESSION_QUERY_INVALID_PROVENANCE',
+      )
     }
     const sourceSet = new Set(sources as unknown[])
     for (const removedSeq of removedSeqs) {
       if (!sourceSet.has(removedSeq)) {
-        invalidProvenance(`replacement at seq ${replacementSeq} omits shadowed surface seq ${removedSeq}`)
+        throw new SessionQueryError(
+          `invalid session provenance: replacement at seq ${replacementSeq} omits shadowed surface seq ${removedSeq}`,
+          'SESSION_QUERY_INVALID_PROVENANCE',
+        )
       }
     }
   }
@@ -230,19 +263,6 @@ function rawEventSources(event: SessionEvent): unknown {
 function eventSources(event: SessionEvent): number[] {
   const sources = rawEventSources(event)
   return Array.isArray(sources) ? sources as number[] : []
-}
-
-function safeFold(events: readonly SessionEvent[]): ReturnType<typeof foldSurface> {
-  try {
-    return foldSurface(events)
-  } catch (error: unknown) {
-    throw new SessionQueryError(
-      /* v8 ignore next -- foldSurface throws Error instances */
-      `invalid session surface: ${error instanceof Error ? error.message : 'unknown error'}`,
-      'SESSION_QUERY_INVALID_SURFACE',
-      { cause: error },
-    )
-  }
 }
 
 function buildDescendants(
@@ -277,18 +297,4 @@ function compareSessionsAscending(a: SessionRecord, b: SessionRecord): number {
 
 function cloneRecord(record: SessionRecord): SessionRecord {
   return { ...record, header: structuredClone(record.header) }
-}
-
-function lineageCycle(id: SessionId): never {
-  throw new SessionQueryError(
-    `session lineage contains a cycle at "${id}"`,
-    'SESSION_QUERY_INVALID_LINEAGE',
-  )
-}
-
-function invalidProvenance(message: string): never {
-  throw new SessionQueryError(
-    `invalid session provenance: ${message}`,
-    'SESSION_QUERY_INVALID_PROVENANCE',
-  )
 }

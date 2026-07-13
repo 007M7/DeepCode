@@ -78,6 +78,7 @@ export class SessionQueryService extends Service {
    * Trace known ancestry and descendants from one corpus observation.
    * @param sessionId - logical session id to trace.
    * @returns a complete lineage or an explicit unresolved parent boundary.
+   * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
    */
   async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
     const records = await this._corpus.listSessions()
@@ -88,6 +89,7 @@ export class SessionQueryService extends Service {
    * Trace one event's direct positional and provenance relationships.
    * @param request - target session id and event seq.
    * @returns direct links plus the target's positional replacement chain.
+   * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
    */
   async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
     const loaded = await this._corpus.load(request.sessionId)
