@@ -73,7 +73,10 @@ describe('runScenario', () => {
     expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
     expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
     expect(launched.stderr()).toContain('launcher stderr')
+    const unmatched = expect(launched.waitForUpdate(() => false)).rejects.toThrow(/update stream closed/)
     await launched.close()
+    await unmatched
+    await expect(launched.waitForUpdate(() => true)).rejects.toThrow(/update stream closed/)
     await launched.close('SIGKILL')
 
     // The minimal shape needs no environment or config override.
