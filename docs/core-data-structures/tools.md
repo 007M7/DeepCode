@@ -57,6 +57,8 @@ interface SchemaProp {
   description?: string
   /** Enum of allowed values (strings only). */
   enum?: string[]
+  /** Default value. */
+  default?: unknown
   /** Nested properties for type: 'object'. */
   properties?: SchemaSpec
   /** Items schema for type: 'array'. */

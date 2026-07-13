@@ -904,6 +904,17 @@ describe('schema DSL edge cases', () => {
     })
   })
 
+  it('emits default value in JSON Schema property', () => {
+    const spec = {
+      limit: { type: 'number', default: 25 },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['limit']).toMatchObject({
+      type: 'number',
+      default: 25,
+    })
+  })
+
   it('handles array items without nested properties (plain type array)', () => {
     const spec = {
       tags: { type: 'array', items: { type: 'string' } },
@@ -915,12 +926,28 @@ describe('schema DSL edge cases', () => {
     })
   })
 
-  it('emits only the type when optional fields are omitted', () => {
+  it('handles enum and default together in one property', () => {
+    const spec = {
+      level: { type: 'string', enum: ['low', 'high'], default: 'low' },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['level']).toMatchObject({
+      type: 'string',
+      enum: ['low', 'high'],
+      default: 'low',
+    })
+  })
+
+  it('omits description, enum, default keys when not specified', () => {
     const spec = {
       bare: { type: 'string' },
     } satisfies SchemaSpec
     const jsonSchema = schemaSpecToJsonSchema(spec)
-    expect(jsonSchema.properties['bare']).toEqual({ type: 'string' })
+    const prop = jsonSchema.properties['bare'] as Record<string, unknown>
+    expect(prop).toEqual({ type: 'string' })
+    expect('description' in prop).toBe(false)
+    expect('enum' in prop).toBe(false)
+    expect('default' in prop).toBe(false)
   })
 
   it('handles array with no items (items omitted)', () => {
@@ -1108,6 +1135,12 @@ describe('validateArgs (the runtime-validation RFC, part 1)', () => {
   it('allows extra keys (no additionalProperties:false) and omitted optionals', () => {
     const spec = { path: { type: 'string', required: true } } satisfies SchemaSpec
     expect(validateArgs(spec, { path: '/tmp', extra: 1 })).toEqual([])
+  })
+
+  it('does not apply defaults (validation only)', () => {
+    const spec = { limit: { type: 'number', default: 25 } } satisfies SchemaSpec
+    // absent optional is valid, and validation does not synthesize the default
+    expect(validateArgs(spec, {})).toEqual([])
   })
 
   it('type-checks primitives', () => {
