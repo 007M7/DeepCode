@@ -1,0 +1,116 @@
+/**
+ * Verify that the Python single-exe deploy manifest explicitly supplies every
+ * required workspace peer of every workspace package in its dependency graph.
+ *
+ * `pnpm deploy --config.auto-install-peers=false` cannot repair an incomplete
+ * runtime root. Keeping the peer at the root also prevents a successful build
+ * from producing an executable that fails only when Cordis loads the plugin.
+ */
+import { readFile, readdir } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { parseArgs } from 'node:util'
+
+interface PackageManifest {
+  name?: string
+  dependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+interface WorkspacePackage {
+  path: string
+  manifest: PackageManifest
+}
+
+const root = resolve(import.meta.dirname, '..')
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: { manifest: { type: 'string' } },
+})
+const runtimeManifestPath = resolve(root, values.manifest ?? 'python/sdk-runtime/package.json')
+const runtimeManifest = await loadManifest(runtimeManifestPath)
+const runtimeName = runtimeManifest.name ?? 'python/sdk-runtime'
+const workspace = await loadWorkspacePackages()
+const runtimeDependencies = runtimeManifest.dependencies ?? {}
+const parents = new Map<string, string | undefined>()
+const queue: string[] = []
+
+for (const dependency of Object.keys(runtimeDependencies).sort()) {
+  if (!workspace.has(dependency)) continue
+  parents.set(dependency, undefined)
+  queue.push(dependency)
+}
+
+const failures: string[] = []
+for (let index = 0; index < queue.length; index += 1) {
+  const packageName = queue[index]
+  if (packageName === undefined) continue
+  const current = workspace.get(packageName)
+  if (current === undefined) continue
+  const peers = current.manifest.peerDependencies ?? {}
+  const peerMeta = current.manifest.peerDependenciesMeta ?? {}
+  for (const peer of Object.keys(peers).sort()) {
+    if (!workspace.has(peer) || peerMeta[peer]?.optional === true) continue
+    if (runtimeDependencies[peer]?.startsWith('workspace:') === true) continue
+    failures.push(`${formatChain(runtimeName, packageName, parents)} -> ${peer}`)
+  }
+  const dependencies = {
+    ...current.manifest.dependencies,
+    ...current.manifest.optionalDependencies,
+  }
+  for (const dependency of Object.keys(dependencies).sort()) {
+    if (!workspace.has(dependency) || parents.has(dependency)) continue
+    parents.set(dependency, packageName)
+    queue.push(dependency)
+  }
+}
+
+if (failures.length > 0) {
+  console.error('verify-runtime-closure: required workspace peers are missing from python/sdk-runtime dependencies:')
+  for (const failure of failures) console.error(`  ${failure}`)
+  process.exit(1)
+}
+
+console.log(`verify-runtime-closure: ${queue.length} workspace packages form a closed runtime dependency graph.`)
+
+async function loadWorkspacePackages(): Promise<Map<string, WorkspacePackage>> {
+  const paths: string[] = []
+  for (const group of await childDirectories(join(root, 'packages'))) {
+    for (const packageDir of await childDirectories(join(root, 'packages', group))) {
+      paths.push(join(root, 'packages', group, packageDir, 'package.json'))
+    }
+  }
+  for (const packageDir of await childDirectories(join(root, 'vendor'))) {
+    paths.push(join(root, 'vendor', packageDir, 'package.json'))
+  }
+  const result = new Map<string, WorkspacePackage>()
+  for (const path of paths) {
+    const manifest = await loadManifest(path)
+    if (manifest.name !== undefined) result.set(manifest.name, { path, manifest })
+  }
+  return result
+}
+
+async function childDirectories(path: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true })
+  return entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+}
+
+async function loadManifest(path: string): Promise<PackageManifest> {
+  return JSON.parse(await readFile(path, 'utf8')) as PackageManifest
+}
+
+function formatChain(
+  runtimeName: string,
+  packageName: string,
+  parents: ReadonlyMap<string, string | undefined>,
+): string {
+  const chain = [packageName]
+  let parent = parents.get(packageName)
+  while (parent !== undefined) {
+    chain.unshift(parent)
+    parent = parents.get(parent)
+  }
+  return [runtimeName, ...chain].join(' -> ')
+}
