@@ -265,7 +265,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:58`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:44`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -851,7 +851,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:48`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:39`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
