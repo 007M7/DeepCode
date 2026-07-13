@@ -49,15 +49,16 @@ Two flavors, both for repo members:
 
 ## Distributing the Python packages
 
-Python releases use stable tags of the form `python-vX.Y.Z`. The common staging script derives both distribution versions from the tag, pins `deepseek-harness-runtime-bin==X.Y.Z` in the SDK metadata, and rejects any other tag form. Build the pure SDK wheel once and one runtime wheel on each native platform:
+The root [`package.json`](../package.json) version is authoritative for both Python distributions. The common staging script reads that version, injects it into both wheels, and pins the SDK metadata to the same `deepseek-harness-runtime-bin==X.Y.Z`; an optional `python-vX.Y.Z` release tag is accepted only when it matches the repository version. Build the pure SDK wheel once and one runtime wheel on each native platform:
 
 ```sh
-python scripts/build-python-release.py --package sdk --tag python-v0.1.0 --output-dir dist-python
-python scripts/build-python-release.py --package runtime --tag python-v0.1.0 --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
-pip install --find-links dist-python deepseek-harness==0.1.0
+version="$(node -p "require('./package.json').version")"
+python scripts/build-python-release.py --package sdk --output-dir dist-python
+python scripts/build-python-release.py --package runtime --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
+pip install --find-links dist-python deepseek-harness=="$version"
 ```
 
-The runtime distribution is wheel-only and rejects sdist builds, missing executables, and mixed-platform payloads. Its three wheel tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_11_0_arm64`; the SDK remains `py3-none-any`. A tag pipeline builds these four non-conflicting files and publishes them together, so a normal `pip install deepseek-harness==X.Y.Z` selects the matching runtime wheel and `import deepseek_harness` needs no `runtime_bin`.
+The runtime distribution is wheel-only and rejects sdist builds, missing executables, and mixed-platform payloads. Its three wheel tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_11_0_arm64`; the SDK remains `py3-none-any`. A matching `python-vX.Y.Z` tag pipeline builds these four non-conflicting files and publishes them together, so a normal `pip install deepseek-harness==X.Y.Z` selects the matching runtime wheel and `import deepseek_harness` needs no `runtime_bin`.
 
 ## Zero-config semantics
 

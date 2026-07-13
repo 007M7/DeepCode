@@ -15,7 +15,7 @@ Python SDK 的运行时载体包（dist 名 `deepseek-harness-runtime-bin`，模
 
 载体缺失时抛出 `FileNotFoundError` 并写明获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或安装 `build-exe-for-python-sdk` CI 工作流生成的对应平台 runtime wheel。该工作流只保留 wheel，不保留独立 exe 归档。获取策略与查找接口刻意分离，之后可以换成按需下载而不动任何调用方。
 
-每个 wheel 只包含一个可执行文件。固定 tag 为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、可执行文件缺失或重复以及不支持的平台 tag。稳定的 `python-vX.Y.Z` 发布为本包和 SDK 使用同一个 `X.Y.Z`。
+每个 wheel 只包含一个可执行文件。固定 tag 为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、可执行文件缺失或重复以及不支持的平台 tag。仓库根目录的 `package.json` 为本包和 SDK 提供共同版本，`python-vX.Y.Z` 发布 tag 必须与其匹配。
 
 ## 解析 API
 

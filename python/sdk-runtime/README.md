@@ -15,7 +15,7 @@ Both carriers hold the same content, defined once: the [package.json](package.js
 
 Missing carriers raise `FileNotFoundError` naming the acquisition routes: build via `scripts/build-exe-for-python-sdk.ts` in a deepseek-harness checkout, or install the matching platform runtime wheel produced by the `build-exe-for-python-sdk` CI workflow. The workflow retains wheels rather than standalone executable archives. Acquisition strategy is deliberately separate from the lookup interface, so an on-demand download can replace it later without touching callers.
 
-Each wheel contains exactly one executable. The fixed tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_11_0_arm64`; the build hook rejects `py3-none-any`, absent or multiple executables, and unsupported platform tags. Stable `python-vX.Y.Z` releases use the same `X.Y.Z` for this package and the SDK.
+Each wheel contains exactly one executable. The fixed tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_11_0_arm64`; the build hook rejects `py3-none-any`, absent or multiple executables, and unsupported platform tags. The repository root `package.json` supplies the shared version for this package and the SDK, and a `python-vX.Y.Z` release tag must match it.
 
 ## Resolution API
 

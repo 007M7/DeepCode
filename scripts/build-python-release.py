@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Stage and build one Python release wheel from a stable ``python-vX.Y.Z`` tag."""
+"""Stage and build one Python wheel at the repository version."""
 
 from __future__ import annotations
 
 import argparse
 import email
+import json
 import os
 import re
 import shutil
@@ -26,12 +27,16 @@ PLATFORMS = {
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", choices=("sdk", "runtime"), required=True)
-    parser.add_argument("--tag", required=True)
+    parser.add_argument(
+        "--tag",
+        help="optional python-vX.Y.Z release tag; it must match package.json",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--platform", choices=tuple(PLATFORMS))
     parser.add_argument("--runtime-exe", type=Path)
     args = parser.parse_args()
-    version = version_from_tag(args.tag)
+    version = repository_version()
+    validate_release_tag(args.tag, version)
     if args.package == "runtime" and (args.platform is None or args.runtime_exe is None):
         parser.error("runtime builds require --platform and --runtime-exe")
     if args.package == "sdk" and (args.platform is not None or args.runtime_exe is not None):
@@ -58,11 +63,28 @@ def main() -> None:
     print(expected)
 
 
-def version_from_tag(tag: str) -> str:
-    match = re.fullmatch(r"python-v(\d+\.\d+\.\d+)", tag)
-    if match is None:
-        raise ValueError(f"release tag must match python-vX.Y.Z, got {tag!r}")
-    return match.group(1)
+def repository_version(root: Path = ROOT) -> str:
+    package_json = root / "package.json"
+    try:
+        payload = json.loads(package_json.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"could not read repository version from {package_json}") from error
+    version = payload.get("version") if isinstance(payload, dict) else None
+    if not isinstance(version, str) or re.fullmatch(r"\d+\.\d+\.\d+", version) is None:
+        raise ValueError(
+            f"{package_json} version must be stable X.Y.Z, got {version!r}"
+        )
+    return version
+
+
+def validate_release_tag(tag: str | None, version: str) -> None:
+    if tag is None:
+        return
+    expected = f"python-v{version}"
+    if tag != expected:
+        raise ValueError(
+            f"release tag must match repository version: expected {expected!r}, got {tag!r}"
+        )
 
 
 def copy_package(source: Path, destination: Path) -> None:

@@ -49,15 +49,16 @@ print(DeepSeekHarness().run("say hi").final_response)   # auto-resolution picks 
 
 ## 分发 Python 包
 
-Python 发布只使用 `python-vX.Y.Z` 形式的稳定 tag。统一暂存脚本从 tag 推导两个分发物的版本，在 SDK 元数据中钉死 `deepseek-harness-runtime-bin==X.Y.Z`，并拒绝其他 tag 形式。纯 SDK wheel 只构建一次，runtime wheel 则在每个原生平台各构建一个：
+根目录 [`package.json`](../package.json) 的版本是两个 Python 分发物的权威版本。统一暂存脚本读取这个版本并注入两个 wheel，同时在 SDK 元数据中钉死相同版本的 `deepseek-harness-runtime-bin==X.Y.Z`；可选的 `python-vX.Y.Z` 发布 tag 只有与仓库版本匹配时才会被接受。纯 SDK wheel 只构建一次，runtime wheel 则在每个原生平台各构建一个：
 
 ```sh
-python scripts/build-python-release.py --package sdk --tag python-v0.1.0 --output-dir dist-python
-python scripts/build-python-release.py --package runtime --tag python-v0.1.0 --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
-pip install --find-links dist-python deepseek-harness==0.1.0
+version="$(node -p "require('./package.json').version")"
+python scripts/build-python-release.py --package sdk --output-dir dist-python
+python scripts/build-python-release.py --package runtime --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
+pip install --find-links dist-python deepseek-harness=="$version"
 ```
 
-runtime 分发物只提供 wheel，并拒绝 sdist 构建、缺失可执行文件以及混合平台载荷。三个 wheel tag 分别是 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；SDK 保持 `py3-none-any`。tag 流水线统一构建并发布这 4 个互不冲突的文件，因此常规的 `pip install deepseek-harness==X.Y.Z` 会选中匹配平台的 runtime wheel，`import deepseek_harness` 不需要 `runtime_bin`。
+runtime 分发物只提供 wheel，并拒绝 sdist 构建、缺失可执行文件以及混合平台载荷。三个 wheel tag 分别是 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；SDK 保持 `py3-none-any`。匹配的 `python-vX.Y.Z` tag 流水线统一构建并发布这 4 个互不冲突的文件，因此常规的 `pip install deepseek-harness==X.Y.Z` 会选中匹配平台的 runtime wheel，`import deepseek_harness` 不需要 `runtime_bin`。
 
 ## 零配置语义
 
