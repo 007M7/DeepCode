@@ -30,6 +30,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
+native/      node-addon-landlock-run source of record (see native/README.md)
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
