@@ -8,19 +8,19 @@ Status: implemented
 
 ## Decision
 
-Remove `ImageBlock`, its `ContentBlockMap` entry (and its `cache?: CacheHint` field with it), the explicit `image` estimate/placeholder arms in compact-basic, and the image-naming comments in the deepseek serializer's, pi-ai converter's, and ACP codec's default arms — those default arms absorb the case the way they absorb any unknown block type. Updated in the same change: the vocabulary line in [architecture.md](../../../architecture.md), the block list in `packages/llm/llm/README.md`, the deepseek README's image-skip row, the pi-ai README's images-not-representable row, the compact-basic README's image-estimation and `[image]`-placeholder rows, the pastes in [core.md](../../../core-data-structures/core.md) and [llm-streaming.md](../../../core-data-structures/llm-streaming.md), and the [content-block vocabulary RFC](../architecture/2026-06-11-content-block-vocabulary.md)'s block list and multimodal-home consequence per [implemented/AGENTS.md](../AGENTS.md); the tests that constructed image blocks to exercise the removed branches were dropped (the estimate pin) or retargeted onto the merge-extensible default arms (plugin-added block types). The ACP codec's inbound rejection of image PROMPT content is unaffected — that guard is about protocol content a client can send regardless of our vocabulary, and it stays.
+Remove `ImageBlock`, its map entry, and image-specific branches from adapters, ACP rendering, and compaction. Update the owning vocabulary docs and generated references in the same change. Unknown extension blocks still exercise default branches, and ACP continues to reject inbound image prompt content independently of the harness vocabulary.
 
 ## Alternatives considered
 
 ### Why not keep it?
 
-This was the most contested cut in the batch. Multimodal input (screenshots) is a plausible near-term coding-agent feature, and the [content-block vocabulary RFC](../architecture/2026-06-11-content-block-vocabulary.md) reserved the slot deliberately. Two responses. First, `ContentBlockMap` is merge-extensible by design: a real multimodal feature reintroduces `image` in core in the same coordinated change that maps it in the adapters, advertises and renders it in ACP, and prices it in compaction — the producer and its consumers arrive together, which is how the map is meant to grow. Second, the middle option — keep the type but make adapters throw UNSUPPORTED instead of silently dropping — converts this into exactly the shape the sibling request-knobs proposal (`2026-07-04-drop-inert-request-knobs`) argues against: surface whose only implementation is rejection. Absence (a compile error at the would-be producer) is strictly clearer than either silent loss or universal throw.
+`ContentBlockMap` can reintroduce images when adapters, ACP, and compaction all support them. Keeping a core type whose only implementation is rejection would advertise an unusable surface; absence gives producers an immediate compile-time failure instead.
 
 The recorded fallback, had review landed on keeping the slot: keep `ImageBlock` but replace every silent skip with a loud rejection, and document that policy in the vocabulary — the silent drop was the one state with no defender. Review landed on removal; the fallback stands as the documented alternative should the slot ever return ahead of a full feature.
 
 ## Verification
 
-No `ImageBlock` / harness `type: 'image'` block is constructed anywhere outside RFC records; the codec's inbound ACP-image rejection keeps its tests; and the adapter/codec/compaction switches handle the case through their unknown-block default arms, pinned by the plugin-added-block tests.
+No harness `ImageBlock` is constructed outside RFC records. ACP's independent inbound-image rejection remains tested, while adapter, codec, and compaction default branches are covered with plugin-defined block types.
 
 ## Consequences
 

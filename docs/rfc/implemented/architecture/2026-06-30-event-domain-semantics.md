@@ -12,7 +12,7 @@ The harness extends the agent loop through a Cordis event taxonomy (see [the mic
 
 Two problems motivated pinning the semantics down. First, several turn/step boundaries existed BOTH as a durable `SessionEvent` (`turn/start`, `turn/end`, `step/start`, `step/end`) AND as a mirrored `agent/*` emit (`agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end`). A consumer had two sources of truth for the same fact, and every lifecycle change had to update both. Second, the upcoming Hooks subsystem needs ONE coherent, documented surface to subscribe to — a plugin author (and the Claude Code / Codex hook bridges built on top) must know, without reading the loop, whether to listen on a session event or an agent event, and why.
 
-This is the foundational change in a stack that adds a Hooks subsystem; it establishes the vocabulary the later PRs (interception-Decision reshape, the `hook/*` durable log, the bridges) build on.
+This vocabulary is the foundation for interception decisions, the durable `hook/*` log, and the Claude Code and Codex bridges.
 
 ## Decision
 

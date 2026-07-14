@@ -56,7 +56,7 @@ export function apply(ctx: Context) {
 
 ## A client-driver plugin (external protocol bridge)
 
-A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.cancel()`. Two harness-specific contracts make it correct: correlate and settle each request exactly once from the durable `turn/end` session event even if rendering fails, and tear each agent down through its `AgentHandle.dispose()` (which stops the loop, `await`s its exit, and unregisters), not just `cancel()` — disposal must *reach* quiescence, not merely request it.
+A *client driver* is a UI plugin for a wire-protocol peer. It owns stdio, so stdout logging must be disabled, creates or resumes agents through the factory, maps harness events to protocol messages, and maps requests to `send()` or `cancel()`. Settle each request exactly once from durable `turn/end`, even if rendering fails, and tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
 
 `packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the permission-prompt answerer it registers on the approval seam.
 

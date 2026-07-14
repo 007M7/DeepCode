@@ -1,21 +1,9 @@
 /**
- * Runtime invariants: a pure-listener plugin that asserts relationships in
- * the harness event contract. It is intended for development diagnostics but
- * has no environment guard, so it is active in every composition that mounts
- * it (including the default `dsh-agent-core` bundle).
- *
- * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, `agent/status`, and the scoped dispatch and request seams.
- * Custom compositions can omit it when the runtime assertion cost is
- * undesirable. When mounted, a contract violation is a loud failure rather
- * than a subtle one. It doubles as executable documentation of the event
- * taxonomy: the assertions below are the contract.
- *
- * Session owns immutable log storage: it snapshots and deep-freezes every
- * accepted event at the source. This plugin checks relationships that one
- * event's types and immutability cannot express, including turn/step nesting,
- * scoped dispatch, status transitions, and request reconstructability.
- *
+ * Runtime listeners that fail loudly when cross-event contracts are broken:
+ * turn and step nesting, scoped dispatch, status transitions, and request
+ * reconstruction. The plugin has no environment guard and is active wherever
+ * mounted, including the default `dsh-agent-core` bundle; custom compositions
+ * may omit it. Sessions still own event snapshots and freezing.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -330,19 +318,15 @@ function replayEvent(trace: SessionTrace, event: SessionEvent): void {
   applyTransition(trace, validateEvent(trace, event))
 }
 
-/** Legal agent status transitions (the only state machine the loop guarantees). */
+/** Allow an initial observation, idle/running transitions, and terminal disposal; reject repeats and leaving disposed. */
 function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
-  // First observation: any status is a valid starting point.
   if (from === undefined) return
-  // A no-op transition is illegal — setStatus dedups, so we never see it.
   if (from === to) {
     throw new InvariantError(`agent/status repeated ${to} (no-op transition)`)
   }
-  // Leaving `disposed` is illegal — disposal is terminal.
   if (from === 'disposed') {
     throw new InvariantError(`agent/status left terminal state disposed → ${to}`)
   }
-  // idle↔running and (idle|running)→disposed are all legal; nothing else exists.
 }
 
 /**
