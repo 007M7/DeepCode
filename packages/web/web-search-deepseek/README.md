@@ -34,3 +34,24 @@ It reuses `$DEEPSEEK_API_KEY` (no new secret) but **not** `$DEEPSEEK_BASE_URL`: 
 ## Mapping
 
 DeepSeek returns no provider-generated answer surface this provider trusts as `content`, so `content` is omitted. `sources[]` is built from the `web_search_result` items inside `web_search_tool_result` blocks: `url` ← `url`, `title` ← `title`, `publishedAt` ← `page_age`. The per-source `snippet` lives separately in a `text` block's `citations[]` (a `cited_text` keyed by `url`), so the provider joins the two — a result with no citation excerpt simply has no `snippet`. Results are deduped by `url` (a `maxUses > 1` request can surface the same URL across searches). DeepSeek's `web_search` has no result-count knob (only `maxUses`), so `maxResults` is enforced by the seam (truncating `sources[]` and setting `truncated`). Provider failures surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`.
+
+## Model Experience
+
+### Auxiliary DeepSeek search request
+
+**What the model sees**: A separate DeepSeek model receives exactly `Perform a web search for the query: <query>` as its user text and one native `web_search` server-tool definition. This request is not part of the conversation model's context.
+
+**Token effect**: Separate provider input and output tokens are incurred for each search; `maxTokens` caps generated output and `maxUses` caps native search uses.
+
+### Conversation tool result, indirectly
+
+**What the model sees**: Through `dsh-tool-web`, the conversation model sees deduplicated URLs, titles, dates, and citation snippets from structured search blocks; provider prose is not trusted as an answer. Provider failures become `Error: DeepSeek search aborted`, `Error: DeepSeek search request failed: <error>`, `Error: DeepSeek returned no web_search_tool_result blocks; the request may not have triggered native web search`, or `Error: DeepSeek returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`.
+
+**Token effect**: Zero direct conversation tokens from registration. Result tokens scale with returned sources and snippets, then the seam enforces the requested source bound.
+
+## Known Limitations and Deferred Work
+
+- **One search costs a full Messages model turn** — latency plus generated tokens, with up to `maxUses` server-side searches; DeepSeek exposes no dedicated retrieval endpoint.
+- **Over-returned sources still cost tokens** — with no result-count knob on the wire, `maxResults` is enforced only post-hoc by seam truncation.
+- **Uncited results carry no `snippet`** — a source gains one only when a `text` block citation (`cited_text`) matches its URL.
+- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (e.g. `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.

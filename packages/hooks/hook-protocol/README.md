@@ -29,6 +29,11 @@ Declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT a 
 
 Like every event they must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn by construction; `SessionStart` gets no `hook/*` record (its injected `context/message` is the durable evidence) — see the hooks RFC.
 
-## Input rewrite is parsed but not honored
+## Model Experience
 
-`HookOutput.updatedInput` carries a hook's requested tool-input rewrite (CC `updatedInput`), but the harness does not honor it yet — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)). A bridge logs + warns when a hook sets it. See `src/types.ts` for the full contracts.
+Indirectly, through `dsh-hooks-claude` and `dsh-hooks-codex`, which can turn parsed hook output into prompt context, blocked outcomes, or continuation feedback.
+
+## Known Limitations and Deferred Work
+
+- **`HookOutput.updatedInput` is parsed but not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs + warns when a hook sets it. See `src/types.ts` for the full contracts.
+- **An invalid matcher regex matches nothing, silently** — `matchesMatcher` never throws; surfacing the error needs a diagnostic-returning variant or parse-time validation (`TODO(matcher-diagnostics)`).

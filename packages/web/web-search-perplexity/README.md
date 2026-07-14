@@ -24,3 +24,24 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 ## Mapping
 
 `content` ← `choices[0].message.content` (the generated answer). `sources[]` prefers the structured `search_results[]` (`url`, `title`, `snippet`, `publishedAt` ← `date`), falling back to the URL-only `citations[]` array only when `search_results` is absent — those sources carry just a `url`, which is why `title`/`snippet`/`publishedAt` are optional on the seam. Provider failures surface as `WebError` `WEB_PROVIDER_ERROR`; an aborted request surfaces as `WEB_ABORTED`. Perplexity has no result-count control, so `maxResults` is enforced by the seam (truncating `sources[]` and setting `truncated`).
+
+## Model Experience
+
+### Auxiliary Perplexity request
+
+**What the model sees**: A separate Perplexity model receives `<query>` verbatim as its sole user message through the chat-completions endpoint. This request is not part of the conversation model's context.
+
+**Token effect**: Separate provider tokens are incurred per search; `maxTokens` caps the generated answer.
+
+### Conversation tool result, indirectly
+
+**What the model sees**: Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. Failures become `Error: Perplexity search aborted`, `Error: Perplexity search request failed: <error>`, or `Error: Perplexity returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`.
+
+**Token effect**: Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result or error is resent until compaction.
+
+## Known Limitations and Deferred Work
+
+- **Citation-fallback sources are URL-only** — when Perplexity omits structured `search_results[]`, sources carry no `title`/`snippet`/`publishedAt`, so the tool renders bare hostname labels.
+- **Over-returned sources still cost tokens and latency** — with no result-count control on the wire, `maxResults` is enforced only post-hoc by seam truncation.
+- **Only `model`/`maxTokens`/`searchRecency` are exposed** — Perplexity's other search controls (domain filters, `web_search_options` context size, images) wait on provider-neutral seam fields ([seam RFC](../../../docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md)).
+- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (e.g. `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.

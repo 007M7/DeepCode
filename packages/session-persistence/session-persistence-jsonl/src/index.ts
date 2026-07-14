@@ -197,7 +197,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   // --- materialization / append / repair (file mechanics) ---
 
-  /** Atomically write the header line + first batch (temp-write, fsync, rename). */
+  /** Atomically write the header line + first batch (temp-write, fsync, collision-safe hard-link publish). */
   private async materialize(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const dir = sessionDir(this.root, meta.cwd)
     await mkdir(this.root, { recursive: true, mode: 0o700 })
@@ -254,7 +254,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** fsync a directory so a just-created/renamed entry inside it is crash-durable. */
+  /** fsync a directory so a just-created or published entry inside it is crash-durable. */
   private async syncDir(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {

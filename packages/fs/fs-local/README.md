@@ -19,8 +19,17 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 - **`writeText`** — atomic: writes to a temp file opened exclusively (`wx`, `0o600`) inside a randomly-named private staging dir (`0o700`) next to the target, fsyncs, then renames over the target. An existing file's mode is preserved, while new files default to `0o600`. The `expected` guard is OPTIONAL: omitting it unconditionally creates-or-overwrites; `createIfAbsent` creates a missing target and rejects an existing one (`FS_NOT_OBSERVED`); `replaceIfVersion` replaces only at the observed version (a missing target or mismatch is `FS_STALE_VERSION`).
 - **`editText`** — atomic literal read-modify-write over the same primitive, serialized per target by a mutation lock. The `expected` guard is OPTIONAL: when supplied it verifies the version BEFORE literal matching (a stale edit reports `FS_STALE_VERSION`, never `FS_EDIT_NOT_FOUND`/`FS_AMBIGUOUS_EDIT` against newer content); omitting it edits the current content unconditionally. A missing target reports `FS_STALE_VERSION` either way. LF-normalizes for matching, restores the file's dominant CRLF/LF style, and rejects empty `oldString` / zero matches (`FS_EDIT_NOT_FOUND`) or ambiguous multi-matches without `replace_all` (`FS_AMBIGUOUS_EDIT`).
 
-## `cwd` is not a sandbox
-
-`config.cwd` is a resolution default, not a containment boundary — absolute paths and `..` escape it. Enforce containment with a stricter `ctx.fs` backend or a permission plugin on the `tools/execute` waterfall. See [the filesystem capability-seam RFC's Consequences section](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md#consequences).
-
 The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the thin service wiring.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-fs`, which renders this provider's line-windowed UTF-8 content, mutation acknowledgements, and exact provider messages under `Error: <message>` into capped retained tool results while versions, atomic-write mechanics, and directory metadata remain internal.
+
+## Known Limitations and Deferred Work
+
+- **`config.cwd` is not a sandbox** — it is a resolution default, not containment: absolute paths and `..` escape it. Enforce containment with a stricter `ctx.fs` backend or a permission plugin on the `tools/execute` waterfall ([capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md#consequences)).
+- **An overwrite reads the whole prior file into memory** — solely as the UI diff basis; bounding that pre-read above a size threshold is deferred (`TODO(overwrite-diff-bound)`).
+- **Version tokens are `mtimeMs:size`** — an external change that preserves both within the filesystem's timestamp granularity defeats the stale guard.
+- **`editText` holds the whole file (plus the edited copy) in memory** — streaming exists only on the read path.
+- **Binary detection is asymmetric** — reads NUL-sample only the first 8192 bytes while edits scan the whole buffer, so a file with a late NUL reads fine but rejects edits.
+- **The per-target mutation lock is in-process only** — a writer in another process is caught only by the optional version guard, never serialized.

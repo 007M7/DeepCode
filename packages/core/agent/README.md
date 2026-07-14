@@ -50,8 +50,27 @@ The handle every plugin programs against:
 
 - Agent creation: `AgentLoop.create()` is the concrete config-path implementation (in `dsh-agent-loop`), while programmatic consumers create/resume owned agents through `ctx.agents.create()` / `ctx.agents.resume()`. Replace the loop by implementing `Agent` and registering via `ctx.agents.register()`.
 - Event listeners: all `agent/*` events are declared here — no dependency on the loop package needed.
-- Subagent delegation: implemented by `@deepseek-ai/dsh-subagent`, not by a method on `Agent`; providers create or drive ordinary `Agent` handles through the factory seam, so spawn/fork/ACP transports stay outside the core agent interface.
+- Subagent delegation is not an `Agent` method; providers create or drive ordinary handles through the factory seam, so delegation transports stay outside the core agent interface.
 
-### What is NOT here (TODO)
+## Model Experience
+
+### User, steering, and injected messages
+
+**What the model sees**: `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself.
+
+**Token effect**: Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent.
+
+### Agent-scoped request composition
+
+**What the model sees**: Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup.
+
+**Token effect**: The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal.
+
+## Known Limitations and Deferred Work
 
 - **Inter-agent channels beyond delegation** — shared state, streaming child output, and background/poll semantics remain outside the current synchronous `ctx.subagents` seam.
+- **`agent/session-start` cannot gate startup** — it remains a synchronous, veto-less notification; async composition that must finish before publication belongs in the factory's `setup(agentCtx)` transaction instead.
+- **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
+- **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
+- **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).
+- **`agent/pre-step`'s `fullSystemPrompt`/`sessionPrefix` parameters are a flagged smell** — compaction is their only consumer; a lazy prompt provider or a compaction-specific pressure seam is the marked revisit.
