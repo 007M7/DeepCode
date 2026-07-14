@@ -37,7 +37,7 @@ export function eventRecords(
  * @param seq - target event seq.
  * @returns direct surface and provenance relationships.
  */
-export function traceEventLog(
+export function traceEvent(
   sessionId: SessionId,
   events: readonly SessionEvent[],
   seq: number,
@@ -59,7 +59,6 @@ export function traceEventLog(
     replacement = analysis.replacedBy.get(replacement)
   }
 
-  const sourceEventSeqs = eventSources(target)
   const derivedEventSeqs: number[] = []
   for (const event of events) {
     if (event.seq <= seq) continue
@@ -71,11 +70,11 @@ export function traceEventLog(
   const targetRecord = analysis.records[seq]!
   const replacedBy = analysis.replacedBy.get(seq)
   return {
-    target: { ...targetRecord },
+    target: targetRecord,
     ...replacedBy === undefined ? {} : { replacedBy },
     replacementChain,
-    replacedEventSeqs: [...(analysis.replacedEventSeqs.get(seq) ?? [])],
-    sourceEventSeqs: [...sourceEventSeqs],
+    replacedEventSeqs: analysis.replacedEventSeqs.get(seq) ?? [],
+    sourceEventSeqs: [...eventSources(target)],
     derivedEventSeqs,
   }
 }
@@ -86,7 +85,7 @@ export function traceEventLog(
  * @param sessionId - target session id.
  * @returns complete or explicitly partial lineage.
  */
-export function traceLineage(
+export function traceSession(
   records: readonly SessionRecord[],
   sessionId: SessionId,
 ): SessionLineageTrace {
@@ -164,14 +163,12 @@ function analyzeEventLog(
     )
   }
   const current = new Set(folded.nodes.map(node => node.seq))
-  const shadowed = new Set<number>()
   const replacedBy = new Map<number, number>()
   const replacedEventSeqs = new Map<number, number[]>()
   for (const replacement of folded.replacements) {
-    const removed = [...replacement.shadowedSeqs]
+    const removed = replacement.shadowedSeqs
     replacedEventSeqs.set(replacement.seq, removed)
     for (const removedSeq of removed) {
-      shadowed.add(removedSeq)
       replacedBy.set(removedSeq, replacement.seq)
     }
   }
@@ -183,14 +180,14 @@ function analyzeEventLog(
       time: event.time,
       surface: current.has(event.seq)
         ? 'current'
-        : shadowed.has(event.seq) ? 'shadowed' : 'log-only',
+        : replacedBy.has(event.seq) ? 'shadowed' : 'log-only',
     })),
     replacedBy,
     replacedEventSeqs,
   }
 }
 
-function eventSources(event: SessionEvent): number[] {
+function eventSources(event: SessionEvent): readonly number[] {
   return (event as SessionEvent<SurfaceEventType>).sourceEventSeqs ?? []
 }
 

@@ -22,7 +22,7 @@ import {
   type Config,
 } from './config.ts'
 import { SessionCorpus } from './corpus.ts'
-import { eventRecords, traceEventLog, traceLineage } from './tracing.ts'
+import * as tracing from './tracing.ts'
 
 export type * from './types.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
@@ -71,7 +71,7 @@ export class SessionQueryService extends Service {
    */
   async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]> {
     const loaded = await this._corpus.load(sessionId)
-    return eventRecords(sessionId, loaded.events)
+    return tracing.eventRecords(sessionId, loaded.events)
   }
 
   /**
@@ -82,7 +82,7 @@ export class SessionQueryService extends Service {
    */
   async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
     const records = await this._corpus.listSessions()
-    return traceLineage(records, sessionId)
+    return tracing.traceSession(records, sessionId)
   }
 
   /**
@@ -93,7 +93,7 @@ export class SessionQueryService extends Service {
    */
   async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
     const loaded = await this._corpus.load(request.sessionId)
-    return traceEventLog(request.sessionId, loaded.events, request.seq)
+    return tracing.traceEvent(request.sessionId, loaded.events, request.seq)
   }
 
   /**
