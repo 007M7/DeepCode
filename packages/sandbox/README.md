@@ -9,4 +9,4 @@ The confinement half of the [capability-seam split](../../docs/rfc/implemented/a
 
 The seam confines SAME-WORLD subprocesses only (shared filesystem and kernel). Containers, microVMs, and remote executors are NOT backends here — they replace whole capability implementations (`ctx.bash`, `ctx.fs`) as environment-coherent groups; the boundary is recorded in [the sandbox RFC](../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
 
-Consumers today: [`bash/bash-sandbox`](../bash/bash-sandbox/) (wraps `['bash', '-c', command]`; see [examples/sandbox-acp-agent](../../examples/sandbox-acp-agent/) for the composed leaf). In-process tools (fs/web) cannot be confined by an OS wrapper — their sandbox semantics are policy at their own seams (the sandbox RFC's cross-family phase).
+Consumers today: [`bash/bash-sandbox`](../bash/bash-sandbox/) (wraps `['bash', '-c', command]`; see [the acp-agent example's default composition](../../examples/acp-agent/) for the composed leaf). In-process tools (fs/web) cannot be confined by an OS wrapper — their sandbox semantics are policy at their own seams (the sandbox RFC's cross-family phase).
