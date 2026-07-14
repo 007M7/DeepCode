@@ -1,49 +1,10 @@
 /**
- * Doc-sync gate: enforce the bilingual pairing contract (docs/i18n/README.md).
- * English and Chinese carry EQUAL authority — either language may be authored
- * first — so consistency is recorded per pair in a sidecar metadata file,
- * `foo.i18n.yaml`, holding the full git blob hash of BOTH files as of the last
- * time a human confirmed the two say the same thing:
- *
- *   foo.md: <40-hex blob hash>
- *   foo.zh.md: <40-hex blob hash>
- *
- * The gate checks, mechanically, the checkable half of the contract:
- *
- *   1. Every file in the manifest's `required` list has a COMPLETE pair
- *      (the enforcement frontier — grows batch by batch).
- *   2. Every pair that exists at all is complete and consistent: all three
- *      files present (a `.zh.md` or a `.i18n.yaml` without its counterparts
- *      is an error — pairs merge whole, never half), each side's current
- *      blob hash equals the recorded one (an edit to EITHER side without a
- *      re-confirmed counterpart goes red), both sides carry the language
- *      switcher, and the structural signatures match one to one — heading
- *      depths in order, fenced code blocks VERBATIM (info string + content),
- *      table column counts, list kinds, and every link target except the
- *      switcher itself.
- *   3. Date-named documents (`yyyy-mm-dd-*.md`, i.e. RFCs) dated on/after the
- *      manifest's `requiredSince` merge bilingual — the frontier for NEW
- *      documents, independent of the `required` back-catalog list.
- *   4. `excluded` files (generated docs, agent instructions, the bilingual
- *      terminology table) have no `.zh.md` and no `.i18n.yaml` at all.
- *
- * What it deliberately does NOT check is translation quality or which side
- * is "right": a green gate means the pair was confirmed consistent at these
- * exact contents, not that the confirmation was sound — accuracy,
- * terminology, and tone are the human reviewer's half of the contract
- * (docs/i18n/translation-rules.md).
- *
- * Blob hashes, not commit hashes, so a pair edited in the same PR verifies
- * without any history lookup: consistency is a pure content comparison,
- * computed here directly (sha1 of `blob <size>\0<content>`) without spawning
- * git. The recorded hash also recovers the last-confirmed text of either
- * side (`git cat-file -p <hash>`) for diff-based minimal updates.
- *
- * Run: `tsx scripts/verify-translation-pairing.ts` — or with `--list` to
- * print the pairing state of every in-scope document as a work list (always
- * exits 0), or with `--write` to (re)record both hashes for every complete
- * pair after you have brought the two sides back in line (the resulting
- * yaml diff is the reviewable act of confirming consistency).
+ * Enforce complete English/Chinese pairs, matching structure, and recorded git
+ * blob hashes under the bilingual manifest. Required files and date-named docs
+ * at or after `requiredSince` must be paired; excluded docs may have neither a
+ * counterpart nor sidecar. `--list` reports state and `--write` records both
+ * sides after human review. Translation quality remains a review responsibility.
+ * See `docs/i18n/README.md` for the owning contract.
  */
 
 import { createHash } from 'node:crypto'

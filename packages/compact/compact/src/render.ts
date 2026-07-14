@@ -1,16 +1,6 @@
 /**
- * Plain-text transcript rendering over session events: the shared projection
- * used wherever a compaction-class consumer needs "what a model once saw" as
- * readable text — a summarizer's input, or a recall tool's output.
- *
- * Extracted from the basic backend's private helpers so the summarize path and
- * the recall read path render one span identically (two renderers would drift,
- * and a recall reader would then see a different transcript than the one the
- * summary was written from). Both functions are pure over their arguments: no
- * session access beyond the provided events, no clock, no randomness — a
- * rendered span is a pure function of the log, so replay reproduces it
- * byte-identically.
- *
+ * Pure shared transcript projection for summarization and recall, so both
+ * render the same log span byte-for-byte under replay.
  * @module @deepseek-ai/dsh-compact/render
  */
 
@@ -18,14 +8,9 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /**
- * Render content blocks to a single plain-text string. Text and reasoning
- * contribute their text (reasoning wrapped as `[reasoning: …]`); every other
- * block type contributes a type-tagged placeholder (`[tool-call: name(args)]`,
- * `[tool-result: …]`, …) so the reader is told what non-text content existed
- * rather than silently losing it. A `tool-result` block recurses into its
- * nested content (`[tool-result: <inner rendering>]`), falling back to a bare
- * `[tool-result]` when the nested content renders to nothing. Blocks join
- * with newlines; empty-text blocks contribute nothing.
+ * Render text directly, reasoning as a tagged span, and every other block as a
+ * type-tagged placeholder. Tool results recurse into nested content; empty
+ * blocks contribute nothing and rendered blocks join with newlines.
  *
  * @param blocks - the content blocks to render.
  * @returns the newline-joined plain-text rendering; empty string when nothing renders.
@@ -59,17 +44,9 @@ export function renderContentBlocks(blocks: readonly ContentBlock[]): string {
 }
 
 /**
- * Render a set of surface-node seqs as a `User:`/`Assistant:`/`Tool result:`
- * transcript. Walks `seqs` in the order given — callers pass surface order
- * (e.g. a `compactRegion` slice of the surface-node list), which after a
- * `replace` is NOT ascending log-seq order (a high-seq summary node can sit at
- * the head of the surface before older retained lower-seq nodes); a log-order
- * scan would render the transcript out of order.
- *
- * Only the five surface (message-producing) event types render; a seq naming
- * any other event type contributes nothing. `SessionEventMap` is
- * merge-extensible, so unknown types are simply non-message events with no
- * renderable text.
+ * Render message-producing events as a role-labeled transcript. `seqs` are
+ * walked in caller-supplied surface order, which may differ from numeric log
+ * order after replacement; non-surface and unknown merged events are skipped.
  *
  * @param events - the session log the seqs index into (`session.events`).
  * @param seqs - the surface-node seqs to render, in surface order.

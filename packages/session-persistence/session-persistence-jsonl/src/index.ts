@@ -1,19 +1,7 @@
 /**
- * JSONL durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-jsonl`).
- *
- * One append-only `.jsonl` event log per session (a header line then one
- * `SessionEvent` per line, verbatim including `assistant/chunk` so `seq` stays
- * contiguous), with lazy materialization (no file until the first `append`),
- * atomic first write, and load-time repair of a never-committed crash tail.
- *
- * The backend supplies ONLY the file-bytes storage primitives (the
- * {@link PersistenceBackend} hooks below); all the write-path orchestration
- * (the `session/event` → buffer → `session/flush` drain, per-session
- * serialization, write cursors, fork-seed persistence, HMR live-adoption,
- * crash-repair sequencing, dispose quiescence) lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
- *
+ * JSONL durable session-persistence backend. It stores a header and contiguous
+ * events in one append-only file per session, and delegates orchestration to
+ * {@link PersistenceCoordinator}.
  * @module @deepseek-ai/dsh-session-persistence-jsonl
  */
 
@@ -41,13 +29,7 @@ export interface Config {
   root: string
 }
 
-/**
- * Whether `error` is a "no such file/directory" (`ENOENT`) failure — the ONLY
- * filesystem error that legitimately means "this session/root is absent" for a
- * durable backend. Any OTHER error (`EACCES`, `ENOTDIR`, transient I/O) must
- * surface rather than be silently reported as absence. (A NodeJS filesystem
- * rejection carries a string `code`.)
- */
+/** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
@@ -65,13 +47,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   })
 
   /**
-   * Backend label for the coordinator's dispose-failure AggregateError and
-   * effect name. NOTE: this intentionally shadows cordis `Service.name` (which
-   * the base sets to `'sessionPersistence'`). The service is registered under the
-   * fixed key the Service constructor captured (`reflect.provide('sessionPersistence', …)`),
-   * not via `this.name`, so overwriting the instance field with the backend label
-   * does not affect `ctx.sessionPersistence` resolution — it only relabels the
-   * dispose diagnostics, which is exactly what {@link PersistenceBackend.name} is for.
+   * Backend label for coordinator diagnostics and effects. It shadows
+   * `Service.name` without changing the service key captured by the base
+   * constructor.
    */
   override readonly name = 'session-persistence-jsonl'
 
@@ -80,10 +58,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Resolve the configured root to an ABSOLUTE path ONCE, here. A relative root
-    // would otherwise re-resolve against `process.cwd()` at every later
-    // readdir/open — so if any plugin or test changed cwd between create, append,
-    // and load, one session's files could split across directories.
+    // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
@@ -105,11 +80,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
-  // `list` is BOTH the public service method and the PersistenceBackend hook —
-  // one method, the bucket walk below. The coordinator adds no orchestration for
-  // listing (no per-id serialization, no cursor), so it would just call back into
-  // this same method; routing it through the coordinator would recurse. Defined
-  // once, in the "PersistenceBackend hooks" section.
+  // One method serves both public `list` and the backend hook; delegating it to
+  // the coordinator would call this hook recursively.
 
   /**
    * The per-session init promises, exposed for white-box tests that await a
@@ -122,7 +94,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 
-  /** Read a stored prefix by id across ALL cwd buckets (cwd unknown). */
+  /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
   async loadStored(id: SessionId): Promise<StoredPrefix<number> | undefined> {
     const file = await this.findLog(id)
     if (file === undefined) return undefined
@@ -130,11 +102,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Read a stored prefix SCOPED to `cwd` (HMR live-adoption must not cross cwd).
-   * `undefined` is the DEFINITE "no-cwd" bucket, NOT "unknown" — a live session
-   * with no cwd may only adopt a persisted no-cwd log, never a same-id log that
-   * lives in some other cwd bucket. So this looks at exactly `logPath(cwd)`
-   * (which maps `undefined` → the `_no-cwd` bucket), never the all-buckets scan.
+   * Read a stored prefix within one cwd for HMR adoption. `undefined` names the
+   * no-cwd bucket rather than an unknown cwd, so this never scans other buckets.
    */
   async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
     const path = logPath(this.root, cwd, id)
@@ -143,10 +112,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Read and scan a session's log file into a {@link StoredPrefix}. Folds the
-   * torn-tail comparison HERE so the `tornMarker` is the byte offset to truncate
-   * to (or `undefined` when nothing is torn) — the coordinator never sees the
-   * raw byteLength.
+   * Read a stored prefix and convert torn-tail state to the byte offset the
+   * coordinator can round-trip without knowing the file format.
    */
   private async readPrefix(path: string): Promise<StoredPrefix<number>> {
     const buffer = await readFile(path)
@@ -182,9 +149,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     const metas: SessionHeader[] = []
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listJsonl(dir)) {
-        // Read ONLY the header line, not the whole log: a session picker must
-        // scale with the number of sessions, not the total size of every
-        // conversation (the log persists every assistant/chunk verbatim).
+        // Read only headers so listing scales with session count, not log size.
         const first = await this.readFirstLine(`${dir}/${name}`)
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
@@ -205,10 +170,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     await mkdir(dir, { recursive: true, mode: 0o700 })
     await this.syncDir(this.root)
     const finalPath = logPath(this.root, meta.cwd, meta.id)
-    // Never rename over an existing committed log: materialize is the FIRST write
-    // of a session the backend believes is new. A file here means a different
-    // session shares this id on disk — reject loudly. (createCore already guards
-    // the create path, so this is unreachable-in-practice TOCTOU defense.)
+    // Materialization is the first write; an existing log is an id collision.
     /* v8 ignore next 3 -- createCore guards collisions before materialize; this is a TOCTOU backstop */
     if (await this.exists(finalPath)) {
       throw new Error(`refusing to materialize "${meta.id}": a log already exists on disk (load/resume it instead)`)
@@ -225,28 +187,22 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     } finally {
       await handle.close()
     }
-    // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
-    // final path already exists, so two processes materializing the same id
-    // concurrently cannot clobber each other. rename() would silently overwrite.
+    // Publish with link()+unlink(): unlike rename(), link fails if another
+    // process materialized the same id first.
     let linked = false
     try {
       await link(tmp, finalPath)
       linked = true
     } finally {
-      // If link FAILED, the temp is the only reference and must be removed before
-      // the original error propagates. If it SUCCEEDED, defer temp cleanup to
-      // AFTER the publish is durable (below) so a temp-rm failure can never reject
-      // a session whose log already published.
+      // Remove an unpublished temp on failure. After publication, defer cleanup
+      // until the directory entry is durable so cleanup cannot reject a live log.
       /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
       if (!linked) await rm(tmp, { force: true })
     }
-    // link() succeeded — the log is published. fsync the directory so the new
-    // entry survives a power loss: the new link is not crash-durable until the
-    // parent directory's metadata is synced.
+    // The published link becomes crash-durable only after its directory fsync.
     await this.syncDir(dir)
-    // Best-effort temp cleanup: the log is already published and durable, so a
-    // failure to remove the (now-redundant) temp hard link must NOT reject the
-    // append. Swallow only the rm failure; nothing else of consequence runs here.
+    // Best-effort temp cleanup: the log is already published and durable, so a failure to
+    // remove the (now-redundant) temp hard link must not reject the append.
     try {
       await rm(tmp, { force: true })
     } catch {
@@ -265,11 +221,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Append event lines at EOF and fsync. On a write/sync failure AFTER the kernel
-   * accepted some bytes (ENOSPC, an fsync error), truncate the file back to its
-   * pre-append size before rethrowing: the cursor is unchanged, so the batch will
-   * be retried, and without this rollback the retry would append AFTER the partial
-   * bytes — producing duplicate seqs that make `scanLog` see a gap.
+   * Append and fsync event lines. On a partial write or sync failure, restore the
+   * previous size before rethrowing because the unchanged cursor will retry the
+   * batch; leaving partial bytes would create duplicate sequence numbers.
    */
   private async appendLines(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const path = logPath(this.root, meta.cwd, meta.id)
@@ -331,10 +285,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Find a session's log file by id across ALL cwd buckets — the any-cwd scan
-   * for `loadStored` (resume identifies a session by id alone). The cwd-scoped
-   * lookup (`loadLive`) does NOT use this; it goes straight to `logPath(cwd)` so
-   * a no-cwd session can't match a real-cwd bucket.
+   * Find a session by id across cwd buckets for resume. Cwd-scoped HMR adoption
+   * bypasses this scan so a no-cwd session cannot claim another bucket.
    */
   private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
     const target = encodeSegment(id) + '.jsonl'
@@ -355,9 +307,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       const entries = await readdir(this.root, { withFileTypes: true })
       return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
     } catch (error) {
-      // ENOENT = the root has not been created yet → genuinely no sessions. Any
-      // other error (EACCES, ENOTDIR, transient I/O) must NOT be reported as "no
-      // sessions" — a durable backend cannot silently pretend state is absent.
+      // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []
       throw error
     }

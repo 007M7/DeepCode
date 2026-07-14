@@ -1,6 +1,6 @@
 # Translation prompt (pipeline asset)
 
-本文件是自动翻译流水线使用的 prompt 模板，正文（自 `# Translation Prompt` 起）逐字进入模型请求，不参与双语配对（见 [README.md](README.md) 排除清单）。模板正文与其内嵌 few-shot 正误例由 jingtingxiang 基于对存量译文的质量评审撰写。模板与仓库规则的关系：[terminology.md](terminology.md) 在渲染时整表填入 `{{terminology}}`；文体金标见 [style-samples.md](style-samples.md)，模板内嵌的 Examples 是其中问题类别的最小抽样，两者冲突时以 style-samples 为准。修改本文件即修改线上翻译行为，按正常 PR 评审。
+本文件是自动翻译流水线的 prompt 模板；自 `# Translation Prompt` 起的正文逐字进入模型请求，因此不参与双语配对（见 [README.md](README.md) 排除清单）。渲染时，[terminology.md](terminology.md) 整表填入 `{{terminology}}`。[style-samples.md](style-samples.md) 定义文体，模板内嵌的 Examples 仅抽样问题类型；两者冲突时以文体样例为准。修改本文件即修改翻译行为，需按正常 PR 评审。
 
 ## 占位符契约
 
@@ -14,7 +14,7 @@
 | `{{source_filename}}` | 源文档的 basename（如 `foo.md`） | 由流水线从待译文件路径取得 |
 | `{{source_filename_zh}}` | 中文侧 basename（如 `foo.zh.md`） | 由 `{{source_filename}}` 派生 |
 
-历史模板的 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 占位符与 `%%` 分段协议已废弃：本模板按整文档翻译（非分段），输出协议为下方三段 XML。
+流水线仅支持上表占位符，并按整篇文档翻译。它不支持 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 或 `%%` 分段协议；输出采用下方三段 XML。
 
 ## Few-shot 金标
 
@@ -78,7 +78,7 @@ You are a senior technical translator specializing in LLM and agent development 
 - For RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY), render the corresponding Chinese term in italics: *必须*、*禁止*、*应当*、*可以*.
 
 #### When translating into English
-(To be added.)
+- Use half-width English punctuation and standard English spacing. Preserve full-width punctuation only in verbatim Chinese text.
 
 ## Terminology
 

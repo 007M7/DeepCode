@@ -111,7 +111,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 
 ## 6. Session modes / config options / models
 
-Config options ✅ (the [sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)): when `ctx.permission` is composed, the bridge advertises one `permission` select whose values come from the deployment preset table and whose current value derives from the session log; `session/set_config_option` switches the preset end to end, with idle switches anchoring at the next turn under the turn-enclosure contract. Session modes stay deliberately unmodeled because config options replace them in ACP v2. Runtime model selection is still not modeled — the harness fixes the model per bridge via `AcpConfig.model` (both reference adapters ship a model selector).
+Config options ✅ (the [sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)): when `ctx.permission` is composed, the bridge advertises one `permission` select whose values come from the deployment preset table and whose current value derives from the session log; `session/set_config_option` switches the preset end to end, with idle switches anchoring at the next `agent/prompt-submit` inside its open turn. Session modes stay deliberately unmodeled because config options replace them in ACP v2. Runtime model selection is still not modeled — the harness fixes the model per bridge via `AcpConfig.model` (both reference adapters ship a model selector).
 
 ## 7. Content blocks
 
