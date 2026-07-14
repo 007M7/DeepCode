@@ -109,8 +109,8 @@ export class HarnessSdkServer {
     // child disposal and reused ids need no settlement-order assumption.
     const localRuns = this.localRuns
     this.disposers.push(ctx.on('subagent/start', function (this: Scoped<SubagentService>, info: SubagentRunInfo) {
-      if (ctx.agents.get(info.id) === undefined) return
       const parent = subagentParentOf(this)
+      if (!ctx.agents.isOwnedBy(info.id, parent)) return
       const providerRuns = localRuns.get(info.provider) ?? new Map<SessionId, Map<Agent, number>>()
       const parentRuns = providerRuns.get(info.id) ?? new Map<Agent, number>()
       parentRuns.set(parent, (parentRuns.get(parent) ?? 0) + 1)
@@ -118,7 +118,6 @@ export class HarnessSdkServer {
       localRuns.set(info.provider, providerRuns)
     }))
     this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
-      const agent = ctx.agents.get(info.id)
       const parent = subagentParentOf(this)
       const providerRuns = localRuns.get(info.provider)
       const parentRuns = providerRuns?.get(info.id)
@@ -130,10 +129,10 @@ export class HarnessSdkServer {
         if (providerRuns?.size === 0) localRuns.delete(info.provider)
       }
       // This protocol reports LOCAL child sessions. A lineage-bearing child
-      // has the session/created-driven start notification above; a parentless
-      // local provider still gets its terminal notification. A remote provider
-      // has neither a pending local start nor a live local agent and is ignored.
-      if (pendingCount === undefined && agent === undefined) return
+      // has the session/created-driven start notification above. A remote run
+      // has neither a cached owned start nor a live child owned by this exact
+      // parent; an unrelated local agent with the same id never makes it local.
+      if (pendingCount === undefined && !ctx.agents.isOwnedBy(info.id, parent)) return
       transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
