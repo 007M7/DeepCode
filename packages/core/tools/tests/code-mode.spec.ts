@@ -350,10 +350,8 @@ describe('the run_code dispatch bridge', () => {
       return { logs: [], value: 'done' }
     }
 
-    // Model a timeout-style outer wrapper: it temporarily installs a signal,
-    // delegates, then restores the exact prior shape. A nested result observer
-    // is observe-only and must not receive the live outer execution object;
-    // freezing the correlation value it sees therefore cannot break restore.
+    // Freeze the nested observer's parent correlation. If that were the live
+    // outer execution object, the timeout-style wrapper could not restore it.
     ctx.on('tools/execute', async (exec, next) => {
       if (exec.name !== RUN_CODE_NAME) return next()
       const previous = exec.signal
@@ -577,11 +575,8 @@ describe('the run_code dispatch bridge', () => {
       },
     }))
     runtime.behavior = async (request) => {
-      // Start a sub-dispatch, keep its rejection held, and fail the run once
-      // the tool is genuinely in flight — a seam error AFTER work has begun.
-      // The bridge's settlement still owes quiescence: without the finally,
-      // run_code would return now and the slow tool would finish (and log)
-      // afterwards.
+      // Start a sub-dispatch, keep its rejection held, and fail the run once the tool is
+      // genuinely in flight — a seam error after work has begun.
       request.bindings[0]!.functions.slow!({ id: 'orphan' }).catch(() => 'held')
       await inFlight
       throw new Error('backend exploded')

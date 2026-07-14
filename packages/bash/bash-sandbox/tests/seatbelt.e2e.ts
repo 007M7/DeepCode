@@ -9,16 +9,11 @@ import { LocalSandboxProvider, seatbeltProfileArgs } from '@deepseek-ai/dsh-sand
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 
 /**
- * KEYLESS consumer-integration proof on macOS: the REAL `LocalSandboxProvider`
- * (Linux rungs forced off, so `sandbox-exec`/Seatbelt confines) underneath
- * the REAL `SandboxBashExecutor`, driven through the executor's public
- * run/start paths. Verifies the WORLD (files exist or don't) plus the
- * stamped result facts — in particular that Seatbelt's EPERM denial text
- * classifies as `denied: true` through the wrap-carried dialect; the
- * backend-only confinement proofs live with `@deepseek-ai/dsh-sandbox-local`.
- *
- * Self-skips wherever the functional probe fails — every non-macOS host, or
- * a macOS whose `sandbox-exec` refuses the profile.
+ * Keyless macOS integration of the real provider and executor through public run/start paths.
+ * Linux rungs are forced off so Seatbelt is selected. The tests check world effects and stamped
+ * facts, including EPERM classification through the wrap-carried dialect; backend-only
+ * confinement is covered by `@deepseek-ai/dsh-sandbox-local`. Skips off macOS or when
+ * `sandbox-exec` rejects the profile.
  */
 
 const probe = spawnSync('sandbox-exec', [...seatbeltProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

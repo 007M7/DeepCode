@@ -1,17 +1,9 @@
 /**
- * Property-based protocol-shape tests for the ACP update stream (RFC 001 →
- * ADR 0013 precedent). Fuzz arbitrary harness `SessionEvent` sequences through
- * the pure `streamSessionEventUpdate` translator and assert the invariants an
- * ACP client relies on:
- *
- *  - every emitted update is a legal `SessionUpdate` variant;
- *  - a `tool_call_update` for a given id is never emitted before a `tool_call`
- *    for that id (the client must see the pending call before its completion);
- *  - the translator is a pure function of the event (same event → same updates),
- *    so live streaming and `session/load` replay produce identical streams.
- *
- * Pure-function fuzzing (no live loop) keeps these deterministic — a failure is
- * a real finding, not timing noise.
+ * Property-based protocol-shape tests for the ACP update stream (RFC 001 → ADR 0013
+ * precedent). Fuzz arbitrary harness `SessionEvent` sequences through the pure
+ * `streamSessionEventUpdate` translator and assert legal update variants, call-before-result order
+ * per tool id, and deterministic event-to-update translation. Keeping this pure makes live and
+ * replay equivalence deterministic rather than a timing property.
  */
 
 import { describe, expect, it } from 'vitest'

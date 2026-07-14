@@ -1,18 +1,9 @@
 /**
- * Per-session sandbox-mode override: the session log as the store. A runtime
- * switch (an ACP `session/set_config_option`, a test scenario) is recorded as
- * one `bash/sandbox-mode` event on the session it applies to;
- * `effective = fold(events) ?? the executor's configured default`, so an
- * override survives restart by replay, two sessions can never see each
- * other's state, and there is no external config store. The event is
- * log-only (the `approval/*` precedent): the model receives neither this event
- * nor a standing mode statement. `@deepseek-ai/dsh-tool-bash` names the mode
- * only when it renders a sandbox denial. EXECUTION honors the fold in the tool
- * layer — it stamps the effective mode onto each call's
- * `BashExecRequest.sandboxMode` (weakest-precedence: an escalation grant for
- * the call outranks it) — the executor itself stays a config-fixed default
- * plus per-call overrides.
- *
+ * Per-session sandbox-mode override stored as log-only events. Folding the log
+ * isolates sessions and survives replay; the tool stamps the override onto
+ * each call unless an approved one-shot escalation outranks it, and the
+ * executor default applies when neither exists. The model receives neither the
+ * event nor a standing-mode notice; denial results name the effective mode.
  * @module dsh-bash/session-mode
  */
 
@@ -22,11 +13,9 @@ import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * The session's sandbox mode was switched — log-only (like `approval/*`;
-     * NOT a surface event, carries no `surfaceOp`): durable and replayable,
-     * never in the model transcript. The LAST such event is the session's
-     * override ({@link effectiveSandboxMode}); execution and ACP config-option
-     * reporting fold it without adding prompt text or a context notice.
+     * Durable log-only sandbox-mode override; never a surface event or model
+     * message. Execution and ACP option reporting fold the latest event through
+     * {@link effectiveSandboxMode} without adding a prompt notice.
      */
     'bash/sandbox-mode': { mode: SandboxMode }
   }
@@ -37,9 +26,8 @@ export const SANDBOX_MODES: readonly SandboxMode[] = ['read-only', 'workspace-wr
 
 /**
  * The session's sandbox-mode override: the last `bash/sandbox-mode` event in
- * the log, or undefined when the session never switched (callers apply the
- * executor's configured default). The pure fold — resume needs no catch-up
- * machinery because replaying the log IS the state.
+ * the log, or undefined when the session never switched and callers should use
+ * the executor default. Replay needs no separate catch-up state.
  * @param events - session events in log order (other event types are skipped).
  * @returns the mode of the last switch event, or undefined without one.
  */
@@ -52,10 +40,9 @@ export function effectiveSandboxMode(events: readonly SessionEvent[]): SandboxMo
 }
 
 /**
- * THE write path for a session's sandbox-mode override: appends exactly one
- * `bash/sandbox-mode` event — the switch IS its event; nothing mutates mode
- * state out of band. Subsequent execution and ACP config-option reporting fold
- * it on read; no prompt assembly consumes it.
+ * Append one `bash/sandbox-mode` event as the only override write path.
+ * Execution and ACP option reporting fold it on read; prompt assembly does not
+ * consume it.
  * @param session - the session the override belongs to.
  * @param mode - the mode every subsequent bash call in this session runs
  *   under (until the next switch).

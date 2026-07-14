@@ -54,23 +54,10 @@ export class LlmError extends HarnessError {
 }
 
 /**
- * Base class for LLM provider adapters.
- *
- * An adapter translates between the harness vocabulary (Message/ContentBlock/
- * StreamChunk) and one provider's wire format. Adapters register themselves
- * via `ctx.llm.registerAdapter(models, adapter)`.
- *
- * Real implementations: `@deepseek-ai/dsh-llm-deepseek` (hand-rolled
- * fetch/SSE) and `@deepseek-ai/dsh-llm-pi-ai` (pi-ai-backed) — two
- * deliberately different internals over the same contract; see the
- * adapter contract documented on `StreamChunk` in `./types.ts`.
- *
- * App attribution is part of the adapter contract: every HTTP request to a
- * provider carries the headers from `attributionHeaders()` (`./attribution.ts`)
- * — the standard `User-Agent` baseline everywhere. An adapter proves it with
- * a wire-level test (a mock server asserting the received header), or, for a
- * library-backed adapter, by asserting the library's header hook delivers the
- * same value to the wire.
+ * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
+ * with `ctx.llm.registerAdapter(models, adapter)`. Every provider HTTP request must include
+ * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
+ * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
  */
 export abstract class LlmAdapter {
   /**

@@ -179,11 +179,10 @@ describe('createStdioChat rendering', () => {
   })
 
   it('seeds labels for agents already registered before the UI installs', async () => {
-    // The pre-created `main` agent (and any agent surviving an HMR reload of just
-    // this fiber) fired its `agent/created` before the UI's listener existed, so
-    // the live listener alone would miss it. Seeding from `ctx.agents.list()` at
-    // install time is what keeps its turn header showing `[main turn N]` instead
-    // of the raw session id.
+    // The pre-created `main` agent (and any agent surviving an HMR reload of just this fiber)
+    // fired its `agent/created` before the UI's listener existed, so the live listener alone
+    // would miss it. Seeding from `ctx.agents.list()` preserves the `[main turn N]` label instead
+    // of falling back to the raw session id.
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)

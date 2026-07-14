@@ -21,11 +21,8 @@ export interface DynamicMount {
 }
 
 /**
- * Mount a plugin under the group fiber and settle it. The group fiber loads
- * asynchronously right after the owning plugin's `apply`, so it is awaited
- * before hanging a child off its context. The child fiber's `await()` settles
- * its lifecycle work and rethrows a startup error (e.g. a throwing `apply`);
- * on error the fiber is disposed first — a failed mount never lingers.
+ * Await the group, mount and settle one guarded child, and dispose it before rethrowing any
+ * startup failure so a failed mount never lingers. A valid unresolved inject may remain pending.
  * @param group - the `cordis-dynamic` group fiber every mount hangs under.
  * @param plugin - the plugin the sandbox returned; wrapped with the registration guard before mounting.
  * @returns the settled child fiber (possibly pending on unsatisfied `inject`).

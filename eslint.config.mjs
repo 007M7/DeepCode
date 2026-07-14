@@ -2,21 +2,8 @@ import stylistic from '@stylistic/eslint-plugin'
 import sonarjs from 'eslint-plugin-sonarjs'
 import tseslint from 'typescript-eslint'
 
-/**
- * ESLint flat config. Two layers:
- *
- * 1. typescript-eslint strict-type-checked — correctness rules that need the
- *    type checker. The headline rules for this codebase: no-floating-promises
- *    and no-misused-promises (an un-awaited promise in the agent loop is our
- *    primary bug class), switch-exhaustiveness-check (we switch over
- *    merge-extensible unions everywhere).
- * 2. @stylistic — formatting (2-space, no semicolons, single quotes, trailing
- *    commas), so style is enforced rather than drifting between agents.
- *
- * vendor/ is linted lightly (style only stays OFF — vendored code keeps
- * upstream style; only a few safety rules apply there) and examples/tests are
- * linted with relaxed unsafe-* rules where mocks intentionally bend types.
- */
+// Strict type-aware correctness rules plus repository formatting. Tests/examples relax deliberate
+// mock unsafety; vendored sources retain upstream style and receive only selected safety checks.
 export default tseslint.config(
   {
     ignores: [
@@ -40,13 +27,8 @@ export default tseslint.config(
     ],
     languageOptions: {
       parserOptions: {
-        // One shared tsserver-style project service instead of 60+ standalone
-        // per-package programs: the old `project` glob built every package's
-        // full dependency closure (sibling sources via the dev `paths` map +
-        // the vendored Cordis stack) as its own program and kept them all
-        // resident — ~5 GB peak, an OOM past node's default heap. The service
-        // resolves each file to its nearest owning tsconfig and shares the
-        // graph.
+        // One project service resolves each file to its owning tsconfig and shares dependency
+        // graphs. Per-package programs duplicated path-mapped and Cordis closures, reaching ~5 GB.
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

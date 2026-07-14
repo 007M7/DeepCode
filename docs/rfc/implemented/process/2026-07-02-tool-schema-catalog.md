@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-A reader — a plugin author, a prompt engineer, someone auditing what the agent can do — has no single place that lists the model-facing tools the harness ships. The `name` / `description` / JSON-Schema `parameters` a tool contributes are what the model actually receives (via `ctx.systemPrompt.tools()` off `ctx.tools.schemas()`), but they are scattered across each `defineTool` call in each `packages/*/tool-*` package, buried in string concatenation and runtime spreads. The cordis [events](../../../cordis-catalog/events.md) & [services](../../../cordis-catalog/services.md) catalogs ([their RFC](2026-06-20-generated-cordis-catalog.md)) document the *wiring* a plugin works against and the [core-data-structures catalog](../../../core-data-structures/core.md) documents the *vocabulary* those signatures move — but neither documents the *tools* the agent is offered. This RFC adds that third reference surface, `docs/tool-catalog.md`, and a freshness gate so it cannot drift.
+The repository had no single reference for the names, descriptions, and JSON Schemas actually exposed to the model. Source declarations are scattered and runtime-composed, while the existing Cordis and data-structure catalogs cover wiring and vocabulary rather than tools.
 
 ## Decision
 
@@ -27,13 +27,13 @@ Booting has a cost the AST pass did not: there is no source declaration set to e
 
 ### A hand-maintained boot manifest is the irreducible policy
 
-The boot manifest (`TOOL_PACKAGES`) is a hand-written list — in tension with the proposed [Discover package inventories instead of maintaining static lists](../../proposed/process/2026-06-20-discover-package-inventory.md). The tension is deliberate and resolved as follows: the *inventory* is discovered (the glob guard means no one maintains "the list of tool packages" — the filesystem is the source of truth, and drift fails the gate), but the *boot recipe* per package — which seams to plug (`bash-local` for `ctx.bash`, `subagent` + `subagent-mock` for `ctx.subagents`) and with what config (`{ provider: 'mock' }`) — is genuine policy that no layout fact encodes. Per that RFC's own "what we give up" ("stay boring: read manifests, filter on explicit fields, print the resolved list, and fail loud"), a recipe closure is the boring, explicit form; inferring seam wiring from injects would be the "too clever" path it warns against. So: discovered inventory, hand-written recipe, gate on completeness.
+The filesystem discovers the tool-package inventory and the completeness guard rejects omissions. `TOOL_PACKAGES` still owns an explicit boot recipe for each package because required seam implementations and config are policy, not facts that can be inferred safely from layout or injection names.
 
 ### Scope
 
 Shipped product tool PACKAGES under `packages/*/tool-*`, each booted with its default config: `dsh-tool-bash` (`bash`, `bash_output`, `bash_kill`), `dsh-tool-todo` (`todo_write`), `dsh-tool-subagent` (`subagent`). The `examples/` demo tools (`echo`) are excluded, matching the cordis catalog's packages-only scope — a demo tool is not part of the product surface a reader is cataloguing.
 
-The unit is the PACKAGE, not the deployed tool instance. A package's registered tool name can be a load-time config — `tool-subagent`'s `toolName` — so the same package surfaces as `subagent` (spawn backend) AND `subagent_fork` (fork backend) in the shipped `coding-agent` / `acp-agent` configs, with an identical schema. The generator boots each package once at its default and records such shipped aliases in a per-package note, rather than enumerating every deployment permutation. Cataloguing at the package level keeps the source of truth the package (what a plugin author reads) and avoids leaking example-app `cordis.yml` config into a packages-scoped generator; the note keeps the doc honest about the names a reader will actually see the model receive. The design deliberately does not attempt to catalog "every configured tool instance across every leaf config" — that is a deployment inventory, a different (and unbounded) surface.
+The catalog unit is a package, not every configured tool instance. Each package boots once with default config; load-time aliases such as `subagent_fork` are noted without enumerating every deployment permutation. A deployment inventory is a separate, unbounded surface.
 
 ### A plain `json` fence
 
