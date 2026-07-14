@@ -21,7 +21,7 @@ interface SubagentCapabilities {
 
 ## The start request
 
-What a caller asks for when starting a subagent. The tool layer builds this from the model's `{ description, prompt }` plus its own config; the service validates the start-time capabilities against the named provider, then passes it to `provider.start`. `parent` is REQUIRED — in-process backends read `parent.session.header` for the working directory, the `parentSession` lineage, and the delegation depth. The four optional fields (`outputSchema`, `maxDepth`, `toolFilter`, `persona`) each gate on the matching `SubagentCapabilities` flag — in-process backends realize `toolFilter` as a scoped `tools.restrict()` and `persona` as a scoped shadowing `deployment:persona` section, both composed in the child's creation window. `outputSchema` is an object-rooted JSON Schema within the subset `assertSupportedOutputSchema` (dsh-tools) enforces — a schema outside it is rejected loud at start; the in-process backends realize it with a forced `structured_output` capture tool (see the [driver README](../../packages/subagent/subagent-inprocess/README.md)).
+The tool layer builds this request from the model input and its own config; the service validates it against the named provider before `start`. Required `parent` supplies the session cwd, lineage, and delegation depth. Optional output schema, depth, tool filter, and persona require matching capability flags. Unsupported schemas fail at start; in-process backends scope filters and personas to child creation and implement the supported object-rooted schema with a forced capture tool.
 
 ```ts type-equiv
 interface SubagentStartRequest {
@@ -64,7 +64,7 @@ interface SubagentStopReasonMap {
 
 ## A live run: `SubagentRun`
 
-The handle the consumer holds after a provider has established a ready child. The consumer awaits `result` and MUST `dispose` on every path to cancel remaining work and reach child quiescence. `result` does NOT reject on a child-level failure — a model/transport failure resolves with `stopReason: 'error'` — so the consumer maps a non-`completed` reason to an `isError` result; it rejects only on an infrastructure fault the seam cannot represent. `sendMessage` and `resume` are OPTIONAL: a provider that supports the runtime capability defines the method; one that doesn't omits it.
+`SubagentRun` is the consumer-owned handle for a ready child. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. Optional `sendMessage` and `resume` methods advertise their runtime capabilities by presence.
 
 ```ts type-equiv
 interface SubagentRun {
@@ -78,7 +78,7 @@ interface SubagentRun {
 
 ## The provider seam: `SubagentProvider`
 
-One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present. `inheritsParentContext` is a DESCRIPTIVE fact beside the capabilities (nothing validates against it): whether a child sees the parent conversation (`fork`: true, `spawn`/`acp`: false) — the model-facing consumer derives truthful tool wording from it. It describes conversation history only, not tool registrations, injected services, or authority inheritance.
+Each provider is a named child-agent transport, and multiple providers may coexist. The service validates requested start-time capabilities before `start()`. `inheritsParentContext` describes only conversation seeding (`fork`: true; `spawn` and `acp`: false), allowing consumers to generate accurate model-facing wording without implying inherited tools, services, or authority.
 
 ```ts type-equiv
 interface SubagentProvider {
@@ -89,11 +89,11 @@ interface SubagentProvider {
 }
 ```
 
-`SubagentProvider.start()` and `ctx.subagents.start()` are the publication boundary: their promises fulfill only with a ready run. The service attaches result observation, emits `subagent/start`, and returns the same holder-owned run; a rejected start has already cleaned provider-owned partial resources and emits neither lifecycle event. For an in-process provider, a start listener can resolve the live child with `ctx.agents.get(info.id)`; a remote provider need not publish into the local registry. `subagent/end` carries `lastAssistantMessage` (the child's final `output`) on the settle path and reports `error` on infrastructure rejection. Both lifecycle events are observe-only emits with per-listener exception containment.
+`start()` fulfills only with a ready run. The service observes its result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. In-process children are discoverable through `ctx.agents`, while remote children need not be. `subagent/end` reports final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
 
 ## In-process backends: depth and seed
 
-The two in-process backends ([dsh-subagent-spawn](../../packages/subagent/subagent-spawn) fresh, [dsh-subagent-fork](../../packages/subagent/subagent-fork) seeded) run the child as an ordinary `Agent` in the same application. The provider creates it directly through `parent.ctx`, passes the required signal into the core creation transaction, and delegates quiescent disposal to the returned `AgentHandle`. Provider removal prevents new starts but does not revoke an accepted run. The child receives a flat new scope rather than inheriting the parent's registrations. Two pieces of vocabulary ride on the existing agent/session types rather than new core types:
+The spawn and fork backends create an ordinary agent through `parent.ctx`, pass cancellation into core creation, and dispose through `AgentHandle`. Provider removal blocks new starts without revoking accepted runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
 
 - **Delegation depth** is a merge-extensible `AgentOptions.subagentDepth` field (`0` for a top-level agent, parent + 1 for a child). Only `undefined` means top level; every stored present value must be a non-negative safe integer. The seam owns it — the loop neither sets nor reads it — so a nested spawn validates its parent's stored depth, rejects a derived child depth outside the safe-integer domain, and applies a defined absolute `request.maxDepth` cap to that child.
 - **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `resume` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).

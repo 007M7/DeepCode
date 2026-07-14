@@ -82,13 +82,9 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      # The with-key escalation e2e (examples/acp-agent/tests/
-      # escalation.e2e.ts) self-skips without a usable runner — without this
-      # step it would never actually execute anywhere (CI had no bwrap, dev
-      # macs run Seatbelt instead), which is exactly how a broken harness
-      # composition once survived unseen. Same recipe as ci.yml's bwrap
-      # steps; the userns knob is best-effort (absent on pre-24.04 kernels,
-      # the probe decides).
+      # The with-key escalation e2e self-skips without a usable runner. Install
+      # bwrap so trusted CI exercises it; the userns knob is best-effort and the
+      # test's functional probe decides.
       - name: Install bubblewrap (unrestrict userns)
         run: |
           sudo apt-get update -q

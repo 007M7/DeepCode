@@ -48,12 +48,7 @@ describe('cordis_mount', () => {
   })
 
   it('normalizes a self-made tool\'s result into the host realm, so the session log accepts it', async () => {
-    // The model's execute builds its content blocks INSIDE the vm, where
-    // Object.prototype is a different object — dsh-session's isJsonValue (the
-    // gate every `tool/result` append runs through) compares prototype
-    // IDENTITY, so a raw foreign-realm result would error the whole turn the
-    // first time the self-made tool runs. harness.defineTool round-trips the
-    // return into host-realm JSON before it reaches the registry.
+    // VM-realm objects fail the session prototype-identity check; normalize them into host JSON.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', { code: REVERSE_TOOL_CODE })
     const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
@@ -94,11 +89,8 @@ describe('cordis_mount', () => {
     ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', '{"content":[{"text":"hi"}]}'],
     ['undefined — a forgotten return', 'return undefined', 'undefined'],
   ])('rejects an execute return of %s as that one call\'s teaching error', async (_label, returnStatement, preview) => {
-    // The failure this prevents: the registry trusts the return shape
-    // (postExecute spreads result.content), so an unvalidated { content: 'ok' }
-    // would enter the session log as ['o','k'] and silently corrupt the next
-    // model request. The shape check turns it into THIS call's error instead —
-    // one well-formed text block the log and the model can digest.
+    // The registry spreads result.content, so { content: 'ok' } would become ['o','k']; reject
+    // it as this call's error before it corrupts the next request.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -150,10 +142,8 @@ describe('cordis_mount', () => {
   })
 
   it('accepts a JSON-Schema-style parameters wrapper and normalizes it to the DSL', async () => {
-    // The dialect models write by strong prior: the { type:'object',
-    // properties, required: […] } wrapper, `type: 'integer'`, and
-    // `required: false`. All of it has exactly one meaning — normalize instead
-    // of burning a model turn on a lecture.
+    // These common JSON-Schema spellings each have one DSL meaning, so normalize rather than
+    // consume another model turn with a rejection.
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
@@ -535,10 +525,9 @@ describe('cordis_mount', () => {
   })
 
   it('makes instanceof inside the sandbox see BOTH realms (patched vm constructors, host untouched)', async () => {
-    // The args a tool's execute receives are HOST-realm objects; without the
-    // dual-realm Symbol.hasInstance prelude, `args.items instanceof Array` in
-    // sandbox code is silently false. The patch lives on the vm realm's own
-    // constructors only — the host realm's must stay pristine.
+    // The args a tool's execute receives are HOST-realm objects; without the dual-realm
+    // Symbol.hasInstance prelude, `args.items instanceof Array` in sandbox code is silently
+    // false.
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `

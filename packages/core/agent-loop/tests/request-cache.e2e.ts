@@ -9,15 +9,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 
 /**
- * With-key proof that log-derived requests translate into REAL provider cache
- * hits: a multi-step tool turn (plus a follow-up turn) against the live
- * DeepSeek API must report `cacheReadTokens > 0` on every request after the
- * first — the adapter maps the provider's `prompt_cache_hit_tokens`, and the
- * per-step usage recorded on `assistant/message` events is the production
- * observable for cache behavior (the reconstructability RFC's measurement
- * layer: prefix stability is corollary #1). Mocks prove the requests are
- * append-extensions; only the real API proves those bytes actually hit the
- * provider cache. Key-gated — skips entirely without $DEEPSEEK_API_KEY.
+ * With-key proof that log-derived requests translate into real provider cache hits: a
+ * multi-step tool turn (plus a follow-up turn) against the live DeepSeek API must report
+ * `cacheReadTokens > 0` on every request after the first — the adapter maps the provider's
+ * `prompt_cache_hit_tokens`, and the per-step usage recorded on `assistant/message` events is
+ * the production observable for cache behavior (the reconstructability RFC's measurement
+ * layer: prefix stability is corollary #1). Mocks establish append-extension;
+ * this key-gated test establishes a real provider cache hit.
  */
 
 // Long enough that the shared request prefix comfortably spans the provider's

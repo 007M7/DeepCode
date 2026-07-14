@@ -21,3 +21,12 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 ## The per-session store
 
 A runtime switch (an ACP `session/set_config_option`, a test scenario) is one log-only `sandbox/mode` event on the session it applies to. `effective = fold(events) ?? the deployment default`, so an override survives restart by replay, two sessions never see each other's state, and there is no external config store. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event. Execution honors the fold in each tool layer, weakest-precedence beneath an escalation grant.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-bash` and `dsh-tool-fs`, which render the effective mode this service holds in their `[sandbox: …]` denial markers and escalation prompts; the `sandbox/mode` event itself never reaches the model.
+
+## Known Limitations and Deferred Work
+
+- **`workspaceRoot` is process-wide and fixed for the service's lifetime** — a per-session workspace root is a deferred phase of the sandbox RFC; this package centralizing the root is its groundwork, not its design.
+- **File-effect modes only** — `SandboxMode` governs file effects; network and process policy are outside its vocabulary, so no knob here restricts them.

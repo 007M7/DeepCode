@@ -1,6 +1,6 @@
 {
   "name": "dsh-jsonrpc-agent-pkg",
-  "description": "Deploy root of the single-exe pipeline and the single source of truth unifying 'which plugins the exe bundles' and 'what the Python runtime distributes': the dependency list below IS the exe closure. Pure manifest — no code; a deploy materializes only this package.json plus node_modules.",
+  "description": "Dependency-only deploy root defining the executable and Python runtime closure; pnpm deploy materializes this manifest and node_modules.",
   "version": "0.0.1",
   "private": true,
   "type": "module",
