@@ -899,7 +899,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:24`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:47`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
