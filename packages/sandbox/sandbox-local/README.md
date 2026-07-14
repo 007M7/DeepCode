@@ -16,3 +16,15 @@ Every rung has its keyless world-proof (`tests/bwrap.e2e.ts`, `tests/landlock.e2
 ```
 
 Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the acp-agent example](../../../examples/acp-agent/) for the runnable default composition.
+
+## Model Experience
+
+Indirectly, through `dsh-bash-sandbox` and `dsh-tool-bash`, which render this provider's enforcement dialect as the exact `[sandbox: file access denied under <mode> mode]` marker or the [`dsh-sandbox`](../sandbox/README.md) `SANDBOX_UNAVAILABLE` text while keeping runner selection and profiles outside context.
+
+## Known Limitations and Deferred Work
+
+- **Windows has no runner** — `win32` fails closed with `SANDBOX_UNAVAILABLE`; an AppContainer-family backend is deferred.
+- **Landlock may be partial** — older supported kernel ABIs confine only the access classes they expose, reported as `enforcement: 'partial'` rather than overstated as full.
+- **Seatbelt depends on deprecated `sandbox-exec`** — macOS still ships it, but this provider cannot replace or probe that private policy engine if Apple removes it.
+- **Runner selection is cached for the provider lifetime** — installing, removing, or repairing a runner requires reloading the plugin before selection changes.
+- **`runnerCommand` is an operator assertion** — a configured custom runner skips functional probes and is assumed to implement the bwrap-shaped profile honestly.
