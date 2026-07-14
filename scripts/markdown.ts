@@ -5,6 +5,22 @@ import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
 
+/** One authored Markdown line outside fenced code and rendered-away HTML comments. */
+export interface MarkdownProseLine {
+  /** 1-based source line number. */
+  index: number
+  /** Source text without normalization. */
+  raw: string
+}
+
+/** One parsed Markdown heading, retaining its authored first line and rendered text. */
+export interface MarkdownHeadingLine extends MarkdownProseLine {
+  /** Parsed ATX or Setext heading depth. */
+  depth: 1 | 2 | 3 | 4 | 5 | 6
+  /** Rendered heading text, excluding raw HTML such as comments. */
+  text: string
+}
+
 /** Parse GitHub-flavored Markdown with the repository's standard extensions. */
 export function parseMarkdown(source: string): Nodes {
   return fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
@@ -20,4 +36,108 @@ export function visitMarkdown(node: Nodes, visitor: (node: Nodes) => boolean | v
   if ('children' in node) {
     for (const child of node.children) visitMarkdown(child, visitor)
   }
+}
+
+/** Text a reader sees from one Markdown node; raw HTML itself contributes none. */
+function renderedText(node: Nodes): string {
+  if (node.type === 'text' || node.type === 'inlineCode') return node.value
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt ?? ''
+  if (node.type === 'break') return ' '
+  if ('children' in node) return node.children.map(child => renderedText(child)).join('')
+  return ''
+}
+
+/** Return every parsed Markdown heading with its rendered text and source line. */
+export function markdownHeadingLines(source: string): MarkdownHeadingLine[] {
+  const rawLines = source.split('\n')
+  const headings: MarkdownHeadingLine[] = []
+  visitMarkdown(parseMarkdown(source), (node) => {
+    if (node.type !== 'heading' || node.position === undefined) return
+    headings.push({
+      depth: node.depth,
+      index: node.position.start.line,
+      raw: rawLines[node.position.start.line - 1] ?? '',
+      text: renderedText(node),
+    })
+  })
+  return headings
+}
+
+type ColumnRange = readonly [start: number, end: number]
+type OffsetRange = readonly [start: number, end: number]
+
+/** Source-column ranges occupied by parsed HTML comments, keyed by source line. */
+function htmlCommentRanges(source: string, rawLines: readonly string[]): Map<number, ColumnRange[]> {
+  const comments: OffsetRange[] = []
+  visitMarkdown(parseMarkdown(source), (node) => {
+    if (node.type !== 'html' || node.position?.start.offset === undefined) return
+    let cursor = 0
+    while (true) {
+      const start = node.value.indexOf('<!--', cursor)
+      if (start < 0) break
+      const close = node.value.indexOf('-->', start + '<!--'.length)
+      const end = close < 0 ? node.value.length : close + '-->'.length
+      comments.push([node.position.start.offset + start, node.position.start.offset + end])
+      cursor = end
+    }
+  })
+
+  const ranges = new Map<number, ColumnRange[]>()
+  let lineOffset = 0
+  rawLines.forEach((raw, index) => {
+    const lineEnd = lineOffset + raw.length
+    for (const [start, end] of comments) {
+      const from = Math.max(start, lineOffset)
+      const to = Math.min(end, lineEnd)
+      const coversEmptyLine = raw.length === 0 && start <= lineOffset && end > lineOffset
+      if (from < to || coversEmptyLine) {
+        const lineRanges = ranges.get(index + 1) ?? []
+        lineRanges.push([from - lineOffset, to - lineOffset])
+        ranges.set(index + 1, lineRanges)
+      }
+    }
+    lineOffset = lineEnd + 1
+  })
+  return ranges
+}
+
+/** Whether a source line retains non-whitespace text after HTML comments disappear. */
+function hasRenderedTextOutsideComments(raw: string, ranges: readonly ColumnRange[] | undefined): boolean {
+  if (ranges === undefined) return true
+  let cursor = 0
+  let visible = ''
+  for (const [start, end] of [...ranges].sort((left, right) => left[0] - right[0])) {
+    visible += raw.slice(cursor, start)
+    cursor = Math.max(cursor, end)
+  }
+  visible += raw.slice(cursor)
+  return visible.trim().length > 0
+}
+
+/**
+ * Return source lines outside backtick or tilde fences and HTML comments.
+ * @param source - Markdown source whose prose should be retained verbatim.
+ * @returns unfenced lines with their original 1-based locations.
+ */
+export function markdownProseLines(source: string): MarkdownProseLine[] {
+  let fence: { marker: '`' | '~'; length: number } | undefined
+  const kept: MarkdownProseLine[] = []
+  const rawLines = source.split('\n')
+  const comments = htmlCommentRanges(source, rawLines)
+  rawLines.forEach((raw, i) => {
+    const token = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1]
+    if (token !== undefined) {
+      const marker = token[0] as '`' | '~'
+      if (fence === undefined) {
+        fence = { marker, length: token.length }
+      } else if (marker === fence.marker && token.length >= fence.length) {
+        fence = undefined
+      }
+      return
+    }
+    if (fence === undefined && hasRenderedTextOutsideComments(raw, comments.get(i + 1))) {
+      kept.push({ index: i + 1, raw })
+    }
+  })
+  return kept
 }

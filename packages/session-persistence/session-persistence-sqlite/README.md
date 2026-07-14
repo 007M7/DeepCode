@@ -28,3 +28,19 @@ interface Config {
 ## Write path
 
 Like the JSONL backend, the plugin also installs the `session/event` → buffer → `session/flush` drain: it copies each already-frozen event into a persistence-owned buffer, persists a fork's seed once on `session/created`, keeps a per-session write cursor so a resumed session never re-appends stored events, and seeds existing live sessions on apply (HMR does not replay `session/created`). Dispose awaits every in-flight init + final drain and then closes the database, so no write lands after teardown.
+
+## Model Experience
+
+### Resumed conversation history
+
+**What the model sees**: SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+
+**Token effect**: Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
+
+## Known Limitations and Deferred Work
+
+- **Raw `node:sqlite`, pending a cordis database service** — the backend holds a `DatabaseSync` directly; if a `cordis/db` / `@cordisjs` SQL driver is adopted, the storage driver routes through it (the `SessionPersistence` contract would not change) — a marked TODO.
+- **`DatabaseSync` is synchronous** — every append transaction blocks the event loop for its duration; acceptable for local stores, a throughput ceiling for busy multi-session servers.
+- **Write contention has no wait or retry policy** — the backend sets no busy timeout and retries no locked-database error, so another connection holding a write transaction makes the operation reject immediately.
+- **Only the current `SCHEMA_VERSION` opens** — a database with any other schema version is rejected rather than migrated (unreleased software; no persisted user data to preserve).
+- **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).

@@ -483,12 +483,8 @@ export class AgentLoop extends Service implements AgentFactory {
         released.resolve()
       }
     }
-    const disposeAgentListener = ownerCtx.on('agent/disposed', (agent) => {
-      if (agent.id === sessionId) checkReleased()
-    })
-    const disposeSessionListener = ownerCtx.on('session/disposed', (session) => {
-      if (session.id === sessionId) checkReleased()
-    })
+    const disposeAgentListener = ownerCtx.on('agent/disposed', checkReleased)
+    const disposeSessionListener = ownerCtx.on('session/disposed', checkReleased)
     try {
       checkReleased()
       await this.ownership.waitWhileActive(released.promise)
