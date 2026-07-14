@@ -175,7 +175,7 @@ describe('loadReplayScript', () => {
   it('uses the sidecar override when present, ignoring the JSONL', () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
-    const override: ReplayEntry[] = [{ kind: 'throw', chunks: [], message: '401', code: 'AUTH' }]
+    const override: ReplayEntry[] = [{ kind: 'throw', chunks: [], message: '401', code: 'AUTH', status: 401 }]
     writeFileSync(overrideFile, JSON.stringify(override), 'utf8')
     expect(loadReplayScript({ file, overrideFile })).toEqual(override)
   })
@@ -231,12 +231,12 @@ describe('installLlmReplay (through the real waterfall)', () => {
     expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(second)
   })
 
-  it('replays a sidecar throw-entry as an LlmError with its stable code, after its prefix chunks', async () => {
+  it('replays a sidecar throw-entry as an LlmError with code/status, after its prefix chunks', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
     writeFileSync(overrideFile, JSON.stringify([
-      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH' },
+      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH', status: 401 },
     ]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -245,7 +245,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const seen: StreamChunk[] = []
     await expect((async () => {
       for await (const c of ctx.llm.stream({ model: 'm', messages: [] })) seen.push(c)
-    })()).rejects.toMatchObject({ message: 'unauthorized', code: 'AUTH' })
+    })()).rejects.toMatchObject({ message: 'unauthorized', code: 'AUTH', status: 401 })
     expect(seen).toEqual(partial)
   })
 
@@ -350,7 +350,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const overrideFile = join(dir, 'replay.override.json')
     const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
     writeFileSync(overrideFile, JSON.stringify([
-      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH' },
+      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH', status: 401 },
     ]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
