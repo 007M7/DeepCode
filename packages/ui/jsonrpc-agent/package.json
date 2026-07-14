@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-jsonrpc-agent",
-  "description": "JSON-RPC SDK server app bin: boots an externally supplied cordis.yml (DSH_CORDIS_CONFIG or argv, no built-in fallback) whose dsh-jsonrpc entry serves SDK clients over stdio; the single-exe runtime entrypoint",
+  "description": "Bin that boots an external Cordis config for the stdio JSON-RPC SDK runtime",
   "version": "0.0.1",
   "private": true,
   "type": "module",

@@ -1,12 +1,7 @@
-"""Manual keyless smoke: drive the repo-source jsonrpc-agent bin (node + tsx).
+"""Drive the repo-source JSON-RPC bin through the SDK and a keyless mock SSE server.
 
-Runs the SDK against `packages/ui/jsonrpc-agent/src/bin.ts` executed from the
-repo checkout (requires `pnpm install`; no build, no API key — the model
-endpoint is a local mock SSE server). The bin only boots the supplied
-cordis.yml — the stdio JSON-RPC server itself comes from the config's
-`@deepseek-ai/dsh-jsonrpc` entry — so the runtime package's default cordis.yml
-is passed explicitly. Not collected by pytest; run it directly:
-`python tests/manual_sdk_agent_smoke.py`.
+Requires ``pnpm install`` but no build. This manual test is not collected by
+pytest; run ``python tests/manual_sdk_agent_smoke.py``.
 """
 
 from __future__ import annotations

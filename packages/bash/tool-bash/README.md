@@ -22,7 +22,7 @@ The plugin also contributes the `tool:bash` prompt section (order 105): check th
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
-Result text: stdout, then a `[stderr]` section, then status markers — `[sandbox: file access denied under <mode> mode]` when a sandboxing executor classified the failure as a policy denial (reported first so `[exit code: N]` stays the last line; the static description tells the model a denial is policy, not a command bug, and forbids retrying around it), `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
+Result text contains stdout, an optional `[stderr]` section, then applicable sandbox-denial, timeout, signal, exit-code, and truncation markers. Timeout is reported independently of final exit status; nonzero exit remains a model-interpreted result rather than `isError`. Truncation links a safe complete spill file or reports it unavailable. Only infrastructure failures such as spawn errors and aborts produce `isError`.
 
 When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` before spawning, registers the calling agent as owner, and adapts the returned `BashProcess` handle into generic cancel/done/incremental-output hooks. The task runtime owns ids, cross-session isolation, completion notices, waiting, and disposal cleanup; this plugin only maps bash exit/sandbox facts into task output and outcome detail. `enableRunInBackground: false` removes the parameter and rejects a forced background call at execution time.
 
@@ -38,8 +38,52 @@ The `BashExecRequest` seam carries optional `stdin` and `env`, used by trusted i
 
 Commands run with the executor's full authority unless a sandboxing executor ([`dsh-bash-sandbox`](../bash-sandbox/)) confines them — the deny-only sandbox reports denials as result facts, rendered here as the denial marker; per-call allow/deny/ask policy is the `tools/pre-execute` waterfall (see docs/architecture.md).
 
-On top of a denial sits the escalation gate ([the sandbox RFC § Escalation](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)): an escalating call (`sandbox_permissions` + `justification`) resolves [`ctx.approval`](../../ui/user-approval/README.md) BEFORE anything executes — `allowed-once` stamps the granted mode onto the bash request as the seam-level `sandboxMode` override (that one call runs, classifies, and reports under the wider mode; its neighbors keep the session's effective mode), while `rejected`/`cancelled`/`unavailable` and the no-service / no-agent paths each fail closed with their own error text and execute nothing. The seam is consumed opportunistically (`ctx.get('approval')`, the dsh-tools ask-routing pattern); the grant is consumed by the very call that asked, and nothing is stored. The static description teaches — and a denied result itself prompts, via the escalation-available marker appended exactly when the fields are advertised — the SAME-TURN flow: on a denial a wider mode would cure, retry the exact command once with `sandbox_permissions` (the narrowest mode that suffices) + `justification` immediately, without detouring through chat (the approval prompt IS the user's consent); never speculatively — an escalation is grounded in a real denial (up-front only when the session already denied the same access), a prompt-stated approvals-disabled policy turns the exception off entirely, and a rejected escalation is final for that command.
+Escalating bash calls resolve `ctx.approval` before execution. `allowed-once` applies the requested mode only to that call; rejection, cancellation, unavailability, or missing approval context executes nothing and returns a distinct error. On a real denial, the model may retry the same command once in the same turn with the narrowest sufficient mode and justification; the approval prompt itself is the consent step. Escalation is never speculative, and a disabled or rejected approval is final. The [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md) owns the rationale.
 
 ## Per-session mode switching
 
-Under a sandboxing executor this plugin makes the session's standing mode override ([the sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md); the `bash/sandbox-mode` fold owned by [`dsh-bash`](../bash/README.md)) real at EXECUTION: every call is stamped `escalation grant > session override > undefined` onto `BashExecRequest.sandboxMode`; without either, the executor's `resolve()` applies its configured default. Nothing is stamped under a non-sandboxing executor (nothing would honor it) or for an agent-less caller (no session to fold). The prompt deliberately does NOT state the mode and a switch is not narrated: a standing declaration teaches the model to refuse preemptively, while the denial marker already names the mode the command ran under exactly when the boundary is hit — behavior, not belief, carries the state.
+For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. Neither the prompt nor a switch notice announces the standing mode; denial results report the effective mode when the boundary matters. See the [`dsh-bash` fold](../bash/README.md) and [sandbox switching contract](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
+
+## Model Experience
+
+### System prompt
+
+**What the model sees**: Every request in this plugin's registration scope contains the bash guidance below. A sandboxing executor adds no mode statement or switch notice. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+
+**Token effect**: Small fixed input cost per request while the plugin is active, unchanged by sandbox mode or mode switches.
+
+#### Bash guidance
+
+```markdown
+Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+```
+
+### Tool schemas
+
+**What the model sees**: The model sees the generated [`bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash). `run_in_background` appears only when this producer enables it; `sandbox_permissions` and `justification` appear only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definition for that agent.
+
+**Token effect**: Fixed schema cost on every request where the tools are visible; sandbox support adds the escalation fields and its conditional description paragraph.
+
+### Foreground result
+
+**What the model sees**: The renderer emits the data-dependent stdout tail, then optional `[stderr]` and the stderr tail. With no output it emits exactly `(no output)`. Conditional lines are exactly `[output truncated; full output: <path-or-(unavailable)>]`, `[sandbox: file access denied under <mode> mode]`, `[timed out after <timeoutMs>ms]`, `[killed by signal: <signal>]`, and `[exit code: <exitCode>]`; the sandbox escalation and runner-failure lines are quoted in [`dsh-bash-sandbox`](../bash-sandbox/README.md).
+
+**Token effect**: Zero result tokens before a call. Output is bounded per stream, while each emitted line remains in history until compaction.
+
+### Background task context and results
+
+**What the model sees**: Start returns exactly `started background task <taskId>`. This producer supplies incremental process output, optional `[some output was dropped from memory; full output: <paths-or-(unavailable)>]`, sandbox facts, and terminal detail such as `exit code: <exitCode>` or `signal: <signal>` to the generic task runtime. [`dsh-tool-tasks`](../../tasks/tool-tasks/README.md) owns the visible status line, completion notice, listing, and cancellation response.
+
+**Token effect**: The start acknowledgement is small and retained; collected output is data-dependent and bounded by the executor's stream buffers. Consuming reads do not repeat prior output.
+
+### Tool errors
+
+**What the model sees**: Validation and policy failures are normalized as `Error: <message>`. This package's stable messages are `invalid command: expected a non-empty string`, `invalid description: expected a non-empty string`, `invalid timeoutMs: expected a positive number, got <value>`, `invalid escalation: sandbox_permissions requires a justification`, `invalid escalation: justification is only valid together with sandbox_permissions`, `invalid justification: expected a non-empty sentence`, `background execution is disabled for this bash tool`, `background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks`, `sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`, `sandbox escalation to "<mode>" is not strictly wider than this call's current "<mode>" mode`, the approval-availability/rejection/cancellation variants, and `command aborted`.
+
+**Token effect**: Only the failing call adds these retained tokens; a rejected escalation does not add command output because the command does not run.
+
+## Known Limitations and Deferred Work
+
+- **Replay exit pills parse from result text** — output whose final line happens to be exactly `[exit code: N]` / `[killed by signal: …]` shows a wrong pill on session replay; a display-only known residual.
+- **The `bash` tool opts out of `timeout-policy` budgets** — it keeps the executor-owned `BASH_TIMEOUT` path, per [the tool-call timeout-policy RFC](../../../docs/rfc/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).
+- **Background processes have no executor timeout** — callers must use `task_kill`, or rely on owner/service disposal, when work no longer matters.

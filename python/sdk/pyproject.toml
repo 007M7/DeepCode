@@ -24,8 +24,7 @@ testpaths = ["tests"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/deepseek_harness"]
 
-# Editable: the runtime package's executables are injected into its source
-# tree AFTER install (by scripts/build-exe-for-python-sdk.ts or a manual copy); an
-# editable install sees them immediately instead of freezing a wheel snapshot.
+# Editable installs see runtime executables injected after installation instead
+# of freezing a wheel snapshot.
 [tool.uv.sources]
 deepseek-harness-runtime-bin = { path = "../sdk-runtime", editable = true }

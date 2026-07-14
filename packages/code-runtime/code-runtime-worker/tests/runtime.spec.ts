@@ -255,10 +255,8 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
   it('captures pipe writes that bypass the patched write slot as stray logs, capped by the same budget', async () => {
     const { runtime } = await setup({ maxLogBytes: 4 })
     const result = await runtime.run({
-      // The bootstrap patches the stream instance's own `write`; going
-      // through the prototype's slot reaches the real pipe underneath, so
-      // the bytes arrive host-side as stray data. The pauses keep the two
-      // writes in separate pipe chunks and let them land before settlement.
+      // The prototype write bypasses the patched instance and reaches the real pipe. Pauses keep
+      // writes in separate chunks and let both reach the host before settlement.
       program: `
         const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
         write('abcd');

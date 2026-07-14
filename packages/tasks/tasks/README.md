@@ -21,6 +21,15 @@ Every read/kill/wait/get compares the task's owner session (`owner.session.heade
 - Service disposal closes the listener registry first, applies the same cancellation rule to every live task, awaits terminal records, then detaches its effects from still-live agent scopes so a reloaded tasks service is not retained until those agents exit.
 - A producer whose `cancel` returns but never causes `done` to settle remains indistinguishable from a slow stop and can stall teardown; solving that residual requires an explicit bounded-lifetime or forced-disposal design.
 
-## Non-goals (v1)
+## Model Experience
 
-Durable/cross-restart tasks, non-consuming observation cursors, and foreground→background promotion are deliberate deferrals — see the [runtime RFC](../../../docs/rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) § Alternatives.
+Indirectly, through `dsh-tool-tasks` and producer plugins, which render task ids, output, status, and completion notices.
+
+## Known Limitations and Deferred Work
+
+- **Tasks are process-local** — durable or cross-restart execution is deferred.
+- **Stream output has one consuming cursor** — non-consuming observation and multiple independent readers require a separate cursor/snapshot API.
+- **Foreground work cannot be promoted** — producers must choose foreground or background before execution starts.
+- **A silently ineffective producer cancel can stall teardown** — the runtime can force-settle an explicit cancel throw, but cannot distinguish a slow stop from a cancel that returned without stopping work.
+
+See the [runtime RFC](../../../docs/rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) § Alternatives for the deferred designs.

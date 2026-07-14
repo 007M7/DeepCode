@@ -115,7 +115,17 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
     + background
   if (escalationModes.length === 0) return base
-  return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command IS denied and a wider mode would let it succeed, retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. The approval prompt raised by that retry is how the user consents. Never escalate speculatively, and treat a rejected escalation as final for that command.'
+  return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the '
+    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
+    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
+    + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
+    + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
+    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
+    + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
+    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
+    + 'just hit; escalating up front is fine only when this session already denied the same access. '
+    + 'A rejected escalation is final for that command — stop and explain, never work around '
+    + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
@@ -125,10 +135,10 @@ function streamText(output: CollectedOutput): string {
 }
 
 /**
- * Shape one finished run into the text the model sees: stdout, then a marked
- * stderr section, then exit-status markers. Non-zero exits are REPORTED, not
- * errored — the model decides how to react; only infrastructure failures
- * (spawn errors, aborts) surface as isError results.
+ * Shape one finished run into model-visible stdout, marked stderr, and status
+ * facts. Non-zero exits and sandbox denials remain ordinary results; only
+ * infrastructure failure or abort makes the tool call itself fail.
+ *
  * @param result - the completed foreground run from the executor.
  * @param escalationModes - escalation targets advertised by this composition.
  * @returns the model-facing text: output body (or `(no output)`), then any sandbox/timeout/signal/exit markers, each on its own line.
@@ -259,8 +269,7 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
       content: [{ type: 'text', text: args.description }],
     }
   }
-  // A foreground run IS a terminal: the command titles the card, the description
-  // renders above it, and the cwd (when the model gave a workdir) heads it.
+  // A foreground run is a terminal; an explicit workdir supplies its cwd.
   return {
     card: 'terminal',
     title: args.command,
@@ -270,26 +279,8 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
 }
 
 /**
- * Completed-state presentation for a `bash` call. Two parallel renderings of the
- * same output: `terminal.output` for a UI that shows a terminal card (the run's
- * stdout/stderr + status markers, exactly as the model sees them — the RAW text,
- * newlines preserved, since a terminal renderer relies on exact bytes), and a
- * fenced ```console `content` block as the fallback for a UI without terminal
- * support (the fences are a UI-only affordance, so they live here, not in the
- * model-facing result; the fenced body is trimmed of trailing blank lines for a
- * tidy block). A capable UI also gets an exit-status pill from `terminal.exitCode`
- * / `terminal.signal`, parsed from the status markers `renderResult` appended.
- *
- * Terminal output/exit is suppressed for results that are NOT a finished
- * foreground run: a `run_in_background` start (`isBackground` — the text is a
- * task-id ack, not a streamed run) and an `isError` result (a spawn failure or
- * abort — there is no real process exit to pill, and the body is an error
- * message, not `renderResult` output, so parsing it would be meaningless). Those
- * return a `generic` result whose content is the fenced ```console block. A
- * finished foreground run returns a `terminal` result carrying the RAW output
- * and the parsed exit status; the BRIDGE derives the fenced fallback from
- * `output` for a UI without terminal support, so the tool does not double-encode
- * it. A non-text result (unexpected for bash) falls through to `undefined`.
+ * Present completed foreground output as a terminal; background acknowledgements
+ * and execution errors use generic fenced output without an exit-status pill.
  */
 function presentBashResult(args: unknown, result: ToolResult): ToolResultView | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
@@ -301,35 +292,14 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  // A finished foreground run: RAW output + parsed exit for the terminal card.
+  // A finished foreground run supplies raw output and parsed exit status.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
 
 /**
- * Recover the structured exit status from a rendered `renderResult` string — the
- * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
- * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
- * absent both we report `{exitCode:0}` (a clean run appends no marker — and a
- * trapped-timeout run that exits 0 also has none and is accurately exit 0).
- *
- * Why parse rendered text at all: `presentResult` is replay-safe and on a
- * `session/load` the ONLY thing persisted is this content text — the structured
- * `BashRunResult` is long gone — so unless the exit were added to the persisted
- * event schema (deliberately NOT done; see the terminal-rendering RFC), parsing
- * is the only channel. The match is anchored to a LEADING newline + end-of-string
- * because `renderResult` always inserts a `\n` before the marker (line ~124) onto
- * a non-empty body: a real marker is therefore always its own final line. That
- * defeats the common spoof (program output that simply ENDS in `[exit code: 5]`
- * with no trailing newline — a clean exit 0 — no longer reads as a failure).
- *
- * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
- * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
- * or `[killed by signal: SIG]`, printed by the program with nothing after — is
- * still indistinguishable from a real marker and would show a wrong pill. This is
- * display-only (execution and the model-facing text are unaffected) and narrow;
- * the complete fix is to persist a structured exit on the result event, which the
- * RFC names as the escape hatch.
+ * Recover exit status from the final marked line emitted by {@link renderResult}.
+ * A program whose own final line exactly mimics a marker remains ambiguous for UI display.
  */
 function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
   const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
@@ -340,15 +310,8 @@ function parseExitStatus(text: string): { exitCode: number } | { signal: string 
 }
 
 /**
- * Resolve the working directory for a bash call. Precedence: an explicit model
- * `workdir` wins; otherwise default to the calling agent's session cwd
- * (`session.header.cwd`) so each ACP session's commands run in ITS workspace,
- * not the server's launch dir. A RELATIVE model `workdir` is resolved against
- * the session cwd (the tool tells the model to pass `workdir` instead of `cd`,
- * so a relative one should be relative to the session's root, not `process.cwd()`).
- * Returns `undefined` when neither is available (no agent / headerless session /
- * no session cwd) — the executor then applies its own config/`process.cwd()`
- * default, preserving today's non-ACP behavior.
+ * Resolve an explicit workdir first, making a relative one session-cwd-relative;
+ * otherwise use the session cwd and leave executor defaulting as the fallback.
  */
 function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
   const sessionCwd = exec.agent?.session.header.cwd

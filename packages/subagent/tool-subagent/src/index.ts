@@ -126,16 +126,8 @@ export const Config: z<Config> = z.object({
     model: z.string(),
   }).default(undefined as unknown as { model: string }),
   persona: z.string(),
-  // A schemastery object materializes {} (with [] for nested arrays) when the
-  // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
-  // deny-everything, silently. Force the omitted key to stay absent (the same
-  // shape discipline as SystemPrompt's toolOrder); the cast is needed because
-  // .default() expects the object type.
-  // The NESTED arrays get the same treatment as the object itself: a partial
-  // filter ({deny: […]}) must not materialize allow: [] beside it — an empty
-  // allow-list means deny-EVERYTHING, so the materialized default would turn
-  // a deny-one config into deny-all. An EXPLICIT allow: [] (grant-only
-  // children) survives, since only the omitted key defaults to undefined.
+  // Schemastery otherwise materializes omitted objects and nested arrays as `{ allow: [] }`, which
+  // silently means deny all. Preserve omission while retaining an explicit empty allow-list.
   toolFilter: z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
@@ -442,7 +434,7 @@ export function apply(ctx: Context, config: Config): void {
   if (present !== undefined) {
     mount(present)
   } else {
-    // Not an error: the backend's fiber may simply activate after this one.
+    // Not an error: the backend's fiber may activate after this one.
     // The tool appears the moment the provider registers; a typo'd provider
     // name shows up as this note plus a tool that never materializes.
     ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)

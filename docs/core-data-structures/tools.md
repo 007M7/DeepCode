@@ -127,7 +127,7 @@ interface ToolExecution extends ToolExecutionInput {
 }
 ```
 
-`ToolExecutionToken` is a compile-time opaque fresh `Symbol` at runtime; identity comparison is its only operation. Before policy runs, `ctx.tools.execute()` materializes `arguments` as detached lossless JSON, assigns the token, and deep-freezes the accepted arguments. A non-JSON value is normalized to an error before policy. `token`, `callId`, `name`, `arguments`, `agent`, and the optional `parent` token are readonly throughout the waterfalls, while an around-dispatch wrapper may add, replace, or remove only optional `signal`. After the complete pipeline the registry freezes the execution and exposes its stable identity to `tools/result` observers.
+`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields and the optional parent token remain readonly; only `signal` may change around dispatch. Final observers receive the frozen execution identity.
 
 A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
 
@@ -184,7 +184,9 @@ type PostToolDecision =
   | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
 ```
 
-Call `next()` to delegate to the default (allow / dispatch / accept-unchanged), or return a decision/result to short-circuit. A `pre-execute` `deny` skips dispatch and yields an `isError` result. An `ask` resolves through the optional approval seam: only `allowed-once` proceeds, while every non-grant, missing channel/service, or agent-less request becomes a normalized denial. A registered `ToolGuard` then runs and can still impose a final denial. Input rewrite is deliberately NOT offered on `PreToolDecision` because it would desync the pre-execution audit/history/UI from what ran. A `post-execute` `accept` may replace the model-facing `content`; a `block` turns the call into an `isError` whose content is the corrective `feedback`. The synchronous `tools/result` notification then receives the frozen execution identity and a deep-frozen result snapshot after every wrapper, post decision, and outer error catch; observers cannot transform the outcome or race each other through payload mutation, and one observer failure neither changes the result nor starves peers. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
+Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
+
+Post-policy may replace content; a block becomes an `isError` result containing its corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
 
 ## The structured-output schema subset
 

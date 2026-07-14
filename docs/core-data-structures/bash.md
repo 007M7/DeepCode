@@ -61,10 +61,8 @@ interface BashExecSpec {
   signal?: AbortSignal | undefined
   /**
    * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
+   * verbatim from {@link BashExecRequest.stdin}. It has no config default, so
+   * a missing value means "no stdin" and remains an ordinary optional.
    */
   stdin?: string | undefined
   /**
@@ -76,10 +74,10 @@ interface BashExecSpec {
    */
   env?: Record<string, string> | undefined
   /**
-   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
-   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
-   * stamps the effective mode (the request's explicit override, else its
-   * configured default) so `run()`/`start()` read the spec, never the config;
+   * The sandbox mode this call executes under, required-but-nullable so every
+   * resolved spec states its policy. A sandboxing executor's `resolve()` stamps
+   * the effective mode (the request's explicit override, else its configured
+   * default) so `run()`/`start()` read the spec, never the config;
    * a non-sandboxing executor carries the request value through verbatim and
    * ignores it (`undefined` under such an executor means what its README says:
    * unconfined execution).
@@ -171,7 +169,7 @@ interface BashSandboxInfo {
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model sees the current effective mode in the prompt, receives denial/runner facts in results, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model receives denial/runner facts in results, learns the effective mode only when a denial marker names it, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
 
 ## Background processes: `BashProcess`
 

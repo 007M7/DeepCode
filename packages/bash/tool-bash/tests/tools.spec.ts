@@ -860,11 +860,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
   it('bash presentResult: a clean exit-0 whose output ENDS in marker-like text is NOT read as a failure', async () => {
     const ctx = await setup()
     const args = { command: 'printf "[exit code: 5]"', description: 'print' }
-    // A successful command can print text that looks like a marker. renderResult
-    // for a clean exit 0 appends NOTHING (and no trailing newline), so the body's
-    // own tail is `[exit code: 5]`. The parse requires a LEADING newline before
-    // the marker (renderResult always inserts one before a REAL marker), so this
-    // no-trailing-newline body is NOT mistaken for a failure → exitCode 0.
+    // A successful command may print marker-like text. A clean result appends no marker or
+    // newline; parsing requires the leading newline emitted for real markers, so this stays exit 0.
     const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
     expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
     // Same for a fake signal marker with no leading newline.
@@ -919,10 +916,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
 
   it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
     const ctx = await setup()
-    // defineTool wraps presentCall to soft-validate against the schema and fall
-    // back to undefined (a generic UI presentation) rather than throwing on the
-    // display path — it may run on replay of arbitrary logged args. The
-    // ToolDefinition.presentCall takes `unknown`, so a malformed shape needs no cast.
+    // `defineTool` soft-validates replayed logged args before presentation. Invalid shapes return
+    // undefined for generic UI rendering rather than throwing; `presentCall` accepts `unknown`.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
   })
 })
@@ -987,12 +982,9 @@ describe('the model-facing bash tool builds its request from named args only (no
 
   it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
     const { ctx, bash } = await setupRecording()
-    // Extra args: the model includes `env` and `stdin` keys hoping they reach the
-    // executor. The bash tool's schema ignores unknown keys, and execute() builds
-    // the request from only command/workdir/timeoutMs/signal — so the recorded
-    // request carries NEITHER. (Not a security wall — the model could set an env
-    // var or feed stdin via shell syntax anyway; this just keeps the request
-    // shape honest so a future `...args` spread can't silently forward input.)
+    // Unknown `env` and `stdin` keys are ignored by the schema and named request construction.
+    // This preserves the request shape; it is not a security boundary because shell syntax can
+    // already set environment variables or feed stdin.
     await ctx.tools.execute({
       callId: CallId('no-forward-1'),
       name: 'bash',

@@ -142,12 +142,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
-  // The forwarded fields are validated + defaulted by this bundle's intersected
-  // schema before apply runs, so the ?? fallbacks only narrow the
-  // optional-input TYPES — they mirror the owners' schema defaults, never
-  // introduce different ones. toolOrder has no owner-supplied default value —
-  // ABSENT means "lexicographic order" — so it is forwarded conditionally
-  // rather than via ??.
+  // Owner schemas resolve defaults; forward toolOrder only when explicitly set.
   ctx.plugin(SystemPrompt, {
     persona: config.persona ?? '',
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},

@@ -6,17 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Keyless Loader-path smoke for the Code Mode overlay: boot the REAL
- * example through the `@deepseek-ai/dsh-stdio-agent` bin against
- * `code-mode.cordis.yml` (the cordis Loader, `unwrapExports`, the include
- * patches over ./cordis.yml, the worker-thread code runtime, and the
- * registry in `mode: code`), then close stdin with no prompt and assert
- * the Code Mode banner + a clean exit.
- *
- * No prompt is ever sent, so the model is NEVER called and no `run_code`
- * turn happens — a dummy key lets `llm-deepseek`'s key-PRESENT check boot
- * the tree. This is the export-shape guard (postmortem 0001) for the Code
- * Mode composition; the with-key proof lives in `code-mode.e2e.ts`.
+ * Keyless Loader-path smoke for the Code Mode overlay: boot the real example through the
+ * `@deepseek-ai/dsh-stdio-agent` bin against `code-mode.cordis.yml` (the cordis Loader,
+ * `unwrapExports`, the include patches over ./cordis.yml, the worker-thread code runtime, and
+ * the registry in `mode: code`), then close stdin with no prompt and assert the Code Mode
+ * banner + a clean exit. A dummy key satisfies adapter boot, but no prompt means
+ * no model call; the with-key proof lives in `code-mode.e2e.ts`.
  */
 
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
@@ -26,10 +21,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
 // the repo, so point it at the repo tsconfig.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once. Cold tsx/Loader
-// startup can therefore outlive a tight smoke-test deadline before the child
-// emits any output; 30s still detects a wedged process without confusing
-// bounded CI contention with a lifecycle failure.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.

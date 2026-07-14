@@ -1,40 +1,11 @@
 /**
- * The stdio chat app: the default agent spine ({@link
- * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster a terminal
- * chat needs — a console logger, the readline UI (the in-package `stdio-chat`
- * module), JSONL session
- * persistence, and a pre-created `main` agent the UI drives.
- *
- * The cluster is BAKED IN, not left to the leaf: a stdio app always logs to the
- * console (stdout is just the terminal) and always pre-creates the `main` agent
- * the readline UI sends to. The leaf supplies the swappable backends (the LLM
- * adapter, the bash executor), optional product tools, the optional `hmr`
- * dev-reload plugin, and this app's {@link Config} (model, prompt, persistence
- * root, welcome banner).
- *
- * `hmr` is deliberately a LEAF entry, not baked in here: it is a Loader-only,
- * subprocess-only dev plugin (its constructor throws without `--expose-internals`
- * + a live `loader`, and the in-process test tier cannot even import it), so a
- * package whose `apply` statically pulled it in could never be unit-tested or
- * carry the per-file coverage gate. Unlike the console logger, a stray `hmr` is
- * not a stdout-purity footgun — so leaving it at the leaf costs no safety, while
- * baking the LOGGER in (the real coupling) keeps stdout-vs-no-stdout a property
- * of the artifact.
- *
- * Counterpart to {@link @deepseek-ai/dsh-acp-agent}, which bakes in the OPPOSITE
- * cluster (no stdout logger, no pre-created agents — the ACP bridge reserves
- * stdout for JSON-RPC and creates agents on demand). Splitting the two front
- * doors into two packages makes each cluster a property of the artifact: there
- * is no logger entry in the ACP leaf to get wrong.
- *
- * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
- * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
- * default would collapse the module to the bare `apply` and drop the `Config`
- * namespace (see docs/postmortem/0001). This app carries no `inject`, so a
- * collapsed shape would BOOT rather than crash a smoke — the shape is pinned by
- * the explicit `unwrapExports` assertion in this package's unit suite, and the
- * keyless echo smoke proves the composed tree runs through the real Loader.
- *
+ * The stdio chat app: the default agent spine ({@link @deepseek-ai/dsh-agent-core}) plus the
+ * coupled front-door cluster a terminal chat needs — a console logger, the readline UI (the
+ * in-package `stdio-chat` module), JSONL session persistence, and a pre-created `main` agent
+ * the UI drives.
+ * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
+ * Loader plugin intentionally exposes named exports only; a default export
+ * would hide its `Config` schema (see docs/postmortem/0001).
  * @module @deepseek-ai/dsh-stdio-agent
  */
 

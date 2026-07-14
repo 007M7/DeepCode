@@ -73,15 +73,11 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
 }
 
 /**
- * Build the routing receiver for a scope-filtered event. Untagged listeners
- * remain global; tagged listeners run only when their key matches. A base
- * Cordis filter is composed before the scope predicate.
- *
- * The receiver is deliberately opaque: listener code obtains the real subject
- * from event arguments, never from `this`.
+ * Build an opaque receiver that preserves the base filter, admits untagged
+ * listeners globally, and admits tagged listeners only for a matching key.
  * @param base - subject or service whose existing Cordis filter is preserved.
  * @param key - routed scope identity, or `undefined` for an unscoped subject.
- * @returns an opaque dispatch carrier.
+ * @returns a carrier whose subject remains available only through event arguments.
  */
 export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined): Scoped<T> {
   const baseFilter = (base as { [CordisContext.filter]?: (ctx: Context) => boolean })[CordisContext.filter]

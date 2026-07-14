@@ -33,7 +33,7 @@ The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_
 
 ## Code Mode
 
-[`code-mode.cordis.yml`](code-mode.cordis.yml) is this same tree flipped to [Code Mode](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md): an include overlay over `./cordis.yml` whose two patches insert the worker-thread code runtime (`@deepseek-ai/dsh-code-runtime-worker`, registering `ctx.codeRuntime`) and set `tools: { mode: code }` on the app. The registry contributes exactly one reserved wire transport — `run_code` — plus a generated TypeScript SDK section declaring the visible end-capability tools. The model composes those capabilities by writing a program; each program call carries an immutable link to its enclosing transport, bridges back through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation one at a time, and is logged as a `tool/code-dispatch` session event. Only what the program prints or returns re-enters model context. (Flip the mode to `both` to offer native calls and `run_code` side by side.)
+[`code-mode.cordis.yml`](code-mode.cordis.yml) overlays the same tree with the worker-thread runtime and `tools: { mode: code }`. The model receives one `run_code` transport plus a generated TypeScript SDK for the visible tools; only program output returns to model context. Use `mode: both` to expose native calls alongside `run_code`. See the [Code Mode RFC](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md) for the execution contract.
 
 ```sh
 pnpm run demo:code-mode        # this overlay under the REPL (default UI)

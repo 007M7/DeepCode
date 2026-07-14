@@ -59,3 +59,12 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 ## Collection model
 
 The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-subagent`, which renders provider-specific schemas and foreground or generic-background results while child working context remains child-only.
+
+## Known Limitations and Deferred Work
+
+- **Runtime steering and continuation are seam-only capabilities** — `sendMessage` and `resume` have no model-facing consumer in the current tool.
+- **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision surface waits for a concrete consumer.
