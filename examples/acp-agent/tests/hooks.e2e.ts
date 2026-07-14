@@ -60,7 +60,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo "bash blocked by policy" >&2; exit 2' }] }] },
     }))
 
-    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir })
+    spawned = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: workdir,
+      env: { DSH_PERMISSION_MODE: 'danger-full-access' },
+    })
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
