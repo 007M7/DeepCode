@@ -26,8 +26,10 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
-| `persona` | — | the deployment persona template (may reference `{{model}}`), routed to `dsh-system-prompt` |
+| `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
+| `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-core` |
+| `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-core` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
@@ -63,3 +65,23 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".
+
+## Model Experience
+
+### Composed terminal agent request
+
+**What the model sees**: Through `dsh-agent-core`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each readline submission becomes a user message.
+
+**Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The welcome banner, logger output, and rendered transcript are terminal-only and add zero model tokens.
+
+### Human-answer result
+
+**What the model sees**: Through `dsh-tool-ask-user`, successful terminal answers use that package's exact compact JSON shape. Interruption becomes exactly `Error: ask_user_question was interrupted before the user answered`; a closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`.
+
+**Token effect**: Only a completed or failed tool call adds retained result tokens; prompts printed while waiting are terminal-only.
+
+## Known Limitations and Deferred Work
+
+- **One pre-created `main` agent drives the readline UI** — there is no multi-session or concurrent-agent surface in this app; a run is one conversation.
+- **The front-door cluster is fixed in code** — the JSONL persistence backend and the ask-user tooling are baked; a different composition is a leaf-level sibling entry or another app package.
+- **The question tool is not an approval answerer** — this app mounts `user-interaction` and `ask_user_question`, but not `ctx.approval`; a `tools/pre-execute` `ask` therefore fails closed unless the leaf composes an approval service and terminal answerer.

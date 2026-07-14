@@ -934,11 +934,9 @@ describe('agent scope lifecycle', () => {
       order.push(`session-still-stored=${ctx.sessions.get(SessionId('o1-s')) !== undefined}`)
     })
 
-    // Open a turn so the drain has real work: the loop must finish it BEFORE
-    // the registry entry goes away (the agent/disposed contract: "its fiber
-    // and any in-flight turn have been torn down"). Wait for the turn to be
-    // OPEN in the log — a dispose landing in the pre-step window would drop
-    // the queued prompt without ever opening a turn.
+    // Open a turn so disposal must drain real work before registry removal.
+    // Waiting for turn/start avoids pre-step disposal dropping the queued prompt
+    // before a turn opens.
     const turnOpen = new Promise<void>((resolve) => {
       const off = ctx.on('session/event', (_s, event) => {
         if (event.type === 'turn/start') { off(); resolve() }

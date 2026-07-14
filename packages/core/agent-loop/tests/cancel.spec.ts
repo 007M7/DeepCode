@@ -1,12 +1,9 @@
 /**
- * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the
- * broad verb — it clears queued + steering work, aborts an in-flight step, and
- * drops a turn about to start — whereas a bare step abort (the loop's private
- * `AbortController`) kills only the current step and leaves the queue intact.
- * These tests exercise every window where a cancel can land (idle, pre-step,
- * mid-step, continuation) and the marker's arm/reset rules that keep a cancel
- * from leaking to a later prompt or hanging `whenIdle()`.
- *
+ * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the broad verb — it
+ * clears queued + steering work, aborts an in-flight step, and drops a turn about to start —
+ * whereas a bare step abort (the loop's private `AbortController`) kills only the current step
+ * and leaves the queue intact. The suite covers every landing window plus marker
+ * reset and `whenIdle()` quiescence.
  * @module dsh-agent-loop/tests/cancel
  */
 
@@ -95,10 +92,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Queue work, then register a whenIdle() waiter while in the pre-step window
-    // (status idle, hasQueued true) — it does NOT take the fast path. Then cancel.
-    // The skip path must settle this waiter directly (no running→idle transition
-    // ever fires), or it would hang forever.
+    // This waiter cannot rely on a running→idle transition because cancellation
+    // drops the turn before it runs; the skip path must settle it directly.
     send(agent, 'q')
     const idle = agent.whenIdle()
     agent.cancel('pre-step')
@@ -234,12 +229,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // The first composition is interrupted mid-waterfall and — like an
-    // abort-aware listener bailing on a firing signal — contributes nothing.
-    // Caching that degraded result would silently strip the prefix from every
-    // later request of this instance; the loop must discard it and recompose
-    // on the next send, and the SECOND composition's value must be what the
-    // wire and the header log carry.
+    // The interrupted first composition must not cache its degraded empty value;
+    // the next prompt recomposes and logs/sends the fresh prefix.
     const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
     let compositions = 0
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
@@ -268,10 +259,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // A turn/start listener fires right after turn/start is appended, BEFORE any
-    // AbortController is installed for the step. Cancelling there must still drop
-    // the step (the turn-scoped marker, not the step AbortController, is what
-    // catches this) — no model step runs.
+    // A turn/start listener fires before a step controller exists, so the
+    // turn-scoped marker—not step abort—must drop the pending step.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('session/event', (session, event) => {
@@ -400,10 +389,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // setStatus('running') emits agent/status SYNCHRONOUSLY, so a running
-    // listener can cancel in the gap between the loop's pre-step check and
-    // runTurn. The second check (after the running flip) must drop the turn —
-    // runTurn would otherwise throw on the now-empty queue.
+    // `agent/status` is synchronous, so cancellation can land after the first
+    // pre-step check; the second check must drop the now-empty turn.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -421,11 +408,7 @@ describe('Agent.cancel()', () => {
   })
 
   it('window 2: whenIdle() does NOT resolve early when a running listener cancels then queues replacement work', async () => {
-    // The window-1 early-resolve race has a window-2 twin: a synchronous
-    // agent/status('running') listener cancels the about-to-run turn AND queues a
-    // replacement. window 2 must NOT settle waiters (via setStatus('idle')) while
-    // the replacement is still queued-and-unrun — it must fall through and run it,
-    // so whenIdle() resolves on the replacement turn's running→idle, not before.
+    // Cancellation must not settle idle while replacement work remains queued.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -451,11 +434,8 @@ describe('Agent.cancel()', () => {
   })
 
   it('whenIdle() does NOT resolve early when a new prompt is queued during a pre-step cancel', async () => {
-    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel()
-    // clears A; prompt B is queued BEFORE the loop resumes from the idle wait.
-    // The window-1 cancel branch must NOT settle the waiter while B is still
-    // queued-and-unrun — whenIdle() must wait for B's turn to actually run and
-    // settle (the quiescence contract), not resolve before B's first event.
+    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel() clears A;
+    // prompt B is queued before the loop resumes from the idle wait.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -465,9 +445,8 @@ describe('Agent.cancel()', () => {
     agent.cancel('drop A')     // arms marker, clears A
     send(agent, 'B')           // B races in before the loop resumes
 
-    // whenIdle() must resolve only AFTER B's turn fully ran — by which point B's
-    // user message and a turn/end are in the log. (Before the fix it resolved
-    // immediately, with zero events, then B ran afterward.)
+    // whenIdle() must resolve only after B's turn fully ran — by which point B's user message
+    // and a turn/end are in the log.
     await idle
     expect(userTexts(agent)).toContain('B')
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)

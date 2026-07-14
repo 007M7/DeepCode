@@ -30,8 +30,47 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 ## Reminder delivery
 
-Reminders ride the post-execute decision's `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as a `context/message` after the step's tool results, which the session renders as the tagged synthetic-user envelope — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and folds its reminder onto the downstream decision (both variants — a blocked call still gets the nudge); when a downstream listener attached its own `additionalContext`, the fold concatenates content and carries the guard's `source` (a `HookContext` holds one `MessageSource`; `source.kind` is what framing depends on).
+Reminders use source-attributed `additionalContext`, preserving the tool's original result. The loop records them after the step's results as reconstructable `context/message` events. The guard always delegates and folds its reminder onto downstream context, including blocked calls.
 
 ## Testing
 
 Unit suites drive a real agent loop against a mock adapter (no network) and cover the chain semantics above to per-file 100%. The snapshot tier owns the transcript surface: a scripted-replay scenario repeats a call five times and pins both reminder tiers (gentle at 3, detailed at 5) as `context/message`s in the ACP transcript.
+
+## Model Experience
+
+### First-threshold context message
+
+**What the model sees**: At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
+
+**Token effect**: Zero tokens before the threshold. The reminder is retained history for that agent.
+
+#### First-threshold reminder
+
+```markdown
+You are repeating the exact same tool call with identical arguments. Carefully analyze the previous result before calling again: if the task is not complete, try a different approach or different arguments instead of repeating the call.
+```
+
+### Later-threshold context message
+
+**What the model sees**: A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
+
+**Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+
+#### Later-threshold reminder
+
+```markdown
+Repeated tool call detected:
+- tool: <toolName>
+- consecutive_calls: <count>
+- arguments: <canonicalArguments>
+The repeated calls are not making progress. Do not call this tool with these exact arguments again. Inspect the latest result and choose a different action, different arguments, or finish the task if enough evidence has been gathered.
+```
+
+## Known Limitations and Deferred Work
+
+- **Exact-match detection only** — canonicalization is a deep key-sort, so near-identical variants (a tweaked path, extra whitespace inside a value) evade the chain; fuzzy matching is rejected pending evidence of need.
+- **Compaction does not reset chains** — a chain spanning a compaction checkpoint keeps counting.
+- **Advisory only** — escalating to `block` at a high threshold is not implemented, though `PostToolDecision` already supports blocking.
+- **No subagent chain-sharing** — chains stay isolated per agent; a parent and its subagent repeating the same call never combine.
+- **Legitimate idempotent polling still draws nudges** past the thresholds — the pressure valves are `thresholds`/`exclude` config.
+- **Past the highest threshold a chain goes silent** — reminders fire only at exact configured counts, never beyond them.

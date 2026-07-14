@@ -1,15 +1,5 @@
 /**
- * Negative-path tests for the export-surface JSDoc gate
- * (`scripts/verify-export-jsdoc.ts`).
- *
- * The gate's positive half runs against the real tree in CI (`pnpm run
- * verify-export-jsdoc`, part of doc-sync). What that run cannot prove is that
- * the walk REJECTS an undocumented surface the way it promises to — and that
- * every deliberate exemption (heritage members, plugin-protocol slots,
- * constructors, overload implementations, augmentation bodies, re-exports)
- * actually holds. These tests drive `collectExportJsdocViolations()` against
- * synthetic fixture packages, mirroring the gen-cordis-catalog negative
- * tests.
+ * Negative-path tests for the export-surface JSDoc gate (`scripts/verify-export-jsdoc.ts`).
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -160,7 +150,7 @@ describe('verify-export-jsdoc export forms', () => {
     ))).toEqual([expect.stringMatching(/exported function 'f' .* has no JSDoc\./)])
   })
 
-  it('does not treat a never-exported sibling declarator as surface (review round 2)', () => {
+  it('does not treat a never-exported sibling declarator as surface', () => {
     // `export { publicValue }` resolves to the whole variable statement; only
     // the named declarator is surface — the gate must not demand JSDoc for
     // the private sibling sharing the statement.
@@ -169,7 +159,7 @@ describe('verify-export-jsdoc export forms', () => {
     ))).toEqual([])
   })
 
-  it('unions declarators across multiple export lists over one statement (review round 2)', () => {
+  it('unions declarators across multiple export lists over one statement', () => {
     // Two lists each name one declarator of the same undocumented statement:
     // both are surface (deduplicating on first resolution would drop `b`),
     // while the never-exported `c` stays out.
@@ -182,7 +172,7 @@ describe('verify-export-jsdoc export forms', () => {
     ])
   })
 
-  it('scopes a default-export identifier to its own declarator (review round 2)', () => {
+  it('scopes a default-export identifier to its own declarator', () => {
     // `export default` of an identifier reaches the statement through the
     // same name lookup as an export list; the sibling stays private.
     expect(collectExportJsdocViolations(make(
@@ -325,7 +315,7 @@ export namespace Loose {
   })
 })
 
-describe('verify-export-jsdoc fail-closed forms (review round 1)', () => {
+describe('verify-export-jsdoc fail-closed forms', () => {
   it('checks the function contract on a non-identifier default export', () => {
     expect(collectExportJsdocViolations(make(
       '/** Doubles. */\nexport default (x: number): number => x * 2\n',
@@ -418,7 +408,7 @@ describe('verify-export-jsdoc fail-closed forms (review round 1)', () => {
   })
 })
 
-describe('verify-export-jsdoc heritage refinement (review round 1)', () => {
+describe('verify-export-jsdoc heritage refinement', () => {
   it('requires @param for parameters the base member never names', () => {
     const violations = collectExportJsdocViolations(make(`
 /** Seam. */

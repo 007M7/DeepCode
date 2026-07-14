@@ -81,9 +81,6 @@ describe('Session', () => {
     const before = structuredClone(session.events)
 
     // A misbehaving consumer tries to mutate the messages it was handed.
-    // Derived messages are frozen shared projections (cloned once off the
-    // log, then deep-frozen): every mutation attempt THROWS in strict mode —
-    // isolation by unrepresentability, not by per-call cloning.
     const messages = session.deriveMessages()
     const userBlock = messages[0]!.content[0]!
     expect(() => { if (userBlock.type === 'text') userBlock.text = 'HACKED' }).toThrow(TypeError)
@@ -132,11 +129,8 @@ describe('Session', () => {
   it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
     const session = new Session(SessionId('s5b'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // The typed overload makes surfaceOp mandatory only when the type argument is
-    // a SPECIFIC SurfaceEventType literal. A caller iterating raw events widens it
-    // to the SessionEventType union, where the conditional rest collapses to
-    // optional — the exact shape `for (const e of log) append(e.type, e.data)`
-    // produces. Reproduce that here and assert the runtime guard rejects it.
+    // A widened SessionEventType bypasses the overload's conditional requirement,
+    // so the runtime guard must still reject the missing surface marker.
     const widenedType = 'user/message' as SessionEventType
     expect(() => session.append(widenedType, { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       .toThrow(/surface-eligible and requires a surfaceOp marker/)
@@ -663,10 +657,8 @@ describe('SessionStore', () => {
   })
 
   it('enter() rejects a stale prepared session whose id is already live (no overwrite)', async () => {
-    // prepare()/enter() are public cross-package primitives that a caller may
-    // separate with arbitrary work. A stale prepared session must NOT overwrite
-    // a live store entry of the same id — its detach disposer would later delete
-    // the REAL session, breaking the store-uniqueness invariant.
+    // A stale prepared object must not replace the live same-id entry; its later
+    // detach would otherwise remove the wrong session.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const stale = ctx.sessions.prepare(SessionId('racy'))

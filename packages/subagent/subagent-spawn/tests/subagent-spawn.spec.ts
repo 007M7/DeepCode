@@ -152,11 +152,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('rejects without publishing when the request signal is already aborted', async () => {
-    // Regression: a signal aborted BEFORE the run starts never fires an `abort`
-    // event, so the listener can't catch it. The driver must check the
-    // already-aborted case up front and settle `aborted` without running the
-    // child — otherwise an already-cancelled request runs to `completed`. The
-    // empty script proves the child's model is never called.
+    // An already-aborted signal emits no future event, so start must check it before listening and
+    // settle aborted without running the child. The empty model script proves no turn occurs.
     const controller = new AbortController()
     controller.abort()
     const { ctx, parent } = await setup([])
@@ -165,10 +162,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('same-tick cancellation rejects start and prevents child publication', async () => {
-    // Regression: cancellation before publication used to set a flag but let the
-    // async factory publish a child anyway, so `started` fulfilled and lifecycle
-    // observers saw an agent for an attempt the caller had already cancelled.
-    // The empty script also proves no model turn can run.
+    // Same-tick cancellation must win before async factory publication: no child may become
+    // visible, `started` must not fulfill, and the empty script proves no model turn occurs.
     const { ctx, parent } = await setup([])
     const beforeAgents = ctx.agents.list().length
     const beforeSessions = ctx.sessions.list().length

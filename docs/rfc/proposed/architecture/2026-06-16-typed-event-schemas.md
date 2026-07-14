@@ -6,14 +6,14 @@ Status: proposed
 
 The harness models its core vocabulary — content blocks, message sources, finish reasons, turn triggers, turn-end reasons, and session events — as **merge-extensible maps**: a TypeScript `interface` (e.g. `SessionEventMap`, `ContentBlockMap`) that plugins augment via declaration merging, with the public union derived as `Map[keyof Map]`. This is the repo's universal extension pattern, documented in [docs/architecture.md](../../../architecture.md) ("The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`") and relied on by the `defineTool` `InferArgs` DSL and the `assertNever` exhaustiveness convention.
 
-The pattern is **compile-time only**. The types vanish at runtime: there is no schema object to validate an incoming value against, parse untrusted input with, or enumerate at runtime. Two concrete consequences surfaced in review of [the session-persistence work](../../implemented/architecture/2026-06-14-session-persistence.md) (#33):
+The pattern is **compile-time only**. The types vanish at runtime: there is no schema object to validate an incoming value against, parse untrusted input with, or enumerate at runtime. The [session-persistence contract](../../implemented/architecture/2026-06-14-session-persistence.md) exposes two consequences:
 
 1. **Persistence treats `event.data` as opaque JSON.** The JSONL/SQLite backends `JSON.stringify`/`JSON.parse` each event verbatim; the only runtime guard is `isJsonValue` (round-trip serializability — rejects BigInt, functions, cycles, non-finite numbers, …), NOT structural validation. A corrupted-but-still-JSON event datum (wrong field types, missing fields) round-trips silently and is only caught later, if at all, by a consumer's `switch`.
 2. **No runtime contract for plugin-added variants.** A plugin that declaration-merges a new `SessionEventMap` key gets compile-time typing for its own code, but nothing validates that the values it produces match the shape it declared — at the producer, at the persistence boundary, or on reload.
 
-A reviewer asked whether the project should move "all the JSON serialization/deserialization" — and ultimately the event vocabulary itself — to **Zod** (or a similar runtime-schema library), so the durable boundary and the plugin extension points are backed by runtime schemas rather than erased types.
+This raises whether the event vocabulary should move to **Zod** or another runtime-schema library so durable and plugin boundaries have runtime schemas rather than erased types.
 
-This RFC scopes that question. It does **not** propose an implementation; it records the tradeoff so the decision is made deliberately rather than incrementally inside a persistence PR.
+This RFC scopes that question without proposing an implementation.
 
 ## Why this is not a persistence change
 
@@ -32,7 +32,7 @@ A migration of the event/vocabulary surface to runtime schemas touches, at minim
 - **The `defineTool` `InferArgs` DSL** (`dsh-tools`), which derives zero-cast `execute` arg types from a compile-time schema spec — the showcase of the current approach.
 - **Docs**: architecture.md (the pattern is described as foundational), [dev-mode invariants](../../implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md), and any RFC that references the pattern.
 
-This is a HUGE change. It is not in scope for the RFC-009 session-persistence work and must not be smuggled in through it.
+This is a repository-wide vocabulary redesign, not a persistence implementation detail.
 
 ## Alternatives considered
 
@@ -46,7 +46,7 @@ Keep the compile-time pattern. Persistence stays opaque-JSON + serializability g
 Tighten only the genuinely-closed shapes that already have hand-rolled type guards — e.g. the JSONL `HeaderLine` guard (`isHeaderLine`) — using **schemastery** (the repo's existing schema library, already used for every plugin `static Config`). Leave the merge-extensible event union as-is.
 
 - **Pros**: small, fits the existing convention (schemastery, not a new lib); replaces hand-rolled guards on closed shapes with declarative schemas; no core redesign.
-- **Cons**: does not address event-data validation (the thing the reviewer actually asked about); only helps the fixed metadata records.
+- **Cons**: does not address event-data validation; only the fixed metadata records improve.
 
 ### C. Runtime schema registry for the whole vocabulary (Zod or schemastery)
 Replace the merge-extensible maps with a runtime registry the producers contribute to and the persistence/consumer paths validate against.
@@ -56,11 +56,11 @@ Replace the merge-extensible maps with a runtime registry the producers contribu
 
 ## Proposal
 
-Defer. Do **not** change #33. If runtime validation is wanted at the durable boundary in the near term, **Option B** (schemastery on the closed header/metadata shapes) is the proportionate step and stays within the existing convention. **Option C** is a genuine architecture decision that should be evaluated on its own merits — including whether the chosen library is Zod or schemastery — and, if accepted, land as its own change with its own RFC, not as a side effect of persistence serialization.
+Defer. If runtime validation is wanted at the durable boundary, **Option B** (schemastery on closed header and metadata shapes) is the proportionate step within the existing convention. **Option C** is an architecture decision that requires its own implementation RFC, including a choice between Zod and schemastery.
 
 ## Acceptance criteria
 
-- The decision state is explicit: Option C proceeds only as its own change with its own implementation RFC — never as a side effect of a persistence PR.
+- Option C proceeds only through its own implementation RFC, never as a persistence side effect.
 - If Option B is taken up, the closed header/metadata shapes (the JSONL `isHeaderLine` guard and kin) validate through schemastery in place of hand-rolled guards, with the merge-extensible maps untouched.
 
 ## Risks
