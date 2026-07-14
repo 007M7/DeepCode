@@ -378,7 +378,7 @@ describe('surface type guards', () => {
 })
 
 describe('SurfaceManager.replaceGeneration', () => {
-  it('folds the pending log delta on access and counts replacements', () => {
+  it('folds the pending log delta on access and counts replaces', () => {
     const s = new Session(SessionId('gen'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('user/message', { content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } }, { surfaceOp: 'append' })

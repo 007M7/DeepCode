@@ -45,12 +45,6 @@ flowchart LR
   cfg --> plugin_acp_tool_todo
   plugin_acp_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
   cfg --> plugin_acp_repeat_tool_guard
-  plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
-  cfg --> plugin_acp_fs_local
-  plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
-  cfg --> plugin_acp_fs_policy
-  plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
-  cfg --> plugin_acp_tool_fs
   plugin_acp_hooks_claude["hooks-claude<br/>@deepseek-ai/dsh-hooks-claude"]
   cfg --> plugin_acp_hooks_claude
   plugin_acp_hooks_codex["hooks-codex<br/>@deepseek-ai/dsh-hooks-codex"]
@@ -74,9 +68,6 @@ flowchart LR
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
-| `fs-local` | `@deepseek-ai/dsh-fs-local` |
-| `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
-| `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `hooks-claude` | `@deepseek-ai/dsh-hooks-claude` |
 | `hooks-codex` | `@deepseek-ai/dsh-hooks-codex` |
 
