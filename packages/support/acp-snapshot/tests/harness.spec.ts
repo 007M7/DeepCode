@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -110,6 +111,41 @@ describe('runScenario', () => {
     await expect(lateUpdate).resolves.toMatchObject({ sessionUpdate: 'agent_message_chunk' })
     expect(launched.rawStdout()).toContain('late inherited stdout')
     expect(launched.stderr()).toContain('late inherited stderr')
+  })
+
+  it('waits for in-flight client callbacks after the ACP stream closes', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true })
+    let releasePermission: (() => void) | undefined
+    const permissionReleased = new Promise<void>((resolve) => { releasePermission = resolve })
+    let markPermissionStarted: (() => void) | undefined
+    const permissionStarted = new Promise<void>((resolve) => { markPermissionStarted = resolve })
+    let permissionFinished = false
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      env: { DSH_SNAPSHOT_FILE: fixtureFile },
+      async requestPermission() {
+        markPermissionStarted?.()
+        await permissionReleased
+        permissionFinished = true
+        return { outcome: { outcome: 'cancelled' } }
+      },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    void launched.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }).catch(() => undefined)
+    await permissionStarted
+
+    const childClosed = once(launched.child, 'close')
+    let closeSettled = false
+    const closing = launched.close('SIGKILL').then(() => { closeSettled = true })
+    await childClosed
+    await launched.client.closed
+    expect(closeSettled).toBe(false)
+
+    releasePermission?.()
+    await closing
+    expect(permissionFinished).toBe(true)
   })
 
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
