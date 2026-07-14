@@ -18,6 +18,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
+  context/     optional bounded model-context enrichments
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
