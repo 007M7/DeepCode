@@ -1,7 +1,0 @@
-{
-  "name": "sandbox-acp-agent-example",
-  "description": "Runnable demo: the sandboxed coding agent as an ACP server, with sandbox-escalation approval prompts answered by the editor",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module"
-}

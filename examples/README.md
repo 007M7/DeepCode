@@ -33,8 +33,4 @@ An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
 
-## sandbox-acp-agent
-
-The coding agent with its bash executor swapped for the sandbox stack ([`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local) + [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) — the one-entry executor swap the `ctx.bash` capability seam exists for), served over ACP with [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval) mounted — the first composition where the approval loop is LIVE: a sandbox denial escalated by the model becomes a `session/request_permission` prompt in the editor, and "Allow once" runs exactly that command under the wider mode.
-
-Run with: `pnpm run demo:sandbox-acp` (needs `DEEPSEEK_API_KEY`; bwrap, a Landlock-enforcing kernel, or macOS for confined runs). See [sandbox-acp-agent/README.md](sandbox-acp-agent/README.md).
+The default `cordis.yml` composes [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval), and [`@deepseek-ai/dsh-permission`](../packages/ui/permission). A capable client gets one `Permissions` select: `workspace-write` confines bash to the configured workspace and asks before a wider retry, while `danger-full-access` removes file confinement and disables approval prompts. A denied command can therefore surface a one-shot `session/request_permission` prompt in the editor; "Allow once" runs exactly that retry under the requested wider mode.
