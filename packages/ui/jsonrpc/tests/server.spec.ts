@@ -373,6 +373,100 @@ describe('HarnessSdkServer', () => {
     }
   })
 
+  it('omits ambiguous lineage when one local id is reused and runs settle out of order', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-reuse-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const oldParent = await ctx.agents.create({
+        sessionId: SessionId('old-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const oldChild = await ctx.agents.create({
+        sessionId: SessionId('reused-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('old-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      const first = Promise.withResolvers<SubagentResult>()
+      const sameLifetime = Promise.withResolvers<SubagentResult>()
+      const replacement = Promise.withResolvers<SubagentResult>()
+      const results = [first.promise, sameLifetime.promise, replacement.promise]
+      let starts = 0
+      const disposeProvider = ctx.subagents.registerProvider({
+        name: 'reused',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start() {
+          const result = results[starts]
+          starts += 1
+          if (result === undefined) throw new Error('unexpected fourth reused-id run')
+          return Promise.resolve({ id: SessionId('reused-child'), result, dispose: () => Promise.resolve() })
+        },
+      })
+
+      const firstRun = await ctx.subagents.start('reused', {
+        parent: oldParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      const sameLifetimeRun = await ctx.subagents.start('reused', {
+        parent: oldParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      sameLifetime.resolve({ output: [{ type: 'text', text: 'same lifetime' }], stopReason: 'completed' })
+      await sameLifetimeRun.result
+      await oldChild.dispose()
+      const newParent = await ctx.agents.create({
+        sessionId: SessionId('new-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const newChild = await ctx.agents.create({
+        sessionId: SessionId('reused-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      const secondRun = await ctx.subagents.start('reused', {
+        parent: newParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+
+      replacement.resolve({ output: [{ type: 'text', text: 'new lifetime' }], stopReason: 'completed' })
+      await secondRun.result
+      first.resolve({ output: [{ type: 'text', text: 'old lifetime' }], stopReason: 'completed' })
+      await firstRun.result
+      await Promise.resolve()
+
+      const finished = transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'reused-child',
+      )
+      expect(finished.map(notification => notification.params?.lastAssistantMessage)).toEqual([
+        [{ type: 'text', text: 'same lifetime' }],
+        [{ type: 'text', text: 'new lifetime' }],
+        [{ type: 'text', text: 'old lifetime' }],
+      ])
+      expect(finished[0]?.params?.parentSessionId).toBe('old-parent')
+      expect(finished.slice(1).every(notification => !Object.hasOwn(notification.params ?? {}, 'parentSessionId'))).toBe(true)
+
+      await firstRun.dispose()
+      await sameLifetimeRun.dispose()
+      await secondRun.dispose()
+      disposeProvider()
+      await newChild.dispose()
+      await oldParent.dispose()
+      await newParent.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
   it('falls back to live lineage and ignores runs without a local child session', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
@@ -395,13 +489,38 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
+      const missedStartResult = Promise.withResolvers<SubagentResult>()
+      const disposeMissedStartProvider = ctx.subagents.registerProvider({
+        name: 'fork',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: true,
+        start: () => Promise.resolve({
+          id: SessionId('fallback-child-session'),
+          result: missedStartResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      // Start before the server subscribes, so the terminal fallback must use
+      // the still-live registry entry rather than a cached start record.
+      const missedStartRun = await ctx.subagents.start('fork', {
+        parent: parentHandle.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
       const transport = new FakeTransport()
       const server = new HarnessSdkServer(ctx, transport)
 
+      missedStartResult.resolve({ output: [], stopReason: 'max-tokens' })
+      await missedStartRun.result
+      await Promise.resolve()
+      await missedStartRun.dispose()
+      disposeMissedStartProvider()
+      // The server also missed this agent's creation, but observes the start;
+      // recover its lineage from the still-live registry entry.
       await settleSubagent(ctx, parentHandle.agent, {
-        provider: 'fork',
+        provider: 'fork-live-fallback',
         id: SessionId('fallback-child-session'),
-        stopReason: 'max-tokens',
+        stopReason: 'completed',
         lastAssistantMessage: [],
       })
       await settleSubagent(ctx, parentHandle.agent, {

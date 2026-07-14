@@ -63,6 +63,13 @@ interface LocalAgentRecord {
   parentSessionId?: SessionId
 }
 
+/** Pending local runs that share one provider/id correlation key. */
+interface PendingLocalRuns {
+  count: number
+  parentSessionId?: SessionId
+  parentAmbiguous: boolean
+}
+
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
  * session, agent, and subagent lifecycle events, forwarding durable session
@@ -78,7 +85,7 @@ export class HarnessSdkServer {
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
   private readonly localAgents = new Map<SessionId, LocalAgentRecord>()
-  private readonly localRuns = new Map<SessionId, LocalAgentRecord[]>()
+  private readonly localRuns = new Map<string, Map<SessionId, PendingLocalRuns>>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -112,10 +119,12 @@ export class HarnessSdkServer {
     this.disposers.push(ctx.on('agent/disposed', (agent) => {
       this.localAgents.delete(agent.id)
     }))
-    // Snapshot locality per run. A provider may settle one run, continue the
-    // same live child in another run, and dispose that child before the later
-    // result settles. Consuming an agent-lifetime marker at the first end would
-    // lose the later notification; this queue pairs each start with one end.
+    // Snapshot locality per provider/id run key. A provider may settle one run,
+    // continue the same live child in another run, and dispose that child before
+    // the later result settles. Counts preserve every completion without
+    // assuming settlement order. If id reuse produces disagreeing lineage, the
+    // optional parent is omitted until that pending group drains rather than
+    // attributed to the wrong completion.
     this.disposers.push(ctx.on('subagent/start', (info: SubagentRunInfo) => {
       const agent = this.ctx.agents.get(info.id)
       const cachedLocalAgent = this.localAgents.get(info.id)
@@ -125,21 +134,35 @@ export class HarnessSdkServer {
           ? {}
           : { parentSessionId: agent.session.header.parentSession })
       if (localAgent === undefined) return
-      const runs = this.localRuns.get(info.id) ?? []
-      runs.push(localAgent)
-      this.localRuns.set(info.id, runs)
+      const providerRuns = this.localRuns.get(info.provider) ?? new Map<SessionId, PendingLocalRuns>()
+      const pending = providerRuns.get(info.id)
+      if (pending === undefined) {
+        providerRuns.set(info.id, localAgent.parentSessionId === undefined
+          ? { count: 1, parentAmbiguous: false }
+          : { count: 1, parentSessionId: localAgent.parentSessionId, parentAmbiguous: false })
+      } else {
+        pending.count += 1
+        if (pending.parentSessionId !== localAgent.parentSessionId) pending.parentAmbiguous = true
+      }
+      this.localRuns.set(info.provider, providerRuns)
     }))
     this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
       const agent = this.ctx.agents.get(info.id)
-      const runs = this.localRuns.get(info.id)
-      const cachedLocalAgent = runs?.shift()
-      if (runs?.length === 0) this.localRuns.delete(info.id)
+      const providerRuns = this.localRuns.get(info.provider)
+      const pending = providerRuns?.get(info.id)
+      if (pending !== undefined) {
+        pending.count -= 1
+        if (pending.count === 0) providerRuns?.delete(info.id)
+        if (providerRuns?.size === 0) this.localRuns.delete(info.provider)
+      }
       // This protocol reports LOCAL child sessions. A lineage-bearing child
       // has the session/created-driven start notification above; a parentless
       // local provider still gets its terminal notification. A remote provider
       // has neither a cached creation nor a live local agent and is ignored.
-      if (cachedLocalAgent === undefined && agent === undefined) return
-      const parentSessionId = cachedLocalAgent?.parentSessionId ?? agent?.session.header.parentSession
+      if (pending === undefined && agent === undefined) return
+      const parentSessionId = pending === undefined
+        ? agent?.session.header.parentSession
+        : pending.parentAmbiguous ? undefined : pending.parentSessionId
       this.transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
