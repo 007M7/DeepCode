@@ -376,7 +376,7 @@ export class AgentLoop extends Service implements AgentFactory {
   static Config = z.object({
     agents: z.array(z.object({
       id: z.string().required(),
-      sessionId: z.string(),
+      sessionId: z.string().min(1),
       model: z.string(),
       cwd: z.string(),
       resumeSessionId: z.string(),
