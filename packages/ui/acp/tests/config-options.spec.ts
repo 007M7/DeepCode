@@ -1,10 +1,10 @@
 /**
- * Session config options over the bridge: the two per-session knobs
- * (`sandbox-mode`, `approval-policy`) advertised from composition capability,
- * their current values folded from each session's own log, switching via
- * `session/set_config_option` (one log-only event per switch — the log is the
- * store), and a resumed session reporting its overrides back on
- * `session/load` with no catch-up machinery.
+ * Session config options over the bridge: ONE user-facing `Permissions`
+ * select (`ctx.permission`'s preset table — each choice bundles a sandbox
+ * mode and an approval policy), its current value folded from each session's
+ * own log, switching via `session/set_config_option` (the preset event plus
+ * its knob write-throughs — the log is the store), and a resumed session
+ * reporting its preset back on `session/load` with no catch-up machinery.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -14,50 +14,37 @@ import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import PermissionService from '@deepseek-ai/dsh-permission'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
 
 /**
  * The REAL local executor reporting a confining default — `sandboxMode` is
  * the documented capability override point (`dsh-bash-sandbox` overrides it
  * the same way), so the bridge sees exactly what a sandboxing composition
- * advertises without this suite dragging in a kernel sandbox stack.
+ * advertises without this suite dragging in a kernel sandbox stack. It
+ * reports `workspace-write`: the shipped preset's bundle, which
+ * the permission service validates the composition defaults against.
  */
 class SandboxedLocalExecutor extends LocalBashExecutor {
   override get sandboxMode(): SandboxMode {
-    return 'read-only'
+    return 'workspace-write'
   }
 }
 
-/** The exact option payloads the bridge advertises (pinned verbatim). */
-function sandboxOption(currentValue: SandboxMode): object {
+/** The exact option payload the bridge advertises (pinned verbatim). */
+function permissionOption(currentValue: string): object {
   return {
-    id: 'sandbox-mode',
-    name: 'Sandbox',
-    description: 'The file sandbox mode bash commands in this session run under.',
+    id: 'permission',
+    name: 'Permissions',
+    description: 'The session permission preset: each choice bundles a sandbox mode and an approval policy.',
     category: 'mode',
     type: 'select',
     currentValue,
     options: [
-      { value: 'read-only', name: 'read-only' },
-      { value: 'workspace-write', name: 'workspace-write' },
-      { value: 'danger-full-access', name: 'danger-full-access' },
-    ],
-  }
-}
-
-function approvalOption(currentValue: ApprovalPolicy): object {
-  return {
-    id: 'approval-policy',
-    name: 'Approvals',
-    description: 'ask: permission prompts reach you; never: they are rejected automatically.',
-    type: 'select',
-    currentValue,
-    options: [
-      { value: 'ask', name: 'ask' },
-      { value: 'never', name: 'never' },
+      { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace; anything wider asks for your approval.' },
+      { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access, no approval prompts.' },
     ],
   }
 }
@@ -75,142 +62,111 @@ describe('acp bridge — session config options', () => {
     await rm(storageDir, { recursive: true, force: true })
   })
 
-  /** A harness whose composition can honor both knobs (sandboxed executor + approval seam). */
-  async function bothKnobs(options: { policy?: ApprovalPolicy; script?: NonNullable<Parameters<typeof makeBridgeHarness>[0]>['script'] } = {}): Promise<BridgeHarness> {
+  /** A harness composing the full preset stack (confining executor + approval seam + permission presets). */
+  async function presetStack(options: { script?: NonNullable<Parameters<typeof makeBridgeHarness>[0]>['script'] } = {}): Promise<BridgeHarness> {
     const harness = await makeBridgeHarness({ storageDir, ...options.script !== undefined ? { script: options.script } : {} })
     // The dev invariants police turn-enclosure: an idle switch that appended
     // outside a turn would throw right here in the suite, not in production.
     await harness.ctx.plugin(Invariants)
     await harness.ctx.plugin(SandboxedLocalExecutor, { timeoutMs: 10_000 })
-    await harness.ctx.plugin(ApprovalService, options.policy !== undefined ? { policy: options.policy } : {})
+    await harness.ctx.plugin(ApprovalService)
+    await harness.ctx.plugin(PermissionService)
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     return harness
   }
 
-  it('advertises no configOptions in a composition with neither knob', async () => {
+  it('advertises no configOptions without the permission service — even with both knobs composed', async () => {
     h = await makeBridgeHarness({ storageDir })
+    await h.ctx.plugin(SandboxedLocalExecutor, { timeoutMs: 10_000 })
+    await h.ctx.plugin(ApprovalService)
     await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const res = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     expect(res.configOptions).toBeUndefined()
   })
 
-  it('a non-confining executor advertises no sandbox option (nothing would honor it)', async () => {
-    h = await makeBridgeHarness({ storageDir, withBash: true })
-    await h.ctx.plugin(ApprovalService)
-    await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+  it('advertises the Permissions select with the default preset current', async () => {
+    h = await presetStack()
     const res = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([approvalOption('ask')])
-  })
-
-  it('advertises both knobs with capability-derived currents (config default included)', async () => {
-    h = await bothKnobs({ policy: 'never' })
-    const res = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([sandboxOption('read-only'), approvalOption('never')])
+    expect(res.configOptions).toEqual([permissionOption('workspace-write')])
   })
 
   it('an idle switch is pending (overlaid, not yet logged), then anchors INSIDE the next turn', async () => {
-    h = await bothKnobs({ script: [textResponse('ok')] })
+    h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
 
-    const afterSandbox = await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    expect(afterSandbox.configOptions).toEqual([sandboxOption('workspace-write'), approvalOption('ask')])
-    const afterApproval = await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'never' })
-    expect(afterApproval.configOptions).toEqual([sandboxOption('workspace-write'), approvalOption('never')])
+    const after = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(after.configOptions).toEqual([permissionOption('danger-full-access')])
 
-    // Idle: nothing in the log yet — turn-enclosure forbids a bare append
-    // (the dev invariants in this suite would throw), so the switch lives on
-    // the record until a turn opens.
+    // Idle: nothing in the log yet — turn-enclosure forbids a bare append.
     const session = h.ctx.agents.list()[0]?.session
-    expect(session?.events.some(e => e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
+    expect(session?.events.some(e => e.type === 'permission/preset' || e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
 
-    // The next turn anchors both switches inside itself, one event per knob.
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = session?.events ?? []
-    expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'workspace-write' }])
+    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'danger-full-access' }])
+    expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'danger-full-access' }])
     expect(events.filter(e => e.type === 'approval/policy').map(e => e.data)).toEqual([{ policy: 'never' }])
     const turnStart = events.findIndex(e => e.type === 'turn/start')
-    const anchored = events.findIndex(e => e.type === 'bash/sandbox-mode')
+    const anchored = events.findIndex(e => e.type === 'permission/preset')
     expect(turnStart).toBeGreaterThanOrEqual(0)
     expect(anchored).toBeGreaterThan(turnStart)
   })
 
-  it('an idle flip-flop anchors as ONE event (last write per knob wins)', async () => {
-    h = await bothKnobs({ script: [textResponse('ok')] })
+  it('an idle flip-flop anchors as ONE switch (last write wins)', async () => {
+    h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'danger-full-access' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const again = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(again.configOptions).toEqual([permissionOption('danger-full-access')])
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'danger-full-access' }])
-    // Idle again AFTER a completed turn (the log now ends in turn/end): a new
-    // switch pends rather than appending outside the closed turn.
-    const again = await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'read-only' })
-    expect(again.configOptions?.find(option => option.id === 'sandbox-mode')).toMatchObject({ currentValue: 'read-only' })
-    expect(events.filter(e => e.type === 'bash/sandbox-mode')).toHaveLength(1)
-  })
-
-  it('a no-op switch (the value already shown) records nothing and keeps a live pending', async () => {
-    h = await bothKnobs({ script: [textResponse('ok')] })
-    const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    // Re-pushing the composition default (what clients that echo current
-    // selections on session start do) must not mint an override event.
-    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'ask' })
-    expect(echo.configOptions?.find(option => option.id === 'approval-policy')).toMatchObject({ currentValue: 'ask' })
-    // Re-sending a PENDING value keeps the pending switch alive (it is what
-    // the session shows), rather than cancelling it.
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    const repeat = await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    expect(repeat.configOptions?.find(option => option.id === 'sandbox-mode')).toMatchObject({ currentValue: 'workspace-write' })
-    await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
-    const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.filter(e => e.type === 'approval/policy')).toHaveLength(0)
-    expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'workspace-write' }])
+    expect(events.filter(e => e.type === 'permission/preset')).toHaveLength(1)
+    // Between turns (a closed turn in the log) a switch still pends — the
+    // enclosure fold walks past the turn/end — and anchors with the NEXT turn.
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(h.ctx.agents.list()[0]?.session.events.filter(e => e.type === 'permission/preset')).toHaveLength(1)
   })
 
   it('a net-zero idle flip-flop anchors NOTHING (switches are recorded, select clicks are not)', async () => {
-    h = await bothKnobs({ script: [textResponse('ok')] })
+    h = await presetStack({ script: [textResponse('ok')] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    const back = await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'read-only' })
-    expect(back.configOptions?.find(option => option.id === 'sandbox-mode')).toMatchObject({ currentValue: 'read-only' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const back = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(back.configOptions).toEqual([permissionOption('workspace-write')])
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.filter(e => e.type === 'bash/sandbox-mode')).toHaveLength(0)
+    expect(events.some(e => e.type === 'permission/preset' || e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
+  })
+
+  it('a no-op switch (the value already shown) records nothing and keeps a live pending', async () => {
+    h = await presetStack({ script: [textResponse('ok')] })
+    const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(echo.configOptions).toEqual([permissionOption('workspace-write')])
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const repeat = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(repeat.configOptions).toEqual([permissionOption('danger-full-access')])
+    await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
+    const events = h.ctx.agents.list()[0]?.session.events ?? []
+    expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'danger-full-access' }])
   })
 
   it('a mid-turn switch anchors immediately (the open turn encloses it)', async () => {
-    h = await bothKnobs({ script: ['hang'] })
+    h = await presetStack({ script: ['hang'] })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const hung = h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
     // Give the loop a tick to open the turn (the turns.spec hang idiom).
     await new Promise(resolve => setTimeout(resolve, 30))
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'never' })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
     const turnStart = events.findIndex(e => e.type === 'turn/start')
-    const anchored = events.findIndex(e => e.type === 'bash/sandbox-mode')
+    const anchored = events.findIndex(e => e.type === 'permission/preset')
     expect(turnStart).toBeGreaterThanOrEqual(0)
     expect(anchored).toBeGreaterThan(turnStart)
+    expect(events.some(e => e.type === 'bash/sandbox-mode')).toBe(true)
     expect(events.some(e => e.type === 'approval/policy')).toBe(true)
     await h.client.cancel({ sessionId })
     await hung
-  })
-
-  it('tolerates a provided approval stand-in whose config skipped the plugin schema', async () => {
-    h = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
-    h.ctx.provide('approval', { config: {} } as unknown as InstanceType<typeof ApprovalService>)
-    await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    const res = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([approvalOption('ask')])
-    const sessionId = res.sessionId
-    // The schema-less config also shields the no-op guard ('ask' by the ?? fallback)…
-    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'ask' })
-    expect(echo.configOptions).toEqual([approvalOption('ask')])
-    // …and the anchor-time comparison: a real switch under the stand-in still anchors.
-    await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'never' })
-    await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
-    const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.filter(e => e.type === 'approval/policy').map(e => e.data)).toEqual([{ policy: 'never' }])
   })
 
   it('rejects unknown ids, unadvertised ids, boolean values, and out-of-vocabulary values', async () => {
@@ -221,40 +177,72 @@ describe('acp bridge — session config options', () => {
 
     await expect(h.client.setSessionConfigOption({ sessionId, configId: 'reasoning-effort', value: 'max' }))
       .rejects.toThrow(/unknown config option/)
-    // sandbox-mode exists as a concept but THIS composition never advertised it.
-    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'workspace-write' }))
-      .rejects.toThrow(/unknown sandbox-mode value/)
-    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', type: 'boolean', value: true }))
+    // `permission` exists as a concept but THIS composition never advertised it.
+    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' }))
+      .rejects.toThrow(/unknown permission value/)
+    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', type: 'boolean', value: true }))
       .rejects.toThrow(/select; boolean values are not accepted/)
-    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'always' }))
-      .rejects.toThrow(/unknown approval-policy value/)
+  })
+
+  it('rejects an out-of-vocabulary preset on an advertising composition', async () => {
+    h = await presetStack()
+    const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'plan' }))
+      .rejects.toThrow(/unknown permission value/)
   })
 
   it('a switch in one session never leaks into a concurrent one (state and pending both per-session)', async () => {
-    h = await bothKnobs()
+    h = await presetStack()
     const a = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const b = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'sandbox-mode', value: 'danger-full-access' })
-    // B sees its own composition defaults, not A's pending switch...
-    const bAfter = await h.client.setSessionConfigOption({ sessionId: b.sessionId, configId: 'approval-policy', value: 'never' })
-    expect(bAfter.configOptions).toEqual([sandboxOption('read-only'), approvalOption('never')])
+    await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'danger-full-access' })
+    // B sees the composition default, not A's pending switch...
+    const bAfter = await h.client.setSessionConfigOption({ sessionId: b.sessionId, configId: 'permission', value: 'workspace-write' })
+    expect(bAfter.configOptions).toEqual([permissionOption('workspace-write')])
     // ...and A keeps its own state, untouched by B's.
-    const aAfter = await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'sandbox-mode', value: 'danger-full-access' })
-    expect(aAfter.configOptions).toEqual([sandboxOption('danger-full-access'), approvalOption('ask')])
+    const aAfter = await h.client.setSessionConfigOption({ sessionId: a.sessionId, configId: 'permission', value: 'danger-full-access' })
+    expect(aAfter.configOptions).toEqual([permissionOption('danger-full-access')])
   })
 
-  it('session/load reports a resumed session\'s overrides from its own log', async () => {
-    h = await bothKnobs({ script: [textResponse('ok')] })
+  it('a knob drifted outside the table derives a visible-but-untargetable custom current', async () => {
+    h = await presetStack()
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'sandbox-mode', value: 'danger-full-access' })
-    await h.client.setSessionConfigOption({ sessionId, configId: 'approval-policy', value: 'never' })
+    // Drift a knob out from under the table (a plugin writing the knob
+    // directly — the raw setters remain public mechanism), inside its own
+    // turn: the dev invariants enforce turn-enclosure here too.
+    const agent = h.ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('expected an agent')
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.session.append('bash/sandbox-mode', { mode: 'read-only' })
+    agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    // The echo of the derived current is a no-op, not an unknown-value error…
+    const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'custom' })
+    const option = echo.configOptions?.[0]
+    expect(option).toMatchObject({ currentValue: 'custom' })
+    if (option === undefined || !('options' in option)) throw new Error('expected a select option')
+    expect(option.options.map(o => 'value' in o ? o.value : o)).toEqual(['workspace-write', 'danger-full-access', 'custom'])
+    // …while custom as a TARGET from a real preset stays rejected: switching
+    // away is ordinary, and the custom entry disappears from the options.
+    const away = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
+    const afterOption = away.configOptions?.[0]
+    expect(afterOption).toMatchObject({ currentValue: 'danger-full-access' })
+    if (afterOption === undefined || !('options' in afterOption)) throw new Error('expected a select option')
+    expect(afterOption.options.map(o => 'value' in o ? o.value : o)).toEqual(['workspace-write', 'danger-full-access'])
+    await expect(h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'custom' }))
+      .rejects.toThrow(/unknown permission value/)
+  })
+
+  it('session/load reports a resumed session\'s preset from its own log', async () => {
+    h = await presetStack({ script: [textResponse('ok')] })
+    const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'danger-full-access' })
     // One turn checkpoints the log (the switch events flush with it).
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'persist me' }] })
     await h.dispose()
     h = undefined
 
-    loader = await bothKnobs()
+    loader = await presetStack()
     const res = await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
-    expect(res.configOptions).toEqual([sandboxOption('danger-full-access'), approvalOption('never')])
+    expect(res.configOptions).toEqual([permissionOption('danger-full-access')])
   })
 })

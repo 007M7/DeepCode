@@ -62,12 +62,13 @@ interface Spawned {
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
+    ['--import', tsxLoader, binScript, '--config', configPath],
     {
       cwd,
       env: {
         ...env,
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_HOME: join(cwd, '.dsh'),
         DSH_AGENTS_HOME: join(cwd, '.agents'),
       },
@@ -89,9 +90,8 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // This example composes no ask-producing policy (no hooks), so the
-      // bridge never prompts here; answer cancelled (fail closed) if it ever
-      // does — an unexpected prompt must not grant anything.
+      // This suite selects danger-full-access (approval never), so the bridge
+      // never prompts here; answer cancelled if an unexpected ask arrives.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })
@@ -158,12 +158,13 @@ describe('acp-agent over real stdio (no key required)', () => {
     // A dummy key lets the deepseek adapter APPLY (it only checks the key is
     // present at boot, not valid — the key is used only on a real model call,
     // which this purity test never triggers). So this runs WITHOUT real creds.
-    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, configPath], {
+    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, '--config', configPath], {
       cwd: workdir,
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_HOME: join(workdir, '.dsh'),
         DSH_AGENTS_HOME: join(workdir, '.agents'),
       },
