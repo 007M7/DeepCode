@@ -15,34 +15,16 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../../vendor/loader"
-    },
-    {
-      "path": "../app-boot"
-    },
-    {
-      "path": "../../../vendor/logger-console"
-    },
-    {
       "path": "../../core/agent"
     },
     {
       "path": "../../core/session"
     },
     {
-      "path": "../../core/agent-core"
+      "path": "../../llm/llm"
     },
     {
       "path": "../user-interaction"
-    },
-    {
-      "path": "../stdio"
-    },
-    {
-      "path": "../tool-ask-user"
-    },
-    {
-      "path": "../../session-persistence/session-persistence-jsonl"
     }
   ]
 }
