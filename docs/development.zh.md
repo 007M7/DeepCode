@@ -58,7 +58,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点：
 
-- `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest 守卫；
+- `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest（元数据清单）守卫；
 - `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行单元测试、快照测试、构建、module-graph 新鲜度，以及 `pnpm run hygiene` 与 `pnpm run doc-sync` 的各成员门禁。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。

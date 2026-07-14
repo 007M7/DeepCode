@@ -29,7 +29,48 @@ interface Manifest {
   /** Date-named documents (yyyy-mm-dd-*.md, i.e. RFCs) dated on/after this day must merge bilingual. */
   requiredSince: string
 }
-const manifest = JSON.parse(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8')) as Manifest
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Whether a string names one real calendar day in canonical ISO form. */
+function isIsoDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+/** Read one manifest string-array field or fail before enforcement starts. */
+function stringArrayField(record: Record<string, unknown>, field: 'required' | 'excluded'): string[] {
+  const value = record[field]
+  if (!Array.isArray(value)) {
+    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+  }
+  const entries: unknown[] = value
+  if (!entries.every((entry): entry is string => typeof entry === 'string')) {
+    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+  }
+  return entries
+}
+
+/** Parse and validate the checked-in bilingual manifest. */
+function parseManifest(content: string): Manifest {
+  const value: unknown = JSON.parse(content)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('translation-pairing.manifest.json: expected an object')
+  }
+  const record = value as Record<string, unknown>
+  const requiredSince = record.requiredSince
+  if (typeof requiredSince !== 'string' || !isIsoDate(requiredSince)) {
+    throw new Error(`translation-pairing.manifest.json: requiredSince must be a valid YYYY-MM-DD date; got ${JSON.stringify(requiredSince)}`)
+  }
+  return {
+    required: stringArrayField(record, 'required'),
+    excluded: stringArrayField(record, 'excluded'),
+    requiredSince,
+  }
+}
+
+const manifest = parseManifest(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8'))
 
 /**
  * An excluded entry ending in `/` excludes the whole directory. The trailing

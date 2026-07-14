@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此 README 与 docs 目录树以英文和简体中文双语维护。本页定义配对契约、强制门禁与推进策略；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。进仓的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
+本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此 README 与 docs 目录树以英文和简体中文双语维护。本页定义配对契约、强制门禁与推进策略；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
 
 ## 配对契约
 
@@ -21,11 +21,12 @@
 
 ## 门禁：verify-translation-pairing
 
-`pnpm run verify-translation-pairing`（`doc-sync` 的一环，因此 CI 和 pre-push 钩子都会运行）机械地强制执行这份契约：
+`pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，因此 CI 和 pre-push 钩子都会运行）机械地强制执行这份契约：
 
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
 2. 任何已存在的配对——无论是否 required——都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格列数、列表类型，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
+4. 日期等于或晚于 manifest（元数据清单）中 `requiredSince` 分界日期的每篇日期命名文档（`yyyy-mm-dd-*.md`）都有完整配对——新增的日期命名 RFC 从创建起就要求双语齐备。
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态——missing、out-of-sync 或 ok——是翻译批次的工作清单。它从不失败；它只报告。
 
@@ -44,8 +45,8 @@
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)——二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)——自动翻译流水线的 prompt 模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 RFC），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合入时就必须配齐双语文件。更早日期的文件属于待翻清单（backlog），包括分界前夜创建的文件。RFC 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
+**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 RFC），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合入时就必须配齐双语文件。更早日期的文件属于 backlog（待翻清单），包括分界前夜创建的文件。RFC 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
 
 ## 分工
 
-这里的对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 产出、由人评审——在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁的存在让 agent 和评审者都不必记住契约：配对完整性、一致性和结构由机械检查兜底，评审注意力投向翻译质量与术语——这正是人的判断的用武之地。
+这里的对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 产出、由人评审——在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁机械检查配对完整性、记录的 hash、切换行与文档所列的结构签名；翻译质量、术语以及签名未编码的结构要求仍由评审把关。
