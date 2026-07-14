@@ -12,7 +12,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 Appends are synchronous (the hot path never blocks on I/O); `session/event` is a sync notification; persistence plugins buffer write-behind and drain at the awaited `session/flush` checkpoint fired at every turn end.
 
-Ordering contract: the loop appends to the session *before* emitting the corresponding Cordis event, and the `agent/step-result` waterfall runs before the `assistant/message` append so the log records what tool dispatch actually used (post-review fix; regression-tested).
+Ordering contract: the loop appends to the session *before* emitting the corresponding Cordis event, and the `agent/step-result` waterfall runs before the `assistant/message` append so the log records the message tool dispatch actually used. Regression tests pin that ordering.
 
 ## Alternatives considered
 

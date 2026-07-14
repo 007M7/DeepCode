@@ -106,16 +106,10 @@ export interface WorkflowResult {
 }
 
 /**
- * The handle the consumer holds while a script executes. The consumer awaits
- * `result`, may `cancel` mid-flight, and MUST `dispose` on every path.
- * `result` does NOT reject — a script failure resolves with `stopReason:
- * 'error'` — and once the run is cancelled it SETTLES within the engine's
- * bounded grace even if the script itself never settles (the engine
- * force-settles `cancelled`; what becomes of the script is engine-documented
- * — the worker-thread engine terminates its worker), so a consumer awaiting
- * `result` is never wedged past a cancellation. `dispose()` = cancel + that
- * bounded settle + child quiescence; it never hangs on a stuck script and is
- * safe to call on every path (idempotent).
+ * Holder-owned live workflow. `result` never rejects and settles within the
+ * engine's cancellation grace; failures resolve through `stopReason`. Consumers
+ * may cancel and must call idempotent `dispose()` on every path to await bounded
+ * script settlement and child quiescence.
  */
 export interface WorkflowRun {
   readonly id: WorkflowRunId

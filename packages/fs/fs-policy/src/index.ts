@@ -1,45 +1,8 @@
 /**
- * The fs-policy PLUGIN: observed-state, read-before-edit, and
- * "write/edit must be based on the version you read" — added on top of the
- * `ctx.fs` provider seam through the `fs/*` event gate, NOT through a method
- * service. This plugin registers NO `ctx.fsPolicy` service and exposes no
- * `read`/`write`/`edit`/`resolve` methods; it influences the world only by
- * deciding the `fs/write-intent`/`fs/edit-intent` waterfalls and
- * recording on `fs/observed`. That is what keeps `@deepseek-ai/dsh-tool-fs`
- * (the executor) free of any method coupling to the policy layer — removing
- * this plugin gracefully loses the policy and leaves the unconstrained bare
- * provider, rather than breaking the tool at a service-injection boundary.
- *
- * ## Observed state IS the prior-observation record
- *
- * State lives here as `WeakMap<owner, Map<targetKey, { version }>>`. An entry
- * exists iff the owner has read, written, OR edited that target (every success
- * emits `fs/observed`), so its presence means "this owner has observed this
- * target at this version". This is what lets a create-then-edit or
- * edit-then-edit sequence work without an intervening re-read: the mutation
- * refreshes the recorded version to its own result. The owner is derived
- * structurally from `{ agent?: { session? } }` and held weakly, so a collected
- * session frees its state; disposal drops everything (HMR safety).
- *
- * ## Freshness via provider CAS, not stat
- *
- * This plugin does NO filesystem I/O. "Have you observed this file?" is a
- * `WeakMap` lookup (no record ⇒ `FS_NOT_OBSERVED`). "Is the version you read
- * still current?" is decided INSIDE `ctx.fs.editText`/`writeText`, in the same
- * atomic lock that performs the mutation — this plugin only supplies the
- * observed version as the CAS basis. Stat-ing and comparing here would open a
- * TOCTOU gap the provider lock has to back up anyway, so it is deliberately
- * avoided.
- *
- * ## Single-slot, first-wins
- *
- * The `fs/write-intent`/`fs/edit-intent` listeners do NOT call
- * `next()`: each fully decides its single slot. The slot is first-wins by
- * registration order — this plugin owning it is the default-deployment
- * convention, not an event-enforced invariant (a decider registered before /
- * `prepend`ed would win instead). This is not a composable authorization chain;
- * layered permission/audit/sandbox interception belongs on `tools/execute`.
- *
+ * Event-only filesystem observation policy; it registers no service. A weak owner/target map
+ * records every successful read or mutation, single-slot intent listeners supply that version,
+ * and the provider performs the atomic freshness check. Without this plugin, tools retain the
+ * bare provider's unconditional mutation behavior. See the package README for composition rules.
  * @module @deepseek-ai/dsh-fs-policy
  */
 
@@ -145,15 +108,11 @@ export function apply(ctx: Context): void {
   // holds (a throw rejects, never escapes synchronously through the waterfall).
   ctx.on('fs/write-intent', (target, actor) => Promise.resolve().then(() => gate.writeIntent(target, actor)))
 
-  // fs/edit-intent: occupy the single decision slot — do NOT call next().
-  // Deferred the same way so an FS_NOT_OBSERVED throw becomes a rejected promise
-  // the edit tool's `await ctx.waterfall(...)` surfaces as its isError result.
+  // fs/edit-intent: occupy the single decision slot — do not call next().
   ctx.on('fs/edit-intent', (target, actor) => Promise.resolve().then(() => gate.editIntent(target, actor)))
 
-  // fs/observed: synchronous, side-effect-only WeakMap write. The tool emits
-  // this with a plain (unguarded) ctx.emit, so this listener MUST NOT throw —
-  // a throw would surface as the tool's isError result for a mutation that
-  // already succeeded. A WeakMap.set honors that contract.
+  // fs/observed must remain synchronous and non-throwing: the mutation already succeeded, and
+  // emit does not await promises. WeakMap.set satisfies that contract.
   ctx.on('fs/observed', (target, version, actor) => {
     gate.observe(target, version, actor)
   })

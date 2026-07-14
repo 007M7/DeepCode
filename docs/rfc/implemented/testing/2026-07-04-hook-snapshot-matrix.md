@@ -10,7 +10,7 @@ That is the tier a mocked unit test structurally cannot be: it exercises the REA
 
 ## Decision
 
-Two coupled changes, in one PR:
+The implementation has two coupled parts:
 
 ### 1. The ACP example ships BOTH hook bridges
 

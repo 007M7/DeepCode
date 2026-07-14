@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-jsonrpc",
-  "description": "Stdio JSON-RPC SDK server plugin: serves HarnessSdkServer over newline-delimited JSON-RPC on the process stdio, letting an out-of-process SDK client (e.g. the Python SDK) drive DeepSeek Harness agents",
+  "description": "Stdio JSON-RPC server plugin for out-of-process DeepSeek Harness SDK clients",
   "version": "0.0.1",
   "private": true,
   "type": "module",

@@ -1,15 +1,8 @@
-# The coding-agent plugin tree: the REPL agent demo. The two swappable
-# backends — the DeepSeek adapter and the local bash executor — plus `hmr` for
-# the dev/demo reload loop, then the stdio chat app (@deepseek-ai/dsh-stdio-
-# agent), which bundles the whole agent-core spine (timer, llm, sessions,
-# system-prompt, tools, agents, invariants, tool-bash, agent-loop), the console
-# logger, JSONL persistence, the readline UI, and a pre-created `main` agent.
-#
-# `hmr` is a leaf entry (not baked into dsh-stdio-agent): it is a Loader-only
-# dev plugin that needs `--expose-internals` — the `demo:repl` script passes
-# it. Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
-# environment — the dsh-stdio-agent bin loads the gitignored repo-root .env
-# first. cordis.yml reads them via the `!!js` tag.
+# REPL agent with swappable DeepSeek and local-bash backends. `dsh-stdio-agent`
+# supplies the agent-core spine, logging, JSONL persistence, readline UI, and `main` agent.
+# HMR remains a leaf because it requires Loader internals; `demo:repl` passes
+# `--expose-internals`. The app bin loads the gitignored root `.env`; this file
+# reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
 
 # Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
@@ -28,15 +21,13 @@
       - deepseek-v4-pro
       - deepseek-v4-flash
 
-# Local bash executor for agent-core's tool-bash schema (one of several tool
-# stacks in this tree: filesystem, subagent, and todo_write load below).
+# Local executor for the app bundle's bash tool.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
     timeoutMs: 60000
 
-# The stdio chat app: the whole spine + front-door cluster, configured for a
-# REPL agent demo driving a pre-created `main` agent.
+# The app bundle pre-creates the REPL's `main` agent.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
@@ -46,20 +37,16 @@
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
     welcome: 'agent REPL ready. Give it a coding task.'
-    # The persona: identity + behavior only, nothing about transports or
-    # tooling — tool guidance lives with each tool plugin (descriptions +
-    # prompt sections). {{model}} is the prompt variable the agent loop
-    # resolves from this agent's configured model.
+    # Keep the persona to identity and behavior; tool plugins own tool guidance.
+    # The loop resolves {{model}} from this agent's configuration.
     persona: |
       You are coding-agent, a coding assistant powered by the {{model}} model.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Automatic context compaction: when the derived history approaches the model's
-# context window, summarize an older range into a checkpoint so a long-running
-# or tool-heavy session keeps fitting. A leaf entry (needs ctx.llm + the
-# agent-loop's `agent/pre-step` seam from the app above).
+# Summarize an older range when derived history approaches the context window.
+# This leaf consumes `ctx.llm` and the app's `agent/pre-step` seam.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
@@ -70,13 +57,9 @@
     maxTokens: 8192
     compactionRetries: 1
 
-# The subagent seam + BOTH in-process backends + two model-facing tools, as leaf
-# entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh
-# child) and fork (a child seeded with the parent's completed-turn prefix) are
-# independent backends over the shared dsh-subagent-inprocess driver. Exposing
-# both transports is pure config: load each backend, then load dsh-tool-subagent
-# once per backend with a distinct toolName (the tool registry rejects a
-# duplicate name) — no code change.
+# Expose fresh-child `spawn` and completed-prefix `fork` through independent
+# in-process backends. Each tool instance needs a distinct `toolName`; the registry
+# rejects duplicates. These leaves follow the app because it provides `ctx.agents` and `ctx.tools`.
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
@@ -103,10 +86,8 @@
     toolName: subagent_fork
 
 
-# Dynamic workflows: the worker-thread engine (ctx.workflows) over the spawn
-# subagent backend above, plus the model-facing `workflow` tool. The model
-# writes a JavaScript orchestration script (meta + body); the engine runs it
-# in its own worker thread and fans agent() calls out as spawn children.
+# The worker-thread workflow engine fans a model-written JavaScript script's
+# `agent()` calls out through the spawn backend; the adjacent tool exposes it to the model.
 - id: workflow-workerthread
   name: '@deepseek-ai/dsh-workflow-workerthread'
   config:
@@ -114,14 +95,12 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
-# The model-facing todo_write tool: whole-list task tracking written to the
-# session log (todo/write), rendered as a stdio checklist / ACP plan.
+# `todo_write` replaces the logged whole list and renders as a stdio checklist or ACP plan.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
 
-# Filesystem capability stack: local provider, read-before-write/edit policy
-# gate, then the model-facing read/write/edit tools. stdio-agent is a single
-# session, so relative paths resolve from the process cwd (the workspace).
+# Policy loads before the model-facing filesystem tools so writes and edits require
+# an observed file. This single-session app resolves relative paths from the process cwd.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
   config:
