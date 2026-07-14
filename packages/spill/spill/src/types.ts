@@ -28,10 +28,11 @@ export function SpillLocator(locator: string): SpillLocator {
 }
 
 /**
- * Who a spilled file belongs to: the session whose tool call produced it. The
- * backend scopes storage per session (its directory layout, its cleanup unit),
- * so the owner is the session id, not a decoupled token — spill is inherently
- * session-scoped, unlike the bash executor's cross-session `OwnerToken`.
+ * Save-time storage namespace for a spilled artifact. The session id lets a
+ * backend group storage under the producing session, but the returned
+ * {@link SpillLocator} is the model-facing handle. Forked sessions inherit
+ * locators already present in the seeded log; those artifacts are not copied or
+ * re-owned, and spills produced after the fork use the child session id.
  */
 export interface SpillOwner {
   sessionId: SessionId
@@ -39,8 +40,8 @@ export interface SpillOwner {
 
 /**
  * Provenance of one spilled artifact — recorded by the backend for a readable
- * filename and future cleanup/inspection. Not interpreted for access control
- * (the {@link SpillOwner} scopes storage); purely descriptive.
+ * filename and inspection. Not interpreted for access control; purely
+ * descriptive.
  */
 export interface SpillSource {
   /** The tool whose result was spilled (e.g. `web_fetch`). */
