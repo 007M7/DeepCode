@@ -3,9 +3,10 @@
  * `steer()`, and renders the durable transcript to stdout. A UI is "just a
  * plugin" — it consumes the `session/event` feed (the assistant token stream,
  * turn/step boundaries, tool activity, todos) plus a few `agent/*` control
- * events (`agent/status`, `agent/created`/`agent/disposed`) and the `agents`
- * service. Dimmed chain-of-thought rendering plus robust piped-stdin EOF→idle
- * exit handling, configured via {@link Config}.
+ * events (`agent/status`, `agent/created`/`agent/disposed`,
+ * `agent/session-start`) and the `agents` service. Dimmed chain-of-thought
+ * rendering plus robust piped-stdin EOF→idle exit handling, configured via
+ * {@link Config}.
  *
  * An internal module of the stdio app, not a package of its own: the app's
  * front-door cluster always includes this UI, and nothing else composes it.
@@ -105,12 +106,6 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const matchesConfiguredIdentity = (agent: Agent): boolean =>
     agent.id === config.sessionId && ctx.agents.roots().includes(agent)
   let target: Agent | undefined = ctx.agents.roots().find(agent => agent.id === config.sessionId)
-  ctx.on('agent/created', (agent) => {
-    if (matchesConfiguredIdentity(agent)) target = agent
-  })
-  ctx.on('agent/disposed', (agent) => {
-    if (target === agent) target = undefined
-  })
 
   // Transcript rendering off the durable `session/event` feed — the assistant
   // token stream, turn/step boundaries, tool activity, and todos all come from
@@ -158,7 +153,6 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
     // Piped-input exit, once stdin reaches EOF:
     //  - If no line ever submitted work (empty stdin, blank-only lines), exit
     //    immediately — no turn will ever start, so there is nothing to wait
@@ -176,6 +170,36 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     let exitTimer: ReturnType<typeof setTimeout> | undefined
     let activeQuestion: PendingQuestion | undefined
     const questionQueue: PendingQuestion[] = []
+    const queuedInput: string[] = []
+    let targetReady = target !== undefined
+    let hadReadyTarget = targetReady
+
+    const submit = (agent: Agent, text: string): void => {
+      submittedWork = true
+      if (agent.status === 'running') {
+        agent.steer([{ type: 'text', text }])
+      } else {
+        agent.send([{ type: 'text', text }])
+      }
+    }
+
+    const disposeCreatedListener = ctx.on('agent/created', (agent) => {
+      if (!matchesConfiguredIdentity(agent)) return
+      target = agent
+      targetReady = false
+    })
+    const disposeSessionStartListener = ctx.on('agent/session-start', (agent) => {
+      if (agent !== target) return
+      targetReady = true
+      hadReadyTarget = true
+      for (const text of queuedInput.splice(0)) submit(agent, text)
+    })
+    const disposeDisposedListener = ctx.on('agent/disposed', (agent) => {
+      if (target !== agent) return
+      target = undefined
+      targetReady = false
+    })
+    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
 
     const maybeExit = (): void => {
       if (disposed || !stdinClosed) return
@@ -351,16 +375,20 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const text = line.trim()
       if (!text) return
       const agent = target
-      if (!agent) {
+      if (agent === undefined || !targetReady) {
+        // Initial exact-id restoration is asynchronous. Preserve input until
+        // session-start, the first supported point for queueing agent work.
+        // After a previously ready target disappears, a line in the HMR gap
+        // still fails loud unless its exact replacement is already publishing.
+        if (!hadReadyTarget || agent !== undefined) {
+          submittedWork = true
+          queuedInput.push(text)
+          return
+        }
         ctx.logger.error('ui-stdio: main agent is not running')
         return
       }
-      submittedWork = true
-      if (agent.status === 'running') {
-        agent.steer([{ type: 'text', text }])
-      } else {
-        agent.send([{ type: 'text', text }])
-      }
+      submit(agent, text)
     })
     reader.on('close', () => {
       // Fires for BOTH stdin EOF and plugin disposal (reader.close() below);
@@ -376,6 +404,9 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       disposePendingQuestions()
       disposeUserInteractionProvider()
       disposeStatusListener()
+      disposeCreatedListener()
+      disposeSessionStartListener()
+      disposeDisposedListener()
       reader.close()
     }
   }, 'ui-stdio')
