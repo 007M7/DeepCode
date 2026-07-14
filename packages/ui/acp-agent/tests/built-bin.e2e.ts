@@ -117,7 +117,7 @@ afterEach(async () => {
 describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, no tsx)', () => {
   it('boots the published bin and answers an initialize JSON-RPC frame on stdout', async () => {
     consumer = await makeConsumer()
-    child = spawn(process.execPath, ['--expose-internals', acpBin, './cordis.yml'], {
+    child = spawn(process.execPath, ['--expose-internals', acpBin, '--config', './cordis.yml'], {
       cwd: consumer,
       // Dummy key: initialize never reaches the model, so it is never used.
       env: {
@@ -183,7 +183,7 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, 
 /** Spawn the built acp bin against `configArg` and resolve with its exit code + stderr. */
 function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(process.execPath, ['--expose-internals', acpBin, configArg], {
+    const proc = spawn(process.execPath, ['--expose-internals', acpBin, '--config', configArg], {
       cwd,
       env: {
         ...process.env,

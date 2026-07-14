@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, foldSurface, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -14,6 +14,59 @@ function surfaceSession(): Session {
 }
 
 describe('SurfaceManager', () => {
+  it('shares exact nodes and nested replacement ranges with foldSurface', () => {
+    const s = new Session(SessionId('shared-fold'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+    s.append('assistant/message', { turn: 1, step: 2, content: [{ type: 'text', text: 'summary 2' }] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2, 1] })
+
+    const folded = foldSurface(s.events)
+    expect(folded.nodes).toEqual(s.surface.nodes)
+    expect(folded.replacements).toEqual([
+      { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
+      { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
+    ])
+    folded.nodes[0]!.next = 99
+    folded.replacements[0]!.shadowedSeqs.push(99)
+    expect(s.surface.nodes).toEqual([{ seq: 3, prev: null, next: null }])
+    expect(foldSurface(s.events).replacements[0]!.shadowedSeqs).toEqual([0])
+  })
+
+  it('does not retain fold-only replacement history in incremental state', () => {
+    const s = new Session(SessionId('incremental-state'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 } })
+
+    expect(s.surface.nodes).toEqual([{ seq: 1, prev: null, next: null }])
+    const manager = s.surface as unknown as { _state: object }
+    expect(Object.hasOwn(manager._state, 'replacements')).toBe(false)
+    expect(foldSurface(s.events).replacements).toEqual([
+      { seq: 1, start: 0, end: 0, shadowedSeqs: [0] },
+    ])
+  })
+
+  it('foldSurface reports the same invalid replacement failures as the incremental manager', () => {
+    const s = new Session(SessionId('shared-fold-invalid'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 42, end: 0 }, sourceEventSeqs: [0] })
+
+    expect(() => foldSurface(s.events)).toThrow(/start seq 42 not found/)
+    expect(() => s.surface.nodes).toThrow(/start seq 42 not found/)
+  })
+
+  it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {
+    const malformed: SessionEvent = {
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' } },
+    }
+
+    expect(() => foldSurface([malformed]))
+      .toThrow(/surface event "user\/message" \(seq 0\) carries no surfaceOp marker/)
+  })
+
   it('rebuilds a linked list from surfaceOp: append markers', () => {
     const s = surfaceSession()
     const nodes = s.surface.nodes

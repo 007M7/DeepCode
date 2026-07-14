@@ -39,6 +39,9 @@
       "path": "../user-approval"
     },
     {
+      "path": "../permission"
+    },
+    {
       "path": "../../sandbox/sandbox"
     },
     {
