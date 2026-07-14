@@ -61,7 +61,7 @@ function isArch(value: string): value is Arch {
 }
 
 /**
- * A validated pkg target triple, constructed from `--targets` or the host.
+ * A parsed pkg target triple, constructed from `--targets` or the host.
  */
 class Target {
   private constructor(
@@ -82,7 +82,7 @@ class Target {
   }
 
   /**
-   * Parse one target spec, rejecting malformed or unsupported components.
+   * Parse one target spec, rejecting malformed triples and unsupported platform or architecture.
    * @param spec - the raw triple, e.g. `node24-linux-x64`.
    * @returns the parsed target.
    */

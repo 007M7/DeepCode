@@ -2,8 +2,9 @@ name: Build single-exe
 
 # Native builds for the release targets; see
 # docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
-# The retained artifacts are one SDK wheel and three runtime wheels; bare
-# executables and source closures are test inputs. Run manually or label a PR
+# A full target run retains one SDK wheel and three runtime wheels; subset
+# dispatch retains the SDK wheel and selected runtime wheels. Bare executables
+# and source closures are test inputs. Run manually or label a PR
 # `build-exe` (remove and reapply to rerun). Checkout uses the triggering ref,
 # so dispatch needs no separate ref input.
 on:
@@ -149,7 +150,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-
 
-      # Cache pkg's patched Node binary per target; lockfile changes roll the
+      # Cache pkg's target Node binary; lockfile changes roll the
       # exact key while the restore prefix can seed its replacement.
       - uses: actions/cache@v4
         with:

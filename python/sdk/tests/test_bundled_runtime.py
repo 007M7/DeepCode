@@ -1,4 +1,4 @@
-"""Keyless installed-SDK boot tests for the executable and node carriers.
+"""Keyless boot tests for the production exe and development node carrier.
 
 Each carrier skips independently when absent. The dummy API key only satisfies
 adapter loading; initialize and shutdown do not call a model.

@@ -102,7 +102,7 @@ export class PermissionService extends Service {
     })).default({
       'workspace-write': {
         sandbox: 'workspace-write', approval: 'ask',
-        name: 'workspace-write', description: 'Write inside the workspace; wider retries require approval.',
+        name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.',
       },
       'danger-full-access': {
         sandbox: 'danger-full-access', approval: 'never',

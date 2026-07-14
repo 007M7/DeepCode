@@ -28,7 +28,7 @@ One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferre
 
 The host validates metadata and parses the body before publication. Private enum-keyed payload maps define the wire protocol; pending starts, published child records, one cancellation signal, worker-death reaping, result precedence, and disposal quiescence preserve the subagent run contract across it. The [agent-scope runtime-design RFC](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) owns those race algorithms.
 
-Coverage uses an in-process `MessageChannel` for worker-side logic that main-process V8 coverage cannot see. The built-bin gate separately runs the `"./worker"` export's `lib/worker.cjs` entry under plain Node.
+The engine exposes an in-process `MessageChannel` test path because main-process V8 coverage cannot see worker execution.
 
 **Meta is data**: the schema-validated `meta` field reaches the seam as JSON and is only shape-validated. The host never evaluates a metadata literal, which would let script-controlled accessors run outside the worker's isolation.
 
@@ -48,7 +48,7 @@ An output schema makes a schema-valid committed capture mandatory for successful
 
 ## Testing
 
-Worker-side logic runs through an in-process `MessageChannel` so V8 coverage measures it. Unit tests cover script helpers, fatal and nullable failures, JSON boundaries, caps, cancellation, child ownership, and structured output through real loops. A built-lib smoke runs the separately bundled `lib/worker.cjs` under plain Node, a with-key e2e drives real child agents, and model-facing workflow behavior is snapshot-covered through its owning example.
+Worker-side logic runs through an in-process `MessageChannel` so V8 coverage measures it. Unit tests cover script helpers, fatal and nullable failures, JSON boundaries, caps, cancellation, child ownership, and structured output through real loops. A built-bin smoke runs the separately bundled `lib/worker.cjs` under plain Node, a with-key e2e drives real child agents, and model-facing workflow behavior is snapshot-covered through its owning example.
 
 ## Deferred (documented non-goals of this cut)
 

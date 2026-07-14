@@ -77,7 +77,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'approval',
-    summary: 'Approval request and policy service.',
+    summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
     ],
@@ -265,7 +265,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent left the registry.',
+    summary: 'An agent left the registry; AgentLoop emits this after driver quiescence but before session detachment and scoped-registration unwind.',
   },
   {
     name: 'agent/error',
@@ -277,7 +277,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited serial checkpoint after prompt assembly and before `step/start`.',
+    summary: 'Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step.',
   },
   {
     name: 'agent/prompt-submit',
@@ -331,7 +331,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/turn-stop',
     mode: 'serial',
     signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
-    summary: 'Monotonic terminal-stop checkpoint after continuation and steering are folded.',
+    summary: 'Monotonic terminal-stop checkpoint after continuation and steering are folded; a stop remains authoritative through turn close and flush: steering queued in that window is discarded, while ordinary sends survive.',
   },
   {
     name: 'approval/request',

@@ -170,6 +170,7 @@ export class AgentRegistry extends Service {
 
   /**
    * Create and publish an owned agent and session through the active factory.
+   * Rejects if no factory is registered or creation, setup, or publication fails.
    * @param options - agent id, session id/seed/metadata, and agent options.
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */

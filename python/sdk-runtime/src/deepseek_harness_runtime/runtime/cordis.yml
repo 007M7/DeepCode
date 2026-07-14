@@ -1,6 +1,6 @@
 # Bundled default config. The runtime still requires an explicit
 # $DSH_CORDIS_CONFIG or argv path; the SDK injects this path for bundled
-# zero-config launches. SDK-set environment variables have manual-run fallbacks.
+# zero-config launches. SDK-set session-root and cwd variables have manual-run fallbacks.
 
 # Stdio JSON-RPC serving surface; without it the agent has no SDK client.
 - id: jsonrpc

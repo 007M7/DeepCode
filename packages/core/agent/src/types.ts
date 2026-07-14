@@ -138,8 +138,9 @@ declare module 'cordis' {
      */
     'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * An agent left the registry. AgentLoop emits this after driver quiescence;
-     * custom registry users own their driver-ordering contract.
+     * An agent left the registry; AgentLoop emits this after driver quiescence
+     * but before session detachment and scoped-registration unwind. Custom
+     * registry users own their driver-ordering contract.
      * @param agent - the exact agent removed from the registry.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
@@ -182,11 +183,12 @@ declare module 'cordis' {
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**
-     * Awaited serial checkpoint after prompt assembly and before `step/start`.
-     * Listeners may mutate the session surface outside the pending step; the loop
-     * derives history once afterward, so compaction records and replacements are
-     * included without rewriting an assembled request. The prompt and prefix are
-     * the exact pressure inputs for that request, and `signal` cancels listener work.
+     * Awaited serial checkpoint for session-surface mutation after prompt
+     * assembly and before `step/start`; appends land outside the pending step.
+     * The loop derives history once afterward, so compaction records and
+     * replacements are included without rewriting an assembled request. The
+     * prompt and prefix are the exact pressure inputs for that request, and
+     * `signal` cancels listener work.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent opening the step.
      * @param turn - the open turn number.
@@ -258,7 +260,8 @@ declare module 'cordis' {
     'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
     /**
      * Monotonic terminal-stop checkpoint after continuation and steering are
-     * folded. A stop discards pending steering.
+     * folded; a stop remains authoritative through turn close and flush:
+     * steering queued in that window is discarded, while ordinary sends survive.
      * @param agent - the agent whose composed continuation outcome may be stopped.
      * @param turn - the turn at its terminal-stop checkpoint.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
