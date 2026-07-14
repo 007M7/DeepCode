@@ -600,7 +600,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every committed JSONL omits system prompts and only pinning fixtures keep other header bulk', async () => {
+    it('every committed JSONL has valid tool results and canonical header storage', async () => {
       // System prompts always live in the readable Markdown artifact. Header
       // pins keep tool schemas/prefixes in JSONL; every other fixture tokenizes
       // all header bulk. Fixed-point checks make both storage rules fail loud.
@@ -612,6 +612,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         ]
         for (const file of files) {
           const fixture = await readFile(join(dir, file), 'utf8')
+          expect(unknownToolCallIds(fixture), `${scenario.name}/${file} contains UNKNOWN_TOOL`)
+            .toEqual([])
           expect(scrubSystemPrompts(fixture), `${scenario.name}/${file} carries an unscrubbed system prompt`)
             .toEqual(fixture)
           if (scenario.pinsHeader === true) {
@@ -621,21 +623,6 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} carries unscrubbed header content`)
               .toEqual(fixture)
           }
-        }
-      }
-    })
-
-    it('no committed session fixture accepts UNKNOWN_TOOL', async () => {
-      for (const scenario of scenarios) {
-        const dir = join(snapshotsDir, scenario.name)
-        const files = [
-          'session.jsonl',
-          ...Array.from({ length: scenario.childSessions ?? 0 }, (_, i) => `session.${i + 1}.jsonl`),
-        ]
-        for (const file of files) {
-          const fixture = await readFile(join(dir, file), 'utf8')
-          expect(unknownToolCallIds(fixture), `${scenario.name}/${file} contains UNKNOWN_TOOL`)
-            .toEqual([])
         }
       }
     })
