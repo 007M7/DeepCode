@@ -1,20 +1,10 @@
 /**
- * The `node:vm` sandbox `cordis_mount` code evaluates in: a fresh realm whose
- * globals are a tagged write-through console, the `harness` registration
- * helpers, the encoding primitives a bare vm context lacks, and callable traps
- * over the Node APIs the sandbox deliberately withholds. Capability access is
- * routed through cordis services, never Node built-ins: filesystem work goes
- * through `ctx.fs`, network through `ctx.web`, processes through `ctx.bash`,
- * timers through the `ctx.timer` helpers (fiber effects, unwound on unmount)
- * — so a well-behaved mount stays inspectable and disposable. That routing is
- * STEERING toward the cordis services, not containment: the sandbox guards
- * against ACCIDENTAL global pollution, and it is not a security boundary. The
- * host-realm helpers on the sandbox global (`harness`, `console`, `btoa`) are
- * reachable functions, so a mount that goes looking — e.g. through such a
- * helper's `.constructor` — can still reach the host realm; that is accepted,
- * because the `ctx` a mounted plugin's `apply` later receives is the real,
- * fully privileged runtime handle, and that is the point of the toolset.
- *
+ * The `node:vm` sandbox `cordis_mount` code evaluates in: a fresh realm whose globals are a
+ * tagged write-through console, the `harness` registration helpers, the encoding primitives a
+ * bare vm context lacks, and callable traps over the Node APIs the sandbox deliberately
+ * withholds. Traps steer filesystem, network, process, and timer work to `ctx.fs`, `ctx.web`,
+ * `ctx.bash`, and Cordis timers. This keeps cooperative mounts inspectable and disposable but
+ * is not containment: host-realm helper functions remain an escape route.
  * @module @deepseek-ai/dsh-tool-cordis/sandbox
  */
 
@@ -35,17 +25,8 @@ function taggedConsole(id: string): Record<'log' | 'info' | 'warn' | 'error' | '
 }
 
 /**
- * Per-sandbox prelude: give the vm realm's own constructors a
- * `Symbol.hasInstance` that checks BOTH realms. Model code runs against a
- * fresh vm realm, but most objects it touches are HOST-realm (the `args` a
- * tool's `execute` receives, event payloads a listener observes, service
- * return values), so a plain `x instanceof Array` / `instanceof Object` in
- * sandbox code would silently be false. The patch replaces each vm
- * constructor's own `[Symbol.hasInstance]` with "ordinary check against the
- * vm constructor OR the host counterpart" — the ordinary algorithm is a pure
- * prototype-chain walk, so calling it with the host constructor as receiver
- * needs no host-side change. ONLY vm-realm globals are modified; host
- * intrinsics are passed in as values and never touched.
+ * Patch only VM constructors so `instanceof` accepts both VM values and host values passed as
+ * arguments, events, or service results; host intrinsics remain untouched.
  */
 const DUAL_REALM_INSTANCEOF_PRELUDE = `
 (hostIntrinsics) => {
@@ -156,13 +137,10 @@ export function syntaxErrorContext(error: Error): string {
 }
 
 /**
- * Evaluate mount code as the body of an async function inside the sandbox.
- * `vmTimeoutMs` only bounds the SYNCHRONOUS portion; an async body escapes it
- * — acceptable under the module's trust stance. A parse failure is answered
- * with the offending line + caret and a teaching hint: TypeScript syntax on
- * the failing line gets the remove-annotations fix, anything else gets the
- * function-body/bracket-balance reminder (models habitually close the returned
- * plugin object with `});` as if it were a callback argument).
+ * Evaluate mount code as the body of an async function inside the sandbox. `vmTimeoutMs` only
+ * bounds the SYNCHRONOUS portion; an async body escapes it — acceptable under the module's
+ * trust stance. Parse errors include the offending line and a TypeScript-removal or bracket-
+ * balance hint.
  * @param sandbox - the contextified object from {@link createSandbox}.
  * @param code - the model-written function body; must `return` a plugin.
  * @param id - the mount id, used as the vm filename (`cordis-mount-<id>.js`).

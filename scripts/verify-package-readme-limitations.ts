@@ -1,35 +1,8 @@
 /**
- * Doc-sync gate: every package README carries the standard
- * `## Known Limitations and Deferred Work` section — the per-package home for
- * consumer-visible gaps and consciously postponed work that the
- * [documentation standard](../docs/AGENTS.md) assigns to the package-README
- * tier. One canonical heading instead of per-package variants ("Limitations",
- * "What is NOT here", …) keeps the section greppable across the repo and makes
- * its absence a gate failure rather than an oversight.
- *
- * A package with genuinely nothing to declare is listed in NO_LIMITATIONS
- * below and must NOT carry the section — an empty section invites boilerplate,
- * and a whitelisted package that gains real limitations leaves the whitelist
- * in the same change. Whitelist entries are validated against the scanned
- * package set, so a rename or removal fails loud instead of silently
- * un-gating a README.
- *
- * The package set comes from `packages/<group>/<package>/package.json`, so a manifest with no
- * sibling README fails instead of escaping a README-only glob. Checks, per
- * package README (fenced code and HTML comments excluded):
- * 1. Non-whitelisted: exactly one limitations-like heading, byte-equal to the
- *    canonical h2, with at least one top-level `- ` bullet before the next
- *    heading.
- * 2. Whitelisted: no limitations-like heading at all.
- * 3. Every whitelist entry names a scanned package.
- *
- * "Limitations-like" also matches near-miss headings at any level ("known
- * limitations", "deferred work", "what is not here", a heading starting with
- * "limitations"/"deferred") so a drifted heading cannot impersonate the
- * canonical section and a second competing section cannot coexist with it.
- *
- * Checker, not fixer: it reports and never rewrites.
- * Run: `tsx scripts/verify-package-readme-limitations.ts`.
+ * Doc-sync gate for the canonical package-README limitations section. It scans
+ * package manifests, rejects missing or variant sections, and requires one
+ * top-level bullet; audited packages in {@link NO_LIMITATIONS} must omit it.
+ * See the [limitations RFC](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md).
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
@@ -41,11 +14,7 @@ const root = resolve(import.meta.dirname, '..')
 /** The one canonical section heading, required verbatim as an h2. */
 const CANONICAL = '## Known Limitations and Deferred Work'
 
-/**
- * Packages with genuinely no known limitations or deferred work (keyed by
- * package directory relative to the repo root). Their READMEs must NOT carry
- * the section; adding one moves the package off this list in the same change.
- */
+/** Packages audited as having no limitations section, keyed by repo-relative directory. */
 const NO_LIMITATIONS: Readonly<Record<string, string>> = {
   'packages/util/brand': 'Type-only nominal-branding primitive with no runtime behavior or deferred work.',
 }

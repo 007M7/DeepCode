@@ -1,16 +1,8 @@
 /**
- * `LocalBashExecutor`: the local-subprocess implementation of the
- * `@deepseek-ai/dsh-bash` executor seam. Spawns `bash -c` per call in its
- * own process group (see `./run.ts` for the plumbing and the agent-tool
- * survey notes), tracks background tasks, and kills everything on dispose.
- *
- * TODO(permissions/sandbox): execution policy does NOT belong here — use
- * the `tools/pre-execute` deny/ask gate (see docs/architecture.md
- * § Extending The Harness) or implement a sandboxing `BashExecutor`.
- * Reference points:
- * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
- * seatbelt/landlock plus an execpolicy prefix-rule engine.
- *
+ * Local-subprocess implementation of the bash seam. Each call runs in its own
+ * process group, background tasks are tracked, and disposal kills and awaits
+ * them. Execution policy belongs in `tools/pre-execute` or a sandboxing
+ * executor, not this local process layer.
  * @module @deepseek-ai/dsh-bash-local
  */
 
@@ -90,10 +82,9 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
     ctx.effect(() => async () => {
-      // Kill every live process group and WAIT for the processes to close so
-      // nothing outlives the fiber (HMR safety) — a TERM-trapping child is
-      // held until the SIGKILL escalation lands. The base class already
-      // silenced listeners, so these kills complete without notices.
+      // Kill every live process group and WAIT for the processes to close so nothing outlives
+      // the fiber (HMR safety) — a TERM-trapping child is held until the SIGKILL escalation
+      // lands.
       const pending: Promise<void>[] = []
       for (const task of this.tasks.values()) {
         if (task.status === 'running') {
@@ -154,23 +145,18 @@ export class LocalBashExecutor extends BashExecutor {
       stdin: spec.stdin,
       env: spec.env,
     }, this.internals).done
-    // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our
-    // timeout cut the command short; any other abort — an upstream cancel, or a
-    // foreign (outer) deadline's timeout under nesting — is aborted. Scoping to
-    // our own code keeps a nested outer deadline from reading as our timeout.
-    // Mutually exclusive by construction — the fused signal reports one cause.
+    // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our timeout cut the
+    // command short; any other abort — an upstream cancel, or a foreign (outer) deadline's
+    // timeout under nesting — is aborted.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
     return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
   }
 
   start(spec: BashExecSpec): BashTask {
-    // No timeout for background tasks (matches Claude Code, which detaches
-    // the timeout when backgrounding); callers stop tasks via kill() — or
-    // via spec.signal, which the seam contract honors for background runs
-    // too (runBash wires it to the group kill). No deadline is created here,
-    // so spec.timeoutMs is ignored by design — background tasks stay
-    // timeout-free (see the timeout-library RFC).
+    // No timeout for background tasks (matches Claude Code, which detaches the timeout when
+    // backgrounding); callers stop tasks via kill() — or via spec.signal, which the seam
+    // contract honors for background runs too (runBash wires it to the group kill).
     const running = runBash({
       command: spec.command,
       cwd: spec.workdir,

@@ -66,10 +66,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error('dsh-tool-skill: registered skill tool is not visible in the global registry')
   }
 
-  // Register after the tool so reverse-order fiber teardown removes this
-  // guidance listener before its referenced tool. Exact definition identity is
-  // the shared truth for restrictions and scoped shadows: another tool merely
-  // named `skill` must not inherit this plugin's catalog or instructions.
+  // Register after the tool so reverse teardown removes guidance first. Exact definition
+  // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
   ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
     if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) return await next()
     const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })

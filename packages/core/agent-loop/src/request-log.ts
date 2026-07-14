@@ -1,12 +1,7 @@
 /**
- * Per-loop-instance transmission bookkeeping for the reconstructability
- * contract: which header event to append before a request so the session log
- * always explains the request (the reconstructability RFC). The loop is
- * otherwise transmission-stateless — the comparison baseline is the log's own
- * folded header (`Session.requestHeader()`), so resume and fork need no
- * special path: a fresh loop instance simply logs a `'resume'` snapshot on
- * its first request and deltas from there.
- *
+ * Per-loop-instance request-header bookkeeping for reconstructability. The
+ * comparison baseline is the header folded from the session log, so a fresh
+ * loop instance needs no special resume or fork state.
  * @module dsh-agent-loop/request-log
  */
 
@@ -37,22 +32,10 @@ export function createTransmissionLog(): TransmissionLog {
 }
 
 /**
- * Append whatever header event this request owes the log, so folding the log
- * reproduces the header the request was built under. Exactly one of four
- * things happens:
- *
- * 1. This loop instance has not logged a header yet → a full `request/header`
- *    snapshot anchors the fold: reason `'initial'` when the log has no header
- *    events at all (a new conversation), `'resume'` when it does (process
- *    restart, fork seed — the boundary itself is a recorded fact, so the
- *    snapshot is appended even when nothing changed).
- * 2. The header equals the folded baseline → nothing; the log already
- *    explains this request.
- * 3. It differs and the delta round-trips (`applyHeaderDelta` on the baseline
- *    reproduces the header exactly) → a `request/header-delta`.
- * 4. It differs and the delta encoding cannot express the change (a pure tool
- *    reordering) → a full snapshot with reason `'fallback'`; deltas are an
- *    encoding optimization, never a correctness dependency.
+ * Append whatever header event makes the log reproduce this request's header.
+ * The first request from an instance always records a full `initial` or `resume`
+ * snapshot. Later requests record nothing when unchanged, a round-tripping
+ * delta when expressible, or a full `fallback` snapshot otherwise.
  *
  * @param session - the session whose log explains the request.
  * @param state - this loop instance's bookkeeping (mutated on first log).

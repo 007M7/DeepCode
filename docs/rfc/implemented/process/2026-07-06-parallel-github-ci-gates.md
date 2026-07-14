@@ -10,15 +10,15 @@ The hard part is the artifact boundary. `publint`, `verify-node-next-types`, and
 
 ## Decision
 
-[CI](../../../../.github/workflows/ci.yml) keeps the keyless workflow to a few broad jobs instead of one job per gate. The Node 24 matrix has five lanes: static gates (`pnpm run check:ci:static`), lint (`pnpm run check:ci:lint`), coverage (`pnpm run check:ci:coverage`), snapshot replay (`pnpm run check:ci:snapshot`), and artifact gates (`pnpm run check:ci:artifacts`). The compatibility matrix has Node 22.19, 24, and 26 jobs; each installs once and runs `pnpm run check:node-compat`.
+[CI](../../../../.github/workflows/ci.yml) groups keyless checks into broad primary-runtime lanes plus a compatibility matrix. The workflow file owns the current lane and runtime inventory.
 
-Each lane delegates to [scripts/run-gates.ts](../../../../scripts/run-gates.ts), an in-process scheduler with bounded concurrency (`DSH_GATE_CONCURRENCY`). The static lane fans out constraints, the echo-agent demo smoke, `doc-sync` leaf gates, module-graph freshness, and `knip`; the lint lane runs ESLint with its own Node heap cap and a content-strategy ESLint cache; the coverage lane runs Vitest coverage with bounded file workers (`DSH_COVERAGE_MAX_WORKERS`); the snapshot lane isolates replay; the artifact lane builds once and then fans out the artifact consumers. Every compatibility job runs the TypeScript typecheck and a keyless workflow-workerthread source-launch smoke, which starts a real unbuilt worker and therefore catches Node-version-specific loader/runtime failures that typechecking cannot. The scheduler buffers each gate's output and prints a named result block with duration, so independent failures stay attributable inside each broad job log.
+Each lane delegates to [scripts/run-gates.ts](../../../../scripts/run-gates.ts), which schedules independent gates with bounded concurrency and prints an attributable result block for each one. Artifact consumers depend on one build within their lane, while compatibility jobs combine typechecking with a real unbuilt worker launch to cover runtime-specific loader behavior.
 
 Generated `.sessions/` logs and `.doc-typecheck-*` temp directories are ignored by lint. The aggregate local CI mode still runs demo smoke after lint, while the split GitHub static lane can run demo smoke directly because lint is isolated in its own lane.
 
 Build output is produced once inside the Node 24 artifact lane. The artifact consumers (`publint`, `verify-node-next-types`, and built-bin smoke) declare a dependency on `build`, so there is no upload/download handoff and no consumer can race ahead of declarations or bundles. The CI coverage reporter is text-only while local coverage keeps the HTML report.
 
-Both CI workflows cache the pnpm store after enabling Corepack. The real-API e2e workflow also uses the shared `vitest.e2e.config.ts` bounded file pool (`DSH_E2E_MAX_WORKERS=14` in CI), so its speedup comes from dependency-cache reuse plus lower-level test-file fan-out instead of a separate GitHub job split.
+Both workflows cache the pnpm store. The real-API workflow uses the shared bounded Vitest file pool rather than a separate job per test group.
 
 ## Alternatives considered
 

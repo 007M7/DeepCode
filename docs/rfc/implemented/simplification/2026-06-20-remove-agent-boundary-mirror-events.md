@@ -2,18 +2,9 @@
 
 Status: implemented
 
-<!-- Shipped in AMENDED, narrowed form: the four turn/step BOUNDARY mirrors are
-     removed; `agent/steering` and `agent/stream-chunk` were RETAINED here (they
-     are not durable-boundary mirrors — see "Scope: what is and isn't removed").
-     The original proposal bundled `agent/steering` into the removal; keeping it
-     out kept this RFC's scope to boundaries. Each retained event was later
-     removed by its own decision — see
-     [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md)
-     and [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md). -->
-
 ## Problem
 
-The loop records the canonical transcript in `SessionEvent` and also emitted a parallel set of live `agent/*` boundary mirror events: `agent/turn-start`, `agent/turn-end`, `agent/step-start`, and `agent/step-end`. The mirrors made consumers choose between two sources of truth for the SAME durable fact. ACP already chose the session log for the editor-facing transcript because it is the one durable, replayable record; consuming a live mirror would require reconciling its timing with the boundary already stored in that log. The stdio UI was the only production consumer that still rendered turn boundaries from the mirror events; it already rendered tool calls and results from `session/event`.
+The loop exposed durable turn and step boundaries through both the replayable `SessionEvent` log and live `agent/*` mirrors. Consumers had to choose between two sources for the same fact and reconcile their timing. ACP and persistence already used the log; the stdio UI was the only remaining mirror consumer and already rendered tool calls and results from `session/event`.
 
 This duplication is not free. Every lifecycle change had to update the session event, the mirror event, docs, invariants, tests, and snapshot expectations. The duplicate boundary events also made failure ordering subtle: a turn can be durably closed before a live `agent/turn-end` listener runs, so a post-boundary listener failure has no valid in-log position left and must be reported out of band.
 
@@ -21,24 +12,18 @@ This duplication is not free. Every lifecycle change had to update the session e
 
 Make `session/event` the single live boundary/transcript stream. Consumers that render turns, tool calls, tool results, assistant messages, and durable boundaries subscribe to `session/event` and derive their UI from the same event vocabulary persistence uses.
 
-The four durable-boundary mirrors — `agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end` — are removed from the agent event taxonomy. A UI that wants the agent handle (or its short id) at a boundary keeps a small map from session id to agent id built from `agent/created`/`agent/disposed`; `dsh-ui-stdio` does exactly this to label its `[<agent> turn N]` header, since the `turn/start` session event carries only the turn number. The canonical record remains the event-sourced session log.
+Remove `agent/turn-start`, `agent/turn-end`, `agent/step-start`, and `agent/step-end`. Boundary consumers subscribe to `session/event`. A UI that needs an agent label maintains a session-to-agent map from `agent/created` and `agent/disposed`, because the durable `turn/start` carries the turn number but not the agent id.
 
-The step mirrors (which had no consumer at all) were removed first, in [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md); that RFC KEPT the turn mirrors on the stated justification that the stdio UI needed the `Agent` handle at the turn boundary. This RFC finishes the job: `dsh-ui-stdio` is a disposable test REPL whose rendering can change freely, so "ui-stdio needs it" is not a reason to keep a mirror — it was migrated to `session/event` + the id map, and the turn mirrors were removed too.
+The step mirrors had no consumers and were removed first by the [event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md). That decision retained the turn mirrors for the stdio UI; this RFC removes them after migrating that test REPL to `session/event` and the id map.
 
 ## Scope: what is and isn't removed
 
-Removed (durable-boundary mirrors — the session log is authoritative for each): `agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end`.
-
-RETAINED — NOT durable-boundary mirrors, so out of scope for this decision:
-
-- `agent/steering` — not a boundary, so out of scope for THIS decision (the original proposal bundled it into the removal; that would have been scope creep here). It mirrors the durable `steering/message` control record rather than a boundary, and was removed by its own follow-up: [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md).
-- `agent/stream-chunk` — the live token stream. Out of scope for THIS decision (a mirror of the durable `assistant/chunk`, not a boundary), it was removed by its own follow-up: [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md).
-- `agent/created`, `agent/disposed`, `agent/status`, `agent/error`, `agent/queued` — lifecycle/control events that are not transcript data. `agent/queued` in particular is an inbox acknowledgement that fires before any durable event exists (cancelled queued work may never enter the log), so it is deliberately live-only.
+This decision covers only durable turn and step boundaries. `agent/steering` mirrored a control record and `agent/stream-chunk` mirrored the token stream, so each was handled separately: [steering](2026-07-04-remove-agent-steering-mirror.md) and [stream chunks](2026-07-02-remove-stream-chunk-mirror.md). `agent/created`, `agent/disposed`, `agent/status`, `agent/error`, and `agent/queued` remain live lifecycle or control events rather than transcript mirrors; queued input may be cancelled before any durable event exists.
 
 ## Alternatives considered
 
-- **Bundling `agent/steering` into the removal** — the original proposal's shape; narrowed out as scope creep: it mirrors the durable `steering/message` control record, not a boundary, and was removed by [its own later decision](2026-07-04-remove-agent-steering-mirror.md) (as was `agent/stream-chunk`, by [the stream-chunk-mirror RFC](2026-07-02-remove-stream-chunk-mirror.md)).
-- **Keeping the turn mirrors for the stdio UI** — [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md)'s original stance; rejected here because `dsh-ui-stdio` is a disposable test REPL, not a load-bearing consumer, and it renders boundaries from `session/event` + the id map instead.
+- **Remove `agent/steering` in the same change** — rejected because it was a control-record mirror rather than a boundary mirror.
+- **Keep turn mirrors for the stdio UI** — rejected because the UI can render `session/event` and recover the agent label from its id map.
 
 ## Consequences
 
