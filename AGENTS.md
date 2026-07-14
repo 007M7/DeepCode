@@ -25,7 +25,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-approval and user-interaction seams, ask-user tool
+  ui/          ACP bridge, JSON-RPC SDK server, app-boot glue, stdio/ACP/SDK app bins, user-approval and user-interaction seams, ask-user tool
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
@@ -46,6 +46,7 @@ pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
@@ -63,6 +64,7 @@ During implementation, run the narrowest affected checks; run this full CI-equiv
 set -euo pipefail
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync

@@ -27,12 +27,11 @@
  * Run: `tsx scripts/verify-md-wrap.ts`.
  */
 
-import { globSync, readFileSync, realpathSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
-import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
+import { parseMarkdown, visitMarkdown } from './markdown.ts'
+import { uniqueRepoFiles } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -61,10 +60,10 @@ interface Violation {
 function findViolations(absPath: string): Violation[] {
   const file = relative(root, absPath)
   const source = readFileSync(absPath, 'utf8')
-  const tree = fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
+  const tree = parseMarkdown(source)
   const out: Violation[] = []
 
-  const visit = (node: Nodes): void => {
+  visitMarkdown(tree, (node: Nodes): boolean | void => {
     if (node.type === 'paragraph' && node.position) {
       const { start, end } = node.position
       if (end.line > start.line) {
@@ -73,31 +72,15 @@ function findViolations(absPath: string): Violation[] {
       }
       // A paragraph's children are inline (text/emphasis/…); no nested
       // paragraphs to find, so don't descend.
-      return
+      return false
     }
-    if ('children' in node) {
-      for (const child of node.children) visit(child)
-    }
-  }
-  visit(tree)
+  })
   return out
 }
 
-const seen = new Set<string>()
-const all: Violation[] = []
-let checked = 0
-for (const pattern of PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) {
-    const abs = resolve(root, match)
-    // CLAUDE.md symlinks resolve onto AGENTS.md; dedupe by real path so a file
-    // matched twice (or via symlink) is checked once.
-    const real = realpathSync(abs)
-    if (seen.has(real)) continue
-    seen.add(real)
-    checked++
-    all.push(...findViolations(abs))
-  }
-}
+const files = uniqueRepoFiles(root, PATTERNS)
+const all = files.flatMap(file => findViolations(file.abs))
+const checked = files.length
 
 if (all.length === 0) {
   console.log(`verify-md-wrap: ${checked} file(s) checked, no hard-wrapped prose paragraphs.`)

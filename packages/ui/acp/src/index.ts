@@ -107,6 +107,8 @@ export const name = 'acp'
 // because `initialize` advertises `loadSession: true`. `tools` lets a tool own
 // how its calls render (`presentCall`/`presentResult`); the bridge looks up the
 // definition by name and falls back to a generic presentation when absent.
+// TODO(acp-session-inject): drop `sessions`; this bridge never reads
+// ctx.sessions, and agent/session ownership is already behind ctx.agents.
 export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /**
@@ -352,10 +354,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
+  // TODO(derive-acp-session-id): derive an event's id from agent.session and
+  // verify sessions.get(id)?.agent === agent; then remove this reverse map and
+  // SessionRecord.sessionId, whose sole read duplicates the same identity.
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
-  // The two stay in lockstep: a record is added to `sessions` and the agent to
-  // `bySession` together, and removed together.
+  // The forward record and weak reverse entry are installed together; removing
+  // the record releases its strong Agent reference, so the WeakMap entry expires.
   const sessions = new Map<SessionId, SessionRecord>()
   const bySession = new WeakMap<Agent, SessionId>()
   // Session ids whose `session/load` is mid-`resume()` (the slot is reserved

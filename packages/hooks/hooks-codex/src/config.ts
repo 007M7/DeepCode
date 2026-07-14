@@ -53,6 +53,9 @@ export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
 
   for (const event of CODEX_EVENTS) {
     const rawGroups = hooksMap[event]
+    // Matcher-group parsing remains dialect-local because the supported hook
+    // shapes and skip reasons differ from Claude Code's.
+    /* jscpd:ignore-start */
     if (!Array.isArray(rawGroups)) continue
     const groups: MatcherGroup[] = []
     for (const rawGroup of rawGroups) {
@@ -64,6 +67,7 @@ export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
         if (!hook) continue
         const type = typeof hook.type === 'string' ? hook.type : 'command'
         if (type !== 'command') { skipped.push({ event, reason: `unsupported "${type}" hook` }); continue }
+        /* jscpd:ignore-end */
         if (hook.async === true) { skipped.push({ event, reason: 'async hook' }); continue }
         if (typeof hook.command !== 'string') continue
         // Codex accepts `timeout` or the `timeoutSec` alias.

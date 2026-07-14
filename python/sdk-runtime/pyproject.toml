@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepseek-harness-runtime-bin"
+version = "0.0.0.dev0"
+description = "Pinned DeepSeek Harness runtime for the Python SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+
+# Distributions carry the platform executables (build-injected, VCS-ignored —
+# hence `artifacts`) and the checked-in runtime/cordis.yml; the dev-only node
+# closure under runtime/node/ is explicitly excluded from wheel and sdist.
+[tool.hatch.build]
+artifacts = ["src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*"]
+exclude = ["src/deepseek_harness_runtime/runtime/node"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deepseek_harness_runtime"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+
+[tool.hatch.build.targets.sdist.hooks.custom]
