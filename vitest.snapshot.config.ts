@@ -1,20 +1,10 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Snapshot tests: `pnpm run test:snapshot`, file pattern *.snapshot.ts.
-// REPLAY by default — they boot the real acp-agent subprocess against a
-// recorded session JSONL fixture (no API key, no network) and diff the
-// normalized stdout transcript + re-persisted log against committed goldens.
-// `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
-// fixtures against the real API and refreshes the goldens.
-// `pnpm run test:snapshot:refresh` (DSH_SNAPSHOT=refresh) stays keyless: it
-// replays the committed model scripts and writes the current stdout/log goldens
-// without calling the live LLM.
-//
-// Replay loads no .env (it must never reach the network — a recorded fixture
-// drives the model), and refresh uses that same keyless replay path. Record
-// reads DEEPSEEK_API_KEY from the env or a gitignored repo-root .env, so a
-// contributor with a key only in .env can still record.
+// Replay is the keyless default: boot the real ACP subprocess from recorded model scripts and diff
+// normalized transcript plus persisted-log goldens. `record` calls the real API and updates fixtures
+// and goldens; `refresh` replays committed scripts and updates only current goldens. Replay/refresh
+// never load `.env`; only record reads a key from the environment or gitignored root `.env`.
 if (process.env.DSH_SNAPSHOT === 'record') {
   try {
     process.loadEnvFile(new URL('.env', import.meta.url).pathname)

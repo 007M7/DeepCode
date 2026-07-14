@@ -94,7 +94,7 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-Prompt assembly is single-path: the loop sends `renderPrompt(await assemble(assembleContextFor(agent)))`; the helper couples the explicit agent and scope. Plugins contribute ordered sections, tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's global default persona (order 0, shadowable by a same-named agent-scoped section) — while the loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+The loop renders one prompt assembly per step. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn instead of shipping a hole. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
 
@@ -110,7 +110,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Scope
 
-Every live agent owns `agent.ctx` ([`dsh-scope`](../packages/core/scope/README.md), keyed by the agent). Its registrations are visible only to that agent, shadow same-named globals, and unwind with it. Its listeners hear only that agent's dispatches; an opaque carrier routes while the real subject stays explicit. `CreateAgentOptions.setup(agentCtx)` composes this world before publication and does not drive. Dev invariants and `verify-scoped-dispatch` keep carrier/subject identity aligned with event declarations. Rationale: [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent `persona`, `toolFilter`, and `maxDepth` are the separate [composition-controls feature](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow same-named globals, receive only that agent's dispatches, and unwind with the agent. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are documented [separately](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
 ## State
 
@@ -138,7 +138,7 @@ Some seams bend the template deliberately. LLM keeps interface and consumer voca
 
 ### Bundles And Apps
 
-`dsh-agent-core` is the default composition bundle: one plugin loading the shared spine ([README](../packages/core/agent-core/README.md)). App packages compose it with a front door and boot `bin`: `dsh-stdio-agent` for terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-core` is the default composition bundle: one plugin loading the shared spine ([README](../packages/core/agent-core/README.md)). App packages compose it with a front door and boot `bin`: `dsh-stdio-agent` for terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` instead boots an external `cordis.yml`; the Python SDK injects the package default only when no explicit config channel is set and drives `dsh-jsonrpc` over line-delimited stdio JSON-RPC ([Python SDK](../python/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

@@ -1,37 +1,9 @@
 /**
- * Repeat-tool-call guard: advisory loop-breaker for agents stuck re-issuing
- * the same tool call with identical arguments.
- *
- * Not a model-facing tool — it registers no tool, never vetoes or rewrites a
- * call, and adds exactly one behavior: watch each agent's stream of tool calls
- * through the `tools/post-execute` waterfall, count runs of consecutive calls
- * to the same tool with identical canonicalized arguments, and at configured
- * run lengths fold an escalating advisory reminder onto the decision's
- * `additionalContext`. The loop appends that context as a logged
- * `context/message` after the step's tool results, so the reminder is
- * model-visible, source-attributed, and reconstructable from the session log
- * with no new session event. Decision record:
- * docs/rfc/implemented/feature/2026-07-08-repeat-tool-guard.md.
- *
- * ```yaml
- * - id: repeat-tool-guard
- *   name: '@deepseek-ai/dsh-repeat-tool-guard'
- *   config:
- *     thresholds: [3, 5, 8]   # consecutive counts that trigger a reminder
- *     include: []             # tool-name patterns to track; empty = all tools
- *     exclude: [todo_write]   # tool-name patterns transparent to the chain
- * ```
- *
- * Chain state is keyed per {@link AgentId} — the tool registry is a
- * context-level singleton whose waterfalls interleave every agent's calls, so
- * a shared counter would let one agent's repetition trip another's reminder.
- * State is in-memory only: a session resumed from persistence starts with a
- * fresh chain (the guard is a heuristic nudge, not a logged invariant).
- *
- * Plugin export shape: named exports, NO default. The cordis Loader's
- * `unwrapExports` does `exports.default ?? exports`, so a stray default would
- * collapse the module to the bare `apply` (see docs/postmortem/0001).
- *
+ * Advisory repeat-call loop breaker. It never registers, blocks, or rewrites a tool; configured
+ * consecutive canonical calls add source-attributed context after downstream post-policy. The
+ * loop logs that model-visible reminder as reconstructable context. Counters are per agent and
+ * in-memory, so one agent cannot trip another and resumed sessions start fresh. Named exports
+ * preserve loader metadata. See the package README for chain semantics and thresholds.
  * @module @deepseek-ai/dsh-repeat-tool-guard
  */
 

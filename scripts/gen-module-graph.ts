@@ -1,21 +1,7 @@
 /**
- * Generate (and verify) the module dependency graph in docs/module-graph.md.
- *
- * The architectural shape of the harness lives implicitly in each package's
- * `peerDependencies` — the canonical runtime-dependency signal (devDeps mirror
- * these as `workspace:^` plus test-only extras, which would add noise). This
- * script reads every `packages/* /* /package.json`, keeps only the
- * `@deepseek-ai/dsh-*` peer edges (dropping the `cordis` peer), and renders a
- * GitHub-viewable Mermaid graph grouped by `packages/<group>/` plus a
- * dependency table.
- *
- * The file is fully generated — never hand-edit it. Output is deterministic
- * (packages and edges sorted) so a regenerate-and-diff freshness check is
- * stable.
- *
- *   `tsx scripts/gen-module-graph.ts`          → write docs/module-graph.md
- *   `tsx scripts/gen-module-graph.ts --check`  → exit 1 if the committed file
- *                                                is stale (CI / pre-push gate)
+ * Generate `docs/module-graph.md` from in-repo `peerDependencies`, the canonical
+ * runtime edges. The deterministic output groups packages by directory and
+ * renders both Mermaid and a dependency table; `--check` verifies freshness.
  */
 
 import { resolve } from 'node:path'
@@ -112,10 +98,8 @@ if (process.argv.includes('--check')) {
   try {
     committed = readFileSync(resolve(root, OUT), 'utf8')
   } catch {
-    // Only an ENOENT (file not yet generated) is expected here; readFileSync of
-    // a present-but-unreadable file is not a state this repo produces. Either
-    // way the remedy is the same — regenerate — so we treat a read failure as
-    // "stale" and fall through to the failure branch below.
+    // A missing artifact is the expected read failure. Any read failure has the
+    // same remedy here—regenerate—so it is reported as stale below.
     committed = null
   }
   if (committed === content) {

@@ -1,31 +1,8 @@
 /**
- * `BasicCompactService`: the first implementation of the
- * `@deepseek-ai/dsh-compact` seam. It owns the entire compaction strategy:
- *
- * - **Token estimation** — chars/`charsPerToken` heuristic (config, default 4)
- *   with per-block structural overhead.
- * - **Retention policy** — walk surface nodes tail→head, keep recent nodes up
- *   to a token budget, compact everything older. The cutoff is snapped forward
- *   to the next balanced tool-pairing boundary so a compacted region never
- *   splits a step's tool-call/result pair (an open tail step is never crossed —
- *   compaction declines and retries once it closes).
- * - **Summarization** — a direct one-shot `ctx.llm.stream()` call assembled
- *   via `BlockAssembler` with a fixed condense-the-history system prompt;
- *   NOT a loop step, so `agent/request` never fires — interception happens
- *   at `llm/stream` like any other direct call.
- * - **Surface mutation** — a single `user/message` replace node carries the
- *   summary; `compact/*` events are log-only lock + provenance records.
- * - **Auto-compaction** — an `agent/pre-step` listener delegates to
- *   {@link BasicCompactService.compactIfNeeded} before EVERY step (so a
- *   tool-heavy turn that grows the surface mid-turn still compacts); it owns the
- *   sole token-pressure check.
- *
- * A different backend (real tokenizer, template summarizer, turn-count
- * retention) either subclasses this and overrides the {@link
- * BasicCompactService.estimateContentTokens} / {@link
- * BasicCompactService.summarize} hooks, or implements the abstract
- * {@link CompactService} from scratch.
- *
+ * Basic compaction backend. It estimates request pressure, retains a recent
+ * tool-balanced surface tail, summarizes the older head through a one-shot model
+ * call, and replaces that head with one checkpoint. Auto-compaction runs before
+ * every step so a growing turn can compact its earlier closed steps.
  * @module @deepseek-ai/dsh-compact-basic
  */
 
@@ -54,15 +31,8 @@ const SUMMARY_OPEN_TAG = '<compacted-summary>'
 const SUMMARY_CLOSE_TAG = '</compacted-summary>'
 
 /**
- * The summarization system prompt: instructs the model to condense the
- * conversation into a fixed, fully-populated structure rather than freeform
- * bullets. The fixed structure guarantees coverage of the things a resuming
- * model needs (original intent, pending work, the next step, critical context)
- * and is stable across compaction cycles, so a prior checkpoint can be merged
- * in place. The final rule keys off {@link SUMMARY_OPEN_TAG}: when the
- * transcript already contains a prior checkpoint, the model consolidates rather
- * than re-summarizing it verbatim (a cheap incremental-merge that needs no
- * extra log/event machinery — the tag travels on the summary surface node).
+ * Fixed summary structure for resumable checkpoints. A tagged prior checkpoint
+ * is merged with newer history instead of copied forward verbatim.
  */
 const SUMMARIZE_SYSTEM_PROMPT = [
   'You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.',
@@ -100,29 +70,13 @@ const SUMMARIZE_SYSTEM_PROMPT = [
   `- If the transcript already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
-/**
- * Framing prepended to the landed summary so a resuming model reads it as a
- * checkpoint rather than a fresh user request, and continues the task from it.
- * It summarizes an earlier span of the conversation; the messages that follow
- * are the continuation. Because region compaction can be invoked manually, a
- * surface may hold several checkpoints, so the framing does NOT claim that
- * everything after it is recent or verbatim — only that the captured context
- * should be built on, not restated.
- */
+/** Framing that makes a landed summary established context rather than a new request. */
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
 
 /**
- * Map a terminal `FinishReason` to the error a SUMMARIZATION must throw, or
- * `undefined` for an acceptable finish. `FinishReason` is merge-extensible.
- *
- * Compaction fails CLOSED on a truncated summary: `error`, `aborted`, AND
- * `max-tokens` all raise. Unlike an ordinary agent turn — where `max-tokens` is
- * a normal "the model hit its budget" outcome the loop keeps — a summary cut off
- * at the token cap is an INCOMPLETE checkpoint, and committing it would shadow
- * (discard) the real history it summarizes. Raising here keeps the original
- * surface intact (the caller appends `compact/end` with the error and the auto
- * path proceeds with full history). `stop`/future kinds are accepted.
+ * Map a terminal summary failure to an error. A max-token finish is rejected
+ * because committing an incomplete checkpoint would shadow the full history.
  */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
@@ -164,25 +118,8 @@ export class BasicCompactService extends CompactService {
     this.config = resolveConfig(config)
 
     if (this.config.auto) {
-      // Auto-compaction: delegate to compactIfNeeded before EVERY step. This is
-      // LOAD-BEARING for runaway-turn survival: a tool-heavy ReAct turn appends
-      // an assistant/message and a tool/result per step, so the surface (and the
-      // derived token count) grows WITHIN a turn. The only moment to rescue a
-      // turn that alone approaches the window is the next step's pre-step
-      // checkpoint; gating to a turn's first step would let a runaway turn
-      // overflow before the next turn's check. The listener owns NO threshold
-      // logic — compactIfNeeded is the single place that decides whether to
-      // compact, and its in-progress lock serializes concurrent attempts.
-      //
-      // It runs on `agent/pre-step` (a serial surface-mutation checkpoint fired
-      // AFTER turn/start but BEFORE step/start), NOT `agent/request`: compaction
-      // mutates the session surface, and the loop derives the request `messages`
-      // AFTER this fires — so a single derive already reflects the compaction,
-      // with no double-derive and no need to rewrite an already-assembled
-      // `messages` array. Firing pre-step (outside any open step) keeps the
-      // log-only `compact/*` records and the replacement node cleanly outside a
-      // step, so a crash mid-compaction leaves an inert orphan the turn-repair
-      // closes — never a half-open step.
+      // Check before every step so a single growing turn can compact earlier closed steps.
+      // This serial pre-step seam mutates the surface outside the pending step.
       ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal) => {
         try {
           const result = await this.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
@@ -289,27 +226,9 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Summarize conversation text into content blocks via `ctx.llm.stream()`
-   * assembled through a `BlockAssembler`. A direct one-shot model call, NOT a
-   * loop step: it does not run the `agent/request` waterfall (that seam shapes
-   * the loop's conversation requests); per-call
-   * interception happens at `llm/stream` like any other direct call. The model
-   * comes from `BasicCompactConfig.summarizationModel`, falling back to the
-   * agent's own model.
-   * Override in a subclass for a template or remote summarizer.
-   *
-   * Honors the adapter failure contract: an adapter may report a model failure
-   * by throwing from `stream()` (propagated here) OR by ending the stream with
-   * a `finish {kind:'error'|'aborted'}` chunk — the latter is re-thrown so a
-   * provider error never yields an empty summary.
-   *
-   * Forwards `signal` into `GenerateOptions.signal` so an abort/dispose tears
-   * down the in-flight summarization rather than orphaning the model call.
-   *
-   * Returns the summary blocks TOGETHER with the call envelope it actually
-   * used (`model`, `maxTokens`) — the caller logs the envelope on the
-   * `compact/summary` provenance event, so an overriding subclass (template
-   * or remote summarizer) reports its own envelope honestly.
+   * Summarize through a direct one-shot `ctx.llm.stream()` call, not an agent
+   * step or `agent/request` dispatch. Failure finishes and truncated summaries
+   * reject; the signal is forwarded and only text reaches the checkpoint.
    *
    * @param text - plain-text rendering of the conversation region to condense.
    * @param agent - supplies the fallback model and the session id stamped on
@@ -359,42 +278,10 @@ export class BasicCompactService extends CompactService {
   // ---- Core API (implements the abstract contract) ----
 
   /**
-   * The sole token-pressure gate: estimate the NEXT request's pressure — the
-   * session prefix + the surface-derived history + the system prompt
-   * ({@link estimatePressure}) — and if it exceeds the threshold
-   * (`contextWindow * thresholdRatio`), compact
-   * the oldest surface nodes outside the `retainTokens` budget. The auto-
-   * compaction listener delegates here rather than pre-checking, so this is the
-   * only place the decision lives. The prefix counts because every request
-   * carries it in front of the history (`EpochHeader.messagePrefix`) even
-   * though it is not derived history — omitting it would under-estimate by
-   * exactly the prefix and let a deployment at the window edge skip
-   * compaction, then ship an over-window request. The loop composes the
-   * prefix BEFORE the pre-step seam and hands it through, so the gate sees
-   * this instance's actual prefix (never a previous instance's logged one —
-   * a resumed/forked instance whose contributor grew is gated on the grown
-   * value from its very first step). Compaction itself can only
-   * shrink HISTORY: a prefix that alone approaches the window is a
-   * configuration error no compactor fixes.
-   *
-   * Retention is a UNIFORM tail→head walk over the whole surface — turn
-   * boundaries play NO role. Walking node-by-node from the tail and summing
-   * token estimates, once the retained total reaches `retainTokens` the cutoff
-   * is rounded to a balanced tool-pairing boundary: if the cut before the
-   * retained node is unbalanced (an unanswered tool-call sits before it — i.e.
-   * it is mid-step), the walk continues head-ward until the cut is balanced so
-   * the whole step is retained (never splitting a step's tool-calls from their
-   * results); if it stopped on a free node (a node belonging to no step), that
-   * cut is already balanced. This always rounds toward retaining MORE (retained
-   * ≥ `retainTokens`) and is boundary-safe by construction — no separate snap
-   * pass.
-   *
-   * The compacted range is always anchored at the surface HEAD (`nodes[0]`):
-   * auto-compaction re-consolidates any prior head checkpoint into one fresh
-   * checkpoint. Declines (`null`) when nothing is over threshold, when the whole
-   * surface fits the retain budget, or when no balanced cutoff exists in the
-   * compactable range (its only content is an open tail step — retry once it
-   * closes).
+   * The sole pressure gate: count the next request's prefix, derived history,
+   * and system prompt. Above threshold, retain a recent tool-balanced tail and
+   * compact the head, reconsolidating any prior automatic checkpoint. Returns
+   * `null` when no safe or necessary range exists.
    */
   override async compactIfNeeded(
     agent: Agent,
@@ -450,13 +337,7 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    // Resolve the range by surface POSITION, not numeric seq interval. A prior
-    // replace lands a fresh high-seq summary node AT the shadowed range's
-    // position, so the surface order (head→tail) no longer tracks seq order —
-    // `[newSummarySeq, olderRetainedSeq, …]` is normal. Indexing into the
-    // ordered node list and slicing it is the only correct way to read a range;
-    // a `node.seq >= start && node.seq <= end` interval test would mis-collect
-    // nodes (and `start > end` would falsely reject) once that happens.
+    // Resolve by surface position: a newer replacement seq may occupy an older slot.
     const nodes = session.surface.nodes
     const startIdx = nodes.findIndex(n => n.seq === start)
     const endIdx = nodes.findIndex(n => n.seq === end)
@@ -466,14 +347,7 @@ export class BasicCompactService extends CompactService {
       throw new Error(`compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`)
     }
 
-    // The region must never split a step's assistant-message tool-calls from
-    // their tool/results (which would orphan one side and produce a transcript
-    // every provider rejects). A region is safe iff BOTH its edges are balanced
-    // cuts: the cut before `start`, and the cut after `end`. A node that belongs
-    // to no step (pre-step user message, inter-step steering, injection context)
-    // is a balanced (free) boundary; an `end` inside an open (unclosed) tail step
-    // leaves the cut after it unbalanced (the open tool-call has no result yet),
-    // so it is rejected. See dsh-session's tool-pairing balance check.
+    // Both range edges must preserve assistant tool-call/result pairing.
     const events = session.events
     if (!isToolPairingBalanced(nodes, events, start)) {
       throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
@@ -490,13 +364,8 @@ export class BasicCompactService extends CompactService {
       throw new Error('compaction already in progress')
     }
 
-    // Compaction's events (compact/* and the replacement user/message) must be
-    // turn-enclosed: the session-log contract rejects any plugin event appended
-    // outside an open turn. Auto-compaction satisfies this — it runs on the
-    // `agent/pre-step` seam, after `turn/start` and before `step/start`, so
-    // strictly inside the open turn (but outside any step). A manual call on a
-    // fully-closed session has no turn to enclose the events, so reject rather
-    // than emit an un-enclosed run.
+    // Compaction's events (compact/* and the replacement user/message) must be turn-enclosed:
+    // the session-log contract rejects any plugin event appended outside an open turn.
     const openTurn = this._openTurn(session)
     if (openTurn === null) {
       throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
@@ -537,13 +406,8 @@ export class BasicCompactService extends CompactService {
         ...maxTokens !== undefined ? { maxTokens } : {},
       })
 
-      // --- Surface replacement ---
-      // The user/message directly shadows all compacted surface nodes with a
-      // single replace op. It is the ONLY surface event in the compaction
-      // sequence — compact/start, compact/summary, and compact/end are log-only
-      // (surfaceOp is rejected by the compiler for non-SurfaceEventType).
-      // The landed content is FRAMED (checkpoint preamble + tag-wrapped summary);
-      // the compact/summary provenance event above holds the raw model output.
+      // --- Surface replacement --- The user/message directly shadows all compacted surface
+      // nodes with a single replace op.
       session.append('user/message', {
         content: framedSummary,
         source: { kind: 'plugin', plugin: 'compact' },
@@ -597,17 +461,8 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Whether a compaction is currently in progress for `session` — an unmatched
-   * `compact/start` (no later `compact/end`) WITHIN the current turn.
-   *
-   * The scan is scoped to the current turn: walking back from the tail it stops
-   * at the first `turn/end` (the boundary closing the prior turn). A
-   * `compact/start` left orphaned by a crash mid-compaction lives in a turn that
-   * persistence repair then closes with a synthetic `turn/end`; scoping here so
-   * that a stale orphan from a PAST turn cannot wedge compaction forever (it sits
-   * before the nearest `turn/end`, so the scan never reaches it). An in-progress
-   * compaction's `compact/start` is always in the still-open current turn,
-   * before any `turn/end`, so it is still detected.
+   * Whether a compaction is currently in progress for `session` — an unmatched `compact/start`
+   * (no later `compact/end`) WITHIN the current turn.
    */
   private _isCompactionInProgress(session: Session): boolean {
     const events = session.events
@@ -650,14 +505,10 @@ export class BasicCompactService extends CompactService {
     // The whole surface fits the retain budget — nothing to compact.
     if (keepFromIdx === 0) return null
 
-    // Round the cutoff to a tool-pairing boundary: if the cut before
-    // `nodes[keepFromIdx]` is unbalanced (an unanswered tool-call sits before
-    // it — i.e. it is mid-step), extend the retained side head-ward until the
-    // cut is balanced, so the compacted range ends without splitting an
-    // assistant↔result pair. A node that belongs to no step is already a
-    // balanced (free) boundary. Decline if no balanced cut exists at or below
-    // `keepFromIdx` (the compactable range is only an un-splittable open tail
-    // step — retry once it closes).
+    // Round the cutoff to a tool-pairing boundary: if the cut before `nodes[keepFromIdx]` is
+    // unbalanced (an unanswered tool-call sits before it — i.e. it is mid-step), extend the
+    // retained side head-ward until the cut is balanced, so the compacted range ends without
+    // splitting an assistant↔result pair.
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
@@ -673,17 +524,7 @@ export class BasicCompactService extends CompactService {
     return { start: firstSeq, end: cutoffSeq }
   }
 
-  /**
-   * Keep ONLY text blocks from the model-produced summary before storing it.
-   *
-   * The summary lands on the surface as a synthesized `user/message` (see
-   * {@link _frameSummary}), so the only block type that is both useful and safe
-   * there is `text`. A model assistant message can otherwise carry `reasoning`
-   * (private chain-of-thought, must not leak into the durable checkpoint) and
-   * `tool-call` blocks — and a surviving `tool-call` in a user message would be
-   * an orphaned call with no matching `tool-result`, exactly the tool-pairing
-   * breakage compaction works to avoid. Filtering to text drops both.
-   */
+  /** Keep only text; checkpoints cannot contain reasoning or orphan tool calls. */
   private _textOnly(blocks: readonly ContentBlock[]): ContentBlock[] {
     return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
   }

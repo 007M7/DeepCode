@@ -325,19 +325,17 @@ describe('HMR state rebuild', () => {
   it('rebuilds trace state for a session that exists at (re-)apply time', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    // First registration, mid-turn: a turn is open when the plugin reloads.
     const first = await ctx.plugin(Invariants)
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     await first.dispose()
 
-    // Re-apply (HMR): the fresh fiber must replay the existing log so the open
-    // step is known — the next chunk must NOT be a false positive.
+    // Re-apply mid-step: the new fiber must reconstruct the open boundaries from the log.
     await ctx.plugin(Invariants)
     expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } }))
       .not.toThrow()
-    // And a genuine violation is still caught after the rebuild.
+    // Rebuild must not disable later violations.
     expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
       .toThrow(/turn 1 is still open/)
   })
@@ -760,12 +758,8 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
 describe('request cross-check ordering (prepend)', () => {
   it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
-    // The replay adapter returns its chunks WITHOUT calling next(), which
-    // would silence a later-registered check — snapshot compositions load
-    // replay before the app bundle that loads invariants. The check prepends,
-    // so it fires ahead of append-registered listeners regardless of load
-    // order. (Prepend orders it against APPENDED listeners only; correctness
-    // rests on the seq-bounded rebuild, not on listener timing.)
+    // Replay short-circuits without next(), so the check prepends ahead of ordinary listeners;
+    // correctness still comes from its sequence-bounded rebuild, not listener timing.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()

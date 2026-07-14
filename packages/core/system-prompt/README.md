@@ -1,6 +1,6 @@
 # dsh-system-prompt
 
-System prompt assembly registry. Plugins contribute ordered text sections, tool-schema providers, and named prompt variables. The agent loop calls `assemble(context)` once per step, and `renderPrompt(assembly)` is the full system prompt the model sees. The plugin registers the harness-owned openers itself — the static `harness:identity` section and the global default `deployment:persona` section — so they remain available regardless of which loop plugin drives an agent. An agent-scoped contribution with the same persona name shadows that default for its agent.
+System prompt assembly registry. Plugins contribute ordered sections, tool schemas, and named variables. The loop assembles once per step and renders the result as the complete model prompt. This plugin owns the static harness identity and global deployment persona; an agent-scoped persona shadows the global default.
 
 ## Config
 
@@ -20,7 +20,7 @@ System prompt assembly registry. Plugins contribute ordered text sections, tool-
 
 ### Live events
 
-`system-prompt/assemble` is an expert cooperative seam: its returned assembly is authoritative, and a listener that replaces or removes entries owns preserving any active Code Mode or structured-output protocol. Prefer [`ToolRegistry.restrict()`](../tools/README.md) when tool filtering must stay aligned across model presentation, lookup, and execution. Registry change is the deliberately unfiltered notification that an assembly input changed, possibly for one scope; exact signatures, dispatch modes, and filtering contracts live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md).
+`system-prompt/assemble` is authoritative; listeners that replace entries must preserve any active Code Mode or structured-output protocol. Use [`ToolRegistry.restrict()`](../tools/README.md) when filtering must stay aligned across presentation, lookup, and execution. Registry-change notifications are unfiltered. The generated [event catalog](../../../docs/cordis-catalog/events.md) owns signatures and dispatch contracts.
 
 ### Key types
 
