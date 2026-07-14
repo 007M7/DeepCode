@@ -1,42 +1,8 @@
 /**
- * Doc-sync gate: catch DRIFTED `packages/<path>` references — a path to a
- * package that has MOVED, written as prose in Markdown or in a TypeScript
- * comment/string. Docs and comments cite package locations by root-relative
- * path (`packages/core/tools/src/index.ts`, `see packages/ui/acp`);
- * `verify-md-links` only parses Markdown LINK targets and `verify-doc-refs`
- * only checks `docs/*.md` tokens, so a `packages/…` path sitting in backtick
- * prose or a code comment goes unchecked. The package-hierarchy reorg is the
- * motivating case: it moved every package under a `{group}/` folder, so a stale
- * `packages/tools` (now `packages/core/tools`) reads fine to a human but points
- * at nothing.
- *
- * The check is drift-scoped, NOT a blanket existence test: a broken
- * `packages/<path>` token is a violation ONLY when one of its path segments is
- * the directory name of a package that actually exists on disk — i.e. the
- * package is real and the path is merely stale. A token naming a package that
- * exists NOWHERE (`packages/code-runtime` in a forward-looking proposal, an
- * illustrative `packages/<name>/` skeleton) is left alone: this gate reports
- * MOVED paths, not hypothetical or future ones, so it applies uniformly to
- * proposed/implemented/rejected docs without per-lifecycle exclusions. This is
- * checker, not fixer: it reports and never rewrites.
- *
- * Detection is a token scan, NOT an AST walk: package refs live in free prose,
- * backticks, and comments. We match `packages/<path>` tokens whose path is made
- * of plain path characters, so a glob, a `<placeholder>`, or a `{brace,expansion}`
- * terminates the match before those chars and is never probed.
- *
- * Scope mirrors the other doc gates plus repo-authored TypeScript: Markdown
- * across README/docs/packages/AGENTS, and `.ts` under packages/** and
- * examples/** (excluding built `lib/`, `*.d.ts`, and vendored upstream source).
- * A reference to a package's build OUTPUT (`packages/<group>/<pkg>/lib/…`,
- * e.g. `packages/ui/acp-agent/lib/bin.js` cited by a built-bin smoke) is also
- * skipped — it is emitted only by `pnpm run build`, which CI runs AFTER this
- * gate, so flagging it would be a false positive on a path that is correct but
- * not yet on disk. That skip is scoped to a REAL package root: a stale
- * group-less `packages/acp-agent/lib/bin.js` is still flagged (its root does not
- * exist — exactly the moved-package drift this gate catches).
- *
- * Run: `tsx scripts/verify-package-paths.ts`.
+ * Find stale root-relative `packages/...` references in repo-authored prose and
+ * TypeScript. A missing path is reported only when it names a real package leaf;
+ * globs, placeholders, hypothetical packages, and unbuilt `lib/` output are
+ * outside the check.
  */
 
 import { existsSync, readdirSync } from 'node:fs'
@@ -92,36 +58,22 @@ const PKG_REF = /\bpackages\/[A-Za-z0-9._/-]+/g
 
 function isDriftedPackageReference(ref: string): boolean {
   if (existsSync(resolve(root, ref))) return false
-  // A reference INTO a package's built `lib/` is a build OUTPUT, not an
-  // authored-source location: it does not exist until `pnpm run build` emits
-  // it, and CI runs this gate BEFORE the build step. Skip it — but ONLY when
-  // the `packages/<group>/<pkg>` ROOT it sits under is real and on disk, so
-  // `packages/ui/acp-agent/lib/bin.js` (correct, just not yet built) is
-  // exempt while a stale `packages/acp-agent/lib/bin.js` (group-less, the
-  // exact moved-package drift this gate exists to catch) still flags. A bare
-  // `lib` segment is not a blanket escape hatch.
+  // Ignore unbuilt `lib/` paths only under an existing depth-two package root:
+  // CI runs this gate before build, while stale group-less paths must still fail.
   const parts = ref.split('/')
   const libAt = parts.indexOf('lib')
   if (libAt === 3 && existsSync(resolve(root, parts.slice(0, 3).join('/')))) return false
-  // Only a stale path to a REAL (moved) package is a violation; a segment
-  // matching a live package name is the drift signal.
+  // A missing reference is drift only when a path segment names a live package.
   return ref.split('/').slice(1).some(segment => packageNames.has(segment))
 }
 
-/**
- * Find every DRIFTED `packages/…` reference in one file: a token that does not
- * resolve on disk AND names a real package in one of its segments (so it is a
- * moved path, not a typo or a not-yet-existing package). The same real-package
- * test also screens out a bare `packages` (no segment) and illustrative
- * skeletons whose segment is not a package.
- */
+/** Find missing package references whose path names a live package; bare paths, typos, and illustrative skeletons do not count. */
 function findViolations(absPath: string): Violation[] {
   return findReferenceViolations(
     root,
     absPath,
     PKG_REF,
-    // Trim a trailing path separator or sentence punctuation that the greedy
-    // class may have swallowed (`packages/core/tools.` / `…/tools/`).
+    // Remove trailing separators or sentence punctuation matched greedily.
     ref => ref.replace(/[./]+$/, ''),
     isDriftedPackageReference,
   )

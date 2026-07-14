@@ -7,10 +7,8 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
 
-// publint every harness package. Packages live at packages/<group>/<pkg>
-// (the group dirs — core/llm/bash/… — are pure containers); vendor/ is private
-// upstream code and examples/ are not packages, both out of scope. Derived
-// from the hierarchy so a new package needs no edit here.
+// Discover harness packages at packages/<group>/<pkg>; group containers,
+// examples, and private vendored sources are not package targets.
 const root = resolve(import.meta.dirname, '..')
 const packagesRoot = resolve(root, 'packages')
 

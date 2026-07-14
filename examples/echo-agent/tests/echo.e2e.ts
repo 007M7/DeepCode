@@ -6,41 +6,22 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Keyless Loader-path smoke for examples/echo-agent: boot the REAL example
- * through the `@deepseek-ai/dsh-stdio-agent` bin against this example's
- * `cordis.yml` (the cordis Loader, `unwrapExports`, the whole plugin tree),
- * pipe a script of stdin lines, and assert the rendered stdout.
- *
- * This is the guard the per-file unit suite structurally cannot be: it drives
- * the `@deepseek-ai/dsh-stdio-agent` app plugin, the `@deepseek-ai/dsh-agent-core`
- * bundle it loads, the app's in-package readline UI module, AND the
- * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path
- * (see docs/postmortem/0001). The app itself carries no `inject`, so a stray
- * `export default` would boot rather than crash here — the export SHAPE is
- * pinned by the explicit unwrap assertion in the stdio-agent unit suite; this
- * smoke proves the composed tree actually runs. It needs no API key — the
- * `mock-echo` adapter never touches the network — so it runs in the default e2e
- * gate.
- *
- * Both branches of mock-llm.ts are exercised: an `echo …` line (the tool
- * round-trip → `ECHO: …`) and a plain line (the direct canned reply).
+ * Keyless Loader-path smoke for examples/echo-agent: boot the real example through the
+ * `@deepseek-ai/dsh-stdio-agent` bin against this example's `cordis.yml` (the cordis Loader,
+ * `unwrapExports`, the whole plugin tree), pipe a script of stdin lines, and assert the
+ * rendered stdout. The mock adapter is network-free, making this the complete
+ * smoke; inputs cover both the echo-tool round trip and direct-reply branch.
  */
 
-// The dsh-stdio-agent bin (the demo:echo entry) and this example's cordis.yml.
-// The bin resolves its config-path arg from CWD; the test spawns from a temp
-// cwd, so we pass the example config's ABSOLUTE path.
+// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// Dev/test run UNBUILT: `@deepseek-ai/dsh-*` imports resolve through the root
-// tsconfig `paths` map, which tsx finds by searching UP from cwd. We spawn from
-// a temp cwd OUTSIDE the repo, so point tsx at the repo tsconfig explicitly
-// (repo root is four levels up from examples/echo-agent/tests).
+// The temp cwd is outside the repo, so point tsx at the root config that resolves
+// unbuilt workspace packages through `paths`.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once. Cold tsx/Loader
-// startup can therefore outlive a tight smoke-test deadline before the child
-// emits any output; 30s still detects a wedged process without confusing
-// bounded CI contention with a lifecycle failure.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.
@@ -67,9 +48,8 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      // --expose-internals: the example's cordis.yml loads the HMR plugin, which
-      // requires it (mirrors the `demo:echo` script). The whole point is to boot
-      // the example EXACTLY as it really runs, through the bin + Loader.
+      // --expose-internals: the example's cordis.yml loads the HMR plugin, which requires it
+      // (mirrors the `demo:echo` script).
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,

@@ -6,7 +6,6 @@ import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionService, { CUSTOM_PRESET, effectivePermissionPreset } from '@deepseek-ai/dsh-permission'
 import type { Config } from '@deepseek-ai/dsh-permission'
 
-/** Mount the service over stand-in bash/approval capabilities (the two facts it validates against). */
 async function mounted(options: {
   config?: Config
   bashDefault?: SandboxMode | undefined
@@ -19,7 +18,6 @@ async function mounted(options: {
   return ctx
 }
 
-/** A real Session seeded with one opened turn (events append without ceremony in unit scope). */
 function freshSession(id: string): Session {
   return new Session(SessionId(id))
 }
@@ -55,8 +53,6 @@ describe('PermissionService', () => {
     const session = freshSession('sess-custom')
     session.append('bash/sandbox-mode', { mode: 'read-only' })
     expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
-    // Switching FROM custom is an ordinary write-through; custom itself is
-    // never a target.
     ctx.permission.set(session, 'danger-full-access')
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
     expect(() => ctx.permission.resolve(CUSTOM_PRESET)).toThrow(/unknown preset/)
@@ -75,10 +71,8 @@ describe('PermissionService', () => {
       'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
     } } })
     const session = freshSession('sess-tie')
-    // Same bundle as workspace-write, chosen explicitly: the fold names it.
     ctx.permission.set(session, 'agentish')
     expect(ctx.permission.current(session.events)).toBe('agentish')
-    // A knob drifts: the fold's bundle no longer matches → reverse map wins.
     session.append('approval/policy', { policy: 'never' })
     session.append('bash/sandbox-mode', { mode: 'danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
@@ -106,9 +100,8 @@ describe('PermissionService', () => {
     const ctx = await mounted()
     const session = freshSession('sess-drift')
     ctx.permission.set(session, 'danger-full-access')
-    // A knob drifts out from under the preset (a direct setter call, a test
-    // scenario): the session derives custom, and re-asserting the preset is
-    // a real switch again — choice re-recorded, only the drifted knob moves.
+    // Re-selecting from a drifted state records the choice and repairs only
+    // the changed knob.
     session.append('bash/sandbox-mode', { mode: 'read-only' })
     ctx.permission.set(session, 'danger-full-access')
     const tail = session.events.slice(4)
@@ -125,8 +118,8 @@ describe('PermissionService', () => {
 
   it('optionOf() presents shipped labels/descriptions, falls back to the raw key, and fixes custom', async () => {
     const ctx = await mounted()
-    expect(ctx.permission.optionOf('danger-full-access')).toEqual({ value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access, no approval prompts.' })
-    expect(ctx.permission.optionOf('custom')).toEqual({ value: 'custom', name: 'Custom', description: 'A hand-set knob combination outside the preset table.' })
+    expect(ctx.permission.optionOf('danger-full-access')).toEqual({ value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' })
+    expect(ctx.permission.optionOf('custom')).toEqual({ value: 'custom', name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' })
     const bare = await mounted({ config: { presets: { plain: { sandbox: 'workspace-write', approval: 'ask' } } } })
     expect(bare.permission.optionOf('plain')).toEqual({ value: 'plain', name: 'plain' })
     expect(() => ctx.permission.optionOf('plan')).toThrow(/unknown preset/)

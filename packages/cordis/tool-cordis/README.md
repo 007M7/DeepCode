@@ -12,7 +12,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 ## Trust stance
 
-The sandbox isolates the global context only — it is not a security boundary. No Node API is provided: `require`, the timers, and `fetch` are callable traps that throw a redirect to the cordis alternative (`ctx.fs` / `ctx.web` / `ctx.bash` / `inject: ['timer']` + `ctx.setTimeout`); `process` and `Buffer` are `undefined`; `globalThis` writes stay inside. These traps steer honest code onto the cordis services; they do not contain a mount that goes looking — the host-realm helpers on the sandbox global (`harness`, `console`, `btoa`) are reachable functions, so mount code can reach the host realm and Node through one of them, which is fine because `ctx` is fully privileged anyway. The `ctx` a mounted plugin's `apply` receives is a whitelist façade — register tools, observe events, provide/consume services, use timers; framework internals (`ctx.root`, `ctx.fiber`, `ctx.extend`, `ctx.plugin`, …) are withheld — but the capabilities it does expose reach the real runtime, so load this plugin as deliberately as you would grant a bash tool.
+The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## Config
 

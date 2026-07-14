@@ -1,20 +1,7 @@
 /**
- * Cordis-free local-filesystem I/O for `@deepseek-ai/dsh-fs-local`. Kept
- * separate from the service class (mirroring `dsh-bash-local`'s `run.ts`) so
- * the raw stat/read/write/edit mechanics can be unit-tested without a Context.
- *
- * This is the PROVIDER layer: it hands back decoded whole-file text (validated
- * UTF-8, binary rejected) — never line windows or numbered lines, which are
- * model-facing read policy owned by `@deepseek-ai/dsh-fs-policy`. Large files
- * stream their text in chunks so a huge file never has to be held whole in
- * memory; the binary/NUL sample and cross-chunk UTF-8 decoding stay here.
- *
- * Writes are atomic: content goes to a temp file opened exclusively (`wx`,
- * `0o600`, so a pre-existing path can never be clobbered and write-in-progress
- * bytes stay owner-only) inside a randomly-named private staging directory
- * (`0o700`) next to the target, then `rename`d over the target. Edits are
- * read-modify-write over the same atomic primitive.
- *
+ * Cordis-free local filesystem mechanics. This provider layer returns validated UTF-8 text,
+ * streams large files, and rejects binary data; line windows belong to `dsh-tool-fs`. Writes
+ * stage an exclusive owner-only file in a private sibling directory and atomically rename it.
  * @module @deepseek-ai/dsh-fs-local/fsio
  */
 
@@ -121,14 +108,9 @@ export interface LocalDirEntry {
 }
 
 /**
- * Resolve a path to its absolute display path and realpath identity. Relative
- * paths are based on `cwd`. When the file itself does not yet exist, the
- * `targetKey` realpaths the nearest EXISTING ancestor directory and re-appends
- * the still-missing suffix, so a not-yet-created file gets the same stable key
- * it will have after creation — even when an ancestor (e.g. `cwd`) is a symlink
- * and intermediate directories are created by the write. Two input paths
- * reaching the same file via symlinks share one key. Falls back to the absolute
- * path only when no ancestor (not even the filesystem root) can be resolved.
+ * Resolve a path to its absolute display path and realpath identity. For a missing target,
+ * realpath the nearest existing ancestor and append the missing suffix, preserving identity
+ * across symlinked ancestors before and after creation.
  * @param cwd - base directory a relative `path` resolves against.
  * @param path - absolute or relative path; empty/whitespace-only throws `FS_NOT_FOUND`.
  * @returns the absolute display path plus the realpath-derived stable target key.
@@ -363,15 +345,11 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
 }
 
 /**
- * Atomically write `content` to `absolutePath`: create parent dirs, write to a
- * randomly-named temp file opened exclusively (`wx`, `0o600`) inside a private
- * (`0o700`) staging directory, fsync, optionally chmod to the final mode while
- * still private, then rename over the target. `mode` (when given) preserves an
- * existing file's permissions across the replace.
- * @param absolutePath - the final destination (typically a target key); missing parent dirs are created.
+ * Atomically replace a file through a private, synced staging file in the same directory.
+ * @param absolutePath - destination; missing parent directories are created.
  * @param content - the full UTF-8 text to write.
- * @param mode - final file mode applied before the rename (an existing file's, to preserve permissions); undefined leaves `0o600`.
- * @param signal - aborts the write (`FS_ABORTED`); checked before the rename, so the target is never left torn.
+ * @param mode - final mode, or `0o600` when omitted.
+ * @param signal - cancellation checked before the final rename.
  * @param internals - test seam for pinning temp names and observing the staged file.
  */
 export async function writeFileAtomic(
@@ -492,12 +470,8 @@ export async function readForEdit(
 }
 
 /**
- * Best-effort read of a file's current text for a before/after diff basis, used
- * by an overwrite. Returns the LF-normalized decoded content, or `null` when the
- * file is binary or not valid UTF-8 — a write must succeed regardless of the
- * prior bytes, so an undiffable prior file simply yields no contextual-hunk basis
- * (the caller treats `null` the same as an absent file: the result renders a
- * whole-file diff rather than an applied hunk).
+ * Best-effort overwrite diff basis. Binary or invalid UTF-8 returns `null` so the write still
+ * succeeds and presentation falls back to a whole-file diff.
  * @param absolutePath - the file to read (typically a target key); it must exist.
  * @param signal - aborts the read (`FS_ABORTED`).
  * @returns the LF-normalized text, or null for a binary or non-UTF-8 file.
@@ -515,12 +489,11 @@ export async function readTextForDiff(absolutePath: string, signal?: AbortSignal
 }
 
 /**
- * Apply a literal replacement to LF-normalized content. Throws
- * `FS_EDIT_NOT_FOUND` on empty `oldString` or zero matches and
- * `FS_AMBIGUOUS_EDIT` on multiple matches when `replaceAll` is false. Returns
- * the edited content (still LF-normalized) and the replacement count.
+ * Apply a literal replacement to LF-normalized content. Empty or missing search text throws
+ * `FS_EDIT_NOT_FOUND`; multiple matches throw `FS_AMBIGUOUS_EDIT` unless `replaceAll` is true.
  * @param content - the current file content, already LF-normalized.
- * @param oldString - literal text to find; CRLF inside it is normalized to LF before matching.
+ * @param oldString - literal text to find; CRLF inside it is normalized to LF before
+ *   matching.
  * @param newString - literal replacement text, normalized the same way.
  * @param replaceAll - replace every match instead of requiring exactly one.
  * @param displayPath - the caller-facing path used in error messages.

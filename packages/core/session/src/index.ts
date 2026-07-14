@@ -34,67 +34,41 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * A session was created in the store. A synchronous listener throw vetoes
-     * publication and rollback emits the matching `session/disposed` edge;
-     * returned-promise rejection is observed and logged but cannot retroactively
-     * veto this synchronous boundary. A synchronous listener that requests the
-     * advanced detach does not remove the entry immediately: removal and the
-     * paired `session/disposed` edge wait until the creation dispatch unwinds.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Creation announcement during session publication. A synchronous throw vetoes and rolls
+     * back with a paired disposal; detach requested during dispatch is deferred.
+     * A returned-promise rejection is logged but cannot retroactively veto this
+     * synchronous boundary.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+     * receive only sessions entered through that agent's context.
      * @param session - the session just entered and announced.
      * @mode emit
      */
     'session/created'(this: Scoped<Session>, session: Session): void
     /**
-     * A previously announced session left the store. Emitted exactly once on
-     * normal detach or publication rollback, and never for a prepared/entered
-     * session whose `session/created` announcement did not begin. Listener
-     * failures (including returned-promise rejections) are logged and contained
-     * per listener so teardown always reaches quiescence.
-     * Scope-filtered dispatch uses the same owner carrier captured at entry;
-     * agent-scoped listeners hear only their own session's teardown.
+     * Emitted once when an announced session leaves the store, including
+     * publication rollback, but never for an entry whose creation announcement
+     * did not begin. Listener failures are logged and contained.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
      * @param session - the session that is no longer live in the store.
      * @mode emit
      */
     'session/disposed'(this: Scoped<Session>, session: Session): void
     /**
-     * An event was appended to a session log (sync, fire-and-forget). This is
-     * the per-append feed a UI or invariant plugin tails. The log push is the
-     * commit point; synchronous throws and returned-promise rejections from
-     * observers are logged and contained per listener, so they cannot make a
-     * committed append appear to fail or starve later listeners. The exact
-     * callback list and Cordis internal-dispatch checks resolve before the push;
-     * callbacks themselves run only after it.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Post-commit, fire-and-forget append feed. The listener snapshot resolves
+     * before the log push, but callbacks run after it; observer failures are
+     * logged and contained without making the committed append fail.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+     * receive only events from sessions entered through that agent's context.
      * @param session - the session whose log grew.
      * @param event - the appended event, exactly as recorded.
      * @mode emit
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited durability checkpoint. The agent loop awaits
-     * `ctx.sessions.flush(session)` at every turn end; persistence
-     * plugins (JSONL, SQLite) drain their write-behind buffers here and on
-     * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
-     * and the caller waits for all of them, but none can veto. Dispatch it
-     * through {@link SessionStore.flush} — the store owns the carrier — never
-     * via a raw `ctx.parallel`.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Awaited parallel durability checkpoint: every listener runs and the
+     * caller awaits all of them, with no waterfall veto. Dispatch through
+     * {@link SessionStore.flush}. Scope-filtered dispatch
+     * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
      * @mode parallel
      */
@@ -103,13 +77,9 @@ declare module 'cordis' {
 }
 
 /**
- * Renders a `context/message` or `steering/message` event as a tagged
- * synthetic user-role message (the system-reminder pattern: zero adapter
- * burden, models distinguish it from real user prompts by the envelope).
- *
- * Live-adapter review has validated the tagged-envelope rendering against
- * current DeepSeek behavior; provider-specific mismatches belong in that
- * adapter, not in the canonical session vocabulary.
+ * Render injected context as tagged synthetic user-role content, keeping the
+ * canonical session vocabulary provider-neutral. Adapter-specific exceptions
+ * belong in the adapter.
  */
 function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
   const open = `<${tag} source=${JSON.stringify(source.kind)}>`

@@ -1,30 +1,17 @@
-# Snapshot-test REPLAY overlay: the SAME app tree as cordis.yml, derived from
-# it by an include — the one difference is the model backend. A keyless replay
-# run cannot boot the real adapter (llm-deepseek's apply() throws without
-# DEEPSEEK_API_KEY), so the include patches the live tree at load time: the
-# llm-deepseek entry is disabled by id, and the llm-replay entry (which serves
-# a recorded session JSONL — no API key, no network) is inserted. Every other
-# entry — the app, the bash executor, the fs/subagent/todo tools, both hook
-# bridges, the system prompt — IS the live tree, so replay exercises exactly
-# what ships and an app-shape change lands once, in cordis.yml.
-#
-# The dsh-acp-agent bin selects this file for DSH_SNAPSHOT=replay. The replay
-# fixture path comes from $DSH_SNAPSHOT_FILE (and an optional
-# $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness. stdout stays
-# reserved for the ACP JSON-RPC protocol (the app package loads no stdout
-# logger). Patches apply when the include loads the file — a one-shot replay
-# boot, so the load-time-only patch semantics are exactly enough.
+# Keyless replay includes the live `cordis.yml`, disables the key-requiring
+# DeepSeek adapter, and inserts `llm-replay` to serve recorded JSONL without a key
+# or network; every other app entry remains shared.
+# With `DSH_SNAPSHOT=replay`, the app bin reads `DSH_SNAPSHOT_FILE` and optional
+# `DSH_SNAPSHOT_OVERRIDE` from the harness. The one-shot patch applies at include
+# load time, and stdout remains reserved for ACP JSON-RPC.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
     path: ./cordis.yml
     patches:
-      # The name is an assertion, not an override: the include skips the patch
-      # (warning if a logger exists) when the id points at a different plugin,
-      # so this can never disable the wrong entry. If cordis.yml ever RENAMES
-      # the id, the patch degrades to a skip — replay output stays correct
-      # (llm-replay still short-circuits the stream) but the stale patch and a
-      # futile keyless adapter entry linger until review catches them.
+      # `name` asserts the target: a mismatch skips the patch and warns only when
+      # a logger exists. A renamed id leaves a stale adapter entry, but replay still
+      # short-circuits through `llm-replay`.
       - id: llm-deepseek
         name: '@deepseek-ai/dsh-llm-deepseek'
         disabled: true

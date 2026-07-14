@@ -19,7 +19,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:338`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:335`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -38,13 +38,11 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:203`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:133`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
-The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
-
-Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'` before dispatching any interactive answerer, a per-agent prompt section states a `'never'` policy (and only that one in prose — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
 
 ```ts cordis-catalog
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
@@ -52,18 +50,11 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:294`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:229`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
-Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
-
-Semantics every implementation must honor:
-
-- run REJECTS only for infrastructure failures (unusable workdir, missing shell, pre-aborted signal). Nonzero exits, timeout kills, and abort kills RESOLVE with a descriptive BashRunResult — reporting a failed command is the tool layer's job, not an exception.
-- start returns immediately; no timeout applies to background tasks (callers stop them via kill or the spec's AbortSignal). Completion must fire the onTaskDone listeners exactly once per task, and must NOT fire after the service is disposed.
-- readOutput is incremental: consecutive reads never re-deliver output. Implementations bound their buffers; reads that lost data flag `lossy` and point at full-stream spill files when available.
-- Disposal kills every running task and awaits their exit (no orphan processes survive `fiber.dispose()`).
+Registers one `ctx.bash` implementation. Runtime command failures resolve as BashRunResult; only infrastructure failures reject. Background starts return immediately without a timeout, report completion exactly once while live, and remain cancellable by signal or kill. Output reads are incremental and flag lost buffered data; disposal kills and awaits all tasks.
 
 ```ts cordis-catalog
 abstract resolve(request: BashExecRequest): BashExecSpec
@@ -79,18 +70,11 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:38`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
-Abstract code-execution service. Subclass, implement run and the two descriptors, and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Semantics every implementation must honor:
-
-- run resolves with an error FIELD for every program outcome — parse/transform failures, thrown exceptions, budget expiry, abort, substrate death (CodeRunFailure's taxonomy). It REJECTS only for caller misuse of the seam itself (e.g. a run submitted after disposal).
-- Binding calls bridge to the caller's CodeBindingFunctions verbatim; arguments and resolutions must be structured-cloneable, and the runtime treats the program as a hostile peer (arbitrary binding names are own properties, malformed traffic is rejected or ignored, never crashes the host).
-- Runs are isolated from each other: no state survives from one run to the next through the runtime.
-- Disposal reaches quiescence: in-flight runs are terminated AND awaited before the service's own teardown completes (no orphan substrate survives `fiber.dispose()`).
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
@@ -98,18 +82,11 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:59`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
-
-Both core methods are abstract: the contract states WHAT compaction does, while the entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
-
-Implementations MUST honor:
-
-- **Surface contract**: a successful compaction shadows the compacted surface nodes with a SINGLE replacement node carrying the summary. Because `SurfaceEventType` is a closed union, that node is a `user/message` with `surfaceOp: { op:'replace', start, end }`; the `compact/*` events are log-only (lock + provenance).
-- **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
+Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
@@ -118,20 +95,11 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:65`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:36`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Semantics every backend must honor:
-
-- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
-- stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
-- readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
-- listDir returns direct children of a directory in stable name order with resolved child targets and cheap metadata only. It never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`.
-- writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
-- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
+Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
 ```ts cordis-catalog
 abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
@@ -145,7 +113,7 @@ abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: F
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:172`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:78`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
@@ -159,11 +127,11 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
-The permission service (`ctx.permission`). Owns the deployment's preset table and THE write path for preset switches; presentation layers (the ACP bridge's single `Permissions` select) advertise names and call set. Composing it REQUIRES both mechanism knobs — a confining `ctx.bash` executor and the `ctx.approval` seam. A knob state matching no table entry is not an error but the derived CUSTOM_PRESET state: shown as the current value, never a switch target.
+Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
 
 ```ts cordis-catalog
 current(events: readonly SessionEvent[]): string
@@ -174,17 +142,11 @@ set(session: Session, name: string): void
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:115`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
-Abstract process-sandbox service. Subclass, implement confine, and load the subclass as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Semantics every implementation must honor:
-
-- confine either returns an argv whose runner ENFORCES the policy or fails closed — at `confine` time with SandboxUnavailableError (no backend for this host), or at EXECUTION time by the runner itself refusing to run the command (exiting without exec'ing it, identified by ConfinedArgv.runnerFailureSignatures). A silent unconfined passthrough is never a legal outcome on either path.
-- Probing exists to ARBITRATE between multiple candidate backends and may be skipped when a platform has exactly one: the sole candidate is selected directly and the runner's exec-time fail-closed refusal carries the safety property. When probing does run, it is functional (actually enforcing a profile, not a version check), at most once per provider lifetime; `confine` itself spawns nothing beyond that one-time probing.
-- The returned ConfinedArgv.enforcement states the backend's actual completeness for THIS host; `partial` is reported, never silently upgraded to `full`.
+Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
 
 ```ts cordis-catalog
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
@@ -192,18 +154,11 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:180`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
-Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Contracts every implementation MUST honor (a DB backend asserts them inside a transaction; a file backend appends at EOF):
-
-- **Append-only; a crashed turn is closed, not truncated.** Committed events — those at or below a flushed `turn/end` — are never rewritten. A crash can leave an unclosed final turn whose events are real (and possibly large); load preserves them and closes the orphaned turn with synthetic boundary events (see load). Only a never-fully-written torn tail fragment is discarded.
-- **Contiguous seq.** A persisted log is contiguous: `events[i].seq === i`. load rejects a parse error or a `seq` gap in the COMMITTED region (unloadable); append's first event `seq` MUST equal the backend's stored next-seq (after `load` has balanced any interrupted turn).
-- **JSON-serializable events.** `SessionEventMap` is merge-extensible, so append materializes each complete batch through the shared lossless-JSON boundary before buffering it. The public `session.events` view is immutable, but persistence still snapshots direct/replay callers at this independent trust boundary.
-- **Durability.** append returns only once the batch is durable (the file backend fsyncs; a DB commits). create MAY defer the physical write until the first append (lazy materialization).
+Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
 ```ts cordis-catalog
 abstract create(meta: SessionHeader): Promise<void>
@@ -214,7 +169,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
@@ -245,7 +200,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:590`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:560`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -275,7 +230,7 @@ Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service for the prompt inputs assembled before each model step.
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
@@ -284,13 +239,11 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:342`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also owns the reserved `run_code` presentation transport and the `tools:sdk` prompt section.
-
-Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One private visibility resolver feeds the registry's prompt contribution, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so those registry-owned presentation and dispatch paths agree. An expert `system-prompt/assemble` listener may deliberately replace the final wire composition and owns any resulting divergence.
+Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -303,7 +256,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:493`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:364`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -336,24 +289,17 @@ async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearc
 async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:87`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:78`](../../packages/web/web/src/index.ts)
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
 
-Abstract workflow execution service. Subclass, implement start, and load the subclass as a plugin — it registers as `ctx.workflows` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Semantics every implementation must honor:
-
-- start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` SETTLES within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation).
-- The `workflow/*` events fire through emitWorkflowEvent (borrowed immutable data, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
-- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
-- Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to the `start()` caller and does not track its live runs — disposing the engine's own fiber mid-run deliberately leaves those runs to their holders' teardown, so an engine reload cannot yank a run out from under the consumer awaiting it.
+Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
 ```ts cordis-catalog
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:211`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
