@@ -141,10 +141,8 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   const trackClientCallback = <T>(callback: () => T | PromiseLike<T>): Promise<T> => {
     const pending = Promise.resolve().then(callback)
     inFlightClientCallbacks.add(pending)
-    void pending.then(
-      () => { inFlightClientCallbacks.delete(pending) },
-      () => { inFlightClientCallbacks.delete(pending) },
-    )
+    const untrack = (): void => { inFlightClientCallbacks.delete(pending) }
+    void pending.then(untrack, untrack)
     return pending
   }
   const requestPermission = options.requestPermission
