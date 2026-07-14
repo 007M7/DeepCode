@@ -119,7 +119,7 @@ export interface Config {
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
     id: string
-    /** Optional exact identity for a fresh session; absent lets the loop mint one from the label. */
+    /** Optional stable identity; remounts resume its materialized history, while first use creates it fresh. */
     sessionId?: SessionId
     /** Optional workspace for a fresh session. */
     cwd?: string

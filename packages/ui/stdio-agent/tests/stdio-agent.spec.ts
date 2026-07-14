@@ -114,9 +114,8 @@ describe('dsh-stdio-agent app', () => {
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
     stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
-    await new Promise(resolve => setTimeout(resolve, 80))
-    expect(ctx.get('sessionPersistence')).toBeDefined()
-    expect(ctx.get('agents')?.list()).toHaveLength(1)
+    await expect.poll(() => ctx.get('sessionPersistence')).toBeDefined()
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
     await ctx.fiber.dispose()
   })
 
