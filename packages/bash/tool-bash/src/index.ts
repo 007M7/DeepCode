@@ -483,12 +483,12 @@ export function apply(ctx: Context): void {
   /**
    * The session's standing mode override for an ordinary (non-escalating)
    * call: the `bash/sandbox-mode` fold of the calling agent's log, stamped
-   * onto the request so EXECUTION follows the same effective mode the prompt
-   * section states. Weakest precedence — an escalation grant (freshly
-   * approved for exactly this call) outranks it, and without either the
-   * executor's `resolve()` applies its configured default. Undefined for a
-   * non-sandboxing executor (nothing honors it) and for agent-less callers
-   * (no session to fold).
+   * onto the request so execution follows the fold without stating it in the
+   * prompt. Weakest precedence — an escalation grant (freshly approved for
+   * exactly this call) outranks it, and without either the executor's
+   * `resolve()` applies its configured default. Undefined for a non-sandboxing
+   * executor (nothing honors it) and for agent-less callers (no session to
+   * fold).
    */
   const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
     defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)

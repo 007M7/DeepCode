@@ -11,7 +11,7 @@
  * touching consumers.
  *
  * The split follows the capability-seams RFC — interface (this) /
- * implementation (deferred) / consumer (a `/compact` tool, deferred) — modeled
+ * implementation (`dsh-compact-basic`) / consumer (a `/compact` tool, deferred) — modeled
  * on the bash trio. Unlike `dsh-bash`, this interface necessarily
  * depends on `dsh-session` and `dsh-llm`: the contract's verbs are defined over
  * a `Session` and its output is the `ContentBlock` vocabulary. That deviation

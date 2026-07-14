@@ -46,3 +46,18 @@ The `fs/write-intent`/`fs/edit-intent` slots hold exactly one decider — this p
 ## No method coupling
 
 Because the plugin influences the world only through events, removing it does not break `@deepseek-ai/dsh-tool-fs` at a service-injection boundary: the tool falls through to the bare `ctx.fs` provider (unconditional write/edit, no observed-state). Loading it back layers the policy on. That graceful add/remove is the whole point of the event gate over a mandatory method service.
+
+## Model Experience
+
+### Filesystem tool outcome
+
+**What the model sees**: This plugin adds no prompt or schema. Through `dsh-tool-fs`, an edit without a prior read becomes exactly `Error: edit requires reading "<path>" first` with code `FS_NOT_OBSERVED`; guarded mutations whose observed version is stale receive the backend's exact `Error: cannot <write-or-edit> "<path>": file changed since it was read` with code `FS_STALE_VERSION`. Observation state itself is never shown.
+
+**Token effect**: Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
+
+## Known Limitations and Deferred Work
+
+- **Observed state does not survive a session resume** — persistence of the `WeakMap` record is deferred, so a resumed session must re-read files before guarded writes/edits.
+- **Actors without an agent session can never satisfy the policy** — their edits throw `FS_NOT_OBSERVED` and their writes always resolve `createIfAbsent`, so a non-agent caller cannot overwrite an existing file through the gate.
+- **Direct `ctx.fs` reads emit no `fs/observed`** — a file read outside the `read` tool stays unobserved, and a later guarded edit rejects with `FS_NOT_OBSERVED` until the tool reads it.
+- **Authorization is version freshness, not view completeness** — any windowed read authorizes a full-file overwrite of an unchanged file, deliberately weaker than a full-view rule ([seam-split RFC](../../../docs/rfc/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md)).
