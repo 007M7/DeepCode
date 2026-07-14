@@ -1,17 +1,8 @@
 /**
- * Code Mode codegen: the pure projection from registered tool schemas to the
- * TypeScript SDK text the model programs against (the `tools:sdk` prompt
- * section). Sibling of `json-schema.ts` — `schemas()` (native function
- * calling) and this module (the generated `declare const tools` surface) are
- * two projections of the same store.
- *
- * TOTAL by design: {@link jsonSchemaToTs} maps the JSON-Schema subset the
- * `defineTool` DSL emits and degrades every construct outside it (`$ref`,
- * `oneOf`, `integer`, future MCP shapes, …) to `unknown` without ever
- * throwing — codegen must never be the thing that fails an assembly.
- * Deterministic: a fixed tool set renders byte-identical text (tools in
- * lexicographic name order), so the section is prefix-cache-friendly.
- *
+ * Code Mode codegen: the pure projection from registered tool schemas to the TypeScript SDK
+ * text the model programs against (the `tools:sdk` prompt section). Sibling of
+ * `json-schema.ts` — `schemas()` (native function calling) and this module (the generated
+ * `declare const tools` surface) are two projections of the same store.
  * @module @deepseek-ai/dsh-tools/src/ts-types
  */
 
@@ -33,10 +24,8 @@ function pad(indent: number): string {
 /** A one-line JSDoc block for a schema `description`, or no lines when there is none. */
 function docLines(description: unknown, indent: number): string[] {
   if (typeof description !== 'string' || description.length === 0) return []
-  // Keep the doc a single-line comment per property: descriptions are prose
-  // (possibly with newlines); collapse whitespace so the rendered SDK stays
-  // stable and compact. A comment-closer inside the description is escaped so
-  // it cannot terminate the generated JSDoc early.
+  // Collapse prose to stable one-line docs and escape comment closers so a
+  // schema description cannot terminate generated JSDoc.
   const collapsed = description.replace(/\s+/g, ' ').trim()
   return [`${pad(indent)}/** ${collapsed.replaceAll('*/', String.raw`*\/`)} */`]
 }

@@ -44,13 +44,11 @@ The durability requirement was specific: the doc should show the **literal** cur
 - **A compiled `_Check` assignability assertion** instead of the verbatim source match — rejected because byte-equality, not assignability, is the property we want: a renamed field with the same type would pass assignability.
 - **Provenance as directive comments in the prose** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 
-## Process
+## Verification lesson
 
-The design was driven entirely by a one-question-at-a-time grilling that walked the scoping decision tree through concrete examples (`BashExecRequest`, `ToolSchema`, `ToolDefinition`, the schema DSL, the presentation types, the session/persistence split) before committing to the spine-vs-seam rule — the rule was the *output* of the examples, not an a-priori axiom. The implementation landed as four commits mirroring the structure of the work: the gate (`e97f94b`), the catalog (`7e33c7b`), the maintenance-guard updates (`53e01a0`), and a review-fix commit (`6da7a0f`).
+The spine-vs-seam rule was tested against `BashExecRequest`, tool schemas and definitions, the schema DSL, presentation types, and the session/persistence split before adoption.
 
-That last commit is why the process is worth recording: an independent Codex review (gpt-5.5:xhigh) found a real **scan-gap bug** — `verify-type-equiv` only scanned the docs the manifest named, so a type-equiv block added to an *unmanifested* doc was silently skipped, defeating the 1:1 guarantee in one direction. The fix scans every doc in the markdown scope and reports an unmanifested block as an orphan. The same review corrected a `SessionPersistence` surface-listing prose error (`has`/`delete`) and the `doc-sync` command summary. The bug is the point: a drift gate that silently skips part of its input is worse than no gate, and only an adversarial reader caught it.
-
-This decision shipped in #71 **without** an RFC at the time — the judgment was that the `ts type-equiv` convention was small enough to document in `development.md`. This RFC is the retroactive record: the spine-vs-seam scoping rule and the verbatim-match-over-assignability choice are exactly the kind of "why was it done this way?" decisions a future maintainer would otherwise re-litigate, and its sibling catalog ([generated cordis events + services](2026-06-20-generated-cordis-catalog.md)) does carry an RFC, so the pair should be documented symmetrically.
+`verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This RFC records that fail-closed scan rule together with the spine-vs-seam and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its RFC](2026-06-20-generated-cordis-catalog.md).
 
 ## Consequences
 

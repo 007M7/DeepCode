@@ -1,21 +1,8 @@
 /**
- * The in-process SPAWN subagent backend: registers a {@link SubagentProvider}
- * on `ctx.subagents` that runs each child as a FRESH child {@link Agent} on the
- * same cordis context (its own session, own system prompt, zero parent
- * context). The cheapest transport, reusing the agent factory's quiescent
- * teardown.
- *
- * The run mechanics live in `@deepseek-ai/dsh-subagent-inprocess`
- * ({@link startInProcessRun}); this backend just passes NO seed (a fresh
- * child). The fork backend is an independent peer over the same driver.
- *
- * Structured output (`outputSchema`) is supported through the driver's
- * per-child scoped runtime: the child registers its real-schema capture tool,
- * prompt instruction, and enforcement listeners inside the creation setup
- * window, and its scope owns their lifetime.
- *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default.
- *
+ * The in-process SPAWN subagent backend: registers a {@link SubagentProvider} on
+ * `ctx.subagents` that runs each child as a fresh child {@link Agent} on the same cordis
+ * context (its own session, own system prompt, zero parent context). The cheapest transport,
+ * reusing the agent factory's quiescent teardown.
  * @module @deepseek-ai/dsh-subagent-spawn
  */
 
@@ -25,10 +12,8 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
-// `tools` is deliberately NOT injected: the shared driver registers structured
-// output through the child's creation context, whose factory already requires
-// the tool service. Keeping it out of this backend's inject list preserves the
-// provider's independent apply timing.
+// `tools` is deliberately not injected: the child factory already provides it during setup,
+// and adding it here would unnecessarily change this provider's apply timing.
 export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */

@@ -1,37 +1,9 @@
 /**
- * The self-referential cordis toolset: three model-facing tools that let the
- * agent inspect and MODIFY the live cordis runtime it is running inside.
- *
- * - `cordis_inspect` — read-only: provided services, the flat plugin list
- *   with lifecycle states, registered tools, the dynamic mounts, and the
- *   catalog-backed `api` / `events` references.
- * - `cordis_mount` — evaluate model-written code in a `node:vm` sandbox; the
- *   code returns a cordis plugin, which is mounted as a child of a dedicated
- *   `cordis-dynamic` group fiber and tracked under an id (`dyn-1`, `dyn-2`, …).
- * - `cordis_unmount` — dispose one dynamic mount by id, awaiting quiescence.
- *
- * Everything the model's plugin registers (listeners via `ctx.on`, tools via
- * `harness.registerTool`, services via `ctx.provide`) is an effect on the
- * dynamic fiber, so unmounting — or disposing this plugin itself (HMR) — cleans
- * it all up through the ordinary cordis lifecycle. The group fiber exists
- * exactly so the dynamic mounts form ONE subtree, disposed as a unit with
- * this plugin. Design home:
- * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
- *
- * The vm sandbox guards against ACCIDENTAL global pollution only, and the `ctx`
- * a mounted plugin's `apply` receives is a WHITELIST façade (register a tool,
- * observe events, provide/consume services, use timers — framework internals
- * withheld; see the guard module). Neither is a security boundary: the verbs
- * the façade DOES expose reach the real runtime unsandboxed (a mounted tool can
- * shell out through `ctx.bash`), so a deployment loads this plugin as
- * deliberately as it grants a bash tool. Design home:
- * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
- *
- * Plugin export shape: named exports, NO default. The cordis Loader's
- * `unwrapExports` does `exports.default ?? exports`, so a stray default would
- * collapse the module to the bare `apply` and drop `inject`, crashing at load
- * (see docs/postmortem/0001).
- *
+ * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned plugin
+ * under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
+ * so plugin disposal removes the entire dynamic subtree. The VM and context façade prevent
+ * accidental misuse, not hostile code: an allowed service such as `ctx.bash` reaches the real
+ * runtime. Named exports preserve loader injection metadata.
  * @module @deepseek-ai/dsh-tool-cordis
  */
 
@@ -75,9 +47,7 @@ type ResolvedConfig = Required<Config>
  */
 export function apply(ctx: Context, config: Config): void {
   const { vmTimeoutMs } = config as ResolvedConfig
-  // The one group fiber every dynamic mount hangs under. Mounted here (a child
-  // of this plugin's fiber) so disposing tool-cordis cascades over the whole
-  // dynamic subtree — the ordinary parent→child fiber lifecycle, nothing extra.
+  // The one group fiber every dynamic mount hangs under.
   const group = ctx.plugin({ name: 'cordis-dynamic', apply: () => {} })
 
   const mounts = new Map<string, DynamicMount>()

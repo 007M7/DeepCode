@@ -1,15 +1,7 @@
 /**
- * Dialect-neutral vocabulary for the Claude Code / Codex hook wire protocol,
- * plus the log-only `hook/*` session events. Types only — runtime helpers live
- * in the sibling modules (`matcher`, `codec`, `runner`, `merge`, `events`).
- *
- * This package is the SHARED CORE: the truly-identical primitives both the
- * `dsh-hooks-claude` and `dsh-hooks-codex` bridges build on. Each bridge owns
- * its own per-dialect stdin-payload construction and decision mapping on top of
- * these primitives — the divergences (which events exist, literal-vs-regex
- * matching, env/substitution, snake_case extras, allow/ask support) are the
- * BRIDGE's concern, not this lib's.
- *
+ * Dialect-neutral vocabulary and log-only events shared by the Claude Code and
+ * Codex hook bridges. Payload construction, matching differences, environment,
+ * and seam-specific decision mapping remain owned by each bridge.
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
@@ -32,15 +24,9 @@ declare module '@deepseek-ai/dsh-session' {
       handlerId: string
     }
     /**
-     * A hook command's outcome — log-only, paired with a prior `hook/invoked`
-     * (same `handlerId`). `decision` is the dialect-neutral outcome derived by
-     * `appendHookResult` (which owns the rule): the hook's parsed decision
-     * (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to
-     * halt via `continue:false`, else `'pass'`. `exitCode` is the process exit
-     * (absent if it never ran), `stderrSummary` the trimmed stderr truncated to
-     * the bridge's configured cap (the block reason source on exit 2),
-     * `durationMs` the wall-clock runtime (audit timing; snapshot replay
-     * normalizes it). `turn` matches the `hook/invoked`.
+     * Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the
+     * parsed permission result, `stop` for `continue:false`, or `pass`; exit code
+     * may be absent, stderr is bounded, and duration is wall-clock runtime.
      */
     'hook/result': {
       turn: number
@@ -134,14 +120,8 @@ export interface HookOutput {
   /** The reason/explanation accompanying {@link decision}. */
   reason?: string
   /**
-   * The `hookSpecificOutput.hookEventName` discriminator, when the hook emitted
-   * a `hookSpecificOutput` block. The reference schemas key that block by event,
-   * so a block whose `hookEventName` names a DIFFERENT event than the one firing
-   * is malformed: {@link parseHookOutput} DISCARDS its event-scoped fields when
-   * given the firing event's `expectedEventName` (a hook claiming `PreToolUse`
-   * output on a `Stop` event does not affect the `Stop`). This field is still
-   * surfaced even on a mismatch — the record shows what the block claimed. Absent
-   * when the hook emitted no `hookSpecificOutput`.
+   * Event discriminator claimed by `hookSpecificOutput`. On mismatch,
+   * {@link parseHookOutput} preserves this value but discards event-scoped fields.
    */
   hookEventName?: string
   /** Extra context to inject for the next model request (CC `additionalContext`). */

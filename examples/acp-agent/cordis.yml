@@ -1,17 +1,7 @@
-# The acp-agent plugin tree: the ACP server. Also the snapshot RECORD config
-# (the dsh-acp-agent bin selects it for DSH_SNAPSHOT=record): a real llm-deepseek
-# run whose persisted log the snapshot harness harvests. The swappable DeepSeek
-# adapter, sandboxed bash executor, the ACP server app
-# (@deepseek-ai/dsh-acp-agent), and the optional model-facing
-# fs/subagent/todo tools loaded below.
-#
-# CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved for
-# the ACP JSON-RPC protocol (see packages/ui/acp). That guarantee is now a
-# property of @deepseek-ai/dsh-acp-agent (it contains no logger entry), not a
-# leaf convention: there is no logger here to get wrong.
-#
-# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) — the
-# dsh-acp-agent bin loads the gitignored repo-root .env first (on STDERR only).
+# ACP server and snapshot-record composition. With `DSH_SNAPSHOT=record`, the
+# app bin runs the real DeepSeek adapter and the harness harvests its persisted
+# log. The bin loads the gitignored root `.env` before this config. This tree has
+# no stdout logger or HMR because stdout carries ACP JSON-RPC.
 
 # The DeepSeek adapter.
 - id: llm-deepseek
@@ -24,12 +14,10 @@
       - deepseek-v4-pro
 
 # The default composition confines bash to the workspace and asks before a
-# wider retry. Snapshot runs select danger-full-access so the established
-# scenarios remain runner-independent; DSH_PERMISSION_MODE provides the same
-# explicit deployment/test override outside the snapshot harness.
+# wider retry. Snapshots use danger-full-access; DSH_PERMISSION_MODE overrides
+# both mode and approval policy for deployments and tests.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
-
 - id: bash
   name: '@deepseek-ai/dsh-bash-sandbox'
   config:
@@ -53,22 +41,16 @@
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-    # The persona: identity + behavior only, nothing about transports or
-    # tooling — tool guidance lives with each tool plugin (descriptions +
-    # prompt sections). {{model}} and {{cwd}} are prompt variables the agent
-    # loop resolves per session (every ACP session carries the client's cwd,
-    # so the persona can state the workspace).
+    # Keep the persona to identity and behavior; tool plugins own tool guidance.
+    # The loop resolves {{model}} and each ACP session's client-supplied {{cwd}}.
     persona: |
       You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# The subagent seam + both in-process backends + two model-facing tools, as leaf
-# entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh
-# child) and fork (a child seeded with the parent's completed-turn prefix) are
-# both reachable by the model: dsh-tool-subagent is loaded once per backend with
-# a distinct toolName (subagent → spawn, subagent_fork → fork), so a multi-child
-# scenario can exercise both transports.
+# Expose fresh-child `spawn` and completed-prefix `fork` through separate tool
+# names so multi-child scenarios exercise both transports. These leaves follow
+# the app because it provides `ctx.agents` and `ctx.tools`.
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
@@ -95,10 +77,8 @@
     toolName: subagent_fork
 
 
-# Dynamic workflows: the worker-thread engine (ctx.workflows) over the spawn
-# subagent backend above, plus the model-facing `workflow` tool. The model
-# writes a JavaScript orchestration script (meta + body); the engine runs it
-# in its own worker thread and fans agent() calls out as spawn children.
+# The worker-thread workflow engine fans a model-written JavaScript script's
+# `agent()` calls out through the spawn backend; the adjacent tool exposes it to the model.
 - id: workflow-workerthread
   name: '@deepseek-ai/dsh-workflow-workerthread'
   config:
@@ -106,22 +86,18 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
-# The model-facing todo_write tool: whole-list task tracking written to the
-# session log (todo/write), surfaced to the ACP client as a `plan` update.
+# `todo_write` replaces the logged whole list and surfaces an ACP `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
 
-# The repeat-tool-call guard: advisory reminders (injected context, never a
-# block) when the model re-issues the same tool call with identical arguments;
-# defaults [3, 5, 8]. Loaded here so the snapshot tier exercises the reminder
-# transcript (the repeat-tool-guard scenario) — no other scenario repeats a
-# call three times, so it is inert everywhere else.
+# Identical repeat calls trigger advisory context, never a block, at the default
+# thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
 
 # Filesystem tools do not ride the bash sandbox, so the confined default omits
-# them. Snapshot tests and explicit danger-full-access launches keep the
-# established filesystem scenarios by enabling the whole stack together.
+# them. Snapshots and explicit danger-full-access launches enable the local
+# provider, policy, and model-facing tools together.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
   disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
@@ -136,28 +112,19 @@
   name: '@deepseek-ai/dsh-tool-fs'
   disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
-# The Claude Code hook bridge. `configPath` is PROCESS-LEVEL: it is read ONCE at
-# load and the relative `./hooks.json` resolves against the ACP server's launch
-# cwd, NOT each `session/new.cwd`. So a single `hooks.json` next to where the
-# server starts applies to every session; a project-local, per-session hooks.json
-# is NOT discovered (per-session config resolution is a TODO — see the bridge
-# README). With no file present the parse fails-soft and the bridge registers
-# nothing (a silent no-op). Hooks THEMSELVES run in the session cwd (the bridge
-# passes it as the workdir); only WHERE the config is read from is process-level.
-# stdout is the ACP JSON-RPC channel — the bridge's warnings go through ctx.logger
-# (no exporter here), never to stdout.
+# `configPath` is read once at load and resolves from the server launch cwd, not
+# `session/new.cwd`; one `hooks.json` therefore applies to every session and a
+# project-local file is not discovered. Missing config registers nothing. Hook
+# commands still run in the session cwd. Warnings use `ctx.logger`, never stdout;
+# see packages/hooks/hooks-claude/README.md for the deferred per-session design.
 - id: hooks-claude
   name: '@deepseek-ai/dsh-hooks-claude'
   config:
     configPath: ./hooks.json
 
-# The Codex hook bridge, loaded alongside the Claude one. It reads its OWN config
-# file (`./codex-hooks.json`, Codex's snake_case five-event dialect) — the two
-# bridges cannot share one file, so each owns a distinct path. Same process-level
-# read-once semantics and same fails-soft-when-absent contract: a launch cwd with
-# no `codex-hooks.json` registers nothing (a silent no-op through ctx.logger, never
-# stdout). The example ships both bridges so a scenario can exercise EITHER dialect
-# end-to-end by seeding the matching file in its workspace/.
+# Codex uses its own `codex-hooks.json` and snake_case five-event dialect; it
+# cannot share Claude's file. It has the same process-level, read-once, missing-is-no-op,
+# logger-only contract. Shipping both bridges lets a scenario seed and exercise either dialect.
 - id: hooks-codex
   name: '@deepseek-ai/dsh-hooks-codex'
   config:

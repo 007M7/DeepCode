@@ -1,18 +1,6 @@
 /**
- * The code-execution seam (`ctx.codeRuntime`): an abstract service defining
- * WHAT a code runtime does — run one model-written program against a set of
- * host-provided async bindings and report `{ value, logs, error? }` — without
- * saying HOW. Implementations subclass {@link CodeRuntime} and register
- * themselves as the `codeRuntime` service; backends may differ by execution
- * substrate (worker thread, separate process, container) and by source
- * language, both declared as readonly descriptors. The design and its
- * consumer (the tool registry's Code Mode) are specified in the Code Mode RFC
- * (docs/rfc/implemented/feature/2026-06-15-code-mode.md).
- *
- * The split mirrors the bash seam (`BashExecutor`): the runtime knows nothing
- * about tools or sessions — it is handed named async functions and a program,
- * and everything tool-shaped stays with the consumer.
- *
+ * Code-execution seam for running one model-written program against host async bindings.
+ * Runtimes know nothing about tools or sessions; consumers own those concerns.
  * @module @deepseek-ai/dsh-code-runtime
  */
 
@@ -35,26 +23,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract code-execution service. Subclass, implement {@link run} and the
- * two descriptors, and load the subclass as a plugin — it registers as
- * `ctx.codeRuntime` (one implementation per context; loading a second throws,
- * cordis' standard duplicate-service behavior).
- *
- * Semantics every implementation must honor:
- * - {@link run} resolves with an error FIELD for every program outcome —
- *   parse/transform failures, thrown exceptions, budget expiry, abort,
- *   substrate death ({@link CodeRunFailure}'s taxonomy). It REJECTS only for
- *   caller misuse of the seam itself (e.g. a run submitted after disposal).
- * - Binding calls bridge to the caller's {@link CodeBindingFunction}s
- *   verbatim; arguments and resolutions must be structured-cloneable, and the
- *   runtime treats the program as a hostile peer (arbitrary binding names are
- *   own properties, malformed traffic is rejected or ignored, never crashes
- *   the host).
- * - Runs are isolated from each other: no state survives from one run to the
- *   next through the runtime.
- * - Disposal reaches quiescence: in-flight runs are terminated AND awaited
- *   before the service's own teardown completes (no orphan substrate survives
- *   `fiber.dispose()`).
+ * Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate
+ * failures resolve in {@link CodeRunResult}; only seam misuse rejects. Implementations bridge
+ * structured-cloneable bindings while treating programs as hostile peers, isolate runs from
+ * one another, and terminate and await in-flight runs during disposal.
  */
 export abstract class CodeRuntime extends Service {
   /**

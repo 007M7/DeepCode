@@ -1,30 +1,9 @@
 /**
- * Doc-sync gate: enforce word-count ceilings on the standing docs that accrete
- * (docs/AGENTS.md § "Budgets and the ceiling gate"). Instruction files and the
- * architecture overview grow a paragraph per PR unless something pushes back;
- * this gate is the pushback — when a ceiling is hit, the fix is to relocate or
- * condense per the documentation standard, not to raise the ceiling. Raising a
- * ceiling is allowed but is a deliberate, reviewable manifest diff that the PR
- * description must justify.
- *
- * Scope is deliberately NARROW: only the files listed in
- * scripts/doc-budgets.manifest.json (path → max words). Reference docs, RFCs,
- * and package READMEs are unbudgeted — length is legitimate there (a feature
- * matrix is the right kind of long), and the standard governs them through
- * review, not a ceiling.
- *
- * The manifest is an enforcement frontier, i18n-rollout style: a ceiling sits
- * at least 5% above the doc's current size (working headroom, so routine
- * wording edits pass while real growth trips the gate) and ratchets DOWN,
- * keeping that margin, as the doc is brought to its target budget. A manifest entry whose file is missing
- * fails the gate, so a rename cannot silently orphan its budget.
- *
- * Words are counted `wc -w` style over the whole file (whitespace-delimited
- * tokens, fenced code included) so a ceiling is reproducible with standard
- * tools. This is a checker, not a formatter: it reports and never rewrites.
- *
- * Run: `tsx scripts/verify-doc-budgets.ts` (or `--list` to print every
- * budgeted doc's current count vs ceiling without failing).
+ * Enforce `wc -w`-style ceilings from `scripts/doc-budgets.manifest.json`.
+ * Missing files and invalid ceilings fail; `--list` reports current usage.
+ * Only listed standing docs are budgeted. Ceilings ratchet down with at least
+ * 5% headroom; raising one requires the justification defined in
+ * `docs/AGENTS.md`.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
