@@ -48,7 +48,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: process.execPath,
-      args: ['--import', tsxLoader, binScript, exampleConfig],
+      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
       cwd: workdir,
       permission: 'reject',
       // The child harness needs the key to reach the model; forward it
@@ -57,6 +57,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
         ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
         ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
       },
     })
 
@@ -83,7 +84,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: process.execPath,
-      args: ['--import', tsxLoader, binScript, exampleConfig],
+      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
       cwd: workdir,
       // The child needs to act (run bash), so approve its permission prompts.
       permission: 'allow',
@@ -91,6 +92,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
         ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
         ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
       },
     })
 
