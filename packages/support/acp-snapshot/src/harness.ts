@@ -244,9 +244,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   )
 
   // Failure-safe teardown: wait for a still-running child, then attempt BOTH
-  // directory removals even when an earlier cleanup rejects. The main outcome
-  // wins over teardown noise so a step/harvest failure is never replaced; on a
-  // successful run, the first cleanup failure remains visible to the caller.
+  // directory removals even when an earlier cleanup rejects. Report every
+  // teardown failure alongside a scenario failure so neither orthogonal
+  // outcome hides the other.
   const cleanupResults: PromiseSettledResult<unknown>[] = []
   const cleanup = async (action: () => Promise<unknown>): Promise<void> => {
     cleanupResults.push(...await Promise.allSettled([action()]))
@@ -256,10 +256,18 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   await cleanup(() => rm(cwd, { recursive: true, force: true }))
   await cleanup(() => rm(sessionsRoot, { recursive: true, force: true }))
 
+  const cleanupFailures = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map(result => result.reason as unknown)
+  if (cleanupFailures.length > 0) {
+    throw new AggregateError(
+      outcome.status === 'rejected' ? [outcome.error, ...cleanupFailures] : cleanupFailures,
+      outcome.status === 'rejected'
+        ? 'snapshot scenario and cleanup failed'
+        : 'snapshot cleanup failed',
+    )
+  }
   if (outcome.status === 'rejected') throw outcome.error
-  const cleanupFailure = cleanupResults.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-  /* v8 ignore next 1 -- defensive OS cleanup failure after an otherwise successful real subprocess run */
-  if (cleanupFailure !== undefined) throw cleanupFailure.reason
   return outcome.value
 }
 

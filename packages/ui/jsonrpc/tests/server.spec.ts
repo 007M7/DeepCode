@@ -277,12 +277,12 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const handle = await ctx.agents.create({
+      const handle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
         agentOptions: { model: 'deepseek' },
       })
-      const parentlessHandle = await ctx.agents.create({
+      const parentlessHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('parentless-child-session'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
@@ -331,6 +331,43 @@ describe('HarnessSdkServer', () => {
     }
   })
 
+  it('ignores a remote run id that collides with an unrelated local agent', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-remote-collision-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parentHandle = await ctx.agents.create({
+        sessionId: SessionId('collision-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const unrelatedHandle = await ctx.agents.create({
+        sessionId: SessionId('remote-run-id'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'remote',
+        id: SessionId('remote-run-id'),
+        stopReason: 'completed',
+        lastAssistantMessage: [],
+      }, () => unrelatedHandle.dispose())
+
+      expect(transport.notifications.some(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.agentId === 'remote-run-id',
+      )).toBe(false)
+
+      await parentHandle.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
   it('retains locality across continuation runs on one live child', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-continuation-'))
     const ctx = await makeHarness(storageDir)
@@ -342,7 +379,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const childHandle = await ctx.agents.create({
+      const childHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('continuation-child'),
         meta: { cwd: storageDir, parentSession: SessionId('continuation-parent') },
         agentOptions: { model: 'deepseek' },
@@ -385,7 +422,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const oldChild = await ctx.agents.create({
+      const oldChild = await oldParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('old-parent') },
         agentOptions: { model: 'deepseek' },
@@ -425,7 +462,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const newChild = await ctx.agents.create({
+      const newChild = await newParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
         agentOptions: { model: 'deepseek' },
@@ -483,12 +520,12 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      handle = await ctx.agents.create({
+      handle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
         agentOptions: { model: 'deepseek' },
       })
-      failedHandle = await ctx.agents.create({
+      failedHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },

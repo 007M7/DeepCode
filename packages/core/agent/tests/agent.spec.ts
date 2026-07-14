@@ -72,8 +72,12 @@ describe('AgentRegistry', () => {
 
     expect(ctx.agents.list()).toEqual([root, child])
     expect(ctx.agents.roots()).toEqual([root])
+    expect(ctx.agents.isOwnedBy(child.id, root)).toBe(true)
+    expect(ctx.agents.isOwnedBy(root.id, root)).toBe(false)
+    expect(ctx.agents.isOwnedBy(SessionId('missing'), root)).toBe(false)
 
     detachChild()
+    expect(ctx.agents.isOwnedBy(child.id, root)).toBe(false)
     detachRoot()
   })
 
