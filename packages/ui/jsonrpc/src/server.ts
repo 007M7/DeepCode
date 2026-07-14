@@ -17,7 +17,7 @@ import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import type { SubagentRunEndInfo, SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { JsonRpcTransportPeer } from './transport.ts'
 
@@ -65,10 +65,11 @@ interface LocalAgentRecord {
 
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
- * the context's `session/event`, `session/created`, `agent/created`, and
- * `subagent/end` events and forwards them to the host as notifications; the
- * subscriptions live until {@link shutdown}. One instance serves one transport
- * peer for the process lifetime — there is no re-`initialize`.
+ * session, agent, and subagent lifecycle events, forwarding durable session
+ * events and SDK-facing completion notifications while retaining local-run
+ * identity across child disposal. The subscriptions live until
+ * {@link shutdown}. One instance serves one transport peer for the process
+ * lifetime — there is no re-`initialize`.
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
@@ -77,6 +78,7 @@ export class HarnessSdkServer {
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
   private readonly localAgents = new Map<SessionId, LocalAgentRecord>()
+  private readonly localRuns = new Map<SessionId, LocalAgentRecord[]>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -100,18 +102,38 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // Cache runtime-local identity and optional lineage on creation: by the
-    // time `subagent/end` fires the child agent may already be disposed and
-    // gone from the registry. Parent lineage is not required by the provider
-    // contract, so an empty record remains a load-bearing locality marker.
+    // Cache runtime-local identity and optional lineage for each agent lifetime.
+    // Parent lineage is not required by the provider contract, so an empty
+    // record remains a load-bearing locality marker.
     this.disposers.push(ctx.on('agent/created', (agent) => {
       const parentSessionId = agent.session.header.parentSession
       this.localAgents.set(agent.id, parentSessionId === undefined ? {} : { parentSessionId })
     }))
-    this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
+    this.disposers.push(ctx.on('agent/disposed', (agent) => {
+      this.localAgents.delete(agent.id)
+    }))
+    // Snapshot locality per run. A provider may settle one run, continue the
+    // same live child in another run, and dispose that child before the later
+    // result settles. Consuming an agent-lifetime marker at the first end would
+    // lose the later notification; this queue pairs each start with one end.
+    this.disposers.push(ctx.on('subagent/start', (info: SubagentRunInfo) => {
       const agent = this.ctx.agents.get(info.id)
       const cachedLocalAgent = this.localAgents.get(info.id)
-      this.localAgents.delete(info.id)
+      const localAgent = cachedLocalAgent ?? (agent === undefined
+        ? undefined
+        : agent.session.header.parentSession === undefined
+          ? {}
+          : { parentSessionId: agent.session.header.parentSession })
+      if (localAgent === undefined) return
+      const runs = this.localRuns.get(info.id) ?? []
+      runs.push(localAgent)
+      this.localRuns.set(info.id, runs)
+    }))
+    this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
+      const agent = this.ctx.agents.get(info.id)
+      const runs = this.localRuns.get(info.id)
+      const cachedLocalAgent = runs?.shift()
+      if (runs?.length === 0) this.localRuns.delete(info.id)
       // This protocol reports LOCAL child sessions. A lineage-bearing child
       // has the session/created-driven start notification above; a parentless
       // local provider still gets its terminal notification. A remote provider
@@ -196,6 +218,7 @@ export class HarnessSdkServer {
     const records = [...this.sessions.values()]
     this.sessions.clear()
     this.localAgents.clear()
+    this.localRuns.clear()
     const failures: unknown[] = []
     while (this.disposers.length > 0) {
       try {
