@@ -1,24 +1,8 @@
 /**
- * `LocalSandboxProvider`: the local implementation of the
- * `@deepseek-ai/dsh-sandbox` seam. Wraps a caller's argv in a platform
- * confinement runner selected BY PLATFORM: each platform names its runner
- * chain ({@link PLATFORM_CHAINS}), a chain of one is selected directly (no
- * probe — there is nothing to arbitrate), and a chain of several is probed
- * FUNCTIONALLY in preference order (build and enforce a real profile once,
- * not `--version`), the verdict cached for the provider's lifetime. Linux:
- * `bwrap`, else the `landlock-run` Landlock launcher (kernel confinement
- * that needs no userns/mount privileges; distributed as the npm package
- * family `node-addon-landlock-run` — the decision recorded in
- * docs/rfc/implemented/feature/2026-07-06-sandbox.md); darwin: macOS
- * `sandbox-exec` speaking a Seatbelt (SBPL) profile, unprobed.
- * When the platform has no chain or no candidate passes,
- * {@link LocalSandboxProvider.confine} FAILS CLOSED with the seam's
- * structured `SANDBOX_UNAVAILABLE` error instead of passing the argv
- * through unconfined; an unusable runner selected WITHOUT a probe fails
- * closed at execution time instead (it refuses to run the command), which
- * the wrap's `runnerFailureSignatures` let consumers classify as a sandbox
- * failure rather than a task failure.
- *
+ * Local sandbox backend. It selects the platform runner chain (Linux bwrap then
+ * Landlock; macOS Seatbelt), functionally probes competing candidates once, and
+ * reports each wrap's enforcement and stderr dialects. Missing or unusable
+ * confinement fails closed rather than returning the original argv.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
@@ -34,20 +18,10 @@ import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './pr
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
-   * appended). A NON-EMPTY argv is the operator's assertion that this runner
-   * exists and FULLY enforces the profile (confinement reports
-   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
-   * — carries both Linux file-denial dialects as its denial signatures) —
-   * the runner chain and its probes are skipped,
-   * and a broken runner fails loudly at execution time. The operator also
-   * supplies {@link runnerFailureSignatures}, which distinguish the runner
-   * refusing its profile from the wrapped command failing normally.
-   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
-   * built-in platform chains — Linux `bwrap` then the Landlock launcher
-   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
-   * selected without a probe). Used for custom/alternative runners and
-   * for deterministic fake runners in keyless test tiers.
+   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * non-empty override asserts full enforcement and skips built-in selection and
+   * probing; a broken runner then fails at execution and must be identifiable by
+   * {@link runnerFailureSignatures}.
    */
   runnerCommand?: string[]
   /**
@@ -59,16 +33,7 @@ export interface Config {
    * own failure dialect.
    */
   runnerFailureSignatures?: string[]
-  /**
-   * Per-probe timeout in milliseconds for the chain's functional probes
-   * (default: 5000; must be a positive finite number — Node treats a 0
-   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
-   * probe that exceeds it reads as an unusable rung, so a
-   * host slow enough to trip the default — cold NFS mounts, heavily loaded
-   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
-   * config escape. Bounds ONE probe, and the chain walk runs each at most once
-   * per provider lifetime.
-   */
+  /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
 }
 
@@ -131,13 +96,10 @@ type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt'; enforcement: 
 const PLATFORM_CHAINS: Record<string, readonly SelectedRunner['runner'][]> = {
   linux: ['bwrap', 'landlock'],
   darwin: ['seatbelt'],
-  // Reserved slot, deliberately empty: Windows support fills it with a
-  // confinement runner (AppContainer / restricted-token family, shipped from
-  // its own repository on the landlock-run template) plus a
-  // SelectedRunner['runner'] union member — the switches' assertNever guards
-  // then walk the implementer to every site. An empty chain fails closed at
-  // confine(), identical to an unlisted platform: reserving the slot never
-  // weakens the fail-closed end.
+  // Reserved slot, deliberately empty: Windows support fills it with a confinement runner
+  // (AppContainer / restricted-token family, shipped from its own repository on the
+  // landlock-run template) plus a SelectedRunner['runner'] union member — the switches'
+  // assertNever guards then walk the implementer to every site.
   win32: [],
 }
 
@@ -168,16 +130,9 @@ function assertPositiveFinite(name: string, value: number): void {
 }
 
 /**
- * The denial dialect each runner's kernel speaks — the case-insensitive
- * stderr substrings a denied file effect produces under it, carried on every
- * wrap (the seam's `ConfinedArgv.denialSignatures`). Kernel facts, not
- * tunables: bwrap denies through its read-only bind mounts (EROFS), Landlock
- * refuses with EACCES, Seatbelt with EPERM — whose text is also what
- * non-file EPERM boundaries print, the residual imprecision the consumer's
- * conservative classifier documents. An operator-configured `runnerCommand`
- * has an unknown kernel mechanism, so its wraps carry both Linux file-denial
- * dialects; bare EPERM stays excluded there (it names non-file boundaries
- * the mode vocabulary does not govern).
+ * The denial dialect each runner's kernel speaks — the case-insensitive stderr substrings a
+ * denied file effect produces under it, carried on every wrap (the seam's
+ * `ConfinedArgv.denialSignatures`).
  */
 const DENIAL_SIGNATURES = {
   bwrap: ['read-only file system'],
@@ -187,15 +142,9 @@ const DENIAL_SIGNATURES = {
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
 /**
- * How each runner's OWN failure identifies itself on stderr (the seam's
- * `ConfinedArgv.runnerFailureSignatures`): every runner prefixes its error
- * lines with its program name, and the shell's runner-not-found message
- * carries the same `name: ` shape (`bash: bwrap: command not found`,
- * `bash: …/bin/landlock-run: No such file or directory`) — so one substring
- * per runner covers both "runner broke" and "runner missing". Consumers
- * match these BEFORE the denial dialect: a runner's error text can contain
- * denial words (an unopenable grant root reports `Permission denied`), and
- * a runner failure means the command never ran at all.
+ * Runner-owned stderr prefixes cover both internal refusal and shell-level
+ * not-found errors. Consumers match these before denial text because the
+ * command never ran on this path.
  */
 const RUNNER_FAILURE_SIGNATURES = {
   bwrap: ['bwrap: '],
@@ -248,17 +197,15 @@ export class LocalSandboxProvider extends SandboxProvider {
   }
 
   /**
-   * Wrap `argv` in the selected runner's invocation for `policy` — the
-   * configured `runnerCommand` when present (the operator's assertion, no
-   * probe), else the platform chain's runner speaking its own profile
-   * dialect. Every wrap carries the runner's enforcement completeness, its
-   * denial dialect, and its runner-failure signatures.
+   * Wrap `argv` in the selected runner's invocation for `policy` — the configured
+   * `runnerCommand` when present (the operator's assertion, no probe), else the platform
+   * chain's runner speaking its own profile dialect.
+   *
    * @param argv - the exact argv the caller is about to spawn.
    * @param policy - the file-effect policy this execution runs under.
-   * @returns the wrapped argv plus the selected backend's enforcement
-   *   completeness, denial signatures, and runner-failure signatures;
-   *   throws the fail-closed `SANDBOX_UNAVAILABLE` error when the platform
-   *   has no usable runner.
+   * @returns the wrapped argv plus the selected backend's enforcement completeness, denial
+   *   signatures, and runner-failure signatures; throws the fail-closed
+   *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     if (this.runnerCommand !== undefined) {
@@ -267,14 +214,9 @@ export class LocalSandboxProvider extends SandboxProvider {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
-        // The operator names the configured runner's OWN pre-exec refusal
-        // dialect; the consumer additionally re-joins the wrap through an
-        // outer `bash -c 'exec …'`, so we can add the missing/unexecutable
-        // outer-shell shapes ourselves. Scoping every automatic shape to
-        // argv0 keeps in-command errors out (a bare `exec:`/`Permission
-        // denied` prefix would claim tool output; `exec: <argv0>: not found`
-        // cannot). The residual text-collision trade is documented by the
-        // seam's conservative classifier contract.
+        // The operator names the configured runner's own pre-exec refusal dialect; the consumer
+        // additionally re-joins the wrap through an outer `bash -c 'exec …'`, so we can add the
+        // missing/unexecutable outer-shell shapes ourselves.
         runnerFailureSignatures: [
           ...this.configuredRunnerFailureSignatures,
           `exec: ${argv0}: not found`,
@@ -320,11 +262,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     const chain = this.internals.chain ?? PLATFORM_CHAINS[this.internals.platform ?? process.platform] ?? []
     const [first, ...rest] = chain
     if (first === undefined) return 'unavailable'
-    // One candidate = nothing to arbitrate: select it without probing. Its
-    // runner fails closed at EXECUTION time if unusable (refuses to run the
-    // command), and the wrap's runnerFailureSignatures let the consumer
-    // classify that as a sandbox failure — never a silent unconfined run,
-    // never a plain task failure.
+    // A sole candidate needs no arbitration; its execution-time refusal still fails closed.
     if (rest.length === 0) return { runner: first, enforcement: STATIC_ENFORCEMENT[first] }
     for (const runner of chain) {
       const enforcement = this.probeRunner(runner)

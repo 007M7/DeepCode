@@ -10,9 +10,9 @@ Policy is per call; the provider stores only the mechanism and cached runner ver
 
 The Seatbelt profile is allow-default with `(deny file-write*)` plus write allow-lists, so exactly the mode's promised file effects are governed: `read-only` grants the `/dev/null` literal alone; `workspace-write` adds the workspace root, `/tmp`, and the per-user darwin temp dir (`os.tmpdir()` — the platform's real temp area for mkstemp-family tools), every root canonicalized because Seatbelt matches resolved paths (`/tmp` IS `/private/tmp`). Apple marks the `sandbox-exec` CLI deprecated but ships it on every macOS; the functional probe is what fails closed if that ever changes.
 
-The Landlock launcher comes from the npm package family [`node-addon-landlock-run`](https://www.npmjs.com/package/node-addon-landlock-run) — an entry package (this package's one runtime dependency) plus per-platform binary packages selected by npm's `os`/`cpu` fields, built and released from [its own repository](https://github.com/deepseek-harness/node-addon-landlock-run). The entry package owns the launcher's CLI contract: `launcherPath()` resolution (a host with no platform package yields a never-existing path whose probe fails exactly like an unenforcing kernel), the functional `probe()`, and `grantArgs()` flag spelling — versioned together with the binary, so probe-report parsing can never drift against it. This provider keeps only the policy side: the mode → grants mapping (`landlockProfileArgs`) and the ladder. The consumer path is rehearsed by `tests/packed-install.e2e.ts`: pack THIS package's closure, install into a throwaway consumer with the launcher family coming from the registry, assert the installed binary executable (a stripped mode bit must not masquerade as a non-enforcing kernel), and confine through it under plain `node`.
+[`node-addon-landlock-run`](https://www.npmjs.com/package/node-addon-landlock-run) supplies the platform launcher, functional probe, and CLI argument vocabulary. This provider owns only mode-to-grant mapping and runner selection. Keeping path resolution and probe parsing with the versioned binary prevents contract drift.
 
-Every rung has its keyless world-proof (`tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, `tests/seatbelt.e2e.ts`), each self-skipping where its runner is absent; CI's `sandbox-e2e` matrix runs all of them against real kernels (bwrap plus one Landlock leg per architecture on Linux, Seatbelt on macOS) and fails on a silent all-skip.
+Each rung has a self-skipping keyless world-effect test; CI runs platform legs against real kernels and rejects a silent all-skip. The packed-install test exercises the registry launcher and executable mode through a plain-Node consumer.
 
 ```yaml
 - id: sandbox
@@ -23,7 +23,7 @@ Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the
 
 ## Model Experience
 
-Indirectly, through `dsh-bash-sandbox` and `dsh-tool-bash`, which render this provider's enforcement dialect as the exact `[sandbox: file access denied under <mode> mode]` marker or the [`dsh-sandbox`](../sandbox/README.md) `SANDBOX_UNAVAILABLE` text while keeping runner selection and profiles outside context.
+Indirectly, through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md) and [`dsh-tool-bash`](../../bash/tool-bash/README.md), which render this provider's enforcement and denial facts while the [`dsh-sandbox`](../sandbox/README.md) seam owns the `SANDBOX_UNAVAILABLE` text and runner selection and profiles stay outside context.
 
 ## Known Limitations and Deferred Work
 

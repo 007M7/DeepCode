@@ -167,7 +167,7 @@ export interface Config extends LocalConfig {
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/bash/bash-sandbox/src/index.ts:61`](../packages/bash/bash-sandbox/src/index.ts)
+Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -489,20 +489,10 @@ Source: [`packages/guard/repeat-tool-guard/src/index.ts:27`](../packages/guard/r
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
-   * appended). A NON-EMPTY argv is the operator's assertion that this runner
-   * exists and FULLY enforces the profile (confinement reports
-   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
-   * — carries both Linux file-denial dialects as its denial signatures) —
-   * the runner chain and its probes are skipped,
-   * and a broken runner fails loudly at execution time. The operator also
-   * supplies {@link runnerFailureSignatures}, which distinguish the runner
-   * refusing its profile from the wrapped command failing normally.
-   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
-   * built-in platform chains — Linux `bwrap` then the Landlock launcher
-   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
-   * selected without a probe). Used for custom/alternative runners and
-   * for deterministic fake runners in keyless test tiers.
+   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * non-empty override asserts full enforcement and skips built-in selection and
+   * probing; a broken runner then fails at execution and must be identifiable by
+   * {@link runnerFailureSignatures}.
    */
   runnerCommand?: string[]
   /**
@@ -514,21 +504,12 @@ export interface Config {
    * own failure dialect.
    */
   runnerFailureSignatures?: string[]
-  /**
-   * Per-probe timeout in milliseconds for the chain's functional probes
-   * (default: 5000; must be a positive finite number — Node treats a 0
-   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
-   * probe that exceeds it reads as an unusable rung, so a
-   * host slow enough to trip the default — cold NFS mounts, heavily loaded
-   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
-   * config escape. Bounds ONE probe, and the chain walk runs each at most once
-   * per provider lifetime.
-   */
+  /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/index.ts:35`](../packages/sandbox/sandbox-local/src/index.ts)
+Source: [`packages/sandbox/sandbox-local/src/index.ts:19`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
