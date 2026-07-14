@@ -27,4 +27,4 @@ This package owns ONLY the primitive — no concrete id, no runtime code beyond 
 
 ## Model Experience
 
-None, as `Branded<B>` is erased at compile time and registers no runtime behavior.
+None.

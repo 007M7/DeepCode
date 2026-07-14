@@ -4,7 +4,8 @@
  * canonical context-surface blocks with optional nested verbatim H4 blocks.
  * Direct system-prompt surfaces must contain exact `markdown` blocks,
  * tool-schema surfaces must link generated catalog sections, local subsection
- * links are rejected, and an audited allowlist uses one concise sentence.
+ * links are rejected, and audited allowlists use either one concise sentence
+ * or the exact bare `None.` form.
  *
  * Run: `tsx scripts/verify-package-readme-model-experience.ts`.
  */
@@ -25,6 +26,15 @@ type SentenceKind = 'none' | 'indirect'
 interface SentenceContract {
   kind: SentenceKind
   reason: string
+}
+
+/**
+ * Packages whose lack of model behavior is already self-evident from their
+ * package contract, so repeating that contract after `None.` adds no value.
+ * The reason stays here as reviewable audit evidence.
+ */
+const BARE_NONE_MODEL_EXPERIENCE: Readonly<Record<string, string>> = {
+  'packages/util/brand': 'The package is a type-only primitive erased at compile time.',
 }
 
 /**
@@ -57,7 +67,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/ui/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
   'packages/ui/jsonrpc-agent': { kind: 'indirect', reason: 'Only the externally configured plugin tree contributes model context.' },
   'packages/ui/user-interaction': { kind: 'indirect', reason: 'Model-facing consumers render provider answers and seam errors.' },
-  'packages/util/brand': { kind: 'none', reason: 'The type-only primitive is erased at compile time.' },
   'packages/util/timeout': { kind: 'indirect', reason: 'Only timeout consumers render timeout outcomes.' },
   'packages/web/web': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-web.' },
   'packages/web/web-fetch-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
@@ -144,11 +153,24 @@ const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 let structuredCount = 0
 let contextSurfaceCount = 0
-let noneCount = 0
+let bareNoneCount = 0
+let explainedNoneCount = 0
 let indirectCount = 0
 let verbatimBlockCount = 0
 let systemPromptSurfaceCount = 0
 let toolSchemaSurfaceCount = 0
+
+for (const [pkg, reason] of Object.entries(BARE_NONE_MODEL_EXPERIENCE)) {
+  if (!scannedPackages.has(pkg)) {
+    failures.push({ path: `${pkg}/README.md`, message: 'bare-none allowlist entry does not name a scanned package' })
+  }
+  if (reason.trim().length === 0) {
+    failures.push({ path: `${pkg}/README.md`, message: 'bare-none allowlist entry must retain its audit justification' })
+  }
+  if (SENTENCE_MODEL_EXPERIENCE[pkg] !== undefined) {
+    failures.push({ path: `${pkg}/README.md`, message: 'package cannot appear in both Model Experience sentence allowlists' })
+  }
+}
 
 for (const [pkg, contract] of Object.entries(SENTENCE_MODEL_EXPERIENCE)) {
   if (!scannedPackages.has(pkg)) {
@@ -203,6 +225,17 @@ for (const packageJson of packageJsons) {
   const nextH2Line = nextH2 < 0 ? rawLines.length + 1 : (body[nextH2] as Line).index
   const rawSection = rawLines.slice(modelHeading.index, nextH2Line - 1)
   const content = section.filter(line => line.raw.trim().length > 0)
+  const bareNoneReason = BARE_NONE_MODEL_EXPERIENCE[pkg]
+  if (bareNoneReason !== undefined) {
+    const rawContent = rawSection.filter(line => line.trim().length > 0)
+    if (content.length !== 1 || rawContent.length !== 1 || content[0]?.raw !== 'None.') {
+      failures.push({ path: readme, message: 'must contain exactly the bare sentence `None.`' })
+      continue
+    }
+    bareNoneCount += 1
+    continue
+  }
+
   const sentenceContract = SENTENCE_MODEL_EXPERIENCE[pkg]
   if (sentenceContract !== undefined) {
     const pattern = sentenceContract.kind === 'none' ? /^None, as .+\.$/ : /^Indirectly, through .+\.$/
@@ -212,14 +245,14 @@ for (const packageJson of packageJsons) {
       failures.push({ path: readme, message: `must contain exactly one sentence beginning ${JSON.stringify(prefix)} and ending with a period` })
       continue
     }
-    if (sentenceContract.kind === 'none') noneCount += 1
+    if (sentenceContract.kind === 'none') explainedNoneCount += 1
     else indirectCount += 1
     continue
   }
 
-  const shortSentence = content.find(line => /^None, as |^Indirectly, through /.test(line.raw))
+  const shortSentence = content.find(line => line.raw === 'None.' || /^None, as |^Indirectly, through /.test(line.raw))
   if (shortSentence !== undefined) {
-    failures.push({ path: readme, message: `line ${shortSentence.index}: short Model Experience form requires an audited entry in SENTENCE_MODEL_EXPERIENCE` })
+    failures.push({ path: readme, message: `line ${shortSentence.index}: short Model Experience form requires an audited entry in BARE_NONE_MODEL_EXPERIENCE or SENTENCE_MODEL_EXPERIENCE` })
     continue
   }
 
@@ -338,7 +371,7 @@ for (const packageJson of packageJsons) {
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${noneCount} none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${bareNoneCount} bare none, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 
