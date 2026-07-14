@@ -179,13 +179,13 @@ Source: [`packages/core/agent/src/types.ts:576`](../../packages/core/agent/src/t
 
 ### `agent-loop/config-start-failed` — emit
 
-A declarative agent entry failed before it could publish a live agent. Consumers that buffer work for the configured identity use this transient signal to reject that work instead of waiting forever.
+A declarative agent entry failed before it could publish a live agent. Consumers that buffer work for the configured identity use this transient signal to reject that work instead of waiting forever. Normal factory teardown suppresses failures from the cancelled startup attempt.
 
 ```ts cordis-catalog
 'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:348`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:349`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 

@@ -56,7 +56,7 @@ Default loop processing remains exposed through plugin-visible services and even
 
 A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
 
-Startup resolves one identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes stored or creates; `resumeSessionId` requires history. Failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject buffered work.
+Startup resolves identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates; `resumeSessionId` requires history. Active failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject work; teardown stays silent.
 
 ### Turn Flow
 
