@@ -1,25 +1,12 @@
 /**
- * The model-facing `workflow` tool: run a JavaScript orchestration script that
- * fans out subagents, and return the script's final value. Pure schema +
- * lifecycle shaping — script parsing, execution, caps, and cancellation live
- * behind `ctx.workflows` (`@deepseek-ai/dsh-workflow`), so a hardened engine
- * swaps in without touching what the model sees.
- *
- * Collection is SYNCHRONOUS this cut (like `dsh-tool-subagent`): `execute`
- * starts a run and awaits `run.result` inside a `try/finally` that always
- * disposes the run, so the script and its children are torn down on every
- * path. A non-`completed` stop reason maps to an `isError` tool result (by
- * throwing) rather than returning partial output as success. Background
- * collection is deferred to the cross-tool background redesign.
- *
- * Render intent (decided up front, per the render-intent RFC): a `generic`
- * card whose title carries the workflow's `meta.name`, read directly from the
- * call's `meta` parameter — presentation is a pure function of `args`.
- *
- * Usage policy ships with the tool as a `tool:<toolName>` system-prompt
- * section (explicit-ask-only guidance) — tool guidance lives in tool plugins,
- * never in the deployment persona.
- *
+ * The model-facing `workflow` tool: run a JavaScript orchestration script that fans out
+ * subagents, and return the script's final value. Pure schema + lifecycle shaping — script
+ * parsing, execution, caps, and cancellation live behind `ctx.workflows`
+ * (`@deepseek-ai/dsh-workflow`), so a hardened engine swaps in without touching what the model
+ * sees. Execution awaits `run.result` and always disposes the run; non-completed reasons become tool
+ * errors, and background collection remains deferred. Presentation is an args-only generic card
+ * titled from `meta.name`. Explicit-ask usage guidance is registered as the tool's own prompt
+ * section rather than deployment persona prose.
  * @module @deepseek-ai/dsh-tool-workflow
  */
 
@@ -184,10 +171,9 @@ export function apply(ctx: Context, config: Config): void {
         ...exec.signal ? { signal: exec.signal } : {},
       })
 
-      // Bridge the tool's abort signal to the run: if the parent step is
-      // aborted while the script is in flight, cancel the whole run. The
-      // engine also receives `signal` directly, but an explicit bridge keeps
-      // the tool's contract local (and covers an engine that ignores it).
+      // Bridge the tool's abort signal to the run: if the parent step is aborted while the
+      // script is in flight, cancel the whole run. The signal also enters the engine directly, but
+      // this local bridge preserves the tool contract even if an implementation ignores it.
       const onAbort = (): void => { run.cancel('parent step aborted') }
       exec.signal?.addEventListener('abort', onAbort, { once: true })
       // `addEventListener` does NOT fire for a signal already aborted before

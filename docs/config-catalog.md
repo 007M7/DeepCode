@@ -63,22 +63,19 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/core/agent-core/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/ui/acp-agent/src/index.ts:52`](../packages/ui/acp-agent/src/index.ts)
+Source: [`packages/ui/acp-agent/src/index.ts:31`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
 ```ts config-catalog
 /**
- * Bundle config: each field forwarded verbatim to the child that owns it —
- * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
- * plugin (the deployment's persona section and the explicit model-facing tool
- * order), the `tools` object to the tool registry (its presentation `mode`),
- * and `skills` to the skill registry/local provider/tool consumer. Every field
- * is optional INPUT here because each owner's schema supplies the default;
- * the schema is the INTERSECTION of the owners' own schemas (with registry
- * schemas nested under their bundle keys), so validation and defaulting can
- * never drift from them.
+ * Bundle config: each field forwarded verbatim to the child that owns it — `agents` to the
+ * agent loop (an app that pre-creates no agents, like the ACP bridge, omits it),
+ * `persona` and `toolOrder` to the system-prompt plugin (the deployment's persona section and
+ * the explicit model-facing tool order), the `tools` object to the tool registry (its
+ * presentation `mode`), and `skills` to the skill registry/local provider/tool consumer.
+ * The schema intersects the owners' schemas, which supply defaults for every
+ * optional input and keep validation from drifting.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -106,7 +103,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts)
 
-Source: [`packages/core/agent-core/src/index.ts:87`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:46`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -131,7 +128,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:357`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -151,7 +148,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:21`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -178,7 +175,7 @@ export interface Config extends LocalConfig {
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/bash/bash-sandbox/src/index.ts:60`](../packages/bash/bash-sandbox/src/index.ts)
+Source: [`packages/bash/bash-sandbox/src/index.ts:26`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -214,7 +211,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:30`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:24`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -267,7 +264,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:58`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:49`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -278,7 +275,7 @@ Requires: `bash`
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
-   * PROCESS-LEVEL: read once at load, a relative path resolves against the process
+   * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
    * `hooks.json` from each `session/new.cwd` is not yet implemented.
@@ -303,7 +300,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:55`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:43`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -313,7 +310,7 @@ Requires: `bash`
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
   /**
-   * Path to a Codex `hooks.json`. PROCESS-LEVEL: read once at load, a relative
+   * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
    * `session/new.cwd` is not yet implemented.
@@ -328,43 +325,27 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:46`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:41`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-jsonrpc`
 
 Requires: `agents`
 
 ```ts config-catalog
-/**
- * Plugin config. Every field is a runtime-only test seam — none is part of the
- * schemastery {@link Config}, so nothing here is settable from a `cordis.yml`
- * (production always serves the process stdio and exits via `process.exit`).
- */
+/** Runtime-only test seams; no field is configurable from `cordis.yml`. */
 export interface JsonRpcConfig {
-  /**
-   * Transport input override. Production omits this (the plugin reads
-   * `process.stdin`); tests inject an in-memory `Readable` to drive the server
-   * without a subprocess.
-   */
+  /** Transport input override; production uses `process.stdin`. */
   input?: Readable
-  /**
-   * Transport output override. Production omits this (the plugin writes
-   * `process.stdout` — the protocol channel); tests inject an in-memory
-   * `Writable` to capture frames.
-   */
+  /** Transport output override; production uses `process.stdout`. */
   output?: Writable
-  /**
-   * Process-exit override for the `shutdown` request path. Production omits
-   * this (`process.exit`); tests inject a recorder so a driven shutdown does
-   * not kill the test process.
-   */
+  /** Process-exit override; production uses `process.exit`. */
   exit?: (code: number) => void
 }
 ```
 
 Depends on: `Readable` (`node:stream`) · `Writable` (`node:stream`)
 
-Source: [`packages/ui/jsonrpc/src/index.ts:55`](../packages/ui/jsonrpc/src/index.ts)
+Source: [`packages/ui/jsonrpc/src/index.ts:26`](../packages/ui/jsonrpc/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -391,7 +372,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:43`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:30`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -444,7 +425,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:306`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -461,10 +442,7 @@ export interface Config {
   presets?: Record<string, PresetSpec>
 }
 
-/**
- * One preset's knob bundle — the sandbox mode and approval policy a session
- * runs under while the preset is active — plus its presentation.
- */
+/** One preset's sandbox/approval bundle and optional client presentation. */
 export interface PresetSpec {
   /** The `bash/sandbox-mode` value the preset writes through. */
   sandbox: SandboxMode
@@ -479,7 +457,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:97`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:80`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -519,20 +497,10 @@ Source: [`packages/guard/repeat-tool-guard/src/index.ts:55`](../packages/guard/r
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
-   * appended). A NON-EMPTY argv is the operator's assertion that this runner
-   * exists and FULLY enforces the profile (confinement reports
-   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
-   * — carries both Linux file-denial dialects as its denial signatures) —
-   * the runner chain and its probes are skipped,
-   * and a broken runner fails loudly at execution time. The operator also
-   * supplies {@link runnerFailureSignatures}, which distinguish the runner
-   * refusing its profile from the wrapped command failing normally.
-   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
-   * built-in platform chains — Linux `bwrap` then the Landlock launcher
-   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
-   * selected without a probe). Used for custom/alternative runners and
-   * for deterministic fake runners in keyless test tiers.
+   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * non-empty override asserts full enforcement and skips built-in selection and
+   * probing; a broken runner then fails at execution and must be identifiable by
+   * {@link runnerFailureSignatures}.
    */
   runnerCommand?: string[]
   /**
@@ -544,21 +512,12 @@ export interface Config {
    * own failure dialect.
    */
   runnerFailureSignatures?: string[]
-  /**
-   * Per-probe timeout in milliseconds for the chain's functional probes
-   * (default: 5000; must be a positive finite number — Node treats a 0
-   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
-   * probe that exceeds it reads as an unusable rung, so a
-   * host slow enough to trip the default — cold NFS mounts, heavily loaded
-   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
-   * config escape. Bounds ONE probe, and the chain walk runs each at most once
-   * per provider lifetime.
-   */
+  /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/index.ts:36`](../packages/sandbox/sandbox-local/src/index.ts)
+Source: [`packages/sandbox/sandbox-local/src/index.ts:20`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
@@ -576,7 +535,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:35`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:23`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -611,7 +570,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:50`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:38`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query`
 
@@ -739,20 +698,11 @@ export interface Config {
   disposeGraceMs?: number
 }
 
-/**
- * How the client answers a child's `session/request_permission`. The first cut
- * does not surface permission prompts to a human, so every request is
- * auto-answered by this fixed policy:
- *
- * - `reject` — decline every prompt (answer `cancelled`). Safe default: a child
- *   that asks before a side effect does not get to take it.
- * - `allow` — approve every prompt by selecting its first `allow_*` option (or,
- *   if none is offered, `cancelled`). Use when the child is trusted to act.
- */
+/** Fixed response to child permission requests: reject by default, or select the first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:30`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:18`](../packages/subagent/subagent-acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-fork`
 
@@ -766,7 +716,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-fork/src/index.ts:38`](../packages/subagent/subagent-fork/src/index.ts)
+Source: [`packages/subagent/subagent-fork/src/index.ts:25`](../packages/subagent/subagent-fork/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-mock`
 
@@ -801,7 +751,7 @@ export interface Config {
 
 Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
 
-Source: [`packages/support/subagent-mock/src/index.ts:97`](../packages/support/subagent-mock/src/index.ts)
+Source: [`packages/support/subagent-mock/src/index.ts:86`](../packages/support/subagent-mock/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -815,7 +765,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-spawn/src/index.ts:35`](../packages/subagent/subagent-spawn/src/index.ts)
+Source: [`packages/subagent/subagent-spawn/src/index.ts:20`](../packages/subagent/subagent-spawn/src/index.ts)
 
 ## `@deepseek-ai/dsh-system-prompt`
 
@@ -823,48 +773,20 @@ Source: [`packages/subagent/subagent-spawn/src/index.ts:35`](../packages/subagen
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
-   * The deployment's persona — the ONE deployment-authored fragment of the
-   * system prompt, rendered as the order-0 `deployment:persona` section
-   * (after the harness identity, before all tool guidance). Every agent in
-   * the context shares it by default; a per-agent persona is a SCOPED section
-   * of the same name registered through that agent's `agent.ctx` (it shadows
-   * this one for that agent — the subagent seam's `persona` request field does
-   * exactly that). Template, not free-form text:
-   * every complete `{{…}}` group is interpreted strictly against the
-   * registered prompt variables (the shipped agent loop registers `{{model}}`
-   * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
-   * yet (a deliberate deferral; see the prompt-variables RFC). Defaults to
-   * `''` — the empty section is dropped at render, so a persona-less
-   * deployment opens with the harness identity alone.
+   * Deployment-wide order-0 persona template. A scoped section named
+   * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
   /**
-   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
-   * tools take their listed position, and tools absent from the list are
-   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
-   * lexicographic name order. A configured list must contain the rest entry
-   * exactly once, no duplicate names, and no name without a registered tool —
-   * a misconfigured order blocks work instead of silently reaching a model
-   * request: shape violations throw at load, and an unregistered name rejects
-   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
-   * not be a collected tool name; such a provider output also rejects the
-   * assembly. The single assembly-time validation rejects either failure
-   * before any model request — the earliest moment the registered tool set
-   * exists to check against, since tool plugins register after this service
-   * constructs. When omitted, tools are ordered lexicographically by name.
-   * Applied to the tools
-   * {@link SystemPrompt.assemble} collects, BEFORE the
-   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
-   * canonicalizes what the registry contributed (registration order is a
-   * plugin-load artifact); a waterfall listener that mutates the tool list
-   * owns the determinism of what it emits. Rationale (and why not per-plugin
-   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   * Model-facing tool names in order, with {@link TOOL_ORDER_REST} exactly once.
+   * Shape errors fail at load and unknown names fail at assembly; known names
+   * hidden in one scope may be absent there. Omitted means lexicographic order.
    */
   toolOrder?: string[]
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:227`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -882,7 +804,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts:53`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/cordis/tool-cordis/src/index.ts:25`](../packages/cordis/tool-cordis/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -902,7 +824,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:48`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:31`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
@@ -977,7 +899,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:47`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:24`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -999,7 +921,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/tool-web/src/index.ts:40`](../packages/web/tool-web/src/index.ts)
+Source: [`packages/web/tool-web/src/index.ts:29`](../packages/web/tool-web/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
@@ -1015,7 +937,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/tool-workflow/src/index.ts:39`](../packages/workflow/tool-workflow/src/index.ts)
+Source: [`packages/workflow/tool-workflow/src/index.ts:26`](../packages/workflow/tool-workflow/src/index.ts)
 
 ## `@deepseek-ai/dsh-tools`
 
@@ -1025,18 +947,10 @@ Requires: `systemPrompt`
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * The presentation mode. `'native'` (the default) contributes every
-   * visible end capability as a native wire function definition. Under
-   * `'code'` this registry contributes exactly ONE wire tool,
-   * `run_code`, plus the generated `tools:sdk` prompt section declaring every other tool as a
-   * TypeScript API the program calls. `'both'` contributes every native
-   * definition AND `run_code` + the SDK section. Non-native modes require a
-   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
-   * or mismatched runtime rejects every prompt assembly with an actionable
-   * error (misconfiguration fails loud, before any model request). A
-   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
-   * every assembly under `'code'` (those names are no longer contributed) —
-   * a deployment switching modes updates its order config or drops it.
+   * Model presentation. `native` (default) sends every visible schema; `code`
+   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
+   * Code modes require a TypeScript runtime and fail prompt assembly when it is
+   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
 }
@@ -1045,7 +959,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:401`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:308`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1076,7 +990,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:270`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:214`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -1095,7 +1009,7 @@ export interface WebServiceConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:68`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:59`](../packages/web/web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -1145,7 +1059,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:48`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:40`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
@@ -1217,7 +1131,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/workflow/workflow-workerthread/src/index.ts)
+Source: [`packages/workflow/workflow-workerthread/src/index.ts:36`](../packages/workflow/workflow-workerthread/src/index.ts)
 
 ## Loadable plugins with no config
 

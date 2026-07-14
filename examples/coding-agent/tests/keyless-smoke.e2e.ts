@@ -6,44 +6,22 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Keyless Loader-path smoke for examples/coding-agent: boot the REAL example
- * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` (the
- * cordis Loader, `unwrapExports`, the full plugin tree incl. the
- * `@deepseek-ai/dsh-agent-core` bundle and the app's in-package readline UI
- * module), then close stdin with no prompt and assert the
- * ready banner + a clean exit.
- *
- * No prompt is ever sent, so the model is NEVER called — this is why it runs
- * without a real key. coding-agent's `cordis.yml` loads `llm-deepseek`, whose
- * `apply()` only requires a key to be PRESENT (it does not validate it and only
- * uses it when a stream actually starts), so a dummy key lets the tree boot
- * while the absence of any prompt guarantees no network call. The value is the
- * real-Loader-path guard that the composed tree boots (see postmortem 0001;
- * the app carries no `inject`, so its export SHAPE is pinned by the stdio-agent
- * unit suite's unwrap assertion, not by a crash here),
- * complementing coding-agent's with-key e2e suites which prove the real
- * product.
+ * Boots the real example through the stdio bin and `cordis.yml`, covering Loader,
+ * `unwrapExports`, the full plugin tree, the agent-core bundle, and the readline module.
+ * A dummy key permits startup; closing stdin before a prompt prevents network calls,
+ * while with-key suites cover product behavior.
  */
 
-// TODO(loader-smoke-harness): extract the shared spawn/tempdir/timeout/EOF
-// harness used here, code-mode-keyless-smoke, and cordis-agent's keyless smoke.
-// The dsh-stdio-agent bin (the demo:repl entry) and this example's cordis.yml.
-// The bin resolves its config-path arg from CWD; the test spawns from a temp
-// cwd, so we pass the example config's ABSOLUTE path.
+// TODO(loader-smoke-harness): share spawn/tempdir/timeout/EOF setup with the other keyless smoke tests.
+// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// Dev/test run UNBUILT: resolve `@deepseek-ai/dsh-*` through the root tsconfig
-// `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
-// the repo, so point it at the repo tsconfig (root is four levels up).
+// The temp cwd cannot discover the root tsconfig used for unbuilt package aliases.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once. Cold tsx/Loader
-// startup can therefore outlive a tight smoke-test deadline before the child
-// emits any output; 30s still detects a wedged process without confusing
-// bounded CI contention with a lifecycle failure.
+// Allow cold Loader startup under parallel load while still detecting hangs.
 const PROCESS_TIMEOUT_MS = 30_000
-// Leave enough room for the process-owned timeout to report captured output
-// before Vitest aborts the test itself.
+// Let the child timeout report captured output before Vitest aborts.
 const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
 
 let child: ChildProcessWithoutNullStreams | undefined

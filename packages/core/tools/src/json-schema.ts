@@ -1,31 +1,9 @@
 /**
- * Structured-output JSON Schema subset: the vocabulary a caller uses to demand
- * a machine-readable result from a subagent (`SubagentStartRequest.outputSchema`)
- * or a workflow `agent()` call.
- *
- * This is deliberately NOT full JSON Schema. The schema travels verbatim to the
- * model as a forced tool's `parameters`, and the value the model produces is
- * validated here — so every accepted keyword must be one this module actually
- * enforces. Accepting a keyword we don't enforce would validate less than the
- * schema promises (accepted-then-ignored), so anything outside the subset is
- * REJECTED LOUD by {@link assertSupportedOutputSchema} instead. The subset:
- *
- * - `type` — a single string (`object`/`array`/`string`/`number`/`integer`/
- *   `boolean`/`null`); type ARRAYS (`["string","null"]`) are rejected.
- * - `properties`/`required`/`additionalProperties` (boolean) on objects; every
- *   `required` key must be declared in `properties`. `additionalProperties`
- *   absent keeps standard JSON Schema semantics (extra keys allowed).
- * - `items` on arrays (absent ⇒ any JSON items).
- * - `enum` (non-empty, scalars only) and `const` (scalar) on scalar types.
- * - Annotations `description`/`title`/`default`/`examples` are allowed and
- *   ignored (they constrain nothing), except that they must still be JSON data
- *   — the schema is serialized onto the wire, so a non-JSON annotation would be
- *   silently mangled.
- *
- * Values checked by {@link validateStructuredValue} are expected to be plain
- * host-realm JSON data (model tool-call arguments are parsed wire JSON; a
- * caller holding foreign-realm data materializes it first).
- *
+ * Structured-output JSON Schema subset for subagents and workflows. It supports
+ * one scalar `type`; object `properties`/`required`/boolean
+ * `additionalProperties`; array `items`; scalar `enum`/`const`; and JSON-valued
+ * annotations. Unsupported or misplaced keywords reject rather than being
+ * accepted without enforcement, and structured-output roots must be objects.
  * @module dsh-tools/json-schema
  */
 
