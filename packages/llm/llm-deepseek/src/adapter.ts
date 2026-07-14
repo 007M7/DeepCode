@@ -76,7 +76,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         // Only swallow error-body parsing: status and code are already captured,
         // so malformed gateway JSON must not mask the actionable HTTP failure.
       }
-      throw new LlmError(message, code)
+      throw new LlmError(message, code, response.status)
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')

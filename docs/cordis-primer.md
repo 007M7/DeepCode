@@ -31,6 +31,10 @@ Cooperative listeners usually mutate a shared request or decision object and the
 
 For single-decision events, short-circuiting is the design. A policy listener can return without `next()` when it owns the decision, while a listener that only annotates or observes must delegate.
 
+## Loader Configuration
+
+`@cordisjs/plugin-include` parses `!!js` into expression nodes, but the Loader interpolates only an entry's `config` before mounting the plugin. Entry metadata (`id`, `name`, `group`, `disabled`, `inject`, `intercept`, and `isolate`) remains literal; `disabled: !!js ...` is therefore a truthy object that always disables the entry. Use explicit config overlays when environment selection changes which plugins are mounted.
+
 ## Practical Rules
 
 Encapsulate behavior into plugins: a tool pipeline event belongs to `ctx.tools`, model streaming belongs to `ctx.llm`, and live agent coordination belongs to `ctx.agents`. Prefer events for interception and policy; prefer service methods for direct capability calls.

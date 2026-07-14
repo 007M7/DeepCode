@@ -169,7 +169,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:30`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 

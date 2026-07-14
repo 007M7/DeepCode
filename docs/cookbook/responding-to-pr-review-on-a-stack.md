@@ -1,6 +1,8 @@
 # Responding to review across a stacked PR chain
 
-A wave of review comments lands across several PRs in a dependent stack (`A ← B ← C …`). This is the discipline for resolving it without corrupting the stack. The two invariants it rests on are standing orders in the root [AGENTS.md](../../AGENTS.md) § Conventions: merge commits only, and never rewrite a pushed branch.
+English | [中文](responding-to-pr-review-on-a-stack.zh.md)
+
+Review comments may target several PRs in a dependent stack (`A ← B ← C …`). This guide explains how to resolve them without corrupting the stack. The two invariants it rests on are standing orders in the root [AGENTS.md](../../AGENTS.md) § Conventions: merge commits only, and never rewrite a pushed branch.
 
 ## Ground rules
 
@@ -9,7 +11,7 @@ A wave of review comments lands across several PRs in a dependent stack (`A ← 
 3. **A fix lands on the PR that INTRODUCED the issue, then flows down.** When a comment on PR `B` points at code `B` introduced, fix it on `B` and merge `B` into `C` — even if `C` also carries the file. Originating the fix downstream leaves `B` shipping the unfixed code and hides the fix from `B`'s reviewer.
 4. **Each review fix is a separate commit, never an amend.** The "fix review findings" commit documents what the review caught. Amending is fine only for your own not-yet-pushed, not-yet-reviewed work.
 
-## Working the wave
+## Resolve comments through the stack
 
 1. Triage every comment on the merits before acting: verify the claim against the code — a reviewer flagging the right symptom can still mis-diagnose the cause.
 2. Map each accepted finding to its originating PR, fix it there, then merge down the chain in order.

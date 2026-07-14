@@ -153,6 +153,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'pre-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+        pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
         pnpmScript('snapshot', 'test:snapshot'),
@@ -168,6 +169,7 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
@@ -191,6 +193,7 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     demoSmokeGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),

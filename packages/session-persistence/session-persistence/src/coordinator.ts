@@ -8,7 +8,6 @@
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { seedCoversPrefix } from './index.ts'
 
 /**
  * A stored session's header, valid contiguous event prefix, and optional opaque
@@ -110,6 +109,15 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
   return errors
 }
 
+/** Whether a live session seed reproduces a persisted prefix exactly. */
+function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
+  return prefix.length <= seed.length
+    && prefix.every((event, index) => {
+      const seedEvent = seed[index]
+      return seedEvent !== undefined && JSON.stringify(seedEvent) === JSON.stringify(event)
+    })
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -134,10 +142,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private chains = new Map<SessionId, Promise<unknown>>()
   /**
    * Init promises keyed by live session object, preventing an id-reusing
-   * replacement from inheriting stale initialization. Readonly access supports
-   * backend white-box tests.
+   * replacement from inheriting stale initialization. Flush is the public
+   * observation boundary; callers do not inspect this bookkeeping directly.
    */
-  readonly inits = new Map<Session, Promise<void>>()
+  private inits = new Map<Session, Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
