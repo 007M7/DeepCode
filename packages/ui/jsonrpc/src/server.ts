@@ -62,6 +62,7 @@ interface SessionRecord {
 
 /** Recover the delegating parent carried by every service-owned subagent lifecycle event. */
 function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
+  // SubagentService emits this lifecycle pair only through scopeTarget(this, parent).
   return carrierKeyOf(carrier) as Agent
 }
 
