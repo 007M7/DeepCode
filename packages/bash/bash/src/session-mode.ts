@@ -5,12 +5,13 @@
  * `effective = fold(events) ?? the executor's configured default`, so an
  * override survives restart by replay, two sessions can never see each
  * other's state, and there is no external config store. The event is
- * log-only (the `approval/*` precedent): the model learns the mode from the
- * prompt section and the boundary notices in `@deepseek-ai/dsh-tool-bash`,
- * never from the event itself. EXECUTION honors the fold in the tool layer —
- * it stamps the effective mode onto each call's `BashExecRequest.sandboxMode`
- * (weakest-precedence: an escalation grant for the call outranks it) — the
- * executor itself stays a config-fixed default plus per-call overrides.
+ * log-only (the `approval/*` precedent): the model receives neither this event
+ * nor a standing mode statement. `@deepseek-ai/dsh-tool-bash` names the mode
+ * only when it renders a sandbox denial. EXECUTION honors the fold in the tool
+ * layer — it stamps the effective mode onto each call's
+ * `BashExecRequest.sandboxMode` (weakest-precedence: an escalation grant for
+ * the call outranks it) — the executor itself stays a config-fixed default
+ * plus per-call overrides.
  *
  * @module dsh-bash/session-mode
  */
@@ -24,9 +25,8 @@ declare module '@deepseek-ai/dsh-session' {
      * The session's sandbox mode was switched — log-only (like `approval/*`;
      * NOT a surface event, carries no `surfaceOp`): durable and replayable,
      * never in the model transcript. The LAST such event is the session's
-     * override ({@link effectiveSandboxMode}); who asked for it is derivable
-     * from position (an event after the log's last `request/header*` was a
-     * runtime switch by the user; see the tool layer's narrator).
+     * override ({@link effectiveSandboxMode}); execution and ACP config-option
+     * reporting fold it without adding prompt text or a context notice.
      */
     'bash/sandbox-mode': { mode: SandboxMode }
   }
@@ -54,8 +54,8 @@ export function effectiveSandboxMode(events: readonly SessionEvent[]): SandboxMo
 /**
  * THE write path for a session's sandbox-mode override: appends exactly one
  * `bash/sandbox-mode` event — the switch IS its event; nothing mutates mode
- * state out of band. Takes effect on the session's next bash call and next
- * prompt assembly (the consumers fold on every read).
+ * state out of band. Subsequent execution and ACP config-option reporting fold
+ * it on read; no prompt assembly consumes it.
  * @param session - the session the override belongs to.
  * @param mode - the mode every subsequent bash call in this session runs
  *   under (until the next switch).
