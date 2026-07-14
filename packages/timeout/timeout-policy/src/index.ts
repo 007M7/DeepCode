@@ -1,34 +1,7 @@
 /**
- * `@deepseek-ai/dsh-timeout-policy`: the tool-call timeout ENFORCER. It registers
- * ONE `tools/execute` around-dispatch listener that, for a tool declaring a
- * `timeoutMs` on its {@link ToolDefinition}, arms a per-call deadline on
- * `exec.signal` and returns a structured `TOOL_TIMEOUT` result when that deadline
- * wins. The budget is DECLARED by the tool (see `ToolDefinition.timeoutMs`, set
- * by the owning tool plugin from its own config); this plugin only enforces it,
- * so it is zero-config and there is no tool-name map to mistype.
- *
- * This is a COOPERATIVE deadline, not a hard kill: the derived signal only
- * NOTIFIES. A tool that declares `timeoutMs` (and the capability it forwards
- * `exec.signal` to) must honor that signal and reach quiescence — the plugin
- * never races the tool promise or terminates work itself (see the timeout-library
- * RFC's rejection of `Promise.race`). Declaring `timeoutMs` therefore MEANS "this
- * tool is cooperative with `exec.signal`": a tool that ignores the signal will
- * not stop on timeout, so only signal-forwarding tools should declare it (the
- * shipped web tools are the reference).
- *
- * Ownership of the `TOOL_TIMEOUT` code is entirely here: it is both the internal
- * {@link deadline} code (so {@link timeoutOf} scopes the classification to THIS
- * plugin's own timer, reading a foreign/nested outer deadline as an ordinary
- * cancel) and the structured `{ name, code }` on the replacement tool result.
- * No new session event is needed for reconstructability: the `TOOL_TIMEOUT`
- * result IS the final model-facing `tool/result`, already logged by the loop.
- *
- * Why a `tools/execute` around seam and not a `pre`/`post` pair: the deadline
- * needs ONE lexical scope — arm on `exec.signal`, delegate to dispatch, classify
- * the result, dispose the timer — which the around seam gives directly. A
- * pre/post split would spread one deadline's lifetime across two independent
- * waterfalls (a call-id map, cleanup on every deny/throw/dispose path).
- *
+ * Cooperative tool-call timeout enforcer. A tool declares `timeoutMs` and
+ * promises to honor `exec.signal`; this wrapper arms that deadline and maps its
+ * own expiry to `TOOL_TIMEOUT` without racing or abandoning the tool promise.
  * @module @deepseek-ai/dsh-timeout-policy
  */
 
@@ -71,22 +44,9 @@ export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecut
 }
 
 /**
- * Register the tool-call timeout enforcer. For a tool whose {@link ToolDefinition}
- * declares `timeoutMs`, the listener arms a {@link deadline} on the caller's
- * `exec.signal`, swaps it onto `exec` for the downstream dispatch (cordis
- * `next()` ignores passed arguments, so a wrapper mutates the shared `exec` in
- * place), restores the original signal afterward so `tools/post-execute` sees the
- * caller's own signal, and replaces the result with {@link toolTimeoutResult}
- * when its own timer fired. A tool that declares no budget delegates untouched.
- *
- * The budget source is the tool's own declaration read from the registry
- * (`ctx.tools.get(exec.name, exec.agent)?.timeoutMs`), NOT a plugin config map —
- * `exec.name` is the tool being dispatched, so the lookup always resolves and
- * there is no mistypable tool name and no unknown-name path to warn or throw
- * about. Resolution goes through the CALLER's visible view (the `exec.agent`
- * scope), exactly like dispatch itself: a scoped tool's own `timeoutMs` governs
- * its calls, and a global name-twin's budget is never misapplied to a shadowing
- * per-agent variant.
+ * Register the timeout wrapper. It resolves the caller-visible tool definition,
+ * temporarily replaces `exec.signal`, delegates, restores the upstream signal,
+ * and replaces the result only when this wrapper's own timer fired.
  */
 export function apply(ctx: Context): void {
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {

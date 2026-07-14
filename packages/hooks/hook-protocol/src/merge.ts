@@ -1,23 +1,8 @@
 /**
- * Merge the outcomes of MULTIPLE hooks that matched one hook point into a single
- * most-restrictive {@link MergedHookOutcome}. Both reference engines run matched
- * hooks concurrently and fold their results; the precedence rules here are the
- * intersection both dialects agree on (and the strictest interpretation where
- * they differ), so a bridge gets one decision to map onto its seam:
- *
- * - **permission precedence `deny > ask > allow`**: any `deny`/`block` wins; an
- *   `ask` overrides `allow`; `allow`/`approve` only stands if nothing stricter
- *   appeared. (Claude Code's explicit precedence; Codex only ever blocks, so the
- *   rule degenerates correctly for it.)
- * - **halt is sticky**: the first hook with `continue:false` sets `stop` and its
- *   `stopReason`.
- * - **reasons accumulate**: block/deny reasons are joined with `\n\n` (Codex's
- *   `join_text_chunks`), so the model sees every objection, not just the first.
- * - **context accumulates**: `additionalContext` from every hook is collected in
- *   order (CC concatenates; Codex keeps them as separate developer messages —
- *   either way the bridge gets the ordered list).
- * - **systemMessages accumulate** likewise.
- *
+ * Merge matched hooks into one most-restrictive outcome. Permission precedence
+ * is `deny > ask > allow`; the first `continue:false` stop is sticky; reasons
+ * for the winning rank are joined; and context and system messages accumulate
+ * in hook order.
  * @module @deepseek-ai/dsh-hook-protocol/merge
  */
 
@@ -76,10 +61,7 @@ function decisionForRank(maxRank: number): MergedDecision {
  */
 export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   let maxRank = 0
-  // Reasons collected PER RANK, so the merged reason can be the one explaining
-  // the WINNING decision (a deny-winning outcome surfaces deny reasons; an
-  // ask-winning outcome surfaces ask reasons). An `allow`'s reason is never an
-  // objection the model needs, so rank 1 collects none.
+  // Keep reasons per rank so only objections explaining the winning decision surface.
   const reasonsByRank = new Map<number, string[]>()
   let stop = false
   let stopReason: string | undefined

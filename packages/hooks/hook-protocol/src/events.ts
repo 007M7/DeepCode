@@ -1,17 +1,8 @@
 /**
- * Append helpers for the log-only `hook/*` session events — the durable record
- * that a hook ran and what it decided. Thin wrappers over `session.append` so a
- * bridge does not hand-build the payloads (and so the `turn`-enclosure +
- * invoked/result pairing stay consistent across both bridges).
- *
- * `hook/*` events are log-only (not {@link SurfaceEventType}), so they carry no
- * `surfaceOp` and append with no surface intent — but, like every event, they
- * must sit inside an OPEN turn (the invariants oracle rejects an un-enclosed
- * event). The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/
- * `Stop`) fire inside the loop's open turn by construction; `SessionStart` is the
- * exception (its injected `context/message` is the durable evidence instead), so
- * a bridge does NOT write `hook/*` for session-start — see the hooks RFC.
- *
+ * Append helpers for durable, log-only hook events. They carry no surface
+ * intent and must remain turn-enclosed and invoked/result paired. Mid-turn hook
+ * points satisfy that boundary; SessionStart records injected context instead
+ * and does not append `hook/*` outside a turn.
  * @module @deepseek-ai/dsh-hook-protocol/events
  */
 
@@ -92,12 +83,9 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
 }
 
 /**
- * Append a `hook/result` outcome event to `session` (pairs with a prior
- * `hook/invoked`). Owns the durable event's semantics: `decision` is the hook's
- * parsed decision, else `'stop'` when it asked to halt (`continue: false`),
- * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to
- * `record.stderrSummaryMaxChars` characters (omitted when empty); `exitCode`
- * is omitted when the hook never ran.
+ * Append the durable result paired with `hook/invoked`. The recorded decision
+ * is the parsed decision, then `stop` for `continue:false`, else `pass`; stderr
+ * is trimmed and capped, and an absent process exit stays omitted.
  * @param session - the session whose open turn records the event.
  * @param record - the outcome to record: the decoded output plus the summary cap and duration.
  */
