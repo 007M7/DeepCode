@@ -106,6 +106,8 @@ export class EventsService {
 
   /** Run listeners concurrently and wait for all of them. */
   async parallel(...args: any[]) {
+    // FIXME(cordis upstream): A synchronous listener throw aborts callback
+    // enumeration here and starves later parallel listeners. Fix upstream.
     await Promise.all(this.dispatch('emit', args).map(cb => cb(...args)))
   }
 

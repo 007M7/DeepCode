@@ -9,7 +9,7 @@
  *
  *  - Config discovery is `$DSH_CORDIS_CONFIG` (the existing SDK-client
  *    convention, wins) or the `argv[2]` positional path (the human channel,
- *    isomorphic to `dsh-acp-agent`); an empty value counts as absent. Neither
+ *    for direct launches); an empty value counts as absent. Neither
  *    given, or the path missing on disk, prints the one-line usage to stderr
  *    and exits 1. No built-in fallback — the external config IS the deployment
  *    (docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
