@@ -1,19 +1,9 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts relationships in
- * the harness event contract at runtime.
- *
- * Everything is a plugin — this is just listeners on `session/created`,
- * `session/event`, `agent/status`, and the scoped dispatch and request seams.
- * It is **off in production**: enable it in tests and demos, where a contract
- * violation should be a loud failure rather than a subtle one. It doubles as
- * executable documentation of the event taxonomy: the assertions below are
- * the contract.
- *
- * Session owns immutable log storage: it snapshots and deep-freezes every
- * accepted event at the source. This plugin checks relationships that one
- * event's types and immutability cannot express, including turn/step nesting,
- * scoped dispatch, status transitions, and request reconstructability.
- *
+ * Runtime listeners that fail loudly when cross-event contracts are broken:
+ * turn and step nesting, scoped dispatch, status transitions, and request
+ * reconstruction. The plugin has no environment guard and is active wherever
+ * mounted, including the default `dsh-agent-core` bundle; custom compositions
+ * may omit it. Sessions still own event snapshots and freezing.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -328,23 +318,19 @@ function replayEvent(trace: SessionTrace, event: SessionEvent): void {
   applyTransition(trace, validateEvent(trace, event))
 }
 
-/** Legal agent status transitions (the only state machine the loop guarantees). */
+/** Allow an initial observation, idle/running transitions, and terminal disposal; reject repeats and leaving disposed. */
 function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
-  // First observation: any status is a valid starting point.
   if (from === undefined) return
-  // A no-op transition is illegal — setStatus dedups, so we never see it.
   if (from === to) {
     throw new InvariantError(`agent/status repeated ${to} (no-op transition)`)
   }
-  // Leaving `disposed` is illegal — disposal is terminal.
   if (from === 'disposed') {
     throw new InvariantError(`agent/status left terminal state disposed → ${to}`)
   }
-  // idle↔running and (idle|running)→disposed are all legal; nothing else exists.
 }
 
 /**
- * Register the dev-mode invariants. Contributions are effect-scoped, so
+ * Register the runtime invariants. Contributions are effect-scoped, so
  * disposing the plugin fiber removes all listeners (HMR-safe). On (re-)apply
  * the trace state is rebuilt by replaying each existing session's log, so a
  * hot reload mid-turn does not falsely reject the next event.

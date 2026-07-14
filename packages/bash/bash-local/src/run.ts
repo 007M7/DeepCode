@@ -1,23 +1,7 @@
 /**
- * Process plumbing for the local bash executor: spawn, output collection
- * with tail-keep + spill-to-disk truncation, and process-group kill with
- * SIGTERM→SIGKILL escalation.
- *
- * Everything here is deliberately free of Cordis concepts so it can be unit
- * tested in isolation; `LocalBashExecutor` owns lifecycle and configuration.
- *
- * runBash owns NO timing: it kills the process group when its `spec.signal`
- * fires and does not distinguish a timeout from a cancel. The executor fuses
- * timeout + upstream cancellation into that one signal via
- * `@deepseek-ai/dsh-timeout`'s `deadline`, and classifies the outcome from the
- * signal afterward — the timing/classification half is shared, the kill is not.
- *
- * Design notes (surveyed against Claude Code, OpenCode, Codex, and pi — see
- * the package README): spawn-per-call with `detached: true` so the child
- * leads its own process group; kills target the group (`kill(-pid)`) so
- * pipelines and subshells die with the parent. SIGTERM first, SIGKILL after a
- * grace period (OpenCode's escalation; Codex/pi jump straight to SIGKILL).
- *
+ * Process plumbing for the local bash executor: detached process-group spawn,
+ * tail-keep output with spill files, and SIGTERM→SIGKILL escalation. This layer
+ * reacts to an abort signal; the executor owns deadlines and classifies causes.
  * @module dsh-bash-local/run
  */
 
@@ -52,17 +36,11 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
  * Build a child environment from scrubbed ambient values, terminal overrides,
- * ordinary caller entries, and a trusted managed `DSH_*` snapshot.
- *
- * Ambient credentials and all ambient `DSH_*` are removed first;
- * `ENV_OVERRIDES` then forces model-friendly terminal values, ordinary `extra`
- * follows, and `dshEnv` merges last. Ordinary `extra` may restore a
- * credential-shaped name whose value the caller already holds, but cannot set
- * the managed namespace; `dshEnv` rejects ordinary names symmetrically.
- * `dsh-tool-bash` builds both channels from trusted named fields and never
- * forwards model-provided environment objects.
- * @param extra - ordinary caller-supplied entries; `DSH_*` names are rejected.
- * @param dshEnv - managed entries; names outside `DSH_*` are rejected.
+ * ordinary caller entries, and a managed `DSH_*` snapshot. Ambient managed
+ * names are removed; ordinary and managed entries reject the other channel's
+ * namespace before `dshEnv` merges last.
+ * @param extra - caller entries; `DSH_*` names are rejected.
+ * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
  * @returns the environment to hand to `spawn` for the child process.
  */
 export function childEnv(
@@ -275,10 +253,8 @@ export class OutputCollector {
       try {
         closeSync(this.spillFd)
       } catch {
-        // close can surface delayed writeback failures (for example EIO/ENOSPC)
-        // after writeSync appeared to succeed. Keep finalize total so runBash's
-        // close handler still resolves, but stop advertising a spill file that
-        // may be missing its tail.
+        // A delayed writeback failure makes the spill unreliable; keep finalize
+        // total but stop advertising that file.
         this.spillFile = undefined
       }
       this.spillFd = undefined
@@ -288,13 +264,9 @@ export class OutputCollector {
 }
 
 /**
- * Send `sig` to the process GROUP led by `pid` (requires the child to have
- * been spawned with `detached: true`). NEVER throws: kills race process exit
- * by design (ESRCH), and the other failure modes (EPERM from setuid
- * children, …) fire inside timer callbacks where a throw would crash the
- * host process — a kill that cannot be delivered is reported by the process
- * NOT dying, which callers already handle via escalation/timeouts. No-op for
- * non-positive pids (spawn never started a process).
+ * Send `sig` to a detached process group. Never throws: delivery races process
+ * exit and may run in a timer callback, so failures are contained and a
+ * non-positive pid is a no-op.
  * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
  * @param sig - the signal to deliver to the whole group.
  */
@@ -324,24 +296,13 @@ export interface RunningBash {
 }
 
 /**
- * Spawn `bash -c <command>` in its own process group and collect output.
- *
- * Outcome semantics: the returned promise REJECTS only for spawn-level
- * failures (bad cwd → ENOENT, missing binary, pre-aborted signal); every
- * runtime outcome — nonzero exit, timeout kill, abort kill, signal death —
- * RESOLVES with a {@link SpawnOutcome} describing what happened, so callers
- * shape one consistent report for the model.
- *
- * XXX(stateful-shell): per the agent-tool survey there are two proven
- * stateful designs worth revisiting — Claude Code persists ONLY cwd between
- * calls (captures `pwd -P` after each command), and Codex keeps whole PTY
- * exec sessions addressable via session ids + stdin writes. We deliberately
- * spawn a fresh non-login `bash -c` per call for determinism (no rc files,
- * no inherited shell state); revisit when real workflows demand it.
- * @param spec - the fully-resolved run (command, cwd, limits); no defaulting happens here.
- * @param internals - test-only knobs; omitted fields fall back to the private per-process spill dir.
- * @returns the live handle: pid, the two live collectors, the outcome promise, and `kill()`.
+ * Spawn one isolated `bash -c` process group and collect its output.
+ * Runtime exits resolve as {@link SpawnOutcome}; only spawn failures reject.
+ * @param spec - fully resolved command, cwd, limits, and cancellation.
+ * @param internals - test-only process and spill-directory overrides.
+ * @returns live process handle and outcome promise.
  */
+// XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
 export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
   const spillDir = internals.spillDir ?? privateSpillDir()
 
@@ -349,16 +310,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
-  // stdin is a pipe ONLY when the caller supplied bytes; with none it is `ignore`
-  // (fd 0 → /dev/null) — the exact pre-seam default. This matters: a spawn pipe
-  // and /dev/null are NOT observationally identical (node's pipe is an AF_UNIX
-  // socket, so a command that probes stdin's type — `test -c /dev/stdin`, `stat
-  // /proc/self/fd/0` — sees a char device vs a socket), so the no-stdin path
-  // (every model-driven call) must keep /dev/null rather than regress to a socket.
-  // Two LITERAL `stdio` tuples (not one variable tuple): only a literal lets the
-  // typed `spawn` overload infer non-null stdout/stderr, which the
-  // `ChildProcessByStdio` annotation captures (stdin `Writable | null`; stdout/
-  // stderr the non-null `Readable` the collectors attach to without a cast).
+  // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
   const env = childEnv(spec.env, spec.dshEnv)
   const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
@@ -371,8 +323,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
 
   let graceTimer: NodeJS.Timeout | undefined
 
-  // pid is undefined when the spawn itself fails (bad cwd, missing binary);
-  // the 'error' handler rejects `done` and kills become no-ops via pid -1.
+  // Failed spawns use pid -1 so kill remains a no-op.
   const pid = child.pid ?? -1
 
   const kill = (): void => {
@@ -381,27 +332,11 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
-  // runBash owns no timer: the executor's `run()` fuses timeout+cancel into one
-  // deadline signal (`@deepseek-ai/dsh-timeout`) and passes it here; we only
-  // listen and run the SIGTERM→grace→SIGKILL kill. Whether the abort was a
-  // timeout or an upstream cancel is classified by the executor from that
-  // signal, not tracked here.
+  // The executor owns timeout classification; this layer only reacts to abort.
   const onAbort = (): void => { kill() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Write stdin and close it, but ONLY when the caller supplied bytes — with no
-  // stdin, fd 0 is `ignore` (/dev/null) and `child.stdin` is null. The error
-  // handler must exist whenever we write: an unhandled 'error' on the stream
-  // would throw and crash the host. We swallow the error rather than reject
-  // `done`, and that is correct for ANY stdin-write error, not just the common
-  // one — the stdin write is BEST-EFFORT, while the command's authoritative
-  // outcome is its exit code + captured output, which the `close` handler reports
-  // regardless of whether the write landed. The expected case is EPIPE (the child
-  // exited without reading, so closing our end of a still-full pipe fails); a rare
-  // non-EPIPE pipe fault means the command ran with incomplete stdin, and it
-  // surfaces that itself through its own exit/output (e.g. a hook that gets
-  // truncated JSON errors out) — rejecting here would instead discard that real
-  // output and turn it into an opaque infrastructure error, which is worse.
+  // Stdin writes are best-effort; process exit and captured output remain authoritative.
   if (child.stdin !== null) {
     child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
     child.stdin.end(spec.stdin)
@@ -409,8 +344,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
     child.on('error', (error) => {
-      // Spawn-level failure (ENOENT cwd, EACCES, …): no close event with
-      // meaningful output follows; clean up and reject.
+      // No meaningful close outcome follows a spawn failure.
       cleanup()
       reject(error)
     })

@@ -1,4 +1,5 @@
 {
+  "requiredSince": "2026-07-14",
   "required": [
     "README.md",
     "docs/development.md",
@@ -12,12 +13,14 @@
   ],
   "excluded": [
     "docs/AGENTS.md",
-    "docs/module-graph.md",
     "docs/config-catalog.md",
-    "docs/tool-catalog.md",
-    "docs/persistence-catalog.md",
     "docs/cordis-catalog/",
+    "docs/i18n/style-samples.md",
     "docs/i18n/terminology.md",
+    "docs/i18n/translation-prompt.md",
+    "docs/module-graph.md",
+    "docs/persistence-catalog.md",
+    "docs/tool-catalog.md",
     "python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/"
   ]
 }

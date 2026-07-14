@@ -18,7 +18,7 @@ This is the [drop-mutable-session-summary](../../implemented/simplification/2026
 
 ## Decision
 
-`stream()` is the only public LLM call surface. Removed with their JSDoc and doc references: `LlmService.streamBlocks()`; `LlmService.generate()`, the `llm/generate` waterfall event, and `GenerateResult`; `BlockAssembler.flushReady()`/`flushRemaining()` and the `flushed` cursor field; and `BlockAssembler.result()`, which only served the deleted `generate()` path. Adapter tests drive `ctx.llm.stream()` through a small helper that pushes chunks into `BlockAssembler` and returns the assembled message, usage, and finish reason — keeping the [twin-adapter design](../../implemented/architecture/2026-06-13-twin-llm-adapters.md) intact without a public method whose only callers are tests. The assembler invariants that apply to `push()` / `blocks()` / `message()` keep their tests; the flush-API pins went with the API. The `ctx.llm` service-map row in [docs/architecture.md](../../../architecture.md) is `stream()` only, the event taxonomy carries no `llm/generate`, and the [property-based-testing RFC](../../implemented/testing/2026-06-11-property-based-testing.md) names block-assembly invariants without the removed convenience methods.
+`stream()` is the sole public LLM call surface. Remove `streamBlocks`, `generate`, its event/result types, and assembler helpers used only by that path. Adapter tests assemble the public stream through a local helper, while `BlockAssembler` retains only the operations with production consumers.
 
 ## Alternatives considered
 

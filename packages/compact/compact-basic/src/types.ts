@@ -48,13 +48,6 @@ export type ResolvedConfig = Required<BasicCompactConfig>
 /**
  * Default `auto`/`charsPerToken` when unset and reject nonsensical numeric knobs.
  *
- * Convergence is not a static config invariant: provider generation caps can be
- * spent on hidden or surfaced reasoning tokens, and the model may emit a summary
- * of unpredictable size. The backend instead enforces convergence dynamically:
- * each committed summary must be smaller than the content it shadows, and
- * `compactIfNeeded` may re-compact up to `compactionRetries` extra times before
- * throwing if the surface still exceeds the threshold.
- *
  * @param config - the raw, unresolved backend config.
  * @returns the validated config with `auto` and `charsPerToken` defaulted.
  */

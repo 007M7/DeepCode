@@ -1,27 +1,7 @@
 /**
- * Doc-sync gate (doc-sync-enforcement RFC, part 1): typecheck the fenced `ts` code blocks in our
- * Markdown so documentation can't drift from the API it documents.
- *
- * Every ```ts block in README.md, docs/** and packages/* /README.md is
- * extracted to a temp typecheck project and compiled against the workspace
- * sources through the same project-reference boundaries used by repo
- * typecheck. A block that is a deliberate sketch rather than compilable code
- * opts out with an explicit ` ```ts ignore-check ` info string — the opt-out
- * is visible in the source, and this script reports the ratio so the escape
- * hatch can't quietly become the norm. A third info string,
- * doc-typecheck.ts recognizes four more fence variants and skips all four (each
- * is a separately-checked category, not an unchecked sketch, so none counts in
- * the opt-out ratio): ` ```ts type-equiv ` is a verbatim source-type paste that
- * `scripts/verify-type-equiv.ts` drift-checks, ` ```ts cordis-catalog ` is a
- * generated event/service signature fragment in the cordis catalog (a bare
- * signature is not standalone-compilable; the catalog is generated and frozen by
- * `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate),
- * ` ```ts persistence-catalog ` is a generated log-event payload fragment in the
- * persistence catalog (same reasoning, frozen by `scripts/gen-persistence-catalog.ts`),
- * and ` ```ts config-catalog ` is a generated verbatim config declaration in the
- * plugin config catalog (same reasoning, frozen by `scripts/gen-config-catalog.ts`).
- *
- * Run: `tsx scripts/doc-typecheck.ts`.
+ * Typecheck Markdown `ts` fences against workspace sources. `ignore-check`
+ * fences are reported as opt-outs; generated catalog fragments and
+ * `type-equiv` blocks are skipped here because their owning gates verify them.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -32,28 +12,9 @@ import ts from 'typescript'
 const root = resolve(import.meta.dirname, '..')
 
 /**
- * How a fenced block participates in this gate:
- * - `check` (` ```ts `) — compiled.
- * - `ignore` (` ```ts ignore-check `) — a deliberate sketch; skipped, and
- *   counted in the opt-out ratio so the escape hatch can't quietly take over.
- * - `type-equiv` (` ```ts type-equiv `) — a verbatim paste of a source type
- *   definition, drift-checked by `scripts/verify-type-equiv.ts` against the
- *   source symbol. Skipped HERE (it is not standalone-compilable — no imports)
- *   and EXCLUDED from the opt-out ratio: it is a separate fully-checked
- *   category, not an unchecked sketch.
- * - `cordis-catalog` (` ```ts cordis-catalog `) — a generated event/service
- *   signature fragment in the cordis catalog. Skipped HERE for the same reason
- *   (a bare signature fragment has no imports and does not stand alone) and
- *   EXCLUDED from the opt-out ratio: the catalog is generated and frozen by
- *   `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate.
- * - `persistence-catalog` (` ```ts persistence-catalog `) — a generated
- *   log-event payload fragment in the persistence catalog. Same treatment for
- *   the same reason; frozen by `scripts/gen-persistence-catalog.ts` + its
- *   `--check` freshness gate.
- * - `config-catalog` (` ```ts config-catalog `) — a generated verbatim config
- *   declaration in the plugin config catalog (a lone declaration referencing
- *   imported types does not stand alone). Same treatment for the same reason;
- *   frozen by `scripts/gen-config-catalog.ts` + its `--check` freshness gate.
+ * TypeScript-fence ownership. `check` compiles; `ignore` is an unchecked sketch
+ * counted in the opt-out ratio; the catalog and type-equivalence variants are
+ * excluded from that ratio because their owning gates verify them.
  */
 type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog' | 'persistence-catalog' | 'config-catalog'
 
@@ -66,8 +27,7 @@ interface Block {
   code: string
 }
 
-/** Extract every ts / ts ignore-check / ts type-equiv / ts cordis-catalog /
- * ts persistence-catalog / ts config-catalog block from one Markdown file. */
+/** Extract every recognized TypeScript fence from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const text = readFileSync(absPath, 'utf8')
   const lines = text.split('\n')
@@ -87,7 +47,7 @@ function extractBlocks(absPath: string): Block[] {
       open = null
       return
     }
-    // opening fence — only care about ts blocks
+    // Ignore non-TypeScript fences.
     const info = (fence[2] ?? '').trim()
     const kind: BlockKind | null =
       info === 'ts' ? 'check'
@@ -145,11 +105,8 @@ files.sort()
 const all = files.flatMap(extractBlocks)
 const checked = all.filter(b => b.kind === 'check')
 const ignored = all.filter(b => b.kind === 'ignore')
-// `type-equiv`, `cordis-catalog`, and `persistence-catalog` blocks are verified
-// elsewhere (verify-type-equiv.ts and each catalog generator's `--check`
-// freshness gate), not here: neither compiled nor counted toward the opt-out
-// ratio (each is a separate fully-checked category, not an unchecked sketch).
-// The ratio's denominator is therefore the compile-eligible blocks only.
+// Only compile-eligible fences belong in the opt-out ratio; every other skipped
+// kind has an independent verifier named in BlockKind's contract above.
 const ratioDenominator = checked.length + ignored.length
 
 if (checked.length === 0) {

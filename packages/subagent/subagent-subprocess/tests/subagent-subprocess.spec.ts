@@ -15,11 +15,8 @@ import {
   waitForExit,
 } from '../src/index.ts'
 
-// `rm` is wrapped (real-passthrough by default) so ONE test can inject a
-// rejection deterministically. A real recursive-rm failure is not portably
-// provokable — permission tricks (a chmod-000 subtree) fail only for
-// unprivileged users and are ignored by root — so this is the fs boundary
-// the testing policy sanctions mocking; everything else stays the real fs.
+// `rm` is real-passthrough except for one deterministic failure. Permission-based recursive-rm
+// failures are not portable and disappear under root, so this is the sanctioned filesystem seam.
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return { ...actual, rm: vi.fn(actual.rm) }

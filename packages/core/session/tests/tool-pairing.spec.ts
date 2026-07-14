@@ -4,24 +4,9 @@ import { Session, SessionId, isToolPairingBalanced } from '../src/index.ts'
 import type { SessionEvent, SurfaceNode } from '../src/index.ts'
 
 /**
- * Unit coverage for the tool-pairing balance check. It decides whether a CUT in
- * the surface (a gap before a given surface node, or the after-tail gap) is a
- * safe edge for a collapsed region (compaction): a region must never split an
- * `assistant/message`'s tool-calls from their `tool/result`s. A cut is balanced
- * when no unanswered tool-call sits before it on the surface. Nodes belonging to
- * no step (pre-step user message, inter-step steering, injection context) are
- * pairing-neutral, so their cuts are free boundaries.
- *
- * The fixtures are built through a real {@link Session} so the surface linked
- * list is derived exactly as production does — including the non-monotonic
- * surface a `replace` op leaves (a compaction checkpoint at a high log seq
- * sitting at the surface head), which is the case the abandoned log-position
- * scan mis-classified.
- *
- * Builders mirror the agent loop's real append order: queued user messages land
- * BEFORE `step/start`; within a step the order is `assistant/message` then
- * `tool/result`(s); injection turns are a bare `turn/start → context/message →
- * turn/end` with no step.
+ * Unit coverage for compaction-cut safety: a cut is balanced only when it
+ * separates no assistant tool call from its result. Non-step nodes are neutral,
+ * and replace operations prove surface order—not raw log order—is authoritative.
  */
 
 const SURFACE = { surfaceOp: 'append' as const }
@@ -182,10 +167,8 @@ describe('isToolPairingBalanced — multiple tool calls in one assistant message
 })
 
 describe('isToolPairingBalanced — a mid-step injection context/message', () => {
-  // A background task-done inject() lands a context/message INSIDE an open step,
-  // between the assistant (with a tool-call) and its tool/result. It is
-  // pairing-neutral, so the cut on EITHER side of it is unbalanced (the call is
-  // still open across it) — it is NOT a free boundary in this position.
+  // The injected context is pairing-neutral, but both adjacent cuts remain
+  // unbalanced because the tool call is still open across them.
   function midStepInjection(): Session {
     const s = new Session(SessionId('mid-inject'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -236,11 +219,8 @@ describe('isToolPairingBalanced on an injection turn (no step)', () => {
 })
 
 describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace op', () => {
-  // The case the log-position scan got wrong. After a compaction, a replacement
-  // user/message lands at a HIGH log seq but sits at the SURFACE head, beside
-  // the still-open step whose events follow it in the log. It carries no
-  // tool-call/result pair (just summarized prose), so it must be a balanced cut
-  // on BOTH sides regardless of its log neighbours.
+  // A replacement checkpoint has a high log seq but sits at the surface head;
+  // its cuts are balanced regardless of later raw-log neighbors.
   function checkpointHeadedSession(): Session {
     const s = new Session(SessionId('checkpoint'))
     // A closed turn with a tool step → surface [u1, asst(call), result].
@@ -291,10 +271,8 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
   })
 
   it('end cut after the head checkpoint is balanced (it carries no tool pair)', () => {
-    // This is the exact assertion the log-position scan failed: the forward log
-    // scan from the checkpoint reached the open step's assistant/message and
-    // wrongly reported mid-step. The surface balance sees a neutral node whose
-    // following cut closes no open call.
+    // This is the exact assertion the log-position scan failed: the forward log scan from the
+    // checkpoint reached the open step's assistant/message and wrongly reported mid-step.
     const s = checkpointHeadedSession()
     expect(endBalanced(s, s.surface.nodes[0]!.seq)).toBe(true)
   })
