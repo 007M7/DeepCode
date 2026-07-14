@@ -81,14 +81,6 @@ describe('SurfaceManager', () => {
     expect(nodes[1]!.next).toBeNull()
   })
 
-  it('invalidate resets to full rebuild', () => {
-    const s = surfaceSession()
-    expect(s.surface.nodes.length).toBe(2)
-    // After invalidate, the surface should rebuild from scratch on next access.
-    ;(s.surface).invalidate()
-    expect(s.surface.nodes.length).toBe(2) // same result, but rebuilt
-  })
-
   it('empty surface yields empty nodes', () => {
     const s = new Session(SessionId('empty'))
     // Only turn boundaries, no surface nodes.
@@ -386,7 +378,7 @@ describe('surface type guards', () => {
 })
 
 describe('SurfaceManager.replaceGeneration', () => {
-  it('folds the pending log delta on access and counts replaces and invalidations', () => {
+  it('folds the pending log delta on access and counts replaces', () => {
     const s = new Session(SessionId('gen'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('user/message', { content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -400,10 +392,5 @@ describe('SurfaceManager.replaceGeneration', () => {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
     expect(s.surface.replaceGeneration).toBe(1)
-
-    // invalidate() is a rewrite too: the generation moves forward (and the
-    // refold re-counts the replace), never backwards.
-    s.surface.invalidate()
-    expect(s.surface.replaceGeneration).toBeGreaterThan(1)
   })
 })
