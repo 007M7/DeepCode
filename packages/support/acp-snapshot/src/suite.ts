@@ -275,6 +275,27 @@ function parseJsonlRecords(text: string): Record<string, unknown>[] {
 }
 
 /**
+ * Find tool calls whose structured result reports `UNKNOWN_TOOL`.
+ *
+ * Snapshot refresh must not turn a missing registration into accepted behavior;
+ * intentional unknown-tool behavior belongs in a focused unit or e2e test.
+ *
+ * @param rawLog The session JSONL to inspect.
+ * @returns The failing call ids in log order, using a diagnostic placeholder when absent.
+ */
+export function unknownToolCallIds(rawLog: string): string[] {
+  return parseJsonlRecords(rawLog).flatMap((record) => {
+    if (record.type !== 'tool/result') return []
+    const data = record.data
+    if (data === null || typeof data !== 'object') return []
+    const { callId, error } = data as { callId?: unknown; error?: unknown }
+    if (error === null || typeof error !== 'object') return []
+    if ((error as { code?: unknown }).code !== 'UNKNOWN_TOOL') return []
+    return [typeof callId === 'string' ? callId : '<missing callId>']
+  })
+}
+
+/**
  * Build the cross-log id/cwd replacements used by refresh write-back.
  *
  * @param logs The freshly harvested logs, in fixture order.
@@ -400,6 +421,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
         })
+
+        for (const log of result.sessionLogs) {
+          expect(unknownToolCallIds(log.content), `session ${log.id}: snapshot scenarios must not accept UNKNOWN_TOOL`)
+            .toEqual([])
+        }
 
         // Scrub every volatile id the run produced: the ACP server-issued session id plus every
         // harvested log's recorded id (a subagent child id never surfaces over ACP, but it
@@ -595,6 +621,21 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} carries unscrubbed header content`)
               .toEqual(fixture)
           }
+        }
+      }
+    })
+
+    it('no committed session fixture accepts UNKNOWN_TOOL', async () => {
+      for (const scenario of scenarios) {
+        const dir = join(snapshotsDir, scenario.name)
+        const files = [
+          'session.jsonl',
+          ...Array.from({ length: scenario.childSessions ?? 0 }, (_, i) => `session.${i + 1}.jsonl`),
+        ]
+        for (const file of files) {
+          const fixture = await readFile(join(dir, file), 'utf8')
+          expect(unknownToolCallIds(fixture), `${scenario.name}/${file} contains UNKNOWN_TOOL`)
+            .toEqual([])
         }
       }
     })

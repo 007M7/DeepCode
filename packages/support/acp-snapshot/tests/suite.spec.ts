@@ -15,6 +15,7 @@ import {
   normalizedSystemPrompts,
   refreshFixtureReplacements,
   stabilizeRefreshLog,
+  unknownToolCallIds,
 } from '../src/suite.ts'
 
 /**
@@ -275,6 +276,27 @@ describe('headerDeltaCount', () => {
     const other = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: {} })
     expect(headerDeltaCount(`${other}\n\n${delta}\n${delta}\n`)).toBe(2)
     expect(headerDeltaCount(`${other}\n`)).toBe(0)
+  })
+})
+
+describe('unknownToolCallIds', () => {
+  it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
+    const log = [
+      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":null}',
+      '{"type":"tool/result","data":"invalid"}',
+      '{"type":"tool/result","data":{"error":null}}',
+      '{"type":"tool/result","data":{"error":"invalid"}}',
+      '{"type":"assistant/message","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '',
+    ].join('\n')
+    expect(unknownToolCallIds(log)).toEqual(['missing', '<missing callId>'])
+  })
+
+  it('returns no failures for ordinary tool results', () => {
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
   })
 })
 
