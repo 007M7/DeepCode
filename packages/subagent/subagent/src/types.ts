@@ -147,7 +147,11 @@ export interface SubagentResult {
  * presence of the method IS the capability — narrow before calling.
  */
 export interface SubagentRun {
-  /** Parent-scoped run id. Local runs use the published child session id; remote providers mint an id unique in the parent namespace. */
+  /**
+   * Parent-scoped run id. A local run publishes a child session whose
+   * `parentSession` records `request.parent`; a remote provider mints an id
+   * unique in the parent namespace.
+   */
   readonly id: SessionId
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run

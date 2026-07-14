@@ -325,7 +325,7 @@ export interface Config {
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
     id: string
-    /** Optional exact identity for a fresh session; absent lets the loop mint one from the label. */
+    /** Optional stable identity; remounts resume its materialized history, while first use creates it fresh. */
     sessionId?: SessionId
     /** Optional workspace for a fresh session. */
     cwd?: string
@@ -363,8 +363,17 @@ export class AgentLoop extends Service implements AgentFactory {
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
 
     for (const { id, sessionId, cwd, resumeSessionId, ...options } of config.agents) {
+      const meta = cwd === undefined ? {} : { cwd }
       if (resumeSessionId === undefined || resumeSessionId === '') {
-        this.create(sessionId ?? SessionId(`${id}-session-${randomUUID()}`), options, cwd === undefined ? {} : { cwd })
+        const configuredId = sessionId ?? SessionId(`${id}-session-${randomUUID()}`)
+        const persistence = sessionId === undefined ? undefined : ctx.get('sessionPersistence')
+        if (persistence === undefined) {
+          this.create(configuredId, options, meta)
+        } else {
+          void this.restoreOrCreateConfigured(ctx, persistence, configuredId, options, meta).catch((error: unknown) => {
+            ctx.logger.warn(`agent "${id}": config-driven restore of "${configuredId}" failed: ${String(error)}`)
+          })
+        }
         continue
       }
       if (sessionId !== undefined) {
@@ -382,6 +391,22 @@ export class AgentLoop extends Service implements AgentFactory {
         return fiber.dispose
       }, `agentLoop.resume(${id})`)
     }
+  }
+
+  /** Restore a materialized exact config identity on remount, or create it on first use. */
+  private async restoreOrCreateConfigured(
+    ownerCtx: Context,
+    persistence: SessionPersistence,
+    sessionId: SessionId,
+    agentOptions: AgentOptions,
+    meta: Pick<SessionHeader, 'cwd'>,
+  ): Promise<void> {
+    const exists = (await persistence.list()).some(header => header.id === sessionId)
+    if (exists) {
+      await this.resumeWith(ownerCtx, persistence, { resumeSessionId: sessionId, agentOptions })
+      return
+    }
+    this.create(sessionId, agentOptions, meta)
   }
 
   /**
