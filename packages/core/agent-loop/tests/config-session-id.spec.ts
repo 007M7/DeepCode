@@ -35,6 +35,15 @@ async function makeCoreContext(): Promise<Context> {
 }
 
 describe('config-driven session id', () => {
+  it('rejects an empty exact id before publishing an agent', async () => {
+    const ctx = await makeCoreContext()
+    await expect(ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId(''), model: 'mock' }],
+    })).rejects.toThrow('expected string length >= 1')
+    expect(ctx.agents.get(SessionId(''))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('accepts one exact fresh id and rejects it alongside a resume id', async () => {
     const exact = await makeCoreContext()
     await exact.plugin(AgentLoop, {
