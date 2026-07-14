@@ -48,7 +48,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // text-turn is the pinned-header scenario: the minimal single text turn.
-  // Its system-prompt.golden.md and JSONL tool list pin the composed header.
+  // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
