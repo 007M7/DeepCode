@@ -2,7 +2,7 @@
 
 The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs, including the local skill provider, and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
-This is the package to read to see **the whole plugin tree at once** — the teaching role the inlined `echo-agent` `cordis.yml` used to play before the spine moved behind this bundle.
+This is the package to read to see **the whole shared plugin tree at once**: the teaching overview of the spine behind every app package.
 
 ## The tree it loads
 
@@ -17,7 +17,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
-@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-invariants       runtime event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
@@ -48,3 +48,13 @@ The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loo
 ## Why a code bundle, not a shared YAML include
 
 A YAML include can dedupe the config, but it cannot OWN a `bin`, and it can only *describe* the front-door coupling in a comment and trust each leaf to obey. Moving the spine into a package, and the front-door cluster into the app packages, means the default leaf for an ACP server has no logger entry to copy wrong — "the ACP app never logs to stdout" stops being a prose warning a leaf must remember and becomes the app package's default shape (a leaf can still add a sibling logger, so the rule stays documented — but it has nothing to get wrong by default). Services register in the root store keyed by their isolate symbol, so a child loaded here is visible to the bundle's siblings (the leaf's adapter and executor) exactly as a nested `plugin-include` subtree's services were — cordis gates every read on `inject`, never on load order.
+
+## Model Experience
+
+Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
+
+## Known Limitations and Deferred Work
+
+- **FIXME: package name and location imply product core** — rename `dsh-agent-core` to `dsh-demo-bundle` and move it under `packages/support/`; it is a demo composition bundle, not the product spine.
+- **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
+- **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.

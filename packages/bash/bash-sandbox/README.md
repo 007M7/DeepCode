@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-bash-sandbox
 
-Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — the model-facing tool layer (`dsh-tool-bash`) is untouched; that swap is exactly what the seams exist for.
+Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
 
 Every command is confined by handing the provider the exact `['bash', '-c', command]` argv this executor is about to spawn and spawning the returned (wrapped) argv instead. WHICH platform runner confines it — and whether one is usable at all (fail closed with a structured `SANDBOX_UNAVAILABLE` error, never a silent unconfined run) — is the provider's concern; this package owns the bash side only.
 
@@ -31,3 +31,30 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
 ```
 
 The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.
+
+## Model Experience
+
+### Bash tool schema, indirectly
+
+**What the model sees**: The generated [`dsh-tool-bash` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash) are the baseline. By advertising a confining `sandboxMode`, this backend augments `bash` with `sandbox_permissions` using enum `workspace-write` | `danger-full-access` and with `justification`. The backend adds no prompt prose, and the session's effective mode remains unstated.
+
+**Token effect**: Small fixed schema increment on requests where `bash` is visible; mode switches add no context tokens.
+
+### Bash tool result, indirectly
+
+**What the model sees**: After ordinary bounded output, a denied call appends exactly `[sandbox: file access denied under <mode> mode]`. When escalation is available it next appends `[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]`. A settled background runner failure instead appends `[sandbox: the sandbox runner itself failed under <mode> mode — the command did not run; this is a sandbox problem, not a command failure]`.
+
+**Token effect**: Zero additional tokens on an unremarkable allowed run beyond ordinary output. Denial or failure adds the quoted conditional marker, retained until compaction.
+
+### Bash tool error, indirectly
+
+**What the model sees**: If no runner can enforce a confined mode, the foreground call fails with code `SANDBOX_UNAVAILABLE` and the exact message `sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS) — Windows has no confinement backend yet — or switch the consumer to danger-full-access.` An execution-time runner failure appends ` Runner failure: <first stderr line>`.
+
+**Token effect**: Conditional error text is visible for that call and retained in history until compaction.
+
+## Known Limitations and Deferred Work
+
+- **Confinement covers file effects only** — network access and process visibility are unchanged, so the modes are not a general-purpose security sandbox.
+- **Denials are inferred from failed-command stderr** — backend signatures make the inference portable, but a matching application error can be classified as a denial and a denial omitted from the retained tail can be missed.
+- **A background runner failure has no immediate error channel** — it is recorded on the settled task and surfaces when the caller polls with `bash_output`.
+- **`danger-full-access` deliberately bypasses `ctx.sandbox`** — it is an explicit unconfined mode, not a wider sandbox profile.

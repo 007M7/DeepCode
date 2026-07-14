@@ -9,14 +9,13 @@
  * merge, the `hook/*` events) come from `@deepseek-ai/dsh-hook-protocol`.
  *
  * A native cordis plugin could do everything this bridge does — more powerfully,
- * with typed returns and no serialization boundary. The bridge exists only to
- * run UNMODIFIED external CC hooks faithfully; anything bespoke should be a
- * native plugin on the same seams.
+ * with typed returns and no serialization boundary. This bridge is a
+ * compatibility path for the mapped CC command-hook subset; anything bespoke
+ * should be a native plugin on the same seams.
  *
  * Scope: the seven in-scope hook points (`SessionStart`, `UserPromptSubmit`,
  * `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart`, `SubagentStop`). Only
- * `type: 'command'` hooks run; the matcher group config + exit-code/stdout
- * protocol are byte-faithful to CC. `updatedInput` (tool-input rewrite) is
+ * shell-form `type: 'command'` hooks run. `updatedInput` (tool-input rewrite) is
  * logged + warned, not honored (deferred — see the interception-seams RFC).
  *
  * @module @deepseek-ai/dsh-hooks-claude

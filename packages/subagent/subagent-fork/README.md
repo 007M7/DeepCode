@@ -21,3 +21,23 @@ Fork advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, perso
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `fork`). |
+See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, model inheritance, and depth tracking — all shared.
+
+## Model Experience
+
+### Child-agent history and envelope
+
+**What the model sees**: The child receives the parent's balanced completed-turn surface prefix, then the new task content verbatim. A configured persona shadows prompt text in the child's fresh scope; a tool restriction filters its global wire schemas, executable lookup, and Code Mode SDK bindings but not standalone guidance. The parent's tool view and authority are not inherited. An optional structured-output request adds its child-only contract. The parent's current in-flight turn is excluded.
+
+**Token effect**: Forking duplicates retained completed history into separate child requests; the child then accumulates its own tokens independently. Persona changes repeated prompt cost, filtering changes schema or generated SDK cost, and a first-turn fork has no inherited history.
+
+### Parent tool result, indirectly
+
+**What the model sees**: The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work.
+
+**Token effect**: Parent input grows by one data-dependent final result retained until compaction.
+
+## Known Limitations and Deferred Work
+
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
+- **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.
