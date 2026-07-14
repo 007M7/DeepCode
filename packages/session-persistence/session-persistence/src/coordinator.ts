@@ -158,6 +158,11 @@ function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): 
   if (legacy !== undefined) {
     throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
   }
+  const fallback = events.find(event => event.type === 'request/header'
+    && (event.data as { reason?: string }).reason === 'fallback')
+  if (fallback !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header reason "fallback" at seq ${fallback.seq}`)
+  }
 }
 
 /**
