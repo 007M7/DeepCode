@@ -1,0 +1,50 @@
+# Default runtime configuration for the bundled dsh-jsonrpc-agent. The runtime
+# binary has NO built-in fallback — it always requires an explicit config via
+# `$DSH_CORDIS_CONFIG` (wins) or an argv positional path. The Python client SDK
+# injects THIS file's path via `$DSH_CORDIS_CONFIG` when the caller supplies
+# no config and the launch resolves to the bundled runtime; that explicit
+# injection is what restores the zero-config experience. The runtime bin only
+# boots this config; the serving surface (the stdio JSON-RPC server) comes
+# from the @deepseek-ai/dsh-jsonrpc entry below.
+#
+# $DSH_SESSION_ROOT and $DSH_CWD are set by the SDK per launch; the `!!js`
+# fallbacks keep this file usable when the runtime is driven manually.
+
+# The serving surface: HarnessSdkServer + line-delimited JSON-RPC transport on
+# stdio. Without this entry the runtime boots an agent nobody can talk to.
+- id: jsonrpc
+  name: '@deepseek-ai/dsh-jsonrpc'
+
+# The agent spine bundle: session store, system prompt, tool registry, agent
+# registry, and the agent loop. No pre-created agents — the SDK server creates
+# one per session/prompt sessionId.
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-core'
+
+# The DeepSeek adapter, preloaded for the stock models. The adapter fails loud
+# at load without an API key, so keyless boots must still export a dummy
+# DEEPSEEK_API_KEY (initialize/shutdown never call the model). baseURL falls
+# back to the public endpoint when unset.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-flash
+      - deepseek-v4-pro
+
+# JSONL session persistence. $DSH_SESSION_ROOT (set by the SDK whenever
+# `session_root` is configured) wins; otherwise ./.sessions relative to the
+# runtime process cwd.
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
+
+# Local bash executor behind the spine's `bash` tool. $DSH_CWD (always set by
+# the SDK) wins; otherwise the runtime process cwd.
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    cwd: !!js process.env.DSH_CWD ?? process.cwd()

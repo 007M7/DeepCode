@@ -202,6 +202,8 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`repeat-tool-guard: invalid argumentsPreviewChars ${argumentsPreviewChars} — must be an integer >= 1`)
   }
 
+  // TODO(agent-keyed-repeat-chain): key a WeakMap by the Agent itself; that
+  // removes the disposal-only status listener and cannot collide on id reuse.
   const chains = new Map<AgentId, Chain>()
 
   /** Whether a tool participates in the chain (untracked calls are transparent: they neither count nor reset). */
