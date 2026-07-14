@@ -21,7 +21,7 @@ How to translate between the two sides of a documentation pair in this repo. Bot
 
 ## Structure preservation
 
-The pairing gate checks heading depths, fenced code blocks, table column counts, list kinds, and link targets. Preserve the rest of the frame manually; the paired files MUST match one to one in:
+The pairing gate checks heading depths, fenced code blocks, table row and column counts, list kinds, ordered-list starts, list item counts, and link targets. Preserve the rest of the frame manually; the paired files MUST match one to one in:
 
 - heading hierarchy (same levels, same order — heading TEXT is translated),
 - list shape and numbering,
@@ -54,7 +54,7 @@ These rules govern the Chinese side; the English side follows the repo's normal 
 
 - A pair is done when a bilingual engineer reading either file alone gets everything a reader of the other gets — same facts, same caveats, same tone — and nothing extra.
 - Before handing off, self-check the result against this file and re-read the counterpart ALONE, without the source side by side; awkward phrasing is easier to hear without the source anchoring you.
-- Run `pnpm run verify-translation-pairing` and the rest of `doc-sync` for records, switchers, heading depths, code blocks, table column counts, list kinds, links, and repository Markdown rules. Manually verify list item counts and numbering, table row counts and order, inline code, emphasis, meaning, terminology, and tone.
+- Run `pnpm run verify-translation-pairing` and the rest of `doc-sync` for records, switchers, heading depths, code blocks, table row and column counts, list kinds, ordered-list starts, list item counts, links, and repository Markdown rules. Manually verify list and table order, noncanonical list numbering, inline code, emphasis, meaning, terminology, and tone.
 
 ## References
 

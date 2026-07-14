@@ -30,7 +30,7 @@
 
 > **Async state is not synchronous state** — `agent.send()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) rather than counting actions you assume map 1:1 to turns.
 
-**异步状态不等同于同步瞬时状态**——调用 `agent.send()` 不会在返回前同步更新状态；后台任务完成时机与轮次边界存在竞态；调用 `reader.close()` 既可能是读到文件末尾，也可能是资源销毁触发。切勿仅凭刚查询到的状态来阻断流程；生命周期逻辑应基于真实触发的事件与 promise 驱动（`agent/status`、`task.done`），观测完整状态切换（先 `running`、再 `idle`），而非主观认定操作和执行轮次一一对应（主循环会批量处理排队消息）。
+**异步状态不等同于同步瞬时状态**——调用 `agent.send()` 不会在返回前同步更新状态；后台任务完成时机与轮次边界存在竞态；调用 `reader.close()` 既可能是读到文件末尾，也可能是资源销毁触发。切勿根据刚刚请求切换的状态来控制流程；生命周期逻辑应基于真实触发的事件与 promise 驱动（`agent/status`、`task.done`），观测完整状态切换（先 `running`、再 `idle`），而非通过操作次数推断轮次是一一对应的。
 
 ## ③ 测试政策清单
 

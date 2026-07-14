@@ -59,7 +59,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs unit tests, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 

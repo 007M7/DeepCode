@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-02-bilingual-docs-and-pairing-gate.md: 68c0f3bbc0472b0c96f9d64fc6b1b24ac7008795
-2026-07-02-bilingual-docs-and-pairing-gate.zh.md: f93e3220fef720805c52023841f6f56f9e2834cf
+2026-07-02-bilingual-docs-and-pairing-gate.zh.md: 66a24dbfa9e516bf341d42d10b797fb70dcd715d

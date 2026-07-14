@@ -1,6 +1,6 @@
 # Translation prompt (pipeline asset)
 
-本文件是自动翻译流水线的 prompt 模板；自 `# Translation Prompt` 起的正文逐字进入模型请求，因此不参与双语配对（见 [README.md](README.md) 排除清单）。渲染时，[terminology.md](terminology.md) 整表填入 `{{terminology}}`。[style-samples.md](style-samples.md) 定义文体，模板内嵌的 Examples 仅抽样问题类型；术语表、忠实性与结构规则优先于样例，样例在这些硬约束内决定文体。修改本文件即修改翻译行为，需按正常 PR 评审。
+本文件是自动翻译流水线的 prompt 模板；自 `# Translation Prompt` 起的正文逐字进入模型请求，因此不参与双语配对（见 [README.md](README.md) 排除清单）。渲染时，[translation-rules.md](translation-rules.md) 全文填入 `{{translation_rules}}`，[terminology.md](terminology.md) 整表填入 `{{terminology}}`，避免模板另存一份会漂移的规则副本。[style-samples.md](style-samples.md) 定义文体，模板内嵌的 Examples 仅抽样问题类型；术语表、忠实性与结构规则优先于样例，样例在这些硬约束内决定文体。修改本文件即修改翻译行为，需按正常 PR 评审。
 
 ## 占位符契约
 
@@ -10,6 +10,7 @@
 |---|---|---|
 | `{{source_lang}}` | 源语言名（`English` / `Chinese`） | 由改动侧文件推断：`.zh.md` 被改则为 `Chinese` |
 | `{{target_lang}}` | 目标语言名（`Chinese` / `English`） | 与 `{{source_lang}}` 相对 |
+| `{{translation_rules}}` | [translation-rules.md](translation-rules.md) 全文（Markdown 原文） | 渲染时读取仓库当前版本，不缓存 |
 | `{{terminology}}` | [terminology.md](terminology.md) 的完整表格（Markdown 原文） | 渲染时读取仓库当前版本，不缓存 |
 | `{{source_filename}}` | 源文档的 basename（如 `foo.md` 或 `foo.zh.md`） | 由流水线从待译文件路径取得 |
 | `{{source_filename_zh}}` | 中文侧 basename（如 `foo.zh.md`） | 英文源追加 `.zh`；中文源使用自身 basename |
@@ -35,46 +36,20 @@
 
 You are a senior technical translator specializing in LLM and agent development documentation. Translate the complete source document from {{source_lang}} to {{target_lang}} as natural, professional technical prose.
 
-## Quality Requirements
+## Binding Translation Rules
 
-### Structure and Format Preservation
-- Preserve the complete document frame: heading hierarchy, list item count and numbering, table row and column order, link targets, fenced code blocks, inline code spans, and emphasis spans.
-- Fenced code blocks must be byte-identical to the source, including every comment, info string, and line break. Never translate a code-block comment.
-- Inline code spans (commands, flags, paths, API names, event names, configuration keys, and version numbers) remain byte-identical and in the same order.
-- Every relative link keeps the same target. Translate link text, not link targets.
-- The source basename is `{{source_filename}}`. When translating into Chinese, write `[English]({{source_filename}}) | 中文` immediately after the H1. When translating into English, write `English | [中文]({{source_filename_zh}})` immediately after the H1. Emit the switcher for a new pair and flip an existing switcher; never copy it unchanged.
-- Preserve every source emphasis marker on the corresponding translated span. Do not add italics, bold, quotation marks, or other emphasis absent from the source.
-- After a closing bold marker `**`, add a half-width space only when the next character is a Latin letter or digit. Never add one before full-width punctuation.
+The canonical repository rules below are injected verbatim. Apply every direction-appropriate requirement. In those rules, the authored document is the source for this request and the generated document is its counterpart.
 
-### Faithfulness and Voice
-- Preserve every behavior, condition, prerequisite, warning, version claim, example, exception, and modal verb. Add none and drop none.
-- Write as a native technical author in the target language, not as a word-for-word translator. Restructure sentences where target-language grammar requires it while preserving the author's register.
-- Use precise, established developer terminology. Do not vary a term merely to avoid repetition, and do not collapse two distinct source concepts into one target term.
-- Do not add politeness, certainty, emphasis, rationale, or examples that the source does not contain.
+{{translation_rules}}
 
-#### When translating into Chinese
-- Use institutional technical Chinese: complete sentences, explicit actors where a passive would be vague, and established Chinese engineering idiom rather than calques.
-- When a number modifies a noun, include a natural classifier or measure word. Example: `three-package seam` → `由三个 package 构成的 seam`, not `三 package seam`.
-- Use full-width Chinese punctuation in prose: `，。：；？！（）「」`. Prefer colons, periods, commas, or parentheses over em dashes; use 顿号（、）between parallel items.
-- Put one half-width space between Chinese text and Latin words or numbers. Do not put spaces around full-width punctuation.
-- Render RFC 2119 keywords as 必须、禁止、应当、可以 while preserving the source emphasis exactly; plain source text remains plain.
+## Request-Specific Structure
 
-#### When translating into English
-- Use concise professional developer English. Convert Chinese topic-comment order, implicit subjects, and nominalizations into idiomatic English without dropping their meaning.
-- Use normal half-width English punctuation and spacing. Convert enumeration commas (、) to English commas and 「」 quotation marks to English double quotes, except inside verbatim Chinese text.
-- Render RFC 2119 keywords as MUST, MUST NOT, SHOULD, and MAY while preserving the source emphasis exactly.
-- Use established English engineering idiom rather than literal transliteration (误报 → false positive, 执行红线 → enforcement frontier), consulting the terminology table first.
-- Use direct English imperatives for instructions unless the source's politeness carries substantive meaning.
+- The source basename is `{{source_filename}}`. When translating into Chinese, write `[English]({{source_filename}}) | 中文` immediately after the H1. When translating into English, write `English | [中文]({{source_filename_zh}})` immediately after the H1.
+- Emit the switcher for a new pair and flip an existing switcher; never copy it unchanged.
 
-## Terminology
+## Binding Terminology
 
-The table below is binding:
-- For a Chinese target, use the `中文` column and apply the `首次出现` form once; later occurrences use the text before its parentheses.
-- For an English target, use the `English` column. Do not copy Chinese first-occurrence glosses into English prose.
-- Respect every `不要译作` prohibition in both directions.
-- For an unlisted term in a Chinese target, use a citable established Chinese OSS or vendor rendering and record the precedent in `<review>`; otherwise keep the English term and record it as `[Pending term]` with a suggested rendering.
-- For an unlisted term in an English target, use the established English technical term. If no unambiguous equivalent exists, preserve the source term with a short gloss and record it as `[Pending term]`.
-- Never invent a technical rendering inline.
+Apply the current table below exactly as required by the injected translation rules.
 
 {{terminology}}
 
@@ -99,32 +74,7 @@ Return exactly one well-formed XML document with this root and these three child
 
 ## Self-Review Instructions
 
-After writing `<translation>`, re-read it in the target language without looking at the source. Then compare it with the source clause by clause and record actual corrections in English inside `<review>`.
-
-**Structure**
-- Do heading levels, list item counts and numbering, table rows and columns, links, code blocks, inline code spans, and emphasis spans correspond exactly?
-- Are all fenced code blocks byte-identical, comments included?
-- Is the language switcher present and pointed in the correct direction?
-
-**Faithfulness**
-- Did every condition, warning, modal verb, exception, and example survive?
-- Did the translation add any claim, rationale, emphasis, or certainty absent from the source?
-
-**Tone and sentences**
-- Does every sentence read as native target-language developer documentation?
-- Are passive constructions, topic chains, or run-on sentences unnatural in the target language?
-
-**Terminology**
-- Does every tabled term use the target-language column and avoid forbidden forms?
-- For a Chinese target, are first-occurrence glosses present once and only once?
-- Are unlisted terms handled under the direction-specific precedent and pending-term rules?
-
-**Punctuation**
-- For Chinese, are punctuation, mixed-script spacing, classifiers, and 顿号 correct?
-- For English, are punctuation and spacing idiomatic and free of Chinese-only padding?
-- Do RFC 2119 keywords preserve the source emphasis rather than adding italics?
-
-Apply every recorded correction in `<final>`. If no correction is needed, write only `- [None] No corrections.` in `<review>` and copy `<translation>` unchanged into `<final>`.
+After writing `<translation>`, re-read it in the target language without looking at the source. Then apply the injected translation rules as a clause-by-clause comparison against the source and record actual corrections in English inside `<review>`. Apply every recorded correction in `<final>`. If no correction is needed, write only `- [None] No corrections.` in `<review>` and copy `<translation>` unchanged into `<final>`.
 
 ## Examples
 

@@ -7,7 +7,7 @@
 ## 配对契约
 
 - **两种语言同权。**一篇文档可以先用任一语言撰写和评审——先写中文的 RFC 与先写英文的一样正当——另一侧由它翻译而来。两个文件谁也不高于谁；约束它们的是二者必须说同样的话。
-- **一对文档是三个同目录文件。**英文 `foo.md`、中文 `foo.zh.md`，加一份一致性记录 `foo.i18n.yaml`，都在同一目录。不用语言目录，不用独立翻译仓库，不用中英混排的单文件。配对整体合入：PR 永远不会只带一种语言而缺其余两个文件。
+- **一对文档是三个同目录文件。**英文 `foo.md`、中文 `foo.zh.md`，加一份一致性记录 `foo.i18n.yaml`，都在同一目录。不用语言目录，不用独立翻译仓库，不用中英混排的单文件。配对整体合入：PR（Pull Request）永远不会只带一种语言而缺其余两个文件。
 - **一致性记录。**`foo.i18n.yaml` 保存两侧文件在上一次被确认「说同样的话」时各自的完整 git blob hash：
 
   ```yaml
@@ -17,14 +17,14 @@
 
   用 blob hash 而不是 commit hash，这样同一个 PR 里改动的文件也能算出记录（`git hash-object foo.md`），一致性是纯内容比较。记录的 hash 还能还原任一侧上次确认时的确切文本（`git cat-file -p <hash>`），所以失去同步的配对是「把被改的一侧与其上次确认状态做 diff、再最小化地修补另一侧」——从不整篇重译。两侧对齐后，`pnpm run verify-translation-pairing --write` 重新记录两个 hash；那份 yaml diff 就是「确认一致」这个动作本身，可以被评审。
 - **语言切换行。**两个文件在各自 H1 标题之后立即互链：英文文件带 `English | [中文](foo.zh.md)`，中文文件带 `[English](foo.md) | 中文`。
-- **结构与另一侧一一对应。**标题深度与顺序、列表类型、表格列、链接目标与逐字节一致的代码块在配对两侧一一对应——完整保持规则见 [translation-rules.md](translation-rules.md)。既有 Markdown 门禁对 `.zh.md` 文件原样生效（`verify-md-wrap`、`verify-md-links`）。
+- **结构与另一侧一一对应。**标题深度与顺序、列表类型、有序列表起始编号、列表项数量、表格行列数、链接目标与逐字节一致的代码块在配对两侧一一对应——完整保持规则见 [translation-rules.md](translation-rules.md)。既有 Markdown 门禁对 `.zh.md` 文件原样生效（`verify-md-wrap`、`verify-md-links`）。
 
 ## 门禁：verify-translation-pairing
 
 `pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，因此 CI 和 pre-push 钩子都会运行）机械地强制执行这份契约：
 
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
-2. 任何已存在的配对——无论是否 required——都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格列数、列表类型，以及除切换行之外的每个链接目标。
+2. 任何已存在的配对——无论是否 required——都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
 4. 日期等于或晚于 manifest（元数据清单）中 `requiredSince` 分界日期的每篇日期命名文档（`yyyy-mm-dd-*.md`）都有完整配对——新增的日期命名 RFC 从创建起就要求双语齐备。
 
@@ -49,4 +49,4 @@
 
 ## 分工
 
-这里的对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 产出、由人评审——在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁机械检查配对完整性、记录的 hash、切换行与文档所列的结构签名；翻译质量、术语以及签名未编码的结构要求仍由评审把关。
+这里的对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 产出、由人评审——在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁机械检查配对完整性、记录的 hash、切换行与文档所列的结构签名；翻译质量、术语以及签名未编码的结构要求仍由评审把关。prompt 契约可以直接执行：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 将规范真源渲染到两个翻译方向，并严格解析含三个字段的 XML 响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向、仓库内示例与 CDATA 拆分规则。
