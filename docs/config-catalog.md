@@ -780,6 +780,22 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system-prompt/src/index.ts)
 
+## `@deepseek-ai/dsh-time-context`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
+export interface Config {
+  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
+  timeZone?: string
+  /** Maximum age of a reading within one turn, in milliseconds (default 60,000; `0` refreshes every step). */
+  refreshIntervalMs?: number
+}
+```
+
+Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/time-context/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-cordis`
 
 Requires: `tools`

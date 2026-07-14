@@ -11,3 +11,4 @@ Every post-mortem opens with an **Executive summary**: one short paragraph a bus
 | # | Title |
 |---|---|
 | [0001](0001-acp-default-export-drops-inject.md) | ACP server crashed on connect: `export default` dropped the plugin's `inject` |
+| [0002](0002-js-expression-disabled-filesystem-tools.md) | Filesystem snapshot tools were permanently disabled by a literal `!!js` object |

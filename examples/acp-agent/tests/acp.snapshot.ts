@@ -27,6 +27,7 @@ const AGENT = {
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
+const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -47,19 +48,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // text-turn is the pinned-header scenario: the minimal single text turn.
-  // Its system-prompt.golden.md and JSONL tool list pin the composed header.
+  // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
-  { name: 'fs-read', hasModelTurn: true, recorded: true },
-  { name: 'fs-write', hasModelTurn: true, recorded: true },
-  { name: 'fs-edit', hasModelTurn: true, recorded: true },
-  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
-  { name: 'fs-read-window', hasModelTurn: true, recorded: true },
-  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
+  { name: 'workspace-edit', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-read', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-write', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-edit', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
