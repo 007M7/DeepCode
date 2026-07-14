@@ -1,9 +1,4 @@
-"""Keyless tests for the deepseek_harness_runtime resolution API.
-
-These never launch a runtime, so they run everywhere regardless of which
-bundled artifacts are present; the launch-and-boot coverage lives in
-``test_bundled_runtime.py``.
-"""
+"""Keyless runtime-resolution tests; launch coverage lives in test_bundled_runtime.py."""
 
 from __future__ import annotations
 

@@ -1,57 +1,10 @@
 /**
- * The model-facing bash tools: `bash`, `bash_output`, `bash_kill`. Pure
- * schema + text shaping — every process concern lives behind the `ctx.bash`
- * executor seam (`@deepseek-ai/dsh-bash`), so sandbox/permission/remote
- * executor implementations swap in without touching what the model sees.
- *
- * Background notifications: when a background task completes, a short notice
- * is injected into the owning agent's session (`agent.inject()` — the
- * documented context seam). Injection is durable context for the NEXT model
- * request, not a wake-up: an idle agent stays idle until something sends a
- * message, which is why the tool descriptions tell the model to poll with
- * `bash_output`.
- *
- * Task ownership: a background task's OWNER is an opaque token — the owning
- * agent's `session.header.id` — passed to the executor at spawn
- * (`resolve({ …, owner })`) and stored ON THE TASK inside the executor
- * (`@deepseek-ai/dsh-bash`'s `ownerOf(id)` seam), NOT in a plugin-local map.
- * `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token
- * and reject a task owned by a DIFFERENT session (`owner !== undefined && owner
- * !== caller`); an unowned task (no token — started by a non-agent caller) is
- * open to anyone. Task ids are global and predictable (`bash-1`, …); under
- * multi-session ACP (RFC 011) this token check is the fence that stops one
- * session's agent from reading or killing another session's background task.
- *
- * Storing the token on the task in the EXECUTOR (disposed with the `dsh-bash`
- * fiber), rather than in this plugin, is what makes ownership survive a
- * `tool-bash` HMR reload — a reload that reset a plugin-local map would orphan
- * a task spawned before it. (The `onTaskDone` listener is still effect-scoped
- * to this plugin's `apply`, so a
- * completion landing during the reload gap still drops its one notice — the
- * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
- *
- * Commands run with the executor's full authority unless a sandboxing
- * executor (`@deepseek-ai/dsh-bash-sandbox`) confines them; per-call
- * allow/deny/ask policy is the `tools/pre-execute` waterfall — see
- * docs/architecture.md § Extension And Composition. Under a sandboxing
- * executor this plugin also advertises the ESCALATION surface
- * (`sandbox_permissions`/`justification` — the sandbox RFC § Escalation,
- * docs/rfc/implemented/feature/2026-07-06-sandbox.md): a command the
- * sandbox denied may be retried once under a strictly wider mode, resolved
- * through `ctx.approval` BEFORE anything executes and failing closed on every
- * unanswerable path. The fields exist only when the mounted executor reports
- * a confining default (`ctx.bash.sandboxMode`) — a lever is never advertised
- * that the composition cannot honor.
- *
- * Per-session mode switching (the sandbox RFC § Per-session mode switching): a session may carry a
- * standing sandbox-mode override — the `bash/sandbox-mode` event fold from
- * `@deepseek-ai/dsh-bash` — which this plugin makes real at EXECUTION: each
- * call is stamped `escalation grant > session override > executor default`.
- * The prompt deliberately does NOT state the mode and no switch is narrated:
- * the model learns the boundary from the denial marker (which names the mode
- * it ran under) exactly when it matters, instead of preemptively refusing
- * work a standing declaration would discourage.
- *
+ * Model-facing `bash`, `bash_output`, and `bash_kill` tools over the executor
+ * seam. Background tasks are fenced by owning session, completion injects a
+ * durable notice, and confining executors add one-shot approval-based escalation.
+ * Notices do not wake idle agents. Ownership is stored with the executor task so
+ * it survives this plugin's reload; per-call authority is escalation grant,
+ * session override, then executor default. See the package README for the tool contract.
  * @module @deepseek-ai/dsh-tool-bash
  */
 
@@ -74,14 +27,8 @@ export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
 /**
- * Validate the constraints the SchemaSpec can't express. `defineTool` now
- * validates parsed args against the SchemaSpec before `execute` runs (the
- * arg-validation RFC), so type/required/enum checks are already done and `args`
- * is the validated `InferArgs` shape here. What remains are value constraints
- * the DSL has no vocabulary for: non-empty strings, a positive finite timeout,
- * and the escalation pairing (`sandbox_permissions` and `justification` travel
- * together — an approval prompt without a reason, or a reason driving nothing,
- * is a malformed ask).
+ * Validate value constraints absent from SchemaSpec: non-empty strings, a
+ * positive finite timeout, and paired escalation mode and justification.
  */
 function validateBashArgs(args: BashToolArgs): void {
   if (args.command.trim().length === 0) {
@@ -105,9 +52,7 @@ function validateBashArgs(args: BashToolArgs): void {
 }
 
 /**
- * Reject an empty `task_id`. Type and presence are guaranteed by the
- * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
- * DSL can't express, is left to check here.
+ * Reject an empty `task_id`; SchemaSpec already validates type and presence.
  */
 function validateTaskId(value: string): BashTaskId {
   if (value.length === 0) {
@@ -117,10 +62,8 @@ function validateTaskId(value: string): BashTaskId {
 }
 
 /**
- * The bash tool's validated argument shape — the base parameters plus the two
- * escalation fields, which are ADVERTISED only when the mounted executor
- * reports a confining default mode (absent from the schema otherwise, so the
- * SchemaSpec validator rejects them before `execute` ever sees one).
+ * Validated bash arguments. Escalation fields are advertised only when the
+ * mounted executor reports a confining mode.
  */
 interface BashToolArgs {
   command: string
@@ -133,10 +76,8 @@ interface BashToolArgs {
 }
 
 /**
- * The strictly-wider table: what a call whose effective mode is the key may
- * escalate TO. Checked at EXECUTION, never baked into the schema — the
- * schema's enum is {@link ESCALATION_TARGETS}, because schemas are
- * registry-global while the effective mode is per-call truth.
+ * Strictly wider modes for each effective mode. Execution checks this table
+ * because the schema is global while the effective mode is per call.
  */
 const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
   'read-only': ['workspace-write', 'danger-full-access'],
@@ -144,24 +85,16 @@ const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
 }
 
 /**
- * The closed escalation-target vocabulary — every mode a call could ever
- * escalate TO (`read-only` is the floor; nothing escalates to it). Advertised
- * whenever the mounted executor confines: cutting the enum down to the modes
- * wider than the executor's DEFAULT would strand a session whose effective
- * mode sits below it (a `danger-full-access` default would advertise nothing
- * while a narrower-switched session stays confined with no lever).
+ * All possible escalation targets. Advertise the global set because a session
+ * override may be narrower than the executor default; execution rejects a
+ * target that is not wider for that call.
  */
 const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
 /**
- * The bash tool's static description. The base text is byte-stable regardless
- * of composition (it is part of the pinned snapshot header); the escalation
- * teaching rides only when the mounted executor actually honors the fields —
- * it names the ONE sanctioned exception to the base text's "do not retry
- * another way" rule. Its deference clause ("If the session states approval
- * prompts are disabled…") points at the approval plugin's never-policy prompt
- * sentence by meaning, not by parsed wording — a rendezvous kept working by
- * that sentence continuing to open with the approvals-disabled claim.
+ * The bash tool's byte-stable base description. Escalation guidance is added
+ * only when the mounted executor can honor it, as the one exception to the
+ * ordinary no-retry guidance.
  */
 function bashDescription(escalationModes: readonly SandboxMode[]): string {
   const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
@@ -173,15 +106,15 @@ function bashDescription(escalationModes: readonly SandboxMode[]): string {
     + 'poll it with `bash_output` and stop it with `bash_kill`.'
   if (escalationModes.length === 0) return base
   return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the '
-    + 'marker rather than assuming the denial. When a command IS denied and a wider mode would let it '
-    + 'succeed, escalate immediately in the SAME turn — the ONE sanctioned exception to a denial: retry '
+    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
+    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
     + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
     + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
-    + 'approval prompt raised by that retry IS how the user consents. If the session states approval '
+    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
     + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
-    + 'Never escalate speculatively: ground the request in a real denial — normally the one THIS command '
+    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
     + 'just hit; escalating up front is fine only when this session already denied the same access. '
-    + 'A rejected escalation is final for THAT command — stop and explain, never work around '
+    + 'A rejected escalation is final for that command — stop and explain, never work around '
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
@@ -192,15 +125,15 @@ function streamText(output: CollectedOutput): string {
 }
 
 /**
- * Shape one finished run into the text the model sees: stdout, then a marked
- * stderr section, then exit-status markers. Non-zero exits are REPORTED, not
- * errored — the model decides how to react; only infrastructure failures
- * (spawn errors, aborts) surface as isError results.
+ * Shape one finished run into model-visible stdout, marked stderr, and status
+ * facts. Non-zero exits and sandbox denials remain ordinary results; only
+ * infrastructure failure or abort makes the tool call itself fail.
+ *
  * @param result - the completed foreground run from the executor.
- * @param escalationModes - the escalation targets this composition advertises;
- *   non-empty adds the same-turn escalation hint after a denial marker
- *   (default `[]`: no hint).
- * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
+ * @param escalationModes - the escalation targets this composition advertises; non-empty
+ *   adds the same-turn escalation hint after a denial marker (default `[]`: no hint).
+ * @returns the model-facing text: output body (or `(no output)`), then any
+ *   timeout/signal/exit markers, each on its own line.
  */
 export function renderResult(
   result: BashRunResult,
@@ -218,15 +151,12 @@ export function renderResult(
   if (body.length === 0) body = '(no output)'
 
   const markers: string[] = []
-  // The sandbox marker precedes the exit-status markers so `[exit code: N]`
-  // stays the LAST line (exitStatus() anchors its parse there). Denial is a
-  // reported fact like timeout: the model decides how to react.
+  // Keep `[exit code: N]` last so parseExitStatus() can recover it. A denial,
+  // like a timeout, remains a reported fact for the model to handle.
   if (result.sandbox?.denied) {
     markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
-    // The same-turn nudge lives at the decision point: only when this
-    // composition advertises the fields (a lever is never hinted that the
-    // schema does not offer), and inside the sandbox marker family so the
-    // exit-code marker stays the last line.
+    // Add the retry hint only when the schema advertises escalation, before
+    // the final exit marker.
     if (escalationModes.length > 0) {
       markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
     }
@@ -247,33 +177,10 @@ export function renderResult(
   return body + markers.join('\n')
 }
 
-// ---------------------------------------------------------------------------
-// UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
-// renders a bash call's pending and completed states. They are display-only and
-// pure — a UI may call them during live streaming AND a session-log replay.
-// ---------------------------------------------------------------------------
+// Pure tool-owned presentation used for both live events and replay.
 
 /**
- * Pending-state presentation for a `bash` call. The TITLE is the exact `command`
- * — a `kind: 'execute'` card is rendered as a terminal whose header label IS the
- * title, and an execute-kind card HIDES `rawInput` (Zed: `should_show_raw_input
- * = !is_terminal_tool`), so the command must BE the title to be seen. This
- * mirrors the reference ACP adapters (claude-agent-acp, codex-acp), which both
- * use the bare command as an execute tool's title. The model-written
- * `description` (a readable summary) rides as a `content` text block shown ABOVE
- * the card. (Note: claude-agent-acp DROPS the description in terminal mode and
- * shows only the card; surfacing it as a content block is a deliberate
- * divergence here — we keep the human summary visible alongside the card.)
- * `rawInput` still carries the bare command for non-execute UIs that DO render it.
- *
- * `terminal` marks the call so a capable UI renders a TERMINAL card — but ONLY a
- * FOREGROUND run is a terminal: a `run_in_background` call returns a task id
- * immediately (it never streams a terminal; its output is polled via
- * `bash_output`), so it is NOT marked terminal and renders as an ordinary
- * execute card. For a foreground run the `terminal.cwd` (header) is the model
- * `workdir` when given — ABSOLUTE as-is, RELATIVE for the UI bridge to resolve
- * against the session cwd; when omitted the bridge fills the session workspace
- * cwd (this PURE presenter, args only, can't see it).
+ * Present foreground calls as terminals and background starts as generic cards.
  */
 type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
 
@@ -289,8 +196,7 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
       content: [{ type: 'text', text: args.description }],
     }
   }
-  // A foreground run IS a terminal: the command titles the card, the description
-  // renders above it, and the cwd (when the model gave a workdir) heads it.
+  // A foreground run is a terminal; an explicit workdir supplies its cwd.
   return {
     card: 'terminal',
     title: args.command,
@@ -300,26 +206,8 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
 }
 
 /**
- * Completed-state presentation for a `bash` call. Two parallel renderings of the
- * same output: `terminal.output` for a UI that shows a terminal card (the run's
- * stdout/stderr + status markers, exactly as the model sees them — the RAW text,
- * newlines preserved, since a terminal renderer relies on exact bytes), and a
- * fenced ```console `content` block as the fallback for a UI without terminal
- * support (the fences are a UI-only affordance, so they live here, not in the
- * model-facing result; the fenced body is trimmed of trailing blank lines for a
- * tidy block). A capable UI also gets an exit-status pill from `terminal.exitCode`
- * / `terminal.signal`, parsed from the status markers `renderResult` appended.
- *
- * Terminal output/exit is suppressed for results that are NOT a finished
- * foreground run: a `run_in_background` start (`isBackground` — the text is a
- * task-id ack, not a streamed run) and an `isError` result (a spawn failure or
- * abort — there is no real process exit to pill, and the body is an error
- * message, not `renderResult` output, so parsing it would be meaningless). Those
- * return a `generic` result whose content is the fenced ```console block. A
- * finished foreground run returns a `terminal` result carrying the RAW output
- * and the parsed exit status; the BRIDGE derives the fenced fallback from
- * `output` for a UI without terminal support, so the tool does not double-encode
- * it. A non-text result (unexpected for bash) falls through to `undefined`.
+ * Present completed foreground output as a terminal; background acknowledgements
+ * and execution errors use generic fenced output without an exit-status pill.
  */
 function presentBashResult(args: unknown, result: ToolResult): ToolResultView | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
@@ -331,35 +219,14 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  // A finished foreground run: RAW output + parsed exit for the terminal card.
+  // A finished foreground run supplies raw output and parsed exit status.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
 
 /**
- * Recover the structured exit status from a rendered `renderResult` string — the
- * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
- * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
- * absent both we report `{exitCode:0}` (a clean run appends no marker — and a
- * trapped-timeout run that exits 0 also has none and is accurately exit 0).
- *
- * Why parse rendered text at all: `presentResult` is replay-safe and on a
- * `session/load` the ONLY thing persisted is this content text — the structured
- * `BashRunResult` is long gone — so unless the exit were added to the persisted
- * event schema (deliberately NOT done; see the terminal-rendering RFC), parsing
- * is the only channel. The match is anchored to a LEADING newline + end-of-string
- * because `renderResult` always inserts a `\n` before the marker (line ~124) onto
- * a non-empty body: a real marker is therefore always its own final line. That
- * defeats the common spoof (program output that simply ENDS in `[exit code: 5]`
- * with no trailing newline — a clean exit 0 — no longer reads as a failure).
- *
- * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
- * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
- * or `[killed by signal: SIG]`, printed by the program with nothing after — is
- * still indistinguishable from a real marker and would show a wrong pill. This is
- * display-only (execution and the model-facing text are unaffected) and narrow;
- * the complete fix is to persist a structured exit on the result event, which the
- * RFC names as the escape hatch.
+ * Recover exit status from the final marked line emitted by {@link renderResult}.
+ * A program whose own final line exactly mimics a marker remains ambiguous for UI display.
  */
 function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
   const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
@@ -375,15 +242,8 @@ function presentTaskCall(verb: string, args: { task_id: string }): GenericCallVi
 }
 
 /**
- * Resolve the working directory for a bash call. Precedence: an explicit model
- * `workdir` wins; otherwise default to the calling agent's session cwd
- * (`session.header.cwd`) so each ACP session's commands run in ITS workspace,
- * not the server's launch dir. A RELATIVE model `workdir` is resolved against
- * the session cwd (the tool tells the model to pass `workdir` instead of `cd`,
- * so a relative one should be relative to the session's root, not `process.cwd()`).
- * Returns `undefined` when neither is available (no agent / headerless session /
- * no session cwd) — the executor then applies its own config/`process.cwd()`
- * default, preserving today's non-ACP behavior.
+ * Resolve an explicit workdir first, making a relative one session-cwd-relative;
+ * otherwise use the session cwd and leave executor defaulting as the fallback.
  */
 function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
   const sessionCwd = exec.agent?.session.header.cwd
@@ -404,9 +264,7 @@ function statusLine(task: BashTask): string {
 }
 
 export function apply(ctx: Context): void {
-  // The bash tools' cross-call HABIT, which the per-tool descriptions cannot
-  // carry (they describe one call each): the exit-code marker is only useful
-  // if the model actually checks it every time.
+  // Cross-call guidance belongs in the prompt rather than one tool description.
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
@@ -414,26 +272,15 @@ export function apply(ctx: Context): void {
   })
 
   /**
-   * The caller's owner TOKEN — the owning agent's `session.header.id`, or
-   * `undefined` for a non-agent caller. Read `session.header.id` (NOT
-   * `session.id`): every other subsystem keys off the header id (the ACP bridge,
-   * both persistence backends), and the sibling `resolveWorkdir` already reads
-   * `session.header.cwd`, so using `session.id` here would be the asymmetry smell
-   * the conventions flag. The two are equal in production, but the header is the
-   * canonical identity.
+   * Return the canonical session-header id used by ACP and persistence as the
+   * task owner, or undefined for a non-agent caller.
    */
   const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
     exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
 
   /**
-   * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
-   * token. Rejects when the task HAS an owner and it differs from the caller's
-   * token — using `!== undefined` semantics, NOT truthiness, so an empty-string
-   * token is still a real owner (never treated as unowned). An unowned task
-   * (`ownerOf` returns `undefined`) is allowed; a truly unknown id is also
-   * `undefined` here and then fails loudly at the subsequent
-   * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
-   * (`callerToken` undefined) cannot match an owned task and is rejected.
+   * Reject access when a task has a different session owner. Unowned tasks are
+   * allowed; unknown ids still fail in the subsequent read or kill.
    */
   const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
     const owner = ctx.bash.ownerOf(taskId)
@@ -442,15 +289,8 @@ export function apply(ctx: Context): void {
     }
   }
 
-  // Background completion → inject a notice into the owning agent's session.
-  // Find the live agent by its session id token via the agent registry, read
-  // opportunistically with `ctx.get('agents')` (NOT `ctx.agents`/static inject):
-  // this listener runs from `task.done.then` on the bash fiber — a foreign
-  // fiber — where the `ctx.agents` property proxy would throw through the
-  // traceable shadow; `ctx.get(name)` is the topology-independent lookup. No
-  // registry mounted (`undefined`) → drop the notice. Match on
-  // `agent.session.header.id`, NOT the registry key: a config agent's id differs
-  // from its session id, and the owner token IS the session id.
+  // Completion runs on the bash fiber, so use topology-independent lookup and
+  // match the executor's stored session-owner token to a live agent.
   ctx.bash.onTaskDone((task) => {
     const ownerToken = ctx.bash.ownerOf(task.id)
     if (ownerToken === undefined) return
@@ -462,62 +302,38 @@ export function apply(ctx: Context): void {
         { source: { kind: 'plugin', plugin: 'tool-bash' } },
       )
     } catch (error: unknown) {
-      // The ONE expected failure: the agent was disposed between task
-      // completion and this injection (ReactLoopAgent.inject throws
-      // `agent "<id>" is disposed`). That race is benign — drop the notice.
-      // Anything else is a real bug and must surface, not be swallowed.
+      // The one expected failure: the agent was disposed between task completion and this
+      // injection (ReactLoopAgent.inject throws `agent "<id>" is disposed`).
       if (error instanceof Error && error.message.includes('is disposed')) return
       throw error
     }
   })
 
   // The escalation surface exists whenever the mounted executor confines.
-  // Its enum is the closed target vocabulary, deliberately NOT cut down by
-  // the configured default: a session may switch to a narrower effective mode
-  // while sharing this globally registered schema. Strict widening therefore
-  // belongs to the per-call check below. An executor swap restarts this fiber
-  // (static inject) and re-registers the schema.
+  // Advertise the closed target vocabulary globally, then enforce strict
+  // widening against each call's effective session mode.
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
   /**
-   * The session's standing mode override for an ordinary (non-escalating)
-   * call: the `bash/sandbox-mode` fold of the calling agent's log, stamped
-   * onto the request so execution follows the fold without stating it in the
-   * prompt. Weakest precedence — an escalation grant (freshly approved for
-   * exactly this call) outranks it, and without either the executor's
-   * `resolve()` applies its configured default. Undefined for a non-sandboxing
-   * executor (nothing honors it) and for agent-less callers (no session to
-   * fold).
+   * Return the calling session's folded standing mode. Approval outranks this
+   * value and the executor default applies when it is absent; non-sandboxing
+   * and agent-less calls have no override.
    */
   const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
     defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
 
   /**
-   * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
-   * anything executes. Returns the granted mode to stamp onto the bash
-   * request; throws the distinct fail-closed text for every other path (no
-   * service composed, an agent-less execution, a rejection, a cancellation,
-   * an unanswerable ask) — the registry turns the throw into this call's
-   * isError result, and nothing has run. The seam is consumed
-   * opportunistically (`ctx.get`, the dsh-tools ask-routing pattern), so a
-   * deployment without it degrades per call, never at registration.
+   * Request one-shot escalation before execution. Missing approval context,
+   * rejection, cancellation, and unavailable answers throw without running the
+   * command; the optional seam is resolved per call through `ctx.get`.
    */
   const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
-    // Schema validation only checks ADVERTISED keys, so an unadvertised
-    // `sandbox_permissions` (no sandboxing executor) still reaches execute — reject it here so a
-    // human is never prompted to "escalate" a sandbox that is not there. When
-    // the fields ARE advertised, the registry's SchemaSpec enum has already
-    // pinned `mode` to this ladder for every caller.
+    // Reject an unadvertised escalation before prompting for a nonexistent sandbox.
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    // Strict widening is an EXECUTION check against the call's effective
-    // mode — session override ?? executor default, the same fold ordinary
-    // calls are stamped with — deliberately not a schema constraint (the
-    // enum is the closed target vocabulary; the effective mode is per-call
-    // truth). A non-widening request fails closed here and never prompts a
-    // human.
+    // Reject sandbox widening against the call's effective mode before requesting approval.
     const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
     if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
       throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
@@ -539,8 +355,7 @@ export function apply(ctx: Context): void {
       ...exec.signal ? { signal: exec.signal } : {},
     })
     switch (outcome) {
-      // The SchemaSpec enum already pinned `mode` to the closed target
-      // vocabulary; the per-call check above proved it is strictly wider.
+      // Schema validation pins the vocabulary; the per-call check proves widening.
       case 'allowed-once': return mode as SandboxMode
       case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
       case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
@@ -580,14 +395,8 @@ export function apply(ctx: Context): void {
     },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
-      // `description` is display/logging metadata only (surfaced to UIs via
-      // the tool/call session event); it is intentionally NOT forwarded to
-      // ctx.bash and has no effect on execution.
-      // An escalating call resolves approval BEFORE anything executes; every
-      // non-grant outcome throws its distinct error text and runs nothing.
-      // (validateBashArgs pinned the pairing, so the double narrow is exact.)
-      // An ordinary call carries the session's standing override instead —
-      // grant > session override > executor default (see sessionOverride).
+      // `description` is display/logging metadata only. Escalation approval
+      // completes before execution; grant > session override > executor default.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)
@@ -603,10 +412,7 @@ export function apply(ctx: Context): void {
         ...sandboxMode !== undefined ? { sandboxMode } : {},
       }
       if (args.run_in_background === true) {
-        // Stamp the owner token (the agent's session id) onto the spec so the
-        // executor stores it on the task — the isolation fence for bash_output/
-        // bash_kill. Foreground runs pass no owner (they finish inline; nothing
-        // to fence).
+        // Store the session owner on the task for bash_output/bash_kill isolation.
         const task = ctx.bash.start(ctx.bash.resolve({ ...request, owner: callerToken(exec) }))
         return [{ type: 'text', text: `started background task ${task.id}` }]
       }
@@ -640,15 +446,11 @@ export function apply(ctx: Context): void {
       }
       text += `\n${statusLine(read.task)}`
       if (read.task.sandbox?.runnerFailed) {
-        // The sandbox RUNNER itself failed — the command never ran. The
-        // foreground path surfaces this as the structured SANDBOX_UNAVAILABLE
-        // error; a settled task's read carries the marker instead.
+        // Background settlement carries the runner-failure fact that a
+        // foreground call exposes as SANDBOX_UNAVAILABLE.
         text += `\n[sandbox: the sandbox runner itself failed under ${read.task.sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`
       } else if (read.task.sandbox?.denied) {
-        // Mirrors the foreground result marker (and its same-turn escalation
-        // hint). Background denials are only classifiable once the task
-        // settles (the classifier needs the whole stderr), so the marker
-        // rides every read that sees the settled task.
+        // Mirrors the foreground result marker (and its same-turn escalation hint).
         text += `\n[sandbox: file access denied under ${read.task.sandbox.mode} mode]`
         if (escalationModes.length > 0) {
           text += '\n[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]'

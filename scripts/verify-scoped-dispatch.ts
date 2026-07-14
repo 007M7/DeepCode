@@ -1,19 +1,10 @@
 /**
- * Scoped-dispatch drift gate: the set of scope-filtered events is declared in
- * TWO places that must never diverge — the dev-invariants runtime table (the
- * `scopedSubject` map in `packages/support/invariants/src/index.ts`, which
- * enforces carriers at dispatch time) and the event declarations' JSDoc (the
- * "Scope-filtered dispatch" sentence rendered into the events catalog, which
- * tells plugin authors what a scoped listener will and won't hear). An event
- * added to one side without the other either silently escapes runtime
- * enforcement or documents filtering that never happens; this gate fails the
- * build instead.
- *
- * Sources of truth: the invariant table is parsed from the invariants source;
- * the documented set is parsed from every `declare module 'cordis'` Events
- * JSDoc in packages/*\/*\/src carrying the marker sentence. Registry-subject
- * notifications (`tools/change`, `system-prompt/change`, `subagent/provider-*`)
- * are deliberately unfiltered and must appear in NEITHER set.
+ * Scoped-dispatch drift gate: the set of scope-filtered events is declared in TWO places that
+ * must never diverge — the dev-invariants runtime table (the `scopedSubject` map in
+ * `packages/support/invariants/src/index.ts`, which enforces carriers at dispatch time) and
+ * the event declarations' JSDoc (the "Scope-filtered dispatch" sentence rendered into the
+ * events catalog, which tells plugin authors what a scoped listener will and won't hear).
+ * Registry-subject notifications are intentionally unfiltered and belong in neither set.
  */
 
 import { globSync, readFileSync } from 'node:fs'

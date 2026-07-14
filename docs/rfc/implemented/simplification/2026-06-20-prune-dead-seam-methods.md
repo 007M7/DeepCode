@@ -2,7 +2,7 @@
 
 Status: implemented
 
-> **Implementation note (scope narrowed from the original proposal).** This RFC proposed pruning dead methods from BOTH the persistence seam (`SessionPersistence.has()`/`.delete()`) and the bash seam (`BashExecutor.get()`/`.list()`). Only the **persistence** removal shipped. The bash `get()`/`.list()` removal was reverted before merge: each is a one-line accessor over the executor's already-tracked `tasks` map, and removing them forced `dsh-tool-bash`'s tests onto a ~35-line `onTaskDone`-based completion-tracking harness to replace the one-line `ctx.bash.get(id)` lookup — the migration cost dwarfed the surface removed. Per the [AGENTS.md "RFCs are proposals, not golden truth"](../../../../AGENTS.md) principle, that friction is evidence the method earns its keep (a test harness IS a consumer that programs against the seam), so `get()`/`list()` stay. The bash-seam analysis below is retained for the record but was NOT acted on; `BashTaskId`-branding those methods lands in the [branded-ids RFC](../architecture/2026-06-20-branded-ids.md) instead. The persistence removal stands: `has()`/`delete()` had only contract-test callers and no test-ergonomics cost to remove.
+> **Implementation note:** Only `SessionPersistence.has()` and `.delete()` were removed. `BashExecutor.get()` and `.list()` remain because removing their one-line lookup surface required substantially more completion-tracking machinery in consumers. Their id branding is covered by the [branded-ids RFC](../architecture/2026-06-20-branded-ids.md).
 
 ## Problem
 
