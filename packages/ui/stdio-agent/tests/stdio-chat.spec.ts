@@ -83,6 +83,10 @@ function chunkEvent(chunk: StreamChunk): SessionEvent {
 
 const CONFIG: Config = { welcome: 'hi there', sessionId: 'main' }
 
+function unrenderableFailure(): unknown {
+  return { [Symbol.toPrimitive](): never { throw new Error('coercion escaped') } }
+}
+
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
@@ -753,14 +757,14 @@ describe('createStdioChat input', () => {
   it('drops later input after the configured startup fails', async () => {
     const { ctx, input } = await setup()
     const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
-    const failure = new Error('persisted session is corrupt')
+    const failure = unrenderableFailure()
     ctx.emit('agent-loop/config-start-failed', SessionId('main'), failure)
 
     input.feed('cannot run')
     await new Promise(r => setImmediate(r))
 
     expect(error).toHaveBeenCalledWith(
-      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): Error: persisted session is corrupt',
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
     )
   })
 
@@ -844,11 +848,11 @@ describe('createStdioChat EOF exit', () => {
     await flushExit()
     expect(exit).not.toHaveBeenCalled()
 
-    ctx.emit('agent-loop/config-start-failed', SessionId('main'), new Error('missing persisted session'))
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), unrenderableFailure())
     await flushExit()
 
     expect(error).toHaveBeenCalledWith(
-      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): Error: missing persisted session',
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
     )
     expect(exit).toHaveBeenCalledWith(0)
   })
