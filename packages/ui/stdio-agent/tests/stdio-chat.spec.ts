@@ -64,6 +64,13 @@ function makeAgent(id: string, status: AgentStatus = 'idle'): Agent & {
   } as never
 }
 
+/** Register a fake configured agent and cross the supported startup-work boundary. */
+function registerReady(ctx: Context, agent: Agent, source: 'startup' | 'resume' = 'startup'): () => void {
+  const dispose = ctx.agents.register(agent)
+  ctx.emit('agent/session-start', agent, source)
+  return dispose
+}
+
 /** A session stub whose `header.id` matches an agent's, for `session/event` emits. */
 function makeSession(id: string): Session {
   return { id, header: { id } } as Session
@@ -198,15 +205,21 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[main turn 5] ')
   })
 
-  it('accepts a lineage-bearing configured agent created after the UI installs', async () => {
+  it('buffers input for a lineage-bearing configured agent until its session starts', async () => {
     const { ctx, input } = await setup({ welcome: 'hi there', sessionId: 'resumed' })
+    input.feed('continue')
+    await new Promise(resolve => setImmediate(resolve))
+
     const unrelated = makeAgent('unrelated')
     ctx.agents.register(unrelated)
+    ctx.emit('agent/session-start', unrelated, 'startup')
     const resumed = makeAgent('resumed')
     ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
     ctx.agents.register(resumed)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(resumed.sent).toEqual([])
 
-    input.feed('continue')
+    ctx.emit('agent/session-start', resumed, 'resume')
     await new Promise(resolve => setImmediate(resolve))
 
     expect(unrelated.sent).toEqual([])
@@ -256,8 +269,10 @@ describe('createStdioChat rendering', () => {
     disposeOld()
     const replacement = makeAgent('main-session-fixed')
     ctx.agents.register(replacement)
-
     input.feed('after hmr')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(replacement.sent).toEqual([])
+    ctx.emit('agent/session-start', replacement, 'resume')
     await new Promise(resolve => setImmediate(resolve))
 
     expect(prefixCollision.sent).toEqual([])
@@ -269,7 +284,7 @@ describe('createStdioChat rendering', () => {
     const unrelated = makeAgent('unrelated')
     ctx.agents.register(unrelated)
     const configured = makeAgent('main')
-    const disposeConfigured = ctx.agents.register(configured)
+    const disposeConfigured = registerReady(ctx, configured)
     const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
 
     disposeConfigured()
@@ -693,7 +708,7 @@ describe('createStdioChat input', () => {
   it('sends a typed line to an idle agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('do a thing')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([[{ type: 'text', text: 'do a thing' }]])
@@ -703,7 +718,7 @@ describe('createStdioChat input', () => {
   it('steers a typed line into a running agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'running')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('steer me')
     await new Promise(r => setImmediate(r))
     expect(agent.steered).toEqual([[{ type: 'text', text: 'steer me' }]])
@@ -719,18 +734,26 @@ describe('createStdioChat input', () => {
     expect(agent.sent).toEqual([])
   })
 
-  it('logs and drops a line when the target agent is not running', async () => {
+  it('buffers a line until the initial target session starts', async () => {
     const { ctx, input } = await setup()
     const spy = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
     input.feed('nobody home')
     await new Promise(r => setImmediate(r))
-    expect(spy).toHaveBeenCalledWith('ui-stdio: main agent is not running')
+    expect(spy).not.toHaveBeenCalled()
+
+    const agent = makeAgent('main')
+    ctx.agents.register(agent)
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([])
+    ctx.emit('agent/session-start', agent, 'startup')
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'nobody home' }]])
   })
 
   it('drives the exact app-configured resumed session', async () => {
     const { ctx, input } = await setup({ welcome: 'w', sessionId: 'worker' })
     const agent = makeAgent('worker')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent, 'resume')
     input.feed('hi')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toHaveLength(1)
@@ -749,7 +772,7 @@ describe('createStdioChat EOF exit', () => {
   it('waits for the agent to settle idle after running before exiting', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     input.finish()
@@ -764,10 +787,31 @@ describe('createStdioChat EOF exit', () => {
     expect(exit).toHaveBeenCalledWith(0)
   })
 
+  it('keeps piped EOF pending until buffered startup input runs', async () => {
+    const { ctx, input, exit } = await setup()
+    input.feed('work')
+    input.finish()
+    await flushExit()
+    expect(exit).not.toHaveBeenCalled()
+
+    const agent = makeAgent('main', 'idle')
+    ctx.agents.register(agent)
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([])
+    ctx.emit('agent/session-start', agent, 'startup')
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'work' }]])
+    ctx.emit('agent/status', agent, 'running')
+    ;(agent as { status: AgentStatus }).status = 'idle'
+    ctx.emit('agent/status', agent, 'idle')
+    await flushExit()
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
   it('schedules the exit only once when idle fires repeatedly', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'running')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     ctx.emit('agent/status', agent, 'running') // sawRunning = true
@@ -785,7 +829,7 @@ describe('createStdioChat EOF exit', () => {
   it('does not exit on an idle transition for a different agent', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     input.finish()
@@ -799,7 +843,7 @@ describe('createStdioChat EOF exit', () => {
   it('does not exit while a turn is still running at EOF', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     ctx.emit('agent/status', agent, 'running')
@@ -848,7 +892,7 @@ describe('createStdioChat disposal (HMR safety)', () => {
   it('removes the agent/status listener on dispose', async () => {
     const { ctx, fiber, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     await fiber.dispose()
