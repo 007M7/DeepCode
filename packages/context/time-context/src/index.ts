@@ -20,7 +20,7 @@ export const inject = ['systemPrompt']
 
 /** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
 export interface Config {
-  /** IANA time zone used for the rendered timestamp (default `UTC`). */
+  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
   /** Maximum age of a reading within one turn, in milliseconds (default 60,000; `0` refreshes every step). */
   refreshIntervalMs?: number
@@ -28,7 +28,7 @@ export interface Config {
 
 /** Schemastery validation and defaults for {@link Config}. */
 export const Config: z<Config> = z.object({
-  timeZone: z.string().default('UTC'),
+  timeZone: z.string(),
   refreshIntervalMs: z.number().default(60_000),
 })
 
@@ -126,7 +126,7 @@ function renderText(
  * @throws when the time zone or refresh interval is invalid.
  */
 export function apply(ctx: Context, config: Config): void {
-  const timeZone = config.timeZone as string
+  const timeZone = config.timeZone
   const refreshIntervalMs = config.refreshIntervalMs as number
   if (!Number.isSafeInteger(refreshIntervalMs) || refreshIntervalMs < 0) {
     throw new Error(`time-context: refreshIntervalMs must be a non-negative safe integer, got ${refreshIntervalMs}`)
@@ -135,7 +135,7 @@ export function apply(ctx: Context, config: Config): void {
   let formatter: Intl.DateTimeFormat
   try {
     formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone,
+      ...(timeZone === undefined ? {} : { timeZone }),
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -146,7 +146,10 @@ export function apply(ctx: Context, config: Config): void {
       timeZoneName: 'longOffset',
     })
   } catch (error: unknown) {
-    throw new Error(`time-context: invalid IANA timeZone ${JSON.stringify(timeZone)}`, { cause: error })
+    const message = timeZone === undefined
+      ? 'time-context: failed to resolve the system time zone'
+      : `time-context: invalid IANA timeZone ${JSON.stringify(timeZone)}`
+    throw new Error(message, { cause: error })
   }
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
   const states = new WeakMap<Agent, RenderState>()

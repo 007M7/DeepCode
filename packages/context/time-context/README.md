@@ -8,11 +8,11 @@ Opt-in dynamic system-prompt context with the current zoned time and elapsed tim
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'
   config:
-    timeZone: UTC              # default; any IANA time-zone identifier
+    timeZone: Asia/Shanghai   # optional IANA override; omit for the process zone
     refreshIntervalMs: 60000  # default; 0 refreshes on every step
 ```
 
-`timeZone` is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer. Every turn's first request refreshes; later steps reuse the reading until its age reaches the interval. `0` refreshes every step. Refresh occurs only during request assembly and creates no timer work.
+When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer. Every turn's first request refreshes; later steps reuse the reading until its age reaches the interval. `0` refreshes every step. Refresh occurs only during request assembly and creates no timer work.
 
 ## Message baseline
 
@@ -40,3 +40,4 @@ Time since previous message: <duration-or-unavailable>.
 - **Request-bound refresh only** — no clock update is emitted while the agent is waiting inside a model call or tool; the next assembled step refreshes once the configured interval has elapsed.
 - **Whole-second display** — timestamps and durations omit sub-second precision even when `refreshIntervalMs` is below 1,000.
 - **Session-event baseline** — elapsed time starts from the durable append timestamp, not a client transport's original send timestamp.
+- **Process-local default zone** — omission uses the Node process's `TZ`, host, or container zone captured at plugin load, not a remote user's zone; configure an explicit IANA zone when those differ.

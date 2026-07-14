@@ -13,14 +13,19 @@ import * as timeContext from '@deepseek-ai/dsh-time-context'
 import type { Config } from '@deepseek-ai/dsh-time-context'
 
 const BASE = Date.parse('2026-07-14T00:00:00.000Z')
+const ORIGINAL_TIME_ZONE = process.env['TZ']
 
 beforeEach(() => {
+  process.env['TZ'] = 'UTC'
   vi.useFakeTimers()
   vi.setSystemTime(BASE)
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
+  if (ORIGINAL_TIME_ZONE === undefined) delete process.env['TZ']
+  else process.env['TZ'] = ORIGINAL_TIME_ZONE
 })
 
 async function mount(config: Config = {}) {
@@ -266,6 +271,18 @@ describe('refresh policy', () => {
 })
 
 describe('configuration and lifecycle', () => {
+  it('defaults to the process system zone and retains the zone resolved at plugin load', async () => {
+    process.env['TZ'] = 'Asia/Shanghai'
+    const { ctx } = await mount()
+    process.env['TZ'] = 'America/New_York'
+    const session = new Session(SessionId('system-zone'))
+    openMessageTurn(session, 1)
+
+    expect(await sectionText(ctx, sessionAgent(session))).toContain(
+      'Current time: 2026-07-14T08:00:00+08:00[Asia/Shanghai]',
+    )
+  })
+
   it('fails loud for negative, fractional, unsafe, and invalid-zone config', async () => {
     for (const refreshIntervalMs of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       const ctx = new Context()
@@ -276,6 +293,16 @@ describe('configuration and lifecycle', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await expect(ctx.plugin(timeContext, { timeZone: 'Not/A_Real_Zone' })).rejects.toThrow(/invalid IANA timeZone/)
+  })
+
+  it('fails loud when the process system zone cannot be resolved', async () => {
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementationOnce(() => {
+      throw new RangeError('system zone unavailable')
+    })
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    await expect(ctx.plugin(timeContext, {})).rejects.toThrow(/failed to resolve the system time zone/)
   })
 
   it('removes its section when the plugin fiber disposes', async () => {

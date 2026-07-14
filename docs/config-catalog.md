@@ -787,7 +787,7 @@ Requires: `systemPrompt`
 ```ts config-catalog
 /** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
 export interface Config {
-  /** IANA time zone used for the rendered timestamp (default `UTC`). */
+  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
   /** Maximum age of a reading within one turn, in milliseconds (default 60,000; `0` refreshes every step). */
   refreshIntervalMs?: number
