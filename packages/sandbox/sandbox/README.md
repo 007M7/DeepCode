@@ -9,3 +9,14 @@ Policy rides the call, not the provider: two consumers may confine under differe
 **Same-world confinement only.** A backend shares the host's filesystem and kernel (`bwrap`, Landlock, Seatbelt); `workspaceRoot` names a real host path. Containers, microVMs, and remote executors are NOT backends of this seam — they replace whole capability implementations (`ctx.bash`, `ctx.fs`) as environment-coherent groups. The boundary and its rationale: [the sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
 
 Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `bwrap`, else the per-platform Landlock launcher; macOS: `sandbox-exec`/Seatbelt). Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/) (wraps `['bash', '-c', command]`).
+
+## Model Experience
+
+Indirectly, through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md) and `dsh-tool-bash`, which render this seam's enforcement facts as the exact denial or `SandboxUnavailableError` text documented by the consumer, with retained tokens added only for a denial or failed confinement.
+
+## Known Limitations and Deferred Work
+
+- **File effects are the whole policy vocabulary** — the seam expresses no network, process, syscall, device, or credential restrictions.
+- **Same-world confinement only** — containers, microVMs, and remote execution require replacing capability implementations rather than adding a provider here.
+- **Denial reporting is a stderr dialect** — the seam returns backend signatures instead of a typed runtime denial channel, so consumers that need classification must infer it from the child process's output.
+- **One provider per context** — composing different sandbox mechanisms simultaneously requires a provider-level ladder or separate Cordis contexts; callers choose policy per call, not backend identity.
