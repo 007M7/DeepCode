@@ -10,9 +10,18 @@ How to translate between the two sides of a documentation pair in this repo. Bot
 - The counterpart SHOULD read as natural technical writing in its own language, not word-by-word gloss. Translate meaning, restructure sentences where the target grammar wants it, and keep the author's register — terse stays terse.
 - Do not translate the untranslatable: if a sentence resists natural rendering because it leans on an idiom of the source language, translate the idea, not the idiom.
 
+## Voice
+
+- The register is calibrated by [style-samples.md](style-samples.md) — human-approved gold pairs, one per document genre. The counterpart MUST match the register of the nearest sample; where a sample and a prose rule here disagree, the sample wins. The target is institutional technical Chinese: complete sentences, declarative, neither chatty nor academic.
+- Write as a native technical author restating the content, not as a translator transposing sentences. Then verify against the source clause by clause: nothing added, nothing dropped — fluency never justifies losing a clause.
+- Give sentences an explicit agent: where the English uses a passive or an abstract subject, name the actor (系统、门禁、评审人).
+- Prefer established Chinese engineering idiom over calques (误报／漏检 for false positive/negative, 执行红线 for enforcement frontier); localize metaphors instead of transplanting them, and unpack English noun chains into verb clauses.
+- Split long paragraphs by semantic unit — one idea per paragraph. Paragraph boundaries MAY differ from the source; the structural signature does not count paragraphs.
+- Category nouns render in Chinese with a first-mention English annotation (实操手册（cookbook）); literal directory or file references stay code-formatted English.
+
 ## Structure preservation
 
-The paired files MUST match one to one in:
+Shape is enforced by the pairing gate, so the writer never trades fluency against it — write naturally inside the frame. The paired files MUST match one to one in:
 
 - heading hierarchy (same levels, same order — heading TEXT is translated),
 - list shape and numbering,
