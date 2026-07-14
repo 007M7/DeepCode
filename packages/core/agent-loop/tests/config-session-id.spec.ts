@@ -136,6 +136,37 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
+  it('cancels an exact-id reload while the prior lifecycle is still draining', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-cancel-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    const sessionId = SessionId('stdio-exact-cancel')
+    const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
+    const firstLoop = await ctx.plugin(AgentLoop, config)
+    await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
+    const first = ctx.agents.get(sessionId) as ReactLoopAgent
+
+    const flushGate = Promise.withResolvers<undefined>()
+    ctx.on('session/flush', (session) => {
+      if (session === first.session) return flushGate.promise
+    })
+    first.inject([{ type: 'text', text: 'persist before cancellation' }], {
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+
+    const firstDisposal = firstLoop.dispose()
+    await expect.poll(() => first.status).toBe('disposed')
+    const secondLoop = await ctx.plugin(AgentLoop, config)
+    await secondLoop.dispose()
+    expect(ctx.agents.get(sessionId)).toBe(first)
+
+    flushGate.resolve(undefined)
+    await firstDisposal
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('contains an exact-id persistence lookup failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-failure-'))
     dirs.push(root)
@@ -208,33 +239,37 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
-  it('joins an exact-id persistence lookup before AgentLoop disposal completes', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
-    dirs.push(root)
-    const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-    const listing = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.list>>>()
-    vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(listing.promise)
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+  it.each(['resolve', 'reject'] as const)(
+    'joins an exact-id persistence lookup that will %s before AgentLoop disposal completes',
+    async (outcome) => {
+      const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
+      dirs.push(root)
+      const ctx = await makeCoreContext()
+      await ctx.plugin(SessionPersistenceJsonl, { root })
+      const listing = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.list>>>()
+      vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(listing.promise)
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+      const failures: unknown[] = []
+      ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
 
-    const loop = await ctx.plugin(AgentLoop, {
-      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-dispose'), model: 'mock' }],
-    })
-    let disposed = false
-    const disposal = loop.dispose().then(() => { disposed = true })
-    await Promise.resolve()
-    expect(disposed).toBe(false)
+      const loop = await ctx.plugin(AgentLoop, {
+        agents: [{ id: 'main', sessionId: SessionId('stdio-exact-dispose'), model: 'mock' }],
+      })
+      let disposed = false
+      const disposal = loop.dispose().then(() => { disposed = true })
+      await Promise.resolve()
+      expect(disposed).toBe(false)
 
-    listing.reject(new Error('startup cancelled by teardown'))
-    await disposal
-    expect(ctx.agents.get(SessionId('stdio-exact-dispose'))).toBeUndefined()
-    expect(failures).toEqual([])
-    expect(warn).not.toHaveBeenCalled()
-    warn.mockRestore()
-    await ctx.fiber.dispose()
-  })
+      if (outcome === 'resolve') listing.resolve([])
+      else listing.reject(new Error('startup cancelled by teardown'))
+      await disposal
+      expect(ctx.agents.get(SessionId('stdio-exact-dispose'))).toBeUndefined()
+      expect(failures).toEqual([])
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
+      await ctx.fiber.dispose()
+    },
+  )
 
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
