@@ -98,6 +98,12 @@ describe('config-driven session id', () => {
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
     const failure = new Error('persistence index failed')
+    const listenerFailure = new Error('failure observer failed')
+    const failures: { sessionId: SessionId; error: unknown }[] = []
+    ctx.on('agent-loop/config-start-failed', (sessionId, error) => {
+      failures.push({ sessionId, error })
+    })
+    ctx.on('agent-loop/config-start-failed', () => { throw listenerFailure })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(failure)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
@@ -108,6 +114,10 @@ describe('config-driven session id', () => {
     await expect.poll(() => warn).toHaveBeenCalledWith(expect.stringContaining(
       'config-driven restore of "stdio-exact-failure" failed: Error: persistence index failed',
     ))
+    expect(failures).toEqual([{ sessionId: SessionId('stdio-exact-failure'), error: failure }])
+    expect(warn).toHaveBeenCalledWith(
+      'agent "main": config-start-failed listener threw: Error: failure observer failed',
+    )
     expect(ctx.agents.get(SessionId('stdio-exact-failure'))).toBeUndefined()
     warn.mockRestore()
     await ctx.fiber.dispose()

@@ -1331,6 +1331,9 @@ importers:
       '@deepseek-ai/dsh-agent-core':
         specifier: workspace:^
         version: link:../../core/agent-core
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../app-boot
