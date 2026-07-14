@@ -1,0 +1,83 @@
+# 实操手册：添加 workspace 包（package）
+
+[English](adding-a-package.md) | 中文
+
+为新建 `@deepseek-ai/dsh-<name>` 包提供的逐文件清单。本清单以 bash 和 adapter 这两个包为模板进行验证；如果清单与模板有出入，请在此修正。
+
+## 1. 创建包
+
+```
+packages/<group>/<pkg>/
+  package.json     # copy from packages/core/tools, adjust name/description/deps
+  tsconfig.json    # extends ../../../tsconfig.base.json, rootDir src,
+                   # outDir lib/types, references: ../../../vendor/cosmokit,
+                   # ../../../vendor/cordis (+ ../../../vendor/schemastery if
+                   # you use Config, + ../../<group>/<dep> for each dsh dep)
+  src/index.ts     # service default export or plugin (name/inject/apply/Config)
+  tests/<x>.spec.ts
+  README.md        # service API, events, extension points, design notes,
+                   # + gated Model Experience context blocks or short sentence
+                   # + the gated "Known Limitations and Deferred Work" section
+                   # (or a whitelist entry in scripts/verify-package-readme-limitations.ts)
+```
+
+当已有分组与包的角色匹配时，选择该分组（`core`、`llm`、`bash`、`compact`、`subagent`、`todo`、`session-persistence`、`ui`、`util` 或 `support`）。允许新建分组，但分组只是纯容器：没有 `package.json`，没有源文件，包仍然恰好位于其下一层。
+
+package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-constraints.ts` 强制执行）：`private: true`，`version` 与根 `package.json` 一致，`type: module`，`main: "lib/index.js"`，`types: "lib/types/index.d.ts"`，`exports["."].types: "./lib/types/index.d.ts"`，`exports["."].default: "./lib/index.js"`，`cordis` 同时出现在 peerDependencies 和 devDependencies 中（相同范围）。每个 dsh 对等依赖（peer dependency）都要在 devDependencies 中镜像。`schemastery` 放在 `dependencies` 中（它是运行时校验器），与 agent-loop 保持一致。`files` 列表要精确：`lib/index.js`、`lib/types/**/*.d.ts`、`lib/types/**/*.d.ts.map` 和 `src`；不要发布 `lib/types` 下的 JS 或 JS-map 中间产物，也不要发布陈旧的根声明文件。带有 `bin` 的 CLI 应用包在 `files` 中将 `lib/bin.js` 紧跟在 `lib/index.js` 之后。
+
+包内的相对导入在源码中使用显式 `.ts` 后缀（例如 `export * from './types.ts'`）。编译器在输出的 JS 中将其重写为 `.js`，在声明文件中保留显式 `.ts` 后缀；标准的 NodeNext/Node16 TypeScript 消费方会将其解析到同目录的 `.d.ts` 文件。
+
+## 2. 在根配置中注册
+
+| 文件 | 变更 |
+|---|---|
+| `tsconfig.base.json` | 已有分组无需编辑；新分组需为 `@deepseek-ai/dsh-*` 通配符添加 `./packages/<group>/*/src` 候选路径 |
+| `tsconfig.json` | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }` |
+| `tsconfig.build.json` | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }` |
+| `knip.json` | 仅当包有非 `*.spec.ts` 入口时需要（如 `*.e2e.ts` → 添加 per-workspace override，参照 `packages/llm/llm-deepseek`） |
+
+以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`vitest.config.ts`、`eslint.config.mjs`、`scripts/check-workspace-constraints.ts`。
+
+## 3. 确定包拓扑
+
+对于可替换的能力，将接口、实现、消费方拆分为独立的包（见 docs/architecture.md § "Capability seams"——bash 三组件是模板）。单一用途的插件保持为一个包。
+
+## 4. 编写包 README
+
+将包特有的服务 API、配置、事件、扩展点和设计说明放在前面。limitations 部分记录持久的消费方缺口和本包拥有的非显而易见的维护者约束；日常清理事项留在源码 TODO 或 RFC 中。间接的 Model Experience 语句可以点名暴露本包贡献的消费方，但不重述该消费方的实现。包 README 以如下规范序列结尾：
+
+````markdown
+## Model Experience
+
+### Request surface and condition
+
+**What the model sees**: An exact data-dependent shape, an anchored generated-catalog link, or an introduction to the verbatim literal below.
+
+**Token effect**: Fixed, conditional, retained, replaced, capped, or zero-direct token effect.
+
+#### Verbatim text for this context surface, when needed
+
+```markdown
+Stable system-prompt prose of any length, or another long non-generated literal, copied exactly from source.
+```
+
+## Known Limitations and Deferred Work
+
+- **Consumer-visible gap** — exact boundary, consequence, or maintainer constraint.
+````
+
+根据实现填写 Model Experience。每个直接、条件、上限、生命周期或辅助模型的 surface 使用一个 H3，包含上述两个字段。引用包拥有的稳定文本：系统提示词放在带标题的 H4 加 `markdown` 围栏中，其他短文本以命名占位符内联，其他长文本使用相同的嵌套形式。仅概述数据依赖或提供方拥有的文本。tool-schema surface 链接到生成的[工具目录](../tool-catalog.md)中对应的锚定章节，仅说明该处缺失的差异。当作用域可以隐藏 prompt 或 schema 其中之一而不影响另一个时，将二者分开。[行文标准](../../.agents/skills/dsh-prose-standard/SKILL.md)约束完整性与归属；验证器强制执行机械形状。
+
+没有上下文效果或仅有消费方拥有路径的包使用 [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) 中经过审计的 `None, as ` 或 `Indirectly, through ` 语句；与模型无关的通用包可以改为加入 `NO_MODEL_EXPERIENCE_SECTION`。两种情况都不要展开为对另一个包工作的描述。limitations [allowlist](../../scripts/verify-package-readme-limitations.ts) 独立管理。[Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) 记录了设计动机。
+
+## 5. 验证
+
+```sh
+pnpm install        # registers the workspace
+pnpm run doc-sync
+pnpm run constraints && pnpm run typecheck && pnpm run lint
+pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
+pnpm run build && pnpm run hygiene
+```
+
+测试要求：每个注册表/注册操作都需要一个 HMR（热模块替换）安全测试（从子 fiber 注册，dispose（资源释放）它，断言清理完成）。鼓励编写充分的测试——见 [docs/testing.md](../testing.md)。
