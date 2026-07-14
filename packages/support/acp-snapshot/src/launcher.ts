@@ -65,7 +65,7 @@ export interface LaunchedAcpTestAgent {
   stderr(): string
   /** Resolve when a future session update matches the predicate. */
   waitForUpdate(match: (update: SessionNotification['update']) => boolean): Promise<SessionNotification['update']>
-  /** Gracefully close stdin, or send a signal, then wait for process exit, inherited stdio closure, ACP parsing, and client callbacks. */
+  /** Close the process and drain its streams and callbacks; rejects promptly if fallback termination is refused. */
   close(signal?: NodeJS.Signals): Promise<void>
 }
 
@@ -231,8 +231,29 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       // signal can leave the subprocess live. Force termination, await the
       // already-observed exit edge, and only then propagate the child error so
       // callers may safely remove cwd/session resources after close rejects.
-      child.kill('SIGKILL')
-      await exited
+      const fallbackError = Promise.withResolvers<Error>()
+      const observeFallbackError = (error: Error): void => { fallbackError.resolve(error) }
+      child.once('error', observeFallbackError)
+      if (!child.kill('SIGKILL')) {
+        child.off('error', observeFallbackError)
+        closeUpdateStream()
+        throw new AggregateError(
+          [failure, new Error('Fallback SIGKILL was not accepted by the child process')],
+          'ACP test agent failed and fallback termination was refused',
+        )
+      }
+      const fallbackFailure = await Promise.race([
+        exited.then((): undefined => undefined),
+        fallbackError.promise,
+      ])
+      child.off('error', observeFallbackError)
+      if (fallbackFailure !== undefined) {
+        closeUpdateStream()
+        throw new AggregateError(
+          [failure, fallbackFailure],
+          'ACP test agent failed and fallback termination was refused',
+        )
+      }
       await drained
       closeUpdateStream()
       throw failure
