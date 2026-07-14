@@ -40,8 +40,10 @@ interface ToolDefinition extends ToolSchema {
    * step outputs are the returned content, `meta`, structured error, and
    * `additionalContext` carried through the loop's ordered post-execute path.
    * The narrow exception is a synchronous, side-effect-only recorder whose
-   * updates are commutative for concurrent calls by the same session (the
-   * `fs/observed` version recorder is the worked example).
+   * updates are commutative OR fail closed for concurrent calls by the same
+   * session (the `fs/observed` version recorder is the worked example: its
+   * WeakMap record is last-writer-wins, and a stale observation only makes a
+   * later write/edit fail closed at its in-lock version CAS).
    */
   isConcurrencySafe?(args: unknown): boolean
   /**
