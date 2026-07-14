@@ -22,22 +22,15 @@ import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'no
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import {
+  collectPackageGraph,
+  escapeMermaidLabel as escLabel,
+  graphNodeId as nodeId,
+  type PackageGraphNode,
+} from './package-graph.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const SCOPE = '@deepseek-ai/dsh-'
-
-interface PkgJson {
-  name: string
-  peerDependencies?: Record<string, string>
-}
-
-interface Pkg {
-  short: string
-  name: string
-  group: string
-  rel: string
-  deps: string[]
-}
+type Pkg = PackageGraphNode
 
 interface GraphDoc {
   rel: string
@@ -310,62 +303,6 @@ function graphIndexLink(rel: string): string {
 
 function linkFromDoc(docRel: string, targetRel: string): string {
   return relative(dirname(docRel), targetRel).replaceAll('\\', '/')
-}
-
-function collectPackages(): Pkg[] {
-  const pkgs: Pkg[] = []
-  for (const rel of globSync('packages/*/*/package.json', { cwd: root }).sort()) {
-    const json = JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as PkgJson
-    if (!json.name.startsWith(SCOPE)) continue
-    const [, group, leaf] = rel.split('/')
-    if (group === undefined || leaf === undefined) throw new Error(`gen-doc-graphs: unexpected package path ${rel}`)
-    const deps = Object.keys(json.peerDependencies ?? {})
-      .filter(dep => dep.startsWith(SCOPE))
-      .map(dep => dep.slice(SCOPE.length))
-      .sort()
-    pkgs.push({
-      short: json.name.slice(SCOPE.length),
-      name: json.name,
-      group,
-      rel: dirname(rel),
-      deps,
-    })
-  }
-  return topoSort(pkgs)
-}
-
-function topoSort(pkgs: Pkg[]): Pkg[] {
-  const remaining = new Map(pkgs.map(p => [p.short, p]))
-  const placed = new Set<string>()
-  const out: Pkg[] = []
-  while (remaining.size > 0) {
-    const ready = [...remaining.values()]
-      .filter(pkg => pkg.deps.every(dep => placed.has(dep)))
-      .sort(comparePackages)
-    if (ready.length === 0) throw new Error(`gen-doc-graphs: dependency cycle among ${[...remaining.keys()].join(', ')}`)
-    for (const pkg of ready) {
-      out.push(pkg)
-      placed.add(pkg.short)
-      remaining.delete(pkg.short)
-    }
-  }
-  return out
-}
-
-function comparePackages(a: Pkg, b: Pkg): number {
-  const groupA = GROUP_ORDER.indexOf(a.group)
-  const groupB = GROUP_ORDER.indexOf(b.group)
-  const normA = groupA === -1 ? Number.MAX_SAFE_INTEGER : groupA
-  const normB = groupB === -1 ? Number.MAX_SAFE_INTEGER : groupB
-  return normA - normB || a.group.localeCompare(b.group) || a.short.localeCompare(b.short)
-}
-
-function nodeId(prefix: string, value: string): string {
-  return `${prefix}_${value.replace(/[^a-zA-Z0-9_]/g, '_')}`
-}
-
-function escLabel(value: string): string {
-  return value.replace(/"/g, '\\"')
 }
 
 function mermaidCode(value: string): string {
@@ -844,7 +781,7 @@ function renderSnapshotReplay(): string {
 }
 
 function renderDocs(): GraphDoc[] {
-  const pkgs = collectPackages()
+  const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
   const docs: GraphDoc[] = [
     { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),

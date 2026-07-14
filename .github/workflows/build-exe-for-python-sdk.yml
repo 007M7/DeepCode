@@ -1,0 +1,287 @@
+name: Build single-exe
+
+# Single-file executable (single-exe) builds of the DeepSeek Harness SDK
+# runtime. The build pipeline and target platforms are specified in
+# docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md:
+# each target is built natively on a runner of its own platform (no
+# cross-compilation) by scripts/build-exe-for-python-sdk.ts, which deploys
+# the dsh-jsonrpc-agent-pkg closure manifest with @yao-pkg/pkg into
+# dist-exe/.
+#
+# The run retains exactly the four wheels that make up one Python release:
+# one platform-independent SDK wheel plus one native runtime wheel for each
+# supported platform. The matrix still exercises the bare executable and
+# source tree, but they are intermediate test inputs rather than artifacts.
+#
+# Two explicit triggers, deliberately no per-commit CI: the exe is a
+# release-style deliverable, and the build (full pnpm build + pnpm deploy +
+# pkg across a 3-platform matrix, ~100MB per artifact) is far too expensive
+# to run on every push. Either dispatch it from the Actions tab, or put the
+# `build-exe` label on a pull request to build that PR's merge result
+# (remove and re-apply the label to rerun); any other label leaves the jobs
+# skipped. There is no `ref` input on purpose: actions/checkout already
+# checks out the ref the run was triggered on — the dispatched branch/tag,
+# or the PR merge ref.
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: >-
+          Comma-separated pkg targets to build. Any subset of:
+          node24-linux-x64, node24-linux-arm64, node24-macos-arm64.
+          Empty builds all three.
+        type: string
+        required: false
+        default: ''
+  pull_request:
+    types: [labeled]
+
+# Runs on the same ref supersede each other (per branch/tag for dispatch,
+# per PR merge ref for label runs).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the jobs only read the repo; artifact upload needs no
+# extra scope.
+permissions:
+  contents: read
+
+jobs:
+  # Turn the `targets` input into the build matrix. The `matrix` context is
+  # not available in a job-level `if:` (jobs.<job_id>.if only sees
+  # github/needs/vars/inputs), so target selection happens here instead of
+  # skipping matrix legs; an unknown target name fails the whole run loudly
+  # instead of being silently ignored. The label gate lives here too: `build`
+  # needs this job, so skipping it skips the whole run.
+  plan:
+    name: plan targets
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve repository version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.version // empty' package.json)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::package.json version must be stable X.Y.Z, got '$version'"
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Compute matrix from targets input
+        id: plan
+        env:
+          # Empty on label runs and on dispatch with the input left blank —
+          # both mean "all three targets".
+          TARGETS: ${{ inputs.targets || 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64' }}
+        run: |
+          set -euo pipefail
+          matrix='[]'
+          IFS=',' read -r -a targets <<< "$TARGETS"
+          for raw in "${targets[@]}"; do
+            t="$(echo "$raw" | xargs)" # trim surrounding whitespace
+            [ -z "$t" ] && continue
+            # Native builds only — each target maps to a runner of its own
+            # platform: linux-arm64 uses GitHub's hosted arm64 label
+            # ubuntu-24.04-arm (there is no ubuntu-latest-arm), macos-arm64
+            # uses macos-latest (Apple Silicon since macos-14).
+            case "$t" in
+              node24-linux-x64)   runner=ubuntu-latest ;;
+              node24-linux-arm64) runner=ubuntu-24.04-arm ;;
+              node24-macos-arm64) runner=macos-latest ;;
+              *)
+                echo "::error::Unknown target '$t'. Supported: node24-linux-x64, node24-linux-arm64, node24-macos-arm64."
+                exit 1
+                ;;
+            esac
+            matrix="$(jq -c --arg target "$t" --arg runner "$runner" '. + [{target: $target, runner: $runner}]' <<< "$matrix")"
+          done
+          if [ "$matrix" = '[]' ]; then
+            echo "::error::The targets input selected nothing to build."
+            exit 1
+          fi
+          echo "Matrix: $matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  sdk-wheel:
+    needs: plan
+    name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install Python build tooling
+        run: python -m pip install uv==0.11.23
+
+      - name: Build release-shaped SDK wheel
+        run: >-
+          python scripts/build-python-release.py
+          --package sdk
+          --output-dir dist-python
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          path: dist-python/deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          if-no-files-found: error
+
+  build:
+    needs: [plan, sdk-wheel]
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install Python build tooling
+        run: python -m pip install uv==0.11.23
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      # Unlike ci.yml (x64-only), this matrix spans two Linux architectures
+      # that share runner.os, so runner.arch is part of the key.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-
+
+      # The first run per target has pkg-fetch download yao-pkg's patched
+      # Node binary into ~/.pkg-cache; cache it so later runs skip the
+      # download. The target string pins Node major + platform + arch;
+      # pnpm-lock.yaml rolls the key when @yao-pkg/pkg (and with it the
+      # pinned patched-binary version) is bumped, with restore-keys still
+      # seeding from the previous cache.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.pkg-cache
+          key: pkg-fetch-${{ matrix.target }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pkg-fetch-${{ matrix.target }}-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      # The script runs the whole pipeline itself (pnpm run build → pnpm
+      # deploy --prod → pkg) and writes its output to dist-exe/ by default.
+      - name: Build single-exe
+        run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
+
+      - name: Resolve platform outputs
+        id: runtime
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          platform="${TARGET#node24-}"
+          exe="$PWD/dist-exe/dsh-jsonrpc-agent-pkg-$platform"
+          [ -x "$exe" ] || { echo "::error::$exe missing or not executable"; exit 1; }
+          case "$platform" in
+            linux-x64) wheel=deepseek_harness_runtime_bin-$VERSION-py3-none-manylinux_2_28_x86_64.whl ;;
+            linux-arm64) wheel=deepseek_harness_runtime_bin-$VERSION-py3-none-manylinux_2_28_aarch64.whl ;;
+            macos-arm64) wheel=deepseek_harness_runtime_bin-$VERSION-py3-none-macosx_11_0_arm64.whl ;;
+            *) echo "::error::Unsupported runtime platform $platform"; exit 1 ;;
+          esac
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
+          echo "wheel=$wheel" >> "$GITHUB_OUTPUT"
+
+      - name: Full-turn SDK, executable snapshot, and direct-binary smoke
+        run: >-
+          uv run --python 3.10 --group test --project python/sdk
+          python scripts/smoke-python-runtime.py
+          --scenario all
+          --exe "${{ steps.runtime.outputs.exe }}"
+
+      - name: Build release-shaped runtime wheel
+        run: >-
+          python scripts/build-python-release.py
+          --package runtime
+          --platform "${{ steps.runtime.outputs.platform }}"
+          --runtime-exe "${{ steps.runtime.outputs.exe }}"
+          --output-dir dist-python
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          path: dist-python
+
+      - name: Install only the SDK into a clean venv and run zero-config
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/dsh-sdk-smoke"
+          "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" -m pip install \
+            --find-links dist-python \
+            deepseek-harness=="$VERSION"
+          "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" scripts/smoke-python-runtime.py \
+            --scenario sdk-default
+
+      - name: Check Linux GLIBC requirements
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          readelf --version-info "${{ steps.runtime.outputs.exe }}" | tee glibc-versions.txt
+          maximum="$(sed -n 's/.*Name: GLIBC_\([0-9.]*\).*/\1/p' glibc-versions.txt | sort -V | tail -1)"
+          [ -n "$maximum" ] || { echo "::error::No GLIBC requirements found"; exit 1; }
+          dpkg --compare-versions "$maximum" le 2.28 || {
+            echo "::error::Executable requires GLIBC_$maximum but wheel claims manylinux_2_28"
+            exit 1
+          }
+
+      - name: Run wheel in a manylinux 2.28 container
+        if: runner.os == 'Linux'
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_ARCH" in
+            X64) image=quay.io/pypa/manylinux_2_28_x86_64 ;;
+            ARM64) image=quay.io/pypa/manylinux_2_28_aarch64 ;;
+            *) echo "::error::Unsupported Linux runner architecture $RUNNER_ARCH"; exit 1 ;;
+          esac
+          docker run --rm -e VERSION -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
+            /opt/python/cp310-cp310/bin/python -m venv /tmp/dsh-sdk
+            /tmp/dsh-sdk/bin/python -m pip install --find-links /work/dist-python deepseek-harness=="$VERSION"
+            /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-default
+          '
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.runtime.outputs.wheel }}
+          path: dist-python/${{ steps.runtime.outputs.wheel }}
+          if-no-files-found: error

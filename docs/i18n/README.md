@@ -35,7 +35,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Scope, exclusions, and rollout
 
-**Scope**: the root `README.md` and everything under `docs/**`. Package READMEs (`packages/**`) join the scope in a later batch.
+**Scope**: the root `README.md`, everything under `docs/**`, and everything under `python/**`. Package READMEs (`packages/**`) join the scope in a later batch.
 
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 

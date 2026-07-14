@@ -35,7 +35,7 @@
 
 ## 范围、排除与推进
 
-**范围**：根 `README.md` 与 `docs/**` 下的全部内容。package README（`packages/**`）在后续批次加入范围。
+**范围**：根 `README.md`、`docs/**` 下的全部内容，以及 `python/**` 下的全部内容。package README（`packages/**`）在后续批次加入范围。
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
