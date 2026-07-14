@@ -1,18 +1,6 @@
 /**
- * Tool registry and execution pipeline. Plugins register tools; the registry
- * feeds schemas into the system prompt, and `execute()` dispatches each call
- * through `tools/pre-execute` (the extensible allow/deny gate) → monotonic
- * registered guards → `tools/execute` (an around-dispatch wrapper for
- * timeout/retry/metrics plugins) → `tools/post-execute` (inspect/replace the
- * result, attach context) → the observe-only `tools/result` notification.
- *
- * The registry also owns HOW its tools are presented to the model — its
- * `mode` config: `'native'` (every tool as a wire function definition,
- * today's behavior and the default), `'code'` (the registry's canonical wire
- * contribution is one tool, `run_code`, plus a generated TypeScript SDK prompt section), or
- * `'both'`. See `code-mode.ts` (the tool + dispatch bridge) and
- * `ts-types.ts` (the SDK codegen); design in the Code Mode RFC.
- *
+ * Tool registry, model presentation modes, and pre/guard/around/post/result
+ * execution pipeline.
  * @module @deepseek-ai/dsh-tools
  */
 
@@ -83,79 +71,34 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall BEFORE a tool runs — the gate where sandbox, permission, and
-     * hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners
-     * receive `(exec, next)`: call `next()` to delegate to the default (allow),
-     * or return a {@link PreToolDecision} without calling `next()` to
-     * short-circuit. A `deny` skips dispatch and yields an `isError` result; the
-     * tool body never runs. Input rewrite is deliberately NOT offered here (see
-     * {@link PreToolDecision}); `ask` is serviced by the `ctx.approval` seam
-     * when one is mounted, and degrades to deny otherwise.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `exec.agent`: a
-     * listener registered through `agent.ctx` fires only for that agent's
-     * calls, while a plain plugin listener fires for every call (including
-     * agent-less ones, which dispatch subject-less).
+     * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing
+     * approval support turns `ask` into denial.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
     'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
     /**
-     * Around-dispatch waterfall wrapping the registry's core tool dispatch,
-     * between the `tools/pre-execute` gate and the `tools/post-execute` seam. A
-     * listener receives `(exec, next)`: call `next()` to delegate to dispatch
-     * (returning its {@link ToolExecutionResult}, optionally wrapped), or return a
-     * replacement result without calling `next()` to short-circuit dispatch. The
-     * base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or
-     * unknown tool) is already normalized to an `isError` result by the time a
-     * listener's `await next()` returns, so a wrapper never sees a raw throw from
-     * the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can
-     * set or replace the one mutable field, `exec.signal` (e.g. with a per-call
-     * deadline), BEFORE `next()`, restore/delete it afterward, and inspect the result AFTER. Call identity
-     * (`token`, `callId`, `name`, `arguments`, `agent`, and `parent`) is immutable throughout the
-     * pipeline so a wrapper cannot change which tool and scope the pipeline
-     * accepted. (Cordis `next()` ignores passed arguments and re-invokes
-     * downstream with the shared payload, so a wrapper changes `exec.signal` in
-     * place rather than passing a new object to `next()`.)
-     * Multiple listeners compose by registration order — an outer one wraps the
-     * inner ones plus dispatch.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by
-     * `exec.agent` — a listener registered through `agent.ctx` wraps only that
-     * agent's calls; a plain plugin listener wraps every call (including
-     * agent-less ones, which dispatch subject-less).
+     * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
+     * a normalized result; wrappers may change only `exec.signal`, while call
+     * identity remains immutable.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
      * @mode waterfall
      */
     'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
-     * Waterfall AFTER a tool runs — where hook plugins inspect the result and
-     * accept it (optionally REPLACING the model-facing content, and/or attaching
-     * `additionalContext` for the next request) or block it with corrective
-     * `feedback` (Claude Code's `PostToolUse`). Listeners receive
-     * `(exec, result, next)`: call `next()` to delegate to the default (accept
-     * unchanged), or return a {@link PostToolDecision} to override. Core tool
-     * dispatch runs earlier as the base `next()` of the `tools/execute`
-     * waterfall, all inside `execute`'s outer try/catch (and the tool body keeps
-     * its own inner try/catch, so a thrown tool still reaches `post-execute` as an
-     * `isError` result).
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by
-     * `exec.agent` — a listener registered through `agent.ctx` fires only for
-     * that agent's calls; a plain plugin listener fires for every call
-     * (including agent-less ones, which dispatch subject-less).
+     * Accept, replace, enrich, or block a normalized dispatch result. `next()`
+     * accepts it unchanged; thrown tools still reach this seam as errors.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * Synchronous notification of the authoritative FINAL tool outcome, after the
-     * complete pre/execute/post pipeline, final lossless-JSON validation, and
-     * outer error normalization.
-     * Unlike the three waterfalls, this seam cannot transform the result: each
-     * listener receives the now-frozen execution object and a deep-frozen result
-     * snapshot; listener failures are contained and logged, and
-     * {@link ToolRegistry.execute} still returns the outcome.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by
-     * `exec.agent`, using the same carrier as the pipeline.
+     * Observe the frozen, lossless-JSON final outcome. Listener failures are contained.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
      * @param exec - the execution object that traversed the pipeline.
      * @param result - a deep-frozen snapshot of the final returned result.
      * @mode emit
@@ -174,18 +117,10 @@ declare module 'cordis' {
   }
 }
 
-// TODO(review): revisit these shapes when concurrency metadata becomes useful
+// TODO(concurrency): revisit these shapes when concurrency metadata becomes useful
 // (for example, a read-only hint that would permit safe parallel execution).
 
-/**
- * What a tool's `execute` returns. The bare {@link ContentBlock}`[]` form is the
- * common case (model-facing content only); the object form additionally attaches
- * a tool-private `meta` presentation payload that the registry threads onto the
- * `tool/result` session event and hands back to the tool's `presentResult`.
- * `meta` is opaque to the core (`unknown` — the tool owns and narrows its shape),
- * and MUST be JSON-serializable: it persists on the durable log (the session
- * enforces this at `append`), so replay reproduces the card.
- */
+/** Tool output, optionally with lossless-JSON presentation metadata persisted for replay. */
 export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
 
 /** A registered tool: its schema plus the execution function. */
@@ -236,12 +171,7 @@ export interface ToolResult {
 
 declare const toolExecutionTokenBrand: unique symbol
 
-/**
- * Opaque identity for one trip through the tool pipeline. Nested
- * transports carry the enclosing execution's token instead of its live object,
- * so observe-only result listeners can correlate calls without gaining a
- * mutation path into an outer around-dispatch wrapper.
- */
+/** Opaque call identity that permits correlation without exposing mutable execution state. */
 export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 
 /**
@@ -308,14 +238,8 @@ export interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Extra model-facing context a `tools/post-execute` listener attached for the
-   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
-   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
-   * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * Model-facing context for the next request, separate from this tool result.
+   * The loop buffers it until all step results are logged, preserving pairing.
    */
   additionalContext?: HookContext
   /**
@@ -328,19 +252,10 @@ export interface ToolExecutionResult {
 }
 
 /**
- * The decision a `tools/pre-execute` listener returns for one pending call.
- * Maps onto Claude Code's `PreToolUse` `permissionDecision`.
- *
- * - `allow` proceeds to dispatch. (Input rewrite — changing `exec.arguments` —
- *   is deliberately NOT offered: `tool/call` and `assistant/message` are logged
- *   BEFORE execution and live consumers, e.g. the ACP bridge and `dsh-tool-bash`
- *   presentation, read the pre-execution arguments, so an execution-only rewrite
- *   would desync the UI from what RAN. That consistency redesign is its own
- *   `proposed` RFC; `TODO(pre-tool-input-rewrite)` anchors it at the call site.)
- * - `deny` skips dispatch; the loop records an `isError` result carrying `reason`.
- * - `ask` is the permission-prompt intent: serviced as a one-shot decision by
- *   the `ctx.approval` seam when one is mounted (`allowed-once` proceeds to
- *   dispatch; every other outcome denies), degrading to `deny` when none is.
+ * Pre-dispatch decision. `allow` runs the call; `deny` materializes an error;
+ * `ask` runs only after an approval service returns `allowed-once` and otherwise
+ * denies. Input rewriting is excluded because arguments are already logged and
+ * presented.
  */
 export type PreToolDecision =
   | { kind: 'allow' }
@@ -348,16 +263,8 @@ export type PreToolDecision =
   | { kind: 'ask'; reason?: string }
 
 /**
- * The decision a `tools/post-execute` listener returns for one finished call.
- * Maps onto Claude Code's `PostToolUse` decision.
- *
- * - `accept` keeps the call successful; optional `content` REPLACES the
- *   model-facing result (clean: `tool/result` is logged AFTER `execute()`
- *   returns, so a replaced result is the single source of truth for both derived
- *   history and UI). Optional `additionalContext` rides to the next request.
- * - `block` turns the call into an `isError` result whose content is the
- *   corrective `feedback` (the model is told the call was rejected and why),
- *   optionally also attaching `additionalContext`.
+ * Post-dispatch decision: accept or replace content, attach context for the next
+ * request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
   | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
@@ -400,35 +307,17 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * The presentation mode. `'native'` (the default) contributes every
-   * visible end capability as a native wire function definition. Under
-   * `'code'` this registry contributes exactly ONE wire tool,
-   * `run_code`, plus the generated `tools:sdk` prompt section declaring every other tool as a
-   * TypeScript API the program calls. `'both'` contributes every native
-   * definition AND `run_code` + the SDK section. Non-native modes require a
-   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
-   * or mismatched runtime rejects every prompt assembly with an actionable
-   * error (misconfiguration fails loud, before any model request). A
-   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
-   * every assembly under `'code'` (those names are no longer contributed) —
-   * a deployment switching modes updates its order config or drops it.
+   * Model presentation. `native` (default) sends every visible schema; `code`
+   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
+   * Code modes require a TypeScript runtime and fail prompt assembly when it is
+   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
 }
 
 /**
- * A per-scope restriction over the GLOBAL tool surface, registered via
- * {@link ToolRegistry.restrict}. `allow` keeps only the listed global tools;
- * `deny` removes the listed ones; both present = allow first, then deny.
- * Restrictions never touch scoped registrations — a tool registered through
- * the same scope is merged after the global filter (which is what keeps e.g. a
- * structured-output capture tool alive under an allow-list). The readonly
- * filter values compile to private sets at registration, but resolution uses the live global registry:
- * a later global name passes a deny-only filter unless explicitly denied and
- * fails an allow-list unless explicitly allowed. The
- * reserved `run_code` presentation transport is likewise outside capability
- * filtering, and naming it explicitly is rejected. Multiple restrictions on
- * one scope compose by intersection: every one must admit.
+ * Per-scope filter over global tools. Restrictions intersect and do not affect
+ * scoped registrations or the reserved Code Mode transport.
  */
 export interface ToolRestriction {
   /** Global tool names that stay visible; everything else is removed. */
@@ -469,26 +358,8 @@ interface ToolGuardRegistration {
 }
 
 /**
- * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
- * loop executes calls through the `tools/pre-execute` → guards →
- * `tools/execute` → `tools/post-execute` → `tools/result` pipeline. The
- * registry contributes its schemas into the system-prompt assembly — WHICH
- * schemas is governed by its `mode` config
- * (see {@link Config.mode}); under a non-native mode it also owns the reserved
- * `run_code` presentation transport and the `tools:sdk` prompt section.
- *
- * Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a
- * plain plugin context is GLOBAL (visible to every agent); one through a
- * scoped context (`agent.ctx`) is filed in that scope's layer — visible to
- * that agent alone, disposed with the scope, and SHADOWING a global tool of
- * the same name for that agent (most-specific-wins; within one layer a
- * duplicate name still throws). {@link restrict} masks the global layer per
- * scope. One private visibility resolver feeds the registry's prompt
- * contribution, {@link get}, and {@link execute} — and, under a non-native
- * mode, the SDK section and `run_code`'s bindings — so those registry-owned
- * presentation and dispatch paths agree. An expert `system-prompt/assemble`
- * listener may deliberately replace the final wire composition and owns any
- * resulting divergence.
+ * Tool registry and execution pipeline. Scoped registrations shadow globals;
+ * one visibility resolver feeds presentation, lookup, and dispatch.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
@@ -526,13 +397,7 @@ export class ToolRegistry extends Service {
       ctx.systemPrompt.section({
         name: 'tools:sdk',
         order: SDK_SECTION_ORDER,
-        // A lazy thunk over the live registry, per assembly CONTEXT:
-        // regenerated at each assembly over the CALLING SCOPE's visible set
-        // (scoped tools join, restricted globals vanish — the SDK declares
-        // exactly what that agent's programs can call), in lexicographic
-        // tool order, so an unchanged tool set renders byte-identical text
-        // (prefix-cache-friendly) and a mid-session registration surfaces
-        // exactly like a native-mode tool change.
+        // Regenerate from the calling scope's visible tools in stable order.
         text: (context) => {
           this.requireCodeRuntime()
           return renderToolsSdk(this.schemas(context.scope).filter(schema => schema.name !== RUN_CODE_NAME))
@@ -542,22 +407,8 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * The registry's contribution to the wire tool list, per {@link Config.mode},
-   * as ONE SCOPE sees it (scoped layer joins, shadowing and restrictions
-   * applied — {@link schemas}). Because `PromptAssembly.tools` is what the
-   * loop's request header snapshots, the mode's collapse is logged and
-   * reconstructable for free. Under a non-native mode this is also the loud
-   * misconfiguration gate: no usable code runtime → every assembly rejects
-   * before any model request.
-   *
-   * The `knownNames` universe distinguishes the two ways a tool can be off
-   * the wire: a per-scope RESTRICTION is runtime state, so `knownNames` stays
-   * pre-restriction and a restricted-away tool in `toolOrder` is a normal
-   * absence — while the MODE collapse is deployment config, so under
-   * `mode: 'code'` the universe is `[run_code]` and a `toolOrder` naming a
-   * native tool is dead configuration that fails every assembly loud. Under
-   * `mode: 'both'`, the provider adds the reserved transport to the
-   * capability-only known-name universe for `toolOrder` validation.
+   * Build one scope's wire schemas and names for prompt-order validation.
+   * Restrictions do not make known tools invalid, but a mode collapse does.
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
@@ -595,23 +446,10 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Register a tool. The layer is decided by the CALLING context: a plain
-   * plugin context registers globally; a scoped context (`agent.ctx`)
-   * registers into that scope's layer — visible to that agent alone, disposed
-   * with the scope, and shadowing a same-named global tool for that agent.
-   * Throws if the SAME layer already has the name (cross-layer name twins are
-   * the shadowing feature, not an error; the global-duplicate message names
-   * `agent.ctx` as the per-agent alternative), or if a non-native mode reserves
-   * the `run_code` name for its presentation transport. The visible schema set
-   * flows into prompt assembly automatically. Definitions are trusted typed
-   * same-process contributions; JSON materialization happens when the schema or
-   * result reaches its model/log boundary. Emits `tools/change` on
-   * register/unregister.
-   * @param definition - the tool's schema plus its execute (and optional
-   *   presentation) functions.
-   * @returns the disposer that unregisters the tool. The exact
-   *   Cordis effect disposer (single-shot): composite (generator) effects may
-   *   yield it directly — exact identity nests the teardown in order.
+   * Register globally or in the calling agent scope. Scoped tools shadow
+   * globals; duplicates within one layer and the reserved `run_code` name fail.
+   * @param definition - the tool schema, execution, and optional presentation functions.
+   * @returns the exact disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
     const scope = scopeOf(this.ctx)
@@ -632,52 +470,26 @@ export class ToolRegistry extends Service {
           : `tool "${name}" is already registered in this scope`)
       }
       layer.set(name, definition)
-      // Yield the rollback BEFORE emitting `tools/change`: a generator effect
-      // collects each yielded disposer before the next step runs, so a throwing
-      // `tools/change` listener removes the tool instead of leaking it (a leak
-      // would wedge the duplicate-name check until restart). The duplicate
-      // throw above fires before any mutation — it leaks nothing.
+      // Install rollback before notifying listeners.
       yield () => {
         layer.delete(name)
-        // An emptied scope layer is dropped so a disposed scope leaves no
-        // residue keyed by its (dead) key.
+        // Drop empty scope layers.
         if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
         this.ctx.emit('tools/change')
       }
       this.ctx.emit('tools/change')
     }.bind(this), 'tools.register()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Cleanup is synchronous because this
-    // registration installs only synchronous state and notifications.
+    // Return the exact disposer so composite effects preserve teardown order.
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
   /**
-   * Restrict the GLOBAL tool surface for the calling scope. Must be called
-   * through a scoped context (`agent.ctx`) — restricting "everyone" is not a
-   * thing (throw), and an empty filter (neither `allow` nor `deny`) is a no-op
-   * that can only be a bug (throw — the materialized-empty-config trap).
-   * Validates every listed name against the CURRENT global end-capability
-   * universe and throws on an unknown or scope-local name (fail loud
-   * beats a typo silently filtering nothing) — register restrictions after the
-   * global tools they mask exist (the agent-creation `setup` window satisfies
-   * this). A non-native mode's reserved `run_code` presentation transport is
-   * not a filterable capability; naming it explicitly throws, while omitting
-   * it from an allow-list cannot remove it. The readonly arrays are compiled to
-   * private sets at registration. Resolution still uses the live global registry, so a later
-   * global name passes a deny-only filter unless named and fails an allow-list
-   * unless named. Multiple restrictions compose by intersection. Scoped
-   * registrations are merged after restrictions and therefore remain visible.
-   * Disposed with the calling fiber (revocable independently); emits
-   * `tools/change`.
+   * Restrict global tools for the calling agent scope. Empty filters, unknown
+   * names, scope-local names, and reserved transport names fail. Restrictions
+   * intersect; scoped registrations remain visible.
    * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
-   * @returns the disposer that lifts this restriction. The exact
-   *   Cordis effect disposer (single-shot): composite (generator) effects may
-   *   yield it directly — exact identity nests the teardown in order.
+   * @returns the exact disposer that lifts this restriction.
    */
   restrict(filter: ToolRestriction): () => void {
     const scope = scopeOf(this.ctx)
@@ -715,12 +527,7 @@ export class ToolRegistry extends Service {
       }
       this.ctx.emit('tools/change')
     }.bind(this), 'tools.restrict()')
-    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
-    // effect that owns a teardown ORDER must be able to yield THIS function —
-    // cordis nests a disposer out of the fiber's concurrent sibling list by
-    // exact function identity, so a wrapper would silently break the nesting
-    // (the agents.register() lesson). Cleanup is synchronous because this
-    // registration installs only synchronous state and notifications.
+    // Return the exact disposer so composite effects preserve teardown order.
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
@@ -842,15 +649,8 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * The model-facing schemas of everything `scope` can see — exactly the
-   * fields (`name`, `description`, `parameters`) this registry contributes to
-   * system-prompt assembly before its expert transformation waterfall.
-   * Constructed EXPLICITLY rather than by stripping
-   * known non-schema members: a `ToolDefinition` also carries `execute` and the
-   * optional `presentCall`/`presentResult` UI callbacks, and those (especially
-   * the functions) must never leak into a model request. An allowlist can't
-   * drift when a new non-schema member is added to the definition; a denylist
-   * (rest-destructure) would silently leak it.
+   * Project visible definitions onto the allowlisted model-facing schema fields,
+   * excluding execution and presentation callbacks.
    * @param scope - the viewing scope (the agent); omitted = the global view.
    * @returns one deep-cloned schema per visible tool.
    */
@@ -869,27 +669,13 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/pre-execute` → guards →
-   * `tools/execute` (around dispatch) → `tools/post-execute` → `tools/result`
-   * pipeline. `pre-execute` is the extensible gate
-   * (allow/deny/ask), `tools/execute` wraps core dispatch (a timeout/retry/metrics
-   * seam), and `post-execute` is the inspect/transform seam; core dispatch sits
-   * as the base `next()` of the `tools/execute` waterfall. The whole thing is
-   * wrapped in one outer try/catch so a throwing listener (in any waterfall)
-   * becomes an `isError` result instead of failing the turn; the tool body ALSO
-   * keeps its own inner try/catch, so a thrown tool becomes an `isError` result
-   * that `tools/execute` and `post-execute` listeners can still inspect. If the
-   * tool is not registered (or not visible to the calling agent — a
-   * restricted-away global is exactly as absent as a nonexistent one), the
-   * result is an `isError` carrying a `UNKNOWN_TOOL` structured error. A thrown
-   * {@link HarnessError} surfaces its `{ name, code }` on the result. Before
-   * the final observe-only notification, the authoritative outcome is
-   * materialized as a detached lossless-JSON snapshot; an invalid outcome is
-   * normalized to an error.
+   * Execute through pre-policy, guards, around-dispatch, post-policy, and final
+   * notification. Tool and listener failures resolve as materialized error
+   * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
+   * the same lossless, frozen snapshot final observers receive.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
-   * @returns the materialized final result after every waterfall; listener and
-   *   tool failures resolve as `isError` results rather than rejections.
+   * @returns the materialized final result.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
     const token = createExecutionToken()

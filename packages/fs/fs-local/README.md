@@ -6,7 +6,7 @@ The **local-filesystem implementation** of the `ctx.fs` provider seam ([`@deepse
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 
 await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
-// ctx.fs is now the local backend; load @deepseek-ai/dsh-fs-policy for the
+// ctx.fs uses the local backend; load @deepseek-ai/dsh-fs-policy for the
 // freshness policy gate and @deepseek-ai/dsh-tool-fs to expose read/write/edit.
 ```
 
@@ -23,7 +23,7 @@ The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `sr
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-fs`, which renders this provider's line-windowed UTF-8 content, mutation acknowledgements, and exact provider messages under `Error: <message>` into capped retained tool results while versions, atomic-write mechanics, and directory metadata remain internal.
+Indirectly, through [`dsh-tool-fs`](../tool-fs/README.md), which renders this provider's line-windowed UTF-8 content, mutation acknowledgements, and exact provider messages in capped retained results while versions, atomic-write mechanics, and directory metadata remain internal.
 
 ## Known Limitations and Deferred Work
 

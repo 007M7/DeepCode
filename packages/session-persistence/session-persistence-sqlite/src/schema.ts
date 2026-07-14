@@ -56,35 +56,17 @@ export interface EventRow {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
- * Open the database at `path` and apply the schema + pragmas. `foreign_keys`
- * makes `ON DELETE CASCADE` drop a session's events with its row; the
- * `journal_mode` pragma is set from the plugin's `journalMode` config (`wal`
- * default — the durability model the ADR records; the row shape maps 1:1
- * onto `SessionEvent`; opencode runs this exact shape on SQLite/WAL).
- *
- * The table-layout version is persisted in SQLite's `PRAGMA user_version` and
- * checked on open: a fresh database (user_version 0) is stamped with the
- * current {@link SCHEMA_VERSION}; an existing database whose version is NOT the
- * current one (written by a different, incompatible build — older or newer) is
- * REJECTED rather than opened against a layout this build does not understand.
- * There are no migrations: an earlier layout is not upgraded in place — it is
- * rejected. v1 had a different `sessions` shape; v2 lacked all of
- * `seed_length`/`source_event_seqs`/`surface_op`. v3 is SKIPPED: two unmerged
- * branches each shipped a DISTINCT v3 (one adding only `seed_length`, the other
- * adding only the surface columns), so an on-disk v3 is ambiguous — it could be
- * either sibling layout, neither of which has all of this build's columns. v4
- * is the merged layout carrying every column; bumping past the collided v3
- * makes the version check reject both sibling v3 databases instead of opening
- * one against columns it does not have.
+ * Open the database and apply its schema and pragmas. A zero `user_version` is
+ * stamped with {@link SCHEMA_VERSION}; every other non-current version rejects
+ * rather than being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
- * @param journalMode - the journal pragma to apply — a closed in-code union, validated by the plugin Config.
+ * @param journalMode - validated journal pragma.
  * @returns the open handle with pragmas applied and both tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
-  // journalMode is a closed in-code union (validated by the plugin Config), not
-  // user-controlled SQL — safe to interpolate (PRAGMA takes no bound params).
+  // The validated union is safe to interpolate into a non-bindable PRAGMA.
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -93,9 +75,7 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
     throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
   if (onDisk === 0) {
-    // Fresh (or pre-versioning) database: stamp the current layout version.
-    // PRAGMA does not accept bound parameters, so interpolate the integer
-    // constant (SCHEMA_VERSION is a trusted in-code number, not user input).
+    // Stamp fresh or pre-versioning databases.
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
   }
   db.exec(`
@@ -162,28 +142,11 @@ export function rowToEvent(row: EventRow): SessionEvent {
 }
 
 /**
- * The preserved prefix of an ordered event-row list (mirrors the JSONL
- * backend's `scanLog`): the longest prefix of complete, seq-contiguous,
- * parseable rows, PLUS the seq from which a never-committed torn tail must be
- * deleted (or `undefined` if the whole list is intact).
+ * Find the preserved prefix of ordered event rows. Fully written rows in an
+ * interrupted final turn remain in the prefix. The first unparsable row or seq
+ * gap after the last `turn/end` marks a tolerated torn tail; the same hole in
+ * the committed region rejects.
  *
- * A crash can leave a durable log whose final turn never closed: real,
- * fully-written rows sit after the last `turn/end`. Those are PRESERVED — a
- * single turn can be huge in a long-horizon task, so truncating it would
- * destroy real work; the backend closes the orphaned open turn with a synthetic
- * `turn/end {kind:'interrupted'}` on load (the session-persistence RFC). The ONLY thing excluded is
- * a torn trailing fragment — a row whose `data` never parses, or a seq gap —
- * AFTER the last committed `turn/end`; that bounds the preserved region and its
- * seq is returned as `tornFrom` so `load` can physically delete it.
- *
- * The last `turn/end` is computed from the `type` COLUMN (never parsing tail
- * `data`), so a malformed `data` in an uncommitted tail row is discarded rather
- * than making the session unloadable. A parse error or seq gap AT OR BEFORE the
- * last committed `turn/end` is committed-data corruption and throws.
- *
- * This relies on the session-log invariant that every event lives inside a turn
- * (`Session.append` enforces it): only the final turn can be open, so the
- * preserved tail is at most one unclosed turn.
  * @param rows - one session's event rows, ordered by seq ascending.
  * @returns the preserved event prefix, plus `tornFrom` — the seq the physical
  *   delete starts at — when a torn tail exists.
@@ -207,12 +170,8 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
     if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }
   }
 
-  // Walk the longest PREFIX of complete, seq-contiguous, parseable rows
-  // (row i has seq === i). This includes the fully-written rows of an
-  // interrupted final turn AFTER the last turn/end — real work, never
-  // truncated. The walk stops at the first hole:
-  //   - at or before the last committed turn/end → committed corruption (throw);
-  //   - after it (or no committed turn/end) → tolerated torn tail (stop).
+  // Preserve the contiguous prefix, including a complete interrupted turn;
+  // holes through the last committed boundary throw, while later holes stop.
   const preserved: SessionEvent[] = []
   for (let i = 0; i < rows.length; i++) {
     const p = parsed[i]

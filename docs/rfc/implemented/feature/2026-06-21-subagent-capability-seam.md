@@ -37,7 +37,7 @@ A new package group `packages/subagent/`:
 
 ### The primitive: async `start → SubagentRun`
 
-A provider exposes `start(request) → Promise<SubagentRun>`. Promise fulfillment is the publication/readiness and provider-to-caller ownership boundary: for an in-process backend the child is already published in `ctx.agents`, and for ACP the remote session already exists. `SubagentStartRequest.signal` is the single cancellation channel before and after readiness; `SubagentRun` carries the terminal `result` and a `dispose()` method that cancels remaining work and awaits quiescence. The transport-neutral verb is **`start`**; "spawn" is reserved for the in-process `dsh-subagent-spawn` backend's identity, not the service verb. A rejected start cleans provider-owned partial resources and emits neither subagent lifecycle event.
+A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publishes a ready child and transfers its run handle to the caller. One signal covers cancellation before and after readiness; `dispose()` cancels remaining work and awaits quiescence. A rejected start cleans partial resources and emits no lifecycle event. `start` is transport-neutral; `spawn` names only the fresh in-process backend.
 
 ### Two kinds of optional capability, discovered two ways
 
@@ -46,7 +46,7 @@ A provider exposes `start(request) → Promise<SubagentRun>`. Promise fulfillmen
 
 ### Fork vs. fresh are separate backends, not a flag
 
-Rather than a `context: 'fresh' | 'fork'` request field, the distinction is the provider's identity: `dsh-subagent-spawn` (fresh, isolated, own system prompt) and `dsh-subagent-fork` (seeded from the parent's log) are two registered providers. You pick behavior by picking a provider — consistent with the registry being the selection mechanism. The fork backend seeds only a **balanced, completed-turn prefix** of the parent log: at tool-execute time the parent's turn is open (it holds the `assistant/message` and the dangling spawn `tool/call` with no `tool/result`), and seeding that raw prefix would give the child an unbalanced turn that the [invariants](../../../../packages/support/invariants/src/index.ts) trace replay rejects.
+Fresh and forked children are separate providers, not a request flag. `dsh-subagent-spawn` starts an isolated child; `dsh-subagent-fork` seeds a balanced prefix containing only completed parent turns. The in-flight turn is excluded because its subagent call has no result yet and cannot form valid replay history.
 
 ### Child isolation and the parent log
 
@@ -54,7 +54,7 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 ### Synchronous collect (first cut)
 
-The `dsh-tool-subagent` consumer passes its execution signal into the start request, awaits the ready run's `result`, and returns the child's final output as the tool result, blocking the parent's turn until the child finishes. A `try/finally` always `dispose()`s the run, so no success, failure, or cancellation path leaks an idle child/session. A non-`completed` stop reason maps to an `isError` result rather than returning partial output as success. Steering (`sendMessage`) is part of the contract but intentionally unused in this consumer.
+`dsh-tool-subagent` passes its execution signal to `start()`, awaits the child result, and disposes the run in `finally`. Non-completed outcomes become error results rather than successful partial output. This foreground consumer does not use the run's optional steering method.
 
 ### Provider selection is config, not model-facing
 
@@ -62,7 +62,7 @@ The `dsh-tool-subagent` consumer passes its execution signal into the start requ
 
 ## Testing
 
-The seam is tested through the real cordis Loader / export path, not a hand-built `ctx.plugin` mount (which bypasses `unwrapExports` and cannot catch a broken export shape — [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md)); the registry pins HMR-safety, duplicate-name rejection, and start-time capability rejection; the nested-agent snapshot scenarios replay keyless in the default gate ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); in-process backends carry real-loop unit tests plus a with-key e2e.
+The seam is tested through the real Cordis Loader/export path, which catches the export-shape failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
 
 ## Consequences
 
@@ -70,4 +70,3 @@ The seam is tested through the real cordis Loader / export path, not a hand-buil
 - **Blocking the parent turn.** Synchronous collect holds the parent's `runStep` open for the child's full duration. This is acceptable for the first cut; **background / poll / spill semantics are deferred to a future redesign that unifies long-running-tool handling across subagents AND bash** (a sub-agent and a long `bash` background task pose the same "the model started something slow, how does it collect later" problem, and should share one mechanism rather than each inventing its own).
 - **Live progress.** This cut surfaces only lifecycle + final result; a per-chunk child→parent update stream is deferred with the background redesign.
 - **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the first cut advertises neither, so the child self-serves in its own process.
-- **Snapshot coverage of nested agents.** The snapshot tier (`pnpm run test:snapshot`) replays a recorded session through `dsh-llm-replay`. It was built single-session: a single GLOBAL positional cursor (the Nth `llm/stream` call serves the Nth recorded entry) and a harness that harvested a single session log file. A subagent runs as a *second* agent with its own session log, so a parent→child scenario needed per-session-keyed replay plus harvest-all-logs and plural-session-id plumbing — self-contained infrastructure orthogonal to the backends, scheduled as a dedicated stacked follow-up rather than folded into the in-process-backends PR. That follow-up has **landed**: see [Per-session snapshot replay for nested agents](../../implemented/testing/2026-06-22-subagent-snapshot-replay.md). Replay now keys each call by its calling session (`GenerateOptions.sessionId`) and binds live sessions to recorded scripts by first-call order; the harness harvests every log; and two nested scenarios (`subagent-spawn`, `subagent-multi`) replay keyless in the default gate. In-process subagents remain covered by real-loop unit tests and a with-key e2e in addition to the snapshot tier.

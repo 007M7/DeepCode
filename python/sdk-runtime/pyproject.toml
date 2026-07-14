@@ -10,9 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "BSD-3-Clause" }
 
-# Distributions carry the platform executables (build-injected, VCS-ignored —
-# hence `artifacts`) and the checked-in runtime/cordis.yml; the dev-only node
-# closure under runtime/node/ is explicitly excluded from wheel and sdist.
+# Include the injected executable and default config; exclude the dev-only node
+# closure from wheels and sdists.
 [tool.hatch.build]
 artifacts = ["src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*"]
 exclude = ["src/deepseek_harness_runtime/runtime/node"]

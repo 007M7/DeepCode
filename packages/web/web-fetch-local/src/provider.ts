@@ -1,21 +1,10 @@
 /**
- * `LocalFetchProvider`: a `WebFetchProvider` that retrieves a concrete public
- * HTTP(S) URL with platform-native `fetch` at the repo's Node floor and returns a status
- * code plus bounded decoded content. It owns SAFE RESOURCE RETRIEVAL — URL
- * validation, redirect policy, timeout, abort, byte caps, charset decoding,
- * content-type classification, binary rejection — but NOT presentation
- * (HTML→markdown lives in `@deepseek-ai/dsh-tool-web`).
+ * Safe HTTP(S) retrieval for `ctx.web`: validates URLs, follows only same-origin redirects,
+ * enforces time and size limits, classifies and decodes text, and leaves presentation to
+ * `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient credentials.
  *
- * Redirects are followed manually (`redirect: 'manual'`) so the provider can
- * enforce a same-origin-only policy: a cross-origin redirect is refused with
- * `WEB_REDIRECT_BLOCKED`, requiring a fresh tool call (Claude Code's WebFetch
- * uses the same model). It does NOT carry browser cookies, editor/git
- * credentials, or implicit access to private services.
- *
- * SSRF / private-network protection is DEFERRED (see the package RFC); until it
- * lands this provider is an SSRF primitive and must not be enabled where it can
- * reach sensitive internal targets.
- *
+ * Private-network and SSRF protection is not implemented; do not enable this provider where
+ * it can reach sensitive internal targets.
  * @module @deepseek-ai/dsh-web-fetch-local/provider
  */
 
@@ -60,11 +49,8 @@ export class LocalFetchProvider implements WebFetchProvider {
     if (exec?.signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
     const timeoutMs = clampTimeout(request.timeoutMs, this.limits.timeoutMs, this.limits.maxTimeoutMs)
 
-    // One deadline signal fuses the caller's abort with our own timeout, so the
-    // network request and the streaming read both stop on either. The timeout
-    // abort carries a TimeoutReason we recover afterward to classify the cause
-    // (translateAbortOrNetwork), instead of hand-rolling a controller + timer +
-    // reason-recovery dance.
+    // One signal stops both the request and body read. The deadline's TimeoutReason later
+    // distinguishes this provider's timeout from caller or outer-deadline cancellation.
     using d = deadline(exec?.signal, timeoutMs, 'WEB_FETCH_TIMEOUT')
     return await this.followAndRead(request.url, d.signal)
   }
@@ -78,11 +64,7 @@ export class LocalFetchProvider implements WebFetchProvider {
       const response = await this.requestOnce(currentUrl, signal)
 
       if (isRedirectStatus(response.status)) {
-        // The redirect budget is enforced BEFORE this hop's target is resolved
-        // or origin-checked, so `maxRedirects: N` follows at most N redirects
-        // exactly: the (N+1)th redirect is refused as "exceeded" regardless of
-        // where it points (a same-origin/cross-origin distinction on a hop we
-        // are not allowed to follow would be the wrong diagnosis).
+        // Enforce the redirect budget before resolving or validating the next hop.
         if (redirectsFollowed >= this.limits.maxRedirects) {
           await response.body?.cancel()
           throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
@@ -95,10 +77,9 @@ export class LocalFetchProvider implements WebFetchProvider {
           throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
         }
         const target = resolveRedirect(location, currentUrl)
-        // Re-validate the target against the same transport hygiene a direct
-        // request gets: a redirect must not be a back door to a credentialed,
-        // non-http(s), or over-long URL that validateFetchUrl would reject. A
-        // rejection here must still cancel the body first (see below).
+        // Re-validate the target against the same transport hygiene a direct request gets: a
+        // redirect must not be a back door to a credentialed, non-http(s), or over-long URL
+        // that validateFetchUrl would reject.
         let validatedTarget: URL
         try {
           validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)

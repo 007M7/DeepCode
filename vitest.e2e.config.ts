@@ -1,18 +1,9 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Real-API end-to-end tests: `pnpm run test:e2e`, file pattern *.e2e.ts.
-// Separate from the default suite (`pnpm run test`, *.spec.ts) on purpose —
-// these hit the live DeepSeek API, spend tokens, and need a key.
-//
-// Secrets: tests gate themselves with
-// `describe.skipIf(!process.env.DEEPSEEK_API_KEY)`, so the suite passes
-// (all-skipped) without credentials. The keyless CI workflow relies on that;
-// the real-API workflow preflights the secret and fails loudly if it is absent.
-// Put the key in the environment or in a gitignored `.env` at the repo root:
-//
-//     DEEPSEEK_API_KEY=sk-…
-//     DEEPSEEK_BASE_URL=https://…   # optional, defaults to the public API
+// Real-API suite, separate because it spends tokens. Each test self-skips without
+// DEEPSEEK_API_KEY for keyless CI; the credentialed workflow preflights the secret. Values may come
+// from the environment or gitignored root `.env`, with optional DEEPSEEK_BASE_URL.
 try {
   // Node >= 21.7 native; throws when the file does not exist.
   process.loadEnvFile(new URL('.env', import.meta.url).pathname)

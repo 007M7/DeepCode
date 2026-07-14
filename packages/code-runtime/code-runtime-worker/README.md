@@ -29,11 +29,11 @@ Every field is validated (positive numbers) and defaulted; there are no other tu
 
 ## The worker entry, unbuilt and built
 
-`worker.ts` is deliberately erasable-only TypeScript with type-only cross-package imports: unbuilt (vitest/tsx), the host spawns `src/worker.ts` directly and Node's native type stripping loads it; built, the entry ships as the sibling CommonJS bundle `lib/worker.cjs` (its own tsdown entry). The CommonJS format is required because pkg's VFS Worker hook compiles filesystem-string entries as CommonJS. The host converts either entry URL to a filesystem string before constructing `Worker`, which works through both ordinary Node resolution and that pkg hook. The built path is pinned by `tests/built-lib.e2e.ts`, the real-load-path guard from [docs/testing.md](../../../docs/testing.md).
+Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. `tests/built-lib.e2e.ts` pins the real load path required by [docs/testing.md](../../../docs/testing.md).
 
 ## Model Experience
 
-Indirectly, through Code Mode in `dsh-tools`, which renders this worker's capped printed or returned data, exact `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes` and `… [truncated]` markers, and `Error: code run failed (<kind>): <message>` failures into a retained `run_code` result while keeping binding traffic and worker internals outside context.
+Indirectly, through Code Mode in [`dsh-tools`](../../core/tools/README.md), which renders this worker's capped printed or returned data and exact `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes` and `… [truncated]` markers into a retained `run_code` result. Binding traffic and worker internals stay outside context.
 
 ## Known Limitations and Deferred Work
 
