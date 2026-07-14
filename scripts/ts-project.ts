@@ -13,10 +13,10 @@ interface ProjectGraph {
 
 const configHost: ts.ParseConfigFileHost = {
   useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
-  readDirectory: ts.sys.readDirectory,
-  fileExists: ts.sys.fileExists,
-  readFile: ts.sys.readFile,
-  getCurrentDirectory: ts.sys.getCurrentDirectory,
+  readDirectory: (...args) => ts.sys.readDirectory(...args),
+  fileExists: fileName => ts.sys.fileExists(fileName),
+  readFile: fileName => ts.sys.readFile(fileName),
+  getCurrentDirectory: () => ts.sys.getCurrentDirectory(),
   onUnRecoverableConfigFileDiagnostic(diagnostic) {
     throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
   },

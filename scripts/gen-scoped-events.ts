@@ -175,7 +175,7 @@ class ScopedEventGenerator {
           })
         }
       }
-      ts.forEachChild(node, child => { visit(sourceFile, child) })
+      ts.forEachChild(node, (child) => { visit(sourceFile, child) })
     }
     for (const sourceFile of this.packageSources) visit(sourceFile, sourceFile)
     return contracts
@@ -264,7 +264,7 @@ class ScopedEventGenerator {
     scopedBase: ts.Type,
     contracts: readonly ScopeTargetContract[],
   ): ts.Type | undefined {
-    const matches = contracts.filter(contract => {
+    const matches = contracts.filter((contract) => {
       return this.checker.isTypeAssignableTo(this.normalizedType(contract.baseType), this.normalizedType(scopedBase))
     })
     if (matches.length === 0) {
