@@ -1719,6 +1719,9 @@ importers:
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../packages/fs/fs-policy
+      '@deepseek-ai/dsh-home':
+        specifier: workspace:^
+        version: link:../../packages/util/home
       '@deepseek-ai/dsh-hook-protocol':
         specifier: workspace:^
         version: link:../../packages/hooks/hook-protocol

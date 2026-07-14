@@ -23,6 +23,7 @@
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",
+    "@deepseek-ai/dsh-home": "workspace:^",
     "@deepseek-ai/dsh-hook-protocol": "workspace:^",
     "@deepseek-ai/dsh-hooks-claude": "workspace:^",
     "@deepseek-ai/dsh-hooks-codex": "workspace:^",
