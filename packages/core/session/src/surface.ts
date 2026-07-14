@@ -193,18 +193,19 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 export class SurfaceManager {
   /** Incremental state shared with the complete surface fold. */
   private _state = createFoldState()
-  /** The last processed seq. -1 forces the initial full fold. */
+  /** The last processed seq. -1 folds the seeded log on first access. */
   private _lastProcessedSeq = -1
 
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
-   * The surface's rewrite generation, bumped by every folded `replace` op. A
-   * replace is the ONE operation that rewrites the surface non-monotonically,
-   * so an incremental consumer of {@link nodes} (the session's derived-message
-   * cache) compares this between visits — an unchanged generation guarantees
-   * every unseen node is a pure tail append; a changed one means its view must
-   * rebuild.
+   * The surface's rewrite generation, bumped by every folded `replace` op.
+   * A replace is the ONE operation that rewrites the
+   * surface non-monotonically, so an incremental consumer of {@link nodes}
+   * (the session's derived-message cache) compares this between visits — an
+   * unchanged generation guarantees every node it has not seen is a pure tail
+   * append; a changed one means its view must rebuild. Monotonic: it never
+   * moves backwards, so comparisons cannot be fooled by a re-fold.
    */
   get replaceGeneration(): number {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
