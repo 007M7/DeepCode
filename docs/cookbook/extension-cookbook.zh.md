@@ -2,15 +2,17 @@
 
 [English](extension-cookbook.md) | 中文
 
-针对 harness 扩展表面编写的三种插件形态，以示意性代码片段呈现（省略了 import 和辅助桩——不可直接复制运行）。完整的分步指南见[添加 package](./adding-a-package.md)、[添加工具](./adding-a-tool.md)和[添加 LLM（大语言模型）适配器](./adding-an-llm-adapter.md)；这些插件所挂接的 seam 见 [docs/architecture.md](../architecture.md)。
+> FIXME：这篇重要指南尚未经过充分的人工设计审查；请在首次发布前完成审查。
+
+针对 harness 扩展表面编写的三种插件形态，以示意性代码片段呈现（省略了 import 和辅助桩——不可直接复制运行）。完整的分步指南见[添加包（package）](./adding-a-package.md)、[添加工具](./adding-a-tool.md)和[添加 LLM（大语言模型）适配器](./adding-an-llm-adapter.md)；这些插件所挂接的 seam 见 [docs/architecture.md](../architecture.md)。
 
 ## 工具插件
 
 工具在 `ctx.tools` 上注册。带注解的 `defineTool` 示例（类型化的 `execute` 参数、结果塑形、`run_in_background` 模式）见 [adding-a-tool.md](./adding-a-tool.md)——该指南是工具形态的真源。`ctx.tools.register()` 也直接接受原始 JSON-Schema `ToolDefinition`（MCP 来源的工具就是这样到达的）；`defineTool` 是为第一方工具提供的类型化语法糖。
 
-## 钩子插件（权限门禁）
+## 钩子插件（以权限门禁为例）
 
-钩子从 `tools/pre-execute` 门禁返回一个类型化的决策，用于允许或拒绝一次调用——这是沙箱、权限和 plan-mode 插件所在的 seam。（所谓"原生钩子"就是这样：一个挂在拦截 seam 上、返回类型化决策的普通 Cordis 插件，无需外部协议。）
+这个权限门禁是钩子插件的一个示例。它从 `tools/pre-execute` 门禁返回一个类型化的决策，用于允许或拒绝一次调用；沙箱、权限和 plan-mode 插件都可以使用该 seam。钩子插件也可以拦截其他 seam，本身并不等同于权限门禁。「原生钩子」是在拦截 seam 上运行的普通 Cordis 插件，不需要外部协议。
 
 ```ts
 import type { Context } from 'cordis'
@@ -85,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-三个完整示例从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具——全 mock 骨架检查，`pnpm run demo:echo`）、[`examples/coding-agent`](../../examples/coding-agent)（DeepSeek V4 + bash 工具套件，配合终端 REPL UI，`pnpm run demo:repl`）、[`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露为 ACP 服务器的 agent——客户端驱动形态，`pnpm run demo:acp`）。每个叶子只是其可替换后端加一个 app-package 入口：stdio 演示加载 [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent)，ACP 演示加载 [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent)，两个 app package 通过 [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle 共享主干。
+三个完整示例从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具——全 mock 骨架检查，`pnpm run demo:echo`）、[`examples/coding-agent`](../../examples/coding-agent)（DeepSeek V4 + bash 工具套件，配合终端 REPL UI，`pnpm run demo:repl`）、[`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露为 ACP 服务器的 agent——客户端驱动形态，`pnpm run demo:acp`）。每个叶子只是其可替换后端加一个 app 包入口：stdio 演示加载 [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent)，ACP 演示加载 [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent)，两个 app 包通过 [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle 共享主干。
 
 ## 功能→机制映射
 
