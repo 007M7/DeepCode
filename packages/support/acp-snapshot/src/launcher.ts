@@ -65,7 +65,7 @@ export interface LaunchedAcpTestAgent {
   stderr(): string
   /** Resolve when a future session update matches the predicate. */
   waitForUpdate(match: (update: SessionNotification['update']) => boolean): Promise<SessionNotification['update']>
-  /** Gracefully close stdin, or send a signal, then wait for process exit, inherited stdio closure, and ACP parser drain. */
+  /** Gracefully close stdin, or send a signal, then wait for process exit, inherited stdio closure, ACP parsing, and client callbacks. */
   close(signal?: NodeJS.Signals): Promise<void>
 }
 
@@ -137,29 +137,39 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
   )
+  const inFlightClientCallbacks = new Set<Promise<unknown>>()
+  const trackClientCallback = <T>(callback: () => T | PromiseLike<T>): Promise<T> => {
+    const pending = Promise.resolve().then(callback)
+    inFlightClientCallbacks.add(pending)
+    const untrack = (): void => { inFlightClientCallbacks.delete(pending) }
+    void pending.then(untrack, untrack)
+    return pending
+  }
+  const requestPermission = options.requestPermission
+    ?? (() => Promise.resolve({ outcome: { outcome: 'cancelled' as const } }))
   const makeClient = (_agent: AcpAgent): Client => ({
     sessionUpdate(params: SessionNotification): Promise<void> {
-      updates.push(params.update)
-      for (let index = updateWaiters.length - 1; index >= 0; index--) {
-        const waiter = updateWaiters[index]
-        /* v8 ignore next 1 -- index is bounded by the array length */
-        if (waiter === undefined) continue
-        let matches: boolean
-        try {
-          matches = waiter.match(params.update)
-        } catch (error: unknown) {
+      return trackClientCallback(() => {
+        updates.push(params.update)
+        for (let index = updateWaiters.length - 1; index >= 0; index--) {
+          const waiter = updateWaiters[index]
+          /* v8 ignore next 1 -- index is bounded by the array length */
+          if (waiter === undefined) continue
+          let matches: boolean
+          try {
+            matches = waiter.match(params.update)
+          } catch (error: unknown) {
+            updateWaiters.splice(index, 1)
+            waiter.reject(error)
+            continue
+          }
+          if (!matches) continue
           updateWaiters.splice(index, 1)
-          waiter.reject(error)
-          continue
+          waiter.resolve(params.update)
         }
-        if (!matches) continue
-        updateWaiters.splice(index, 1)
-        waiter.resolve(params.update)
-      }
-      return Promise.resolve()
+      })
     },
-    requestPermission: options.requestPermission
-      ?? (() => Promise.resolve({ outcome: { outcome: 'cancelled' } })),
+    requestPermission: params => trackClientCallback(() => requestPermission(params)),
   })
   const client = new ClientSideConnection(makeClient, stream)
   // `exit` only reports the parent process's status. Descendants may retain
@@ -168,7 +178,14 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   // `closed` follows parser exhaustion. Capture both eagerly so a caller that
   // invokes close after process exit still joins the complete drain boundary.
   const stdioClosed = new Promise<void>(resolve => child.once('close', () => { resolve() }))
-  const drained = Promise.all([stdioClosed, client.closed]).then(() => undefined)
+  const drained = Promise.all([stdioClosed, client.closed]).then(async () => {
+    // The ACP SDK's readable loop dispatches client callbacks without awaiting
+    // them. Once `closed` settles no new callbacks can start, but callbacks
+    // already in flight still belong to this launch's teardown boundary.
+    while (inFlightClientCallbacks.size > 0) {
+      await Promise.allSettled([...inFlightClientCallbacks])
+    }
+  })
   // A caller may await a pending update without calling close(). Make natural
   // stream exhaustion terminal for those waiters too, but only after the
   // parser has dispatched every buffered frame.
