@@ -2,6 +2,12 @@
   "requiredSince": "2026-07-14",
   "required": [
     "README.md",
+    "docs/cookbook/adding-a-package.md",
+    "docs/cookbook/adding-a-tool.md",
+    "docs/cookbook/adding-a-vendored-package.md",
+    "docs/cookbook/adding-an-llm-adapter.md",
+    "docs/cookbook/extension-cookbook.md",
+    "docs/cookbook/responding-to-pr-review-on-a-stack.md",
     "docs/development.md",
     "docs/i18n/README.md",
     "docs/i18n/translation-rules.md",

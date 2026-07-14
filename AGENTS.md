@@ -18,6 +18,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
+  context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
@@ -34,7 +35,7 @@ docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see 
 scripts/     repo gates and generators
 ```
 
-Per-package map: the group READMEs, indexed from [packages/README.md](packages/README.md).
+Package groups: [packages/README.md](packages/README.md).
 
 ## Commands
 
