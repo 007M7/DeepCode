@@ -520,7 +520,8 @@ describe('surface contract under the invariants composition', () => {
   })
 
   it('accepts sourceEventSeqs referencing a valid earlier event', async () => {
-    // Positive test: ref < current seq and ref is in knownSeqs → passes.
+    // Session seqs are contiguous, so every non-negative ref below the current
+    // seq necessarily names an existing earlier event.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -538,31 +539,6 @@ describe('surface contract under the invariants composition', () => {
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [99] })
     }).toThrow(/must reference earlier/)
-  })
-
-  it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
-    // The unknown-seq check fires when a ref passes the "earlier" test but is
-    // not in the folded log — only possible with a gap in seqs. We create a gap by
-    // directly manipulating the private log array to skip a seq.
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('step/start', { turn: 1, step: 1 })
-    // Push a fake event at seq 3 into the internal log, creating a gap at seq 2.
-    // The canonical surface validator folds the committed delta before checking
-    // the next append, so it sees this gap.
-    ;(session as unknown as { log: unknown[] }).log.push({
-      type: 'assistant/chunk',
-      seq: 3,
-      time: Date.now(),
-      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
-    })
-    // Now the log has seqs 0, 1, 3 (gap at 2). Append at what session believes
-    // is seq 3 (log.length). Reference seq 2: passes earlier (2 < 3) but not
-    // in knownSeqs ({0, 1, 3} — gap at 2).
-    expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
-    }).toThrow(/unknown seq 2/)
   })
 
   it('rejects a replace whose start is positioned after its end on the surface', async () => {

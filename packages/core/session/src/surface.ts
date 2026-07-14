@@ -85,7 +85,6 @@ export interface SurfaceFoldResult {
 interface SurfaceFoldState {
   nodes: SurfaceNode[]
   nodeBySeq: Map<number, SurfaceNode>
-  knownSeqs: Set<number>
   replaceGeneration: number
 }
 
@@ -106,7 +105,6 @@ function createFoldState(replaceGeneration = 0): SurfaceFoldState {
   return {
     nodes: [],
     nodeBySeq: new Map(),
-    knownSeqs: new Set(),
     replaceGeneration,
   }
 }
@@ -163,7 +161,6 @@ function surfaceEventOf(event: SessionEvent): SurfaceEvent | undefined {
 /** Validate provenance against prior log entries and the replacement range. */
 function assertProvenance(
   event: SurfaceEvent,
-  knownSeqs: ReadonlySet<number>,
   shadowedSeqs: readonly number[],
 ): void {
   const sources = event.sourceEventSeqs
@@ -177,9 +174,6 @@ function assertProvenance(
   for (const source of sources ?? []) {
     if (source >= event.seq) {
       throw new Error(`sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`)
-    }
-    if (!knownSeqs.has(source)) {
-      throw new Error(`sourceEventSeqs references unknown seq ${source}`)
     }
   }
   const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
@@ -213,16 +207,23 @@ function replacementRange(
   }
 }
 
-/** Validate one event and prepare its atomic fold transition. */
-function planSurfaceEvent(state: SurfaceFoldState, event: SessionEvent): SurfacePlan | undefined {
+/** Validate one event at its replay boundary and prepare its atomic fold transition. */
+function planSurfaceEvent(
+  state: SurfaceFoldState,
+  event: SessionEvent,
+  expectedSeq: number,
+): SurfacePlan | undefined {
+  if (event.seq !== expectedSeq) {
+    throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
+  }
   const surfaceEvent = surfaceEventOf(event)
   if (surfaceEvent === undefined) return
   if (surfaceEvent.surfaceOp === 'append') {
-    assertProvenance(surfaceEvent, state.knownSeqs, [])
+    assertProvenance(surfaceEvent, [])
     return { kind: 'append', seq: event.seq }
   }
   const range = replacementRange(state, surfaceEvent.surfaceOp)
-  assertProvenance(surfaceEvent, state.knownSeqs, range.shadowedSeqs)
+  assertProvenance(surfaceEvent, range.shadowedSeqs)
   return {
     kind: 'replace',
     seq: event.seq,
@@ -257,8 +258,9 @@ function replaceSurface(state: SurfaceFoldState, plan: SurfaceReplacePlan): void
 function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
+  expectedSeq: number,
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event)
+  const plan = planSurfaceEvent(state, event, expectedSeq)
   if (plan?.kind === 'append') {
     const tail = state.nodes.at(-1)
     const node: SurfaceNode = { seq: plan.seq, prev: tail?.seq ?? null, next: null }
@@ -268,7 +270,6 @@ function applySurfaceEvent(
   } else if (plan?.kind === 'replace') {
     replaceSurface(state, plan)
   }
-  state.knownSeqs.add(event.seq)
   if (plan?.kind !== 'replace') return
   return {
     seq: plan.seq,
@@ -287,14 +288,15 @@ function applySurfaceEvent(
  * @param events - session events in contiguous seq order.
  * @returns the current surface and every positional replacement.
  * @throws when any event violates the unified surface contract: metadata must
- * be well shaped and type-eligible, provenance must name unique known earlier
- * events, and a positional replacement must name and cite its complete range.
+ * be well shaped and type-eligible, event seqs must be contiguous, provenance
+ * must name unique earlier events, and a positional replacement must name and
+ * cite its complete range.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
   const replacements: SurfaceFoldReplacement[] = []
-  for (const event of events) {
-    const replacement = applySurfaceEvent(state, event)
+  for (const [index, event] of events.entries()) {
+    const replacement = applySurfaceEvent(state, event, index)
     if (replacement !== undefined) replacements.push(replacement)
   }
   return {
@@ -326,7 +328,7 @@ export class SurfaceManager {
    */
   validateNext(event: SessionEvent): void {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
-    planSurfaceEvent(this._state, event)
+    planSurfaceEvent(this._state, event, this.log.length)
   }
 
   /**
@@ -370,7 +372,7 @@ export class SurfaceManager {
       // Index is bounded by i < this.log.length — never undefined.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const event = this.log[i]!
-      applySurfaceEvent(this._state, event)
+      applySurfaceEvent(this._state, event, i)
       this._lastProcessedSeq = i
     }
   }

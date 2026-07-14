@@ -328,7 +328,7 @@ export class Session {
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
    *   Map/Set/Date/class instance), or when the candidate violates the
-   *   canonical surface contract (marker shape and eligibility, unique known
+   *   canonical surface contract (marker shape and eligibility, unique
    *   earlier provenance, positional replacement validity, and complete
    *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value

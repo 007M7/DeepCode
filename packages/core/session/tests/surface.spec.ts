@@ -62,7 +62,7 @@ describe('foldSurface provenance', () => {
     ['a fractional number', [provenanceEvent(0, [0.5])], /non-negative safe integers/],
     ['a negative number', [provenanceEvent(0, [-1])], /non-negative safe integers/],
     ['a self reference', [provenanceEvent(0, [0])], /must reference earlier events/],
-    ['an unknown earlier seq', [provenanceEvent(0, undefined), provenanceEvent(2, [1])], /references unknown seq 1/],
+    ['a non-contiguous event seq', [provenanceEvent(0, undefined), provenanceEvent(2, [1])], /seq 2 is not contiguous; expected 1/],
     ['incomplete replacement coverage', [
       provenanceEvent(0, undefined),
       provenanceEvent(1, undefined),
