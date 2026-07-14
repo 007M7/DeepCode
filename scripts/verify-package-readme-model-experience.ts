@@ -12,14 +12,13 @@
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { markdownProseLines, type MarkdownProseLine } from './markdown.ts'
+import { markdownHeadingLines, markdownProseLines, type MarkdownProseLine } from './markdown.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
 const MODEL_VIEW_LABEL = '**What the model sees**'
 const TOKEN_EFFECT_LABEL = '**Token effect**'
-const H2_HEADING = /^## .+$/
 
 type SentenceKind = 'none' | 'indirect'
 
@@ -195,27 +194,40 @@ for (const packageJson of packageJsons) {
   const text = readFileSync(abs, 'utf8')
   const rawLines = text.split('\n')
   const lines = markdownProseLines(text)
-  const h2Headings = lines.filter(line => H2_HEADING.test(line.raw))
-  const modelHeadings = h2Headings.filter(line => line.raw === HEADING)
+  const headings = markdownHeadingLines(text)
+  const h2Headings = headings.filter(heading => heading.depth === 2)
+  const modelExperienceHeadings = headings.filter(heading => heading.text
+    .trim().replaceAll(/\s+/g, ' ').toLowerCase() === 'model experience')
+  const modelHeadings = modelExperienceHeadings.filter(heading => heading.depth === 2 && heading.raw === HEADING)
   if (NO_MODEL_EXPERIENCE_SECTION[pkg] !== undefined) {
-    if (modelHeadings.length !== 0) {
-      failures.push({ path: readme, message: `audited model-agnostic package must omit ${HEADING}` })
+    if (modelExperienceHeadings.length !== 0) {
+      for (const heading of modelExperienceHeadings) {
+        failures.push({ path: readme, message: `line ${heading.index}: audited model-agnostic package must omit every Model Experience heading; found ${JSON.stringify(heading.raw)}` })
+      }
     } else {
       omittedSectionCount += 1
     }
     continue
   }
-  if (modelHeadings.length !== 1) {
+  const nonCanonicalModelHeading = modelExperienceHeadings.find(heading => heading.depth !== 2 || heading.raw !== HEADING)
+  if (nonCanonicalModelHeading !== undefined) {
+    failures.push({ path: readme, message: `line ${nonCanonicalModelHeading.index}: non-canonical Model Experience heading ${JSON.stringify(nonCanonicalModelHeading.raw)}; use exactly ${JSON.stringify(HEADING)}` })
+    continue
+  }
+  const modelHeading = modelHeadings.at(0)
+  if (modelHeading === undefined) {
     failures.push({
       path: readme,
-      message: modelHeadings.length === 0 ? `missing ${HEADING}` : `contains ${modelHeadings.length} copies of ${HEADING}`,
+      message: `missing ${HEADING}`,
     })
     continue
   }
-
-  const modelHeading = modelHeadings[0] as Line
+  if (modelHeadings.length !== 1) {
+    failures.push({ path: readme, message: `contains ${modelHeadings.length} copies of ${HEADING}` })
+    continue
+  }
   const modelH2Index = h2Headings.indexOf(modelHeading)
-  const limitationsH2Index = h2Headings.findIndex(heading => heading.raw === LIMITATIONS_HEADING)
+  const limitationsH2Index = h2Headings.findIndex(heading => heading.depth === 2 && heading.raw === LIMITATIONS_HEADING)
   if (limitationsH2Index >= 0) {
     if (modelH2Index !== h2Headings.length - 2 || limitationsH2Index !== h2Headings.length - 1) {
       failures.push({
@@ -229,8 +241,10 @@ for (const packageJson of packageJsons) {
     continue
   }
 
-  const body = lines.slice(lines.indexOf(modelHeading) + 1)
-  const nextH2 = body.findIndex(line => H2_HEADING.test(line.raw))
+  const modelHeadingAt = lines.findIndex(line => line.index === modelHeading.index)
+  const body = lines.slice(modelHeadingAt + 1)
+  const h2Lines = new Set(h2Headings.map(heading => heading.index))
+  const nextH2 = body.findIndex(line => h2Lines.has(line.index))
   const section = nextH2 < 0 ? body : body.slice(0, nextH2)
   const nextH2Line = nextH2 < 0 ? rawLines.length + 1 : (body[nextH2] as Line).index
   const rawSection = rawLines.slice(modelHeading.index, nextH2Line - 1)

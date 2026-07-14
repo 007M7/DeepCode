@@ -16,7 +16,7 @@
  *
  * The package set comes from `packages/<group>/<package>/package.json`, so a manifest with no
  * sibling README fails instead of escaping a README-only glob. Checks, per
- * package README (fenced code excluded):
+ * package README (fenced code and HTML comments excluded):
  * 1. Non-whitelisted: exactly one limitations-like heading, byte-equal to the
  *    canonical h2, with at least one top-level `- ` bullet before the next
  *    heading.
@@ -34,7 +34,7 @@
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { markdownProseLines } from './markdown.ts'
+import { markdownHeadingLines, markdownProseLines } from './markdown.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -61,8 +61,6 @@ function isLimitationsLike(headingText: string): boolean {
   )
 }
 
-const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+/
-
 const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 const failures: string[] = []
@@ -82,9 +80,10 @@ for (const pkg of scannedPackages) {
     failures.push(`${readme}: package manifest has no sibling README with the \`${CANONICAL}\` section`)
     continue
   }
-  const lines = markdownProseLines(readFileSync(resolve(root, readme), 'utf8'))
-  const headings = lines.filter(line => ATX_HEADING.test(line.raw))
-  const limitations = headings.filter(line => isLimitationsLike(line.raw.replace(ATX_HEADING, '')))
+  const source = readFileSync(resolve(root, readme), 'utf8')
+  const lines = markdownProseLines(source)
+  const headings = markdownHeadingLines(source)
+  const limitations = headings.filter(heading => isLimitationsLike(heading.text))
 
   if (Object.hasOwn(NO_LIMITATIONS, pkg)) {
     for (const heading of limitations) {
@@ -102,13 +101,14 @@ for (const pkg of scannedPackages) {
     failures.push(`${readme}: ${limitations.length} limitations-like headings (lines ${limitations.map(line => line.index).join(', ')}) — keep exactly one \`${CANONICAL}\` section`)
     continue
   }
-  if (heading.raw.trimEnd() !== CANONICAL) {
+  if (heading.depth !== 2 || heading.raw.trimEnd() !== CANONICAL) {
     failures.push(`${readme}:${heading.index}: non-canonical heading ${JSON.stringify(heading.raw)} — use \`${CANONICAL}\``)
     continue
   }
-  const headingAt = lines.indexOf(heading)
+  const headingAt = lines.findIndex(line => line.index === heading.index)
   const body = lines.slice(headingAt + 1)
-  const end = body.findIndex(line => ATX_HEADING.test(line.raw))
+  const headingLines = new Set(headings.map(entry => entry.index))
+  const end = body.findIndex(line => headingLines.has(line.index))
   const section = end === -1 ? body : body.slice(0, end)
   if (!section.some(line => /^- /.test(line.raw))) {
     failures.push(`${readme}:${heading.index}: the \`${CANONICAL}\` section has no top-level \`- \` bullet — state the limitations, or whitelist the package if there are genuinely none`)
