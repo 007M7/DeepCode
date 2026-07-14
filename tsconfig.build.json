@@ -14,6 +14,7 @@
     { "path": "./packages/util/timeout" },
     { "path": "./packages/llm/llm" },
     { "path": "./packages/core/session" },
+    { "path": "./packages/core/scope" },
     { "path": "./packages/session-persistence/session-persistence" },
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },

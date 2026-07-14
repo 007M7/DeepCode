@@ -54,11 +54,11 @@ export interface TypeApiEntry {
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'agentLoop',
-    summary: 'The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`.',
+    summary: 'Concrete ReactLoopAgent factory and driver service.',
     methods: [
       'create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
-      'createAgent(options: CreateAgentOptions): AgentHandle',
-      'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
+      'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
+      'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
   },
   {
@@ -66,9 +66,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
     methods: [
       'setFactory(factory: AgentFactory): () => void',
-      'create(options: CreateAgentOptions): AgentHandle',
+      'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
       'register(agent: Agent): () => void',
+      'enter(agent: Agent): () => void',
+      'announce(agent: Agent): void',
       'get(id: AgentId): Agent | undefined',
       'list(): Agent[]',
     ],
@@ -157,6 +159,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
       'enter(session: Session): () => void',
       'announce(session: Session): void',
+      'async flush(session: Session): Promise<void>',
       'get(id: SessionId): Session | undefined',
       'list(): Session[]',
       'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
@@ -174,12 +177,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.',
+    summary: 'Named provider registry and capability-checked start surface.',
     methods: [
       'registerProvider(provider: SubagentProvider): () => void',
       'getProvider(name: string): SubagentProvider | undefined',
       'list(): string[]',
-      'start(name: string, request: SubagentStartRequest): SubagentRun',
+      'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
     ],
   },
   {
@@ -187,19 +190,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.',
     methods: [
       'section(section: PromptSection): () => void',
-      'tools(provider: () => ToolSchema[]): () => void',
+      'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
       'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void',
       'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
     ],
   },
   {
     key: 'tools',
-    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline.',
+    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.',
     methods: [
       'register(definition: ToolDefinition): () => void',
-      'get(name: string): ToolDefinition | undefined',
-      'schemas(): ToolSchema[]',
-      'async execute(exec: ToolExecution): Promise<ToolExecutionResult>',
+      'restrict(filter: ToolRestriction): () => void',
+      'guard(guard: ToolGuard): () => void',
+      'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
+      'schemas(scope?: ScopeKey): ToolSchema[]',
+      'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
     ],
   },
   {
@@ -234,79 +239,85 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/created',
     mode: 'emit',
-    signature: '\'agent/created\'(agent: Agent): void',
-    summary: 'An agent was registered in the AgentRegistry and is ready to receive messages.',
+    signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
+    summary: 'An agent\'s fully composed scoped world was published in the AgentRegistry.',
   },
   {
     name: 'agent/disposed',
     mode: 'emit',
-    signature: '\'agent/disposed\'(agent: Agent): void',
-    summary: 'An agent was disposed and removed from the registry; its fiber and any in-flight turn have been torn down.',
+    signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
+    summary: 'An agent was removed from the registry.',
   },
   {
     name: 'agent/error',
     mode: 'emit',
-    signature: '\'agent/error\'(agent: Agent, turn: number, step: number, error: Error): void',
+    signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void',
     summary: 'A step or turn errored.',
   },
   {
     name: 'agent/pre-step',
     mode: 'serial',
-    signature: '\'agent/pre-step\'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
     summary: 'Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step\'s `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`.',
   },
   {
     name: 'agent/prompt-submit',
     mode: 'waterfall',
-    signature: '\'agent/prompt-submit\'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
+    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
     summary: 'Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it.',
   },
   {
     name: 'agent/queued',
     mode: 'emit',
-    signature: '\'agent/queued\'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void',
+    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void',
     summary: 'A message entered the agent\'s inbox (queued or steering).',
   },
   {
     name: 'agent/request',
     mode: 'waterfall',
-    signature: '\'agent/request\'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
+    signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
     summary: 'Waterfall: shape the step\'s call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use).',
   },
   {
     name: 'agent/session-prefix',
     mode: 'waterfall',
-    signature: '\'agent/session-prefix\'(agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
+    signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
     summary: 'Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider\'s system slot) on every request this loop instance sends.',
   },
   {
     name: 'agent/session-start',
     mode: 'emit',
-    signature: '\'agent/session-start\'(agent: Agent, source: SessionStartSource): void',
+    signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
     summary: 'The agent\'s session lifecycle began, fired once before its first turn.',
   },
   {
     name: 'agent/status',
     mode: 'emit',
-    signature: '\'agent/status\'(agent: Agent, status: AgentStatus): void',
+    signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
     summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
   },
   {
     name: 'agent/step-result',
     mode: 'waterfall',
-    signature: '\'agent/step-result\'(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>',
+    signature: '\'agent/step-result\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>',
     summary: 'Waterfall: post-process the assembled assistant Message before tool dispatch (validation, content rewriting, …).',
   },
   {
     name: 'agent/turn-continuation',
     mode: 'waterfall',
-    signature: '\'agent/turn-continuation\'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
+    signature: '\'agent/turn-continuation\'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
     summary: 'Waterfall: override the turn-continuation decision via a typed ContinuationDecision.',
+  },
+  {
+    name: 'agent/turn-stop',
+    mode: 'serial',
+    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
+    summary: 'Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded.',
   },
   {
     name: 'approval/request',
     mode: 'waterfall',
-    signature: '\'approval/request\'(this: ApprovalService, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
+    signature: '\'approval/request\'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
     summary: 'Waterfall asking the composed answerers to decide one approval request.',
   },
   {
@@ -336,19 +347,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'session/created',
     mode: 'emit',
-    signature: '\'session/created\'(session: Session): void',
+    signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
     summary: 'A session was created in the store.',
+  },
+  {
+    name: 'session/disposed',
+    mode: 'emit',
+    signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
+    summary: 'A previously announced session left the store.',
   },
   {
     name: 'session/event',
     mode: 'emit',
-    signature: '\'session/event\'(session: Session, event: SessionEvent): void',
+    signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
     summary: 'An event was appended to a session log (sync, fire-and-forget).',
   },
   {
     name: 'session/flush',
     mode: 'parallel',
-    signature: '\'session/flush\'(session: Session): Promise<void> | void',
+    signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
     summary: 'Awaited durability checkpoint.',
   },
   {
@@ -366,62 +383,68 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'subagent/end',
     mode: 'emit',
-    signature: '\'subagent/end\'(info: SubagentRunEndInfo): void',
-    summary: 'A subagent run settled — emitted when SubagentRun.result resolves (any stop reason).',
+    signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
+    summary: 'A ready child settled.',
   },
   {
     name: 'subagent/provider-added',
     mode: 'emit',
     signature: '\'subagent/provider-added\'(provider: SubagentProvider): void',
-    summary: 'A provider became resolvable in the SubagentService registry.',
+    summary: 'A provider became resolvable in the registry.',
   },
   {
     name: 'subagent/provider-removed',
     mode: 'emit',
     signature: '\'subagent/provider-removed\'(name: string): void',
-    summary: 'A provider left the registry (its plugin\'s fiber was disposed — an unload or an HMR reload).',
+    summary: 'A provider left the registry.',
   },
   {
     name: 'subagent/start',
     mode: 'emit',
-    signature: '\'subagent/start\'(info: SubagentRunInfo): void',
-    summary: 'A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins.',
+    signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
+    summary: 'A provider established a ready child.',
   },
   {
     name: 'system-prompt/assemble',
     mode: 'waterfall',
-    signature: '\'system-prompt/assemble\'(this: SystemPrompt, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
+    signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
     summary: 'Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered.',
   },
   {
     name: 'system-prompt/change',
     mode: 'emit',
     signature: '\'system-prompt/change\'(): void',
-    summary: 'A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed).',
+    summary: 'A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed — possibly for one scope only).',
   },
   {
     name: 'tools/change',
     mode: 'emit',
     signature: '\'tools/change\'(): void',
-    summary: 'A tool was registered or unregistered (the available tool set changed).',
+    summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
   },
   {
     name: 'tools/execute',
     mode: 'waterfall',
-    signature: '\'tools/execute\'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
+    signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
     summary: 'Around-dispatch waterfall wrapping the registry\'s core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam.',
   },
   {
     name: 'tools/post-execute',
     mode: 'waterfall',
-    signature: '\'tools/post-execute\'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
+    signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
     summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
-    signature: '\'tools/pre-execute\'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
+    signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
     summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+  },
+  {
+    name: 'tools/result',
+    mode: 'emit',
+    signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined',
+    summary: 'Synchronous notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
   },
   {
     name: 'workflow/agent-end',
@@ -433,7 +456,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
-    summary: 'One `agent()` call started a child run.',
+    summary: 'One `agent()` call established a ready child run.',
   },
   {
     name: 'workflow/end',
@@ -465,11 +488,11 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: SendOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: SendOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentFactory',
-    declaration: 'export interface AgentFactory {\n    createAgent(options: CreateAgentOptions): AgentHandle;\n    resume(options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
+    declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
   {
     name: 'AgentHandle',
@@ -493,7 +516,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ApprovalRequest',
-    declaration: 'export interface ApprovalRequest {\n    agent: Agent;\n    toolName: string;\n    callId?: CallId;\n    reason?: string;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface ApprovalRequest {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -517,7 +540,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AssembleContext',
-    declaration: 'export interface AssembleContext {\n}',
+    declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n}',
   },
   {
     name: 'AssembledSection',
@@ -621,11 +644,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    agentId: AgentId;\n    sessionId: SessionId;\n    meta?: {\n        cwd?: string;\n        parentSession?: SessionId;\n        seedLength?: number;\n    };\n    seed?: SessionEvent[];\n    agentOptions?: AgentOptions;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly agentId: AgentId;\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    seed?: SessionEvent[];\n    meta?: {\n        cwd?: string;\n        parentSession?: SessionId;\n        createdAt?: number;\n        seedLength?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n    };\n}',
   },
   {
     name: 'DiffCallView',
@@ -725,7 +748,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptSection',
-    declaration: 'export interface PromptSection {\n    name: string;\n    order: number;\n    text: string | ((context: AssembleContext) => string);\n}',
+    declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
   {
     name: 'ReasoningBlock',
@@ -733,7 +756,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResumeAgentOptions',
-    declaration: 'export interface ResumeAgentOptions {\n    agentId: AgentId;\n    resumeSessionId: SessionId;\n    agentOptions?: AgentOptions;\n}',
+    declaration: 'export interface ResumeAgentOptions {\n    readonly agentId: AgentId;\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -746,6 +769,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SandboxPolicy',
     declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
+  },
+  {
+    name: 'ScopeKey',
+    declaration: 'export type ScopeKey = object;',
   },
   {
     name: 'SendOptions',
@@ -769,7 +796,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    version: number;\n    id: SessionId;\n    createdAt: number;\n    cwd?: string;\n    parentSession?: SessionId;\n    seedLength?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n}',
   },
   {
     name: 'SessionId',
@@ -777,27 +804,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillCandidate',
-    declaration: 'export interface SkillCandidate extends SkillSummary {\n    rank: number;\n    locator: unknown;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+    declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'SkillDefinition',
-    declaration: 'export interface SkillDefinition extends SkillSummary {\n    content: string;\n    path?: string;\n    metadata?: Record<string, unknown>;\n}',
+    declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'SkillLookupOptions',
-    declaration: 'export interface SkillLookupOptions {\n    cwd?: string | undefined;\n    signal?: AbortSignal | undefined;\n}',
+    declaration: 'export interface SkillLookupOptions {\n    readonly cwd?: string | undefined;\n    readonly signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SkillProvider',
-    declaration: 'export interface SkillProvider {\n    name: string;\n    list(options: SkillLookupOptions): Promise<SkillCandidate[]>;\n    get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>;\n}',
+    declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
   },
   {
     name: 'SkillRegistration',
-    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    provider?: string;\n};',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    readonly provider?: string;\n};',
   },
   {
     name: 'SkillResourceBase',
-    declaration: 'export type SkillResourceBase = {\n    kind: \'directory\';\n    path: string;\n} | {\n    kind: \'url\';\n    url: string;\n} | {\n    kind: \'opaque\';\n    description: string;\n};',
+    declaration: 'export type SkillResourceBase = {\n    readonly kind: \'directory\';\n    readonly path: string;\n} | {\n    readonly kind: \'url\';\n    readonly url: string;\n} | {\n    readonly kind: \'opaque\';\n    readonly description: string;\n};',
   },
   {
     name: 'SkillSource',
@@ -805,7 +832,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    disableModelInvocation?: boolean;\n    source: SkillSource;\n    provider: string;\n    resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly disableModelInvocation?: boolean;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'StreamChunk',
@@ -829,23 +856,23 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentCapabilities',
-    declaration: 'export interface SubagentCapabilities {\n    outputSchema: boolean;\n    depthLimit: boolean;\n    toolFilter: boolean;\n}',
+    declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
   {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): SubagentRun;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): Promise<SubagentRun>;\n}',
   },
   {
     name: 'SubagentResult',
-    declaration: 'export interface SubagentResult {\n    output: ContentBlock[];\n    structured?: unknown;\n    stopReason: SubagentStopReason;\n}',
+    declaration: 'export interface SubagentResult {\n    readonly output: ContentBlock[];\n    readonly structured?: unknown;\n    readonly stopReason: SubagentStopReason;\n}',
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: AgentId;\n    readonly result: Promise<SubagentResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): SubagentRun;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: AgentId;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    prompt: ContentBlock[];\n    parent: Agent;\n    signal?: AbortSignal;\n    agentOptions?: AgentOptions;\n    outputSchema?: StructuredOutputSchema;\n    maxDepth?: number;\n    toolFilter?: {\n        allow?: string[];\n        deny?: string[];\n    };\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: StructuredOutputSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -905,11 +932,31 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecution',
-    declaration: 'export interface ToolExecution {\n    callId: CallId;\n    name: string;\n    arguments: unknown;\n    agent?: Agent;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+  },
+  {
+    name: 'ToolExecutionInput',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionResult',
     declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+  },
+  {
+    name: 'ToolExecutionToken',
+    declaration: 'export type ToolExecutionToken = symbol & {\n    readonly [toolExecutionTokenBrand]: true;\n};',
+  },
+  {
+    name: 'ToolGuard',
+    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+  },
+  {
+    name: 'ToolProviderResult',
+    declaration: 'export interface ToolProviderResult {\n    readonly schemas: readonly ToolSchema[];\n    readonly knownNames?: readonly string[];\n}',
+  },
+  {
+    name: 'ToolRestriction',
+    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n}',
   },
   {
     name: 'ToolResult',

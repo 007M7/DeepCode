@@ -67,7 +67,7 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 ## CI 门禁
 
-无密钥 GitHub 工作流共有八个任务：五条 Node 24 车道分别运行静态门禁、lint、覆盖率、快照回放与产物门禁；三个兼容性任务在 Node 22.19、24 和 26 上运行 `pnpm run check:node-compat`。车道调度器从 `package.json` 展开相互独立的门禁：constraints、typecheck、lint、覆盖率、快照回放、`doc-sync` 各成员、module-graph 新鲜度、`knip`，以及 echo-agent 冒烟测试。
+无密钥 GitHub 工作流共有八个任务：五条 Node 24 车道分别运行静态门禁、lint、覆盖率、快照回放与产物门禁；三个兼容性任务在 Node 22.19、24 和 26 上运行 `pnpm run check:node-compat`。兼容性命令会在每个运行时上执行 TypeScript 类型检查，并运行无密钥的 workflow-workerthread 源码启动冒烟测试，因此该矩阵既证明源码图能通过类型检查，也实际执行了一条未构建的 Worker loader 路径。其余车道调度器从 `package.json` 展开相互独立的门禁并发运行：constraints、lint、覆盖率、快照回放、`doc-sync` 各成员、module-graph 新鲜度、`knip`，以及 echo-agent 冒烟测试。
 
 `pnpm run build` 供给产物车道；`publint`、`verify-node-next-types` 与 built-bin 冒烟测试等待构建产出。独立的真实 API 工作流使用密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=14`。
 

@@ -26,14 +26,13 @@ import type {
 
 const STOP_REASONS = ['completed', 'aborted', 'error', 'max-tokens', 'refusal'] as const
 
-const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true }
+const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
 
 /**
- * A scripted provider: every {@link start} returns a run whose `result`
- * resolves on a microtask with the configured reply (and a structured value
- * when the request asked for one and the capability is on). `dispose` is a
- * no-op; a `cancel()` before the result settles flips the stop reason to
- * `aborted`, so the cancellation path is observable in a test.
+ * A scripted provider: every {@link start} returns a ready run whose `result`
+ * resolves on the next task with the configured reply (and a structured value
+ * when the request asked for one and the capability is on). The required
+ * signal and `dispose()` both flip an unsettled result to `aborted`.
  */
 class MockSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities
@@ -47,12 +46,22 @@ class MockSubagentProvider implements SubagentProvider {
     this.inheritsParentContext = config.inheritsParentContext ?? false
   }
 
-  start(request: SubagentStartRequest): SubagentRun {
+  async start(request: SubagentStartRequest): Promise<SubagentRun> {
+    if (request.signal.aborted) throw new Error('mock subagent start aborted before publication')
     const reply = this.config.reply ?? 'mock subagent reply'
     const output: ContentBlock[] = [{ type: 'text', text: reply }]
     const wantsStructured = request.outputSchema !== undefined && this.capabilities.outputSchema
     const baseStop: SubagentStopReason = this.config.stopReason ?? 'completed'
-    let cancelled = false
+    const flags = { cancelled: false }
+    const onAbort = (): void => { flags.cancelled = true }
+    request.signal.addEventListener('abort', onAbort, { once: true })
+    // Make publication genuinely asynchronous so a same-turn abort is still
+    // a provider-owned startup failure rather than a returned live run.
+    await Promise.resolve()
+    if (flags.cancelled) {
+      request.signal.removeEventListener('abort', onAbort)
+      throw new Error('mock subagent start aborted before publication')
+    }
 
     // A deterministic child id derived from the parent — no clock/random (both
     // banned in deterministic paths here, and unnecessary for a scripted run).
@@ -60,18 +69,22 @@ class MockSubagentProvider implements SubagentProvider {
 
     const resultFor = (): SubagentResult => ({
       output,
-      structured: wantsStructured ? (this.config.structured ?? { reply }) : undefined,
-      stopReason: cancelled ? 'aborted' : baseStop,
+      ...wantsStructured ? { structured: this.config.structured ?? { reply } } : {},
+      stopReason: flags.cancelled ? 'aborted' : baseStop,
     })
 
+    const result = new Promise<SubagentResult>((resolve) => {
+      setTimeout(() => { resolve(resultFor()) }, 0)
+    }).finally(() => {
+      request.signal.removeEventListener('abort', onAbort)
+    })
     return {
       id,
-      result: Promise.resolve().then(resultFor),
-      cancel() {
-        cancelled = true
-      },
-      async dispose() {
-        // Scripted run holds no resources — nothing to await.
+      result,
+      dispose(): Promise<void> {
+        flags.cancelled = true
+        request.signal.removeEventListener('abort', onAbort)
+        return Promise.resolve()
       },
     }
   }
@@ -91,9 +104,11 @@ export interface Config {
   /** Which start-time capabilities to advertise (default: all `true`). */
   capabilities?: Partial<SubagentCapabilities>
   /**
-   * The context contract to declare ({@link SubagentProvider.inheritsParentContext});
-   * default `false` (spawn-like). Set `true` to exercise the fork-shaped tool
-   * wording in consumer tests.
+   * The conversation-history descriptor to declare
+   * ({@link SubagentProvider.inheritsParentContext}); default `false` (fresh
+   * conversation). Set `true` to exercise seeded/fork wording in consumer
+   * tests. This flag says nothing about tool, service, scope, or authority
+   * inheritance.
    */
   inheritsParentContext?: boolean
   /**
@@ -111,6 +126,7 @@ export const Config: z<Config> = z.object({
     outputSchema: z.boolean(),
     depthLimit: z.boolean(),
     toolFilter: z.boolean(),
+    persona: z.boolean(),
   }),
   inheritsParentContext: z.boolean(),
   structured: z.any(),

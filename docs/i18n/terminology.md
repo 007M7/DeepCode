@@ -58,6 +58,7 @@
 | skill | skill | skill（技能） | | |
 | spawn | spawn | | | |
 | steering | steering | steering（中途引导） | | |
+| task id | task id | | 任务 id | 保留英文 |
 | subagent | subagent | | | |
 | thinking | thinking | | | API 字段保留英文；描述模型模式时译为`思考` |
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
@@ -80,9 +81,11 @@
 | checkpoint | 检查点 | | | |
 | chunk | 分片 | | | |
 | compaction | 压缩 | 压缩（compaction） | | |
+| companion tool | 配套工具 | | | |
 | config | 配置 | | | |
 | consumer | 消费方 | | | |
 | content block | 内容块 | | | |
+| Cookbook | 实操手册 | | | 文档标题用语 |
 | context | 上下文 | | | |
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |

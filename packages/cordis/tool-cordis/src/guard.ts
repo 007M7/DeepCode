@@ -50,6 +50,7 @@
 
 import { Context } from 'cordis'
 import type { Plugin } from 'cordis'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecuteReturn } from '@deepseek-ai/dsh-tools'
 
@@ -252,15 +253,20 @@ const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setT
  * metadata (`schemas`, and `get` returning a schema view, never the live
  * `ToolDefinition`). Exposing the raw definition would hand mount code the
  * tool's `execute` function, letting it call another tool directly and bypass
- * `ToolRegistry.execute` — the pre/post-execute waterfall (permission gates,
- * accounting) and result normalization. So `get` returns the same
+ * `ToolRegistry.execute` — identity protection, pre-policy, monotonic guards,
+ * around dispatch, post-policy, final observation, and result normalization. So `get` returns the same
  * name/description/parameters view as `schemas()`, and nothing invocable.
  */
 function sandboxTools(ctx: Context): Record<string, unknown> {
+  // Reads resolve through the MOUNT's own scope (`scopeOf(ctx)`), mirroring
+  // where the façade's `register` lands its writes (the calling context's
+  // layer): mount code always sees the tools its own world sees — the global
+  // view for today's global mounts, its agent's view if a mount ever runs
+  // under an agent scope.
   return {
     register: (tool: unknown): (() => void) => sandboxRegisterTool(ctx, tool),
-    schemas: () => ctx.tools.schemas(),
-    get: (name: string) => ctx.tools.schemas().find(schema => schema.name === name),
+    schemas: () => ctx.tools.schemas(scopeOf(ctx)),
+    get: (name: string) => ctx.tools.schemas(scopeOf(ctx)).find(schema => schema.name === name),
   }
 }
 

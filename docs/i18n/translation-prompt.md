@@ -62,6 +62,9 @@ You are a senior technical translator specializing in LLM and agent development 
 - Do not use the same word to translate two different source-language terms that carry distinct meanings.
 - Avoid repeating the same verb in close proximity; vary word choice for readability.
 
+#### When translating into Chinese
+- When a number modifies a noun, always include a Chinese classifier or measure word (量词). For example: "three-package seam" → "由三个 package 构成的 seam", not "三 package seam".
+
 ### Punctuation
 
 #### When translating into Chinese

@@ -6,14 +6,15 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
+  const agent = { session: { header: { cwd } } } as unknown as Agent
   const empty: Message[] = []
-  return await ctx.waterfall(
-    'agent/session-prefix', { session: { header: { cwd } } } as never,
-    empty, new AbortController().signal, () => Promise.resolve(empty),
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, new AbortController().signal,
+    () => Promise.resolve(empty),
   )
 }
 

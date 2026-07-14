@@ -16,9 +16,11 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | Sub-page | Owns |
 |---|---|
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
+| [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
-| [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/pre-execute`/`tools/post-execute` pipeline |
+| [system-prompt.md](system-prompt.md) | per-assembly context, tool-provider results, prompt sections, and cooperative assembly |
+| [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, and the guarded execution pipeline |
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [approval.md](approval.md) | the one-shot user-approval seam: `ApprovalRequest`, `ApprovalOutcome`, per-session policy, audit and answerer contracts |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
@@ -199,7 +201,7 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, the tool schemas in the assembly's canonical order (dsh-system-prompt's `toolOrder` config, lexicographic when unset), and the session prefix — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/session-prefix` waterfall — fired once per loop instance — composes the request-only messages fronting the derived history (recorded as the header's `messagePrefix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
+Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, the tool schemas in the authoritative returned assembly order (initially canonicalized by dsh-system-prompt's `toolOrder` config, or lexicographically when unset), and the session prefix — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/session-prefix` waterfall — fired once per loop instance — composes the request-only messages fronting the derived history (recorded as the header's `messagePrefix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
 
 On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
 
@@ -257,12 +259,29 @@ interface Agent {
   readonly session: Session
   readonly status: AgentStatus
 
-  /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
+  /**
+   * The agent's scope context (`@deepseek-ai/dsh-scope`, key = this agent):
+   * registrations through it — tools, prompt sections/variables, listeners,
+   * restrictions — are visible to this agent only and unwind when it is
+   * disposed; `agent.ctx.on('agent/…')` listeners fire only for this agent.
+   */
+  readonly ctx: Context
+
+  /**
+   * Queue a user message. Starts a turn when idle; otherwise waits for the next
+   * turn. Content and the resolved source are accepted as one detached,
+   * deeply-frozen lossless-JSON record before notification or enqueue, so
+   * caller or `agent/queued` listener in-place mutation cannot change later
+   * log/model input. Throws synchronously when either value is not losslessly
+   * JSON-serializable; `agent/prompt-submit` may still return an explicit
+   * replacement.
+   */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
    * Steer a running turn: content is injected between steps of the current
-   * turn. When idle, behaves like {@link send}.
+   * turn. Uses the same owned-value and synchronous-validation boundary as
+   * {@link send}; when idle, behaves exactly like that method.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 
@@ -334,7 +353,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, the serial `agent/pre-step` surface-mutation seam, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 
@@ -363,6 +382,12 @@ type PromptDecision =
 type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: HookContext }
+```
+
+`agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
+
+```ts type-equiv
+type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 ```
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):

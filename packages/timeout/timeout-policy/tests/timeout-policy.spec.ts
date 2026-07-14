@@ -11,7 +11,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, type ToolExecution, type ToolExecutionResult, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, type ToolExecutionInput, type ToolExecutionResult, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import { TOOL_TIMEOUT, toolTimeoutResult } from '@deepseek-ai/dsh-timeout-policy'
 
@@ -193,7 +193,7 @@ describe('dsh-timeout-policy real-load-path guard', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(timeoutPolicy) as Parameters<Context['plugin']>[0]
     const fiber = await ctx.plugin(unwrapped)
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'fast', arguments: {} } satisfies ToolExecution)
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'fast', arguments: {} } satisfies ToolExecutionInput)
     expect(result.isError).toBe(false)
     await fiber.dispose()
   })

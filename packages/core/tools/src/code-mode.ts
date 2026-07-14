@@ -1,12 +1,14 @@
 /**
  * Code Mode: the `run_code` tool and its dispatch bridge. The model writes a
- * TypeScript program; the bridge hands it to `ctx.codeRuntime` with one
- * async binding per registered tool, serializes every binding call through a
- * per-run queue onto `ToolRegistry.execute()` (so `tools/pre-execute` /
- * `tools/post-execute` gate sub-calls exactly like native ones), logs each
- * sub-dispatch as a `tool/code-dispatch` session event, and returns only the
- * program's curated output. The registry itself decides WHEN this tool
- * exists (its `mode` config); this module owns only the tool and the bridge.
+ * TypeScript program; the bridge hands it to `ctx.codeRuntime` with one async
+ * binding per end capability visible to the calling agent, then serializes
+ * every binding call through a per-run queue onto `ToolRegistry.execute()`.
+ * Sub-calls therefore traverse the complete pre/guard/around/post/final-result
+ * pipeline exactly like native calls and carry the outer execution's opaque
+ * token for correlation. The bridge logs each sub-dispatch as a
+ * `tool/code-dispatch` session event and returns only the program's curated
+ * output. The registry itself decides WHEN this tool exists (its `mode`
+ * config); this module owns only the tool and the bridge.
  *
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
@@ -138,7 +140,8 @@ function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
  * executed through the dispatch bridge described in the module doc. The
- * registry registers it under non-native modes.
+ * registry reserves it as presentation infrastructure under non-native modes,
+ * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
  *   bindings cover its registered tools).
  * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud
@@ -204,6 +207,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             name,
             arguments: normalized.dispatched,
             ...exec.agent ? { agent: exec.agent } : {},
+            parent: exec.token,
             signal: runController.signal,
           })
           const text = textOf(result.content)
@@ -244,7 +248,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // silently dropping the binding), and the runtime host resolves
       // binding names as own properties only.
       const functions: Record<string, CodeBindingFunction> = Object.create(null) as Record<string, CodeBindingFunction>
-      for (const schema of registry.schemas()) {
+      // Enumerate the CALLING AGENT's visible set (scoped tools join,
+      // restricted globals vanish) — the same view the SDK section declared,
+      // so a program can bind exactly what its prompt promised; sub-dispatch
+      // re-resolves per call through the same view (exec.agent threads down).
+      for (const schema of registry.schemas(exec.agent)) {
         if (schema.name === RUN_CODE_NAME) continue
         Object.defineProperty(functions, schema.name, { enumerable: true, value: binding(schema.name) })
       }
