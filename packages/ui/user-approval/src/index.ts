@@ -1,35 +1,6 @@
 /**
- * Approval seam: `ctx.approval` answers exactly one question — "may this
- * specific action proceed?" — by dispatching the `approval/request` waterfall
- * to whatever answerers the deployment composed (an ACP editor prompt, an
- * auto-decide policy, a scripted test listener) and returning a closed
- * {@link ApprovalOutcome}. With no answerer the waterfall falls through to the
- * built-in default `'unavailable'`: absence of a UI can never grant anything.
- *
- * The service is the MECHANISM (dispatch, cancellation, audit); answerers are
- * the POLICY. It serves both ask paths the sandbox RFC names — the
- * `tools/pre-execute` `ask` decision and the sandbox post-denial escalation —
- * so every asker shares one outcome
- * vocabulary and one audit trail. Grants are one-shot by design: an
- * `'allowed-once'` outcome authorizes the single action it was asked about,
- * never a class of future actions.
- *
- * Every request lands two log-only session events on the requesting agent's
- * log (`approval/asked` / `approval/decided`, paired by
- * {@link ApprovalRequestId}) — an audit trail, deliberately NOT part of the
- * model-visible transcript: the model only ever sees the tool result the
- * caller derives from the outcome.
- *
- * The seam also owns the per-session POLICY tier (the sandbox RFC § Per-session mode switching):
- * `effective = fold(the session's 'approval/policy' events, last one wins)
- * ?? config.policy` — the session log is the store, so an override survives
- * restart by replay. The service resolves `'never'` sessions to
- * `'rejected'` inside `request()` before dispatching any answerer (no
- * registration order, including a later `prepend`, can precede it); a prompt section states `'never'`
- * (and only `'never'` — an availability promise is unknowable without
- * asking); an `agent/pre-step` narrator explains a switch to the model in at
- * most one coalesced notice per step.
- *
+ * Approval request, cancellation, audit, and per-session policy seam. Missing
+ * answerers fail closed; grants apply only to the requested action.
  * @module @deepseek-ai/dsh-user-approval
  */
 
@@ -51,19 +22,9 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall asking the composed answerers to decide one approval request.
-     * Dispatched only from {@link ApprovalService.request} — callers go through
-     * the service (which owns cancellation and the audit events), never through
-     * `ctx.waterfall` directly. A listener that can answer for this request's
-     * agent returns an outcome WITHOUT calling `next()` (the decision slot is
-     * single-occupancy, first listener to answer wins); a listener that does
-     * not recognize the agent MUST call `next()` so another answerer — or the
-     * fail-closed default `'unavailable'` — gets the question. Throwing is
-     * contained by the service and yields `'unavailable'`.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) keys the carrier by `req.agent`: a
-     * listener registered through `agent.ctx` receives only that agent's
-     * questions, while a plain-context listener receives every agent's.
-     * `req` is a readonly same-process value borrowed from the caller.
+     * Ask composed answerers for one decision. Return an outcome to claim the
+     * request or call `next()`; failure yields the fail-closed default.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param req - the pending decision (agent, tool identity, reason, signal).
      * @mode waterfall
      */
@@ -124,16 +85,8 @@ export function ApprovalRequestId(id: string): ApprovalRequestId {
 }
 
 /**
- * The closed outcome vocabulary of one approval request.
- *
- * - `'allowed-once'` — a one-shot grant for exactly the asked-about action;
- *   consumed by proceeding, never a durable authorization.
- * - `'rejected'` — an answerer (human or policy) said no.
- * - `'cancelled'` — the question was withdrawn: the prompt was dismissed, or
- *   the requesting execution aborted while the question was pending.
- * - `'unavailable'` — nobody composed could answer (no listener, none that
- *   recognizes the agent, or an answerer failed). Callers MUST fail closed on
- *   it, exactly like `'rejected'` — the two differ only for audit and wording.
+ * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
+ * request, or unavailable answerer. Callers fail closed on `unavailable`.
  */
 export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
@@ -218,14 +171,10 @@ function hasOpenTurn(events: readonly SessionEvent[]): boolean {
 }
 
 /**
- * THE write path for a session's approval-policy override: appends exactly
- * one `approval/policy` event — the switch IS its event; nothing mutates
- * policy state out of band. Takes effect on the session's next ask and next
- * prompt assembly (the consumers fold on every read). Rejects a value outside
- * {@link APPROVAL_POLICIES} before appending anything.
+ * Append the sole durable representation of a session policy override. Invalid
+ * values throw before the log changes; consumers fold the new value on each read.
  * @param session - the session the override belongs to.
- * @param policy - the policy every subsequent ask for this session resolves
- *   under (until the next switch).
+ * @param policy - the policy in effect until the next switch.
  */
 export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): void {
   if (!APPROVAL_POLICIES.includes(policy)) {
@@ -235,13 +184,8 @@ export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): voi
 }
 
 /**
- * One concrete permission question. Identifies the action precisely enough
- * for an answerer to present it and for the audit events to reconstruct what
- * was asked — it deliberately does NOT carry tool arguments: a UI answerer
- * attaches the prompt to the already-streamed tool call via `callId` instead
- * of re-rendering the call. This is a readonly same-process contract:
- * `request()` borrows the request and its `agent` and `signal` capabilities
- * directly rather than treating them as serialized input.
+ * Readonly same-process permission question. `callId` links to an already
+ * presented tool call, so arguments are not duplicated here.
  */
 export interface ApprovalRequest {
   /**
@@ -278,18 +222,9 @@ export interface Config {
 }
 
 /**
- * The `ctx.approval` service: dispatches {@link ApprovalRequest}s to the
- * `approval/request` waterfall and audits every ask/outcome pair to the
- * requesting agent's session log. Stateless between requests — grants are
- * returned to the caller, never stored here.
- *
- * Owns the policy tier too (`effective = fold(the session's 'approval/policy'
- * events) ?? config.policy`): `request()` resolves `'never'` to `'rejected'`
- * before dispatching any interactive answerer, a per-agent prompt section
- * states a `'never'` policy (and only that one in prose — an `'ask'` promise
- * could overclaim an answerer that headless compositions do not have), and an
- * `agent/pre-step` narrator injects at most one coalesced notice when a
- * session's effective policy moved past what the model was last told.
+ * Approval service that applies session policy before answerers and logs every
+ * ask/outcome pair to the requesting session. It exposes deterministic policy
+ * changes to the model through prompt and pre-step notices.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -301,12 +236,7 @@ export class ApprovalService extends Service {
 
     const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent.session)
 
-    // Visibility layer 1, scoped on the prompt registry so headless
-    // compositions mount the seam without it: state the one deterministic
-    // policy per session. 'ask' renders only a source-owned state marker —
-    // stating "you will be asked" would overclaim in a composition with no
-    // answerer. The marker, not deployment-controlled prose, is what the
-    // restart narrator reads back from the logged request header.
+    // State only deterministic policy; a marker records the otherwise silent state.
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.section({
         name: 'approval:policy',

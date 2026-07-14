@@ -1,14 +1,9 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * The engine ships two runtime entries: the engine service (index) and the
- * worker-thread entry (worker) the engine spawns via `new Worker`. The
- * entries are JS emitted by tsc under lib/types and are bundled as two
- * single-entry passes so shared modules (realm, runtime, session) are inlined
- * into each instead of split into a hash-named chunk (the worker entry must
- * be a self-contained file the Worker constructor can load by path). The
- * worker bundle is CommonJS because pkg's VFS Worker hook compiles
- * filesystem-string entries as CommonJS.
+ * Build the engine and worker separately so each inlines shared modules; a
+ * multi-entry build creates an unlisted chunk. The path-loaded worker is
+ * CommonJS because pkg's VFS Worker hook compiles it in that format.
  */
 export default defineConfig([
   {

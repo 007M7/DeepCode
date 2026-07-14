@@ -11,21 +11,12 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as jsonrpc from '../src/index.ts'
 
 /**
- * apply()-level lifecycle coverage for the @deepseek-ai/dsh-jsonrpc plugin:
- * the plugin is mounted through the REAL namespace mount path —
- * `ctx.plugin(jsonrpc, config)` over the module namespace object, exactly what
- * the Loader hands cordis after `unwrapExports` (plugin-shape.spec pins that
- * identity) — with the runtime-only `input`/`output`/`exit` seams from
- * {@link jsonrpc.JsonRpcConfig} replacing the process stdio, so the whole
- * pipeline (line transport → HarnessSdkServer → notifications back onto the
- * wire) runs in-process. The scenarios pin the plugin's exit-lifecycle split:
- * a `shutdown` REQUEST answers first, then disposes the plugin's own fiber and
- * calls `exit(0)` exactly once (a racing second `shutdown` must not re-exit);
- * a bare fiber dispose (HMR-style unload, no request) only stops serving and
- * never touches `exit`.
+ * Mount the real namespace plugin with in-memory stdio and exit seams. Covers
+ * the full transport/server path, response-before-exit shutdown exactly once,
+ * and bare-fiber disposal without process exit.
  */
 
-/** One ordered observation on the plugin's outward-facing seams: a JSON-RPC frame written to `output`, or an `exit(code)` call. */
+/** One ordered frame, write completion, or exit observation. */
 type WireEvent =
   | { kind: 'frame'; frame: Record<string, unknown> }
   | { kind: 'write-complete'; ids: (string | number)[] }
@@ -33,9 +24,9 @@ type WireEvent =
 
 interface ApplyHarness {
   ctx: Context
-  /** The jsonrpc plugin's own fiber (NOT the root), for the HMR-style dispose scenario. */
+  /** The plugin fiber used by the bare-dispose case. */
   fiber: Awaited<ReturnType<Context['plugin']>>
-  /** Every output frame and exit call, in observation order — ordering assertions read this. */
+  /** Frames, write completions, and exits in observation order. */
   events: WireEvent[]
   outputErrors: Error[]
   send(frame: Record<string, unknown>): void
@@ -46,7 +37,7 @@ interface ApplyHarness {
   dispose(): Promise<void>
 }
 
-/** Poll `get` until it yields a value (5s cap) — the output side is fed asynchronously from the transport's read loop. */
+/** Poll asynchronous output for up to five seconds. */
 async function waitFor<T>(get: () => T | undefined, description: string): Promise<T> {
   const deadline = Date.now() + 5000
   for (;;) {
@@ -57,16 +48,12 @@ async function waitFor<T>(get: () => T | undefined, description: string): Promis
   }
 }
 
-/** Let pending microtasks, setImmediate callbacks, and stream events drain — for asserting that something did NOT happen. */
+/** Drain asynchronous work before a negative assertion. */
 async function settle(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 25))
 }
 
-/**
- * Boot a minimal harness context (agent-core bundle + JSONL persistence, the
- * server.spec recipe) and mount the jsonrpc plugin on it through the real
- * namespace mount path, with in-memory seams standing in for stdio/exit.
- */
+/** Mount the real plugin on a minimal harness with in-memory stdio and exit. */
 async function mountPlugin(
   storageDir: string,
   options: { writeDelayMs?: number; failFlush?: boolean } = {},
@@ -80,9 +67,8 @@ async function mountPlugin(
   const events: WireEvent[] = []
   const outputErrors: Error[] = []
   let pendingOutput = ''
-  // A hand-rolled Writable (not a PassThrough): _write records frames on
-  // admission and write-complete only when its callback fires, so a delayed
-  // output proves exit waits for the transport's flush barrier.
+  // Record frame admission separately from write completion so delayed output
+  // tests the flush barrier.
   const output = new Writable({
     write(chunk: Buffer, _encoding, callback) {
       const ids: (string | number)[] = []
@@ -138,7 +124,7 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-/** The server.spec mock OpenAI-compatible SSE endpoint, so a prompt turn completes without a real key. */
+/** Keyless SSE endpoint for completing a prompt turn. */
 async function mockCompletionServer(): Promise<{ url: string; requests: unknown[] }> {
   const requests: unknown[] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -206,8 +192,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       expect(body.model).toBe('dsagent-model')
       expect(body.messages.at(-1)?.role).toBe('user')
 
-      // The server's notify() path rides the SAME transport apply() built:
-      // session.event / session.finished arrive as id-less frames on output.
+      // Notifications use the same transport and arrive as id-less frames.
       const notifications = harness.frames().filter(frame => frame.id === undefined)
       expect(notifications.some(frame => frame.method === 'session.event')).toBe(true)
       expect(notifications.find(frame => frame.method === 'session.finished')).toMatchObject({
@@ -224,9 +209,7 @@ describe('dsh-jsonrpc plugin apply', () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-shutdown-'))
     const harness = await mountPlugin(storageDir, { writeDelayMs: 10 })
     try {
-      // Two shutdown frames in ONE chunk: both are dispatched from the same
-      // read-loop pass, so both setImmediate exit callbacks get scheduled and
-      // the second must hit the `exiting` guard instead of re-entering.
+      // One chunk makes the two deferred exit callbacks race.
       const first = { jsonrpc: '2.0', id: 'sd-1', method: 'shutdown' }
       const second = { jsonrpc: '2.0', id: 'sd-2', method: 'shutdown' }
       harness.sendRaw(`${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
@@ -234,8 +217,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit recorder call')
       expect(harness.exits()).toEqual([0])
 
-      // Response-then-exit ordering: both response write callbacks and the
-      // empty flush barrier complete before exit(0), even on delayed output.
+      // Both response writes and the flush barrier complete before exit.
       const exitIndex = harness.events.findIndex(event => event.kind === 'exit')
       const firstResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-1')
       const secondResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-2')
@@ -250,11 +232,9 @@ describe('dsh-jsonrpc plugin apply', () => {
       expect(flushComplete).toBeGreaterThan(secondComplete)
       expect(exitIndex).toBeGreaterThan(flushComplete)
 
-      // Idempotent: the racing second shutdown never produces a second exit.
       await settle()
       expect(harness.exits()).toEqual([0])
 
-      // The plugin fiber is disposed: the transport reads no further frames.
       const before = harness.frames().length
       harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
       await settle()
@@ -290,8 +270,7 @@ describe('dsh-jsonrpc plugin apply', () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-dispose-'))
     const harness = await mountPlugin(storageDir)
     try {
-      // Prove the pipeline is live first (an unknown method still answers, as
-      // a JSON-RPC error frame — the transport's handler-rejection path).
+      // Prove the handler-rejection path is live before disposal.
       harness.send({ jsonrpc: '2.0', id: 'probe-1', method: 'nope/unknown' })
       const error = await harness.waitForFrame(frame => frame.id === 'probe-1', 'error response for unknown method')
       expect(error.error).toMatchObject({
@@ -301,8 +280,6 @@ describe('dsh-jsonrpc plugin apply', () => {
 
       await harness.fiber.dispose()
 
-      // The effect disposer shut the server and closed the transport — later
-      // frames are never read — and the exit seam was never touched.
       const before = harness.frames().length
       harness.send({ jsonrpc: '2.0', id: 'probe-2', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
       await settle()

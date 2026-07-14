@@ -1,10 +1,7 @@
 /**
- * Newline-delimited JSON-RPC 2.0 transport over a byte stream pair (the SDK
- * server's stdio channel). One JSON frame per line; a frame with `id`+`method`
- * is an incoming request, `id` alone matches a pending outgoing request, and
- * `method` alone is a notification. Malformed lines are ignored (a resilient
- * wire reader, not a validator); handler failures become JSON-RPC error
- * responses, never a crashed transport.
+ * Newline-delimited JSON-RPC 2.0 over byte streams. Frames with `id` and
+ * `method` are requests, `id` alone is a response, and `method` alone is a
+ * notification. Malformed lines are ignored; handler failures become error frames.
  *
  * @module @deepseek-ai/dsh-jsonrpc/transport
  */
@@ -18,22 +15,18 @@ type RequestHandler = (method: string, params: Record<string, unknown>) => Promi
 type NotificationHandler = (method: string, params: Record<string, unknown>) => void
 
 /**
- * The outbound half of a JSON-RPC peer — what {@link HarnessSdkServer} needs
- * to talk BACK to the host: awaited `request`s and fire-and-forget `notify`s.
- * Narrow on purpose so tests substitute a recording fake without a stream pair.
+ * Outbound request and notification surface used by {@link HarnessSdkServer}.
  */
 export interface JsonRpcTransportPeer {
   /**
-   * Send a request to the remote peer and await its response.
+   * Send a request and await its response.
    * @param method - the JSON-RPC method name.
    * @param params - the request parameters object.
-   * @returns the remote peer's `result`; rejects on a JSON-RPC `error`
-   * response, a write failure, or transport/input closure.
+   * @returns the result; rejects on an error response, write failure, or closure.
    */
   request(method: string, params: Record<string, unknown>): Promise<unknown>
   /**
-   * Send a notification (no response expected). An omitted `params` sends no
-   * `params` member at all.
+   * Send a notification; omitted params produce no `params` member.
    * @param method - the JSON-RPC method name.
    * @param params - the optional notification parameters object.
    */
@@ -46,14 +39,10 @@ interface PendingRequest {
 }
 
 /**
- * Line-delimited JSON-RPC 2.0 endpoint over a `Readable`/`Writable` pair.
- * Inert until {@link start} attaches the input listeners; {@link close}
- * detaches them and rejects every pending outgoing request (dispose-safe: the
- * streams themselves are not destroyed — the caller owns them). Incoming
- * requests are dispatched to the single {@link onRequest} handler (a missing
- * handler answers `-32601 method not found`; a throwing handler answers
- * `-32603` with the message); incoming notifications go to {@link
- * onNotification} and are dropped without one.
+ * Line-delimited endpoint over caller-owned streams. {@link start} attaches
+ * listeners; {@link close} detaches them and rejects pending requests without
+ * destroying the streams. Missing request handlers return `-32601`; handler
+ * failures return `-32603`. Notifications without a handler are dropped.
  */
 export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   private buffer = ''
@@ -78,8 +67,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   }
 
   /**
-   * Detach the input listeners and reject every pending outgoing request with
-   * "JSON-RPC transport closed". Safe to call without a prior {@link start}.
+   * Detach listeners and reject pending requests. Safe before {@link start}.
    */
   close(): void {
     this.input.off('data', this.onData)
@@ -89,7 +77,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   }
 
   /**
-   * Install THE handler for incoming requests (a later call replaces it).
+   * Install the request handler, replacing any prior handler.
    * @param handler - resolves to the response `result`; a rejection becomes a
    * `-32603` error response carrying the message.
    */
@@ -98,7 +86,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   }
 
   /**
-   * Install THE handler for incoming notifications (a later call replaces it).
+   * Install the notification handler, replacing any prior handler.
    * @param handler - invoked per notification with the method and normalized
    * params object.
    */
@@ -125,9 +113,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   }
 
   /**
-   * Wait until every frame written before this call has reached the output's
-   * write callback. The empty queued write is a barrier and emits no protocol
-   * bytes.
+   * Wait for prior frame write callbacks. The empty barrier emits no bytes.
    * @returns a promise that settles with the output write callback.
    */
   flush(): Promise<void> {
@@ -170,8 +156,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     try {
       message = JSON.parse(line)
     } catch {
-      // Swallows ONLY JSON.parse syntax errors: a malformed wire line is a
-      // peer bug this resilient reader skips; nothing else runs in the try.
+      // Only JSON syntax errors reach this catch; malformed peer lines are ignored.
       return
     }
     if (!message || typeof message !== 'object') return

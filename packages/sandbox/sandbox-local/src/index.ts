@@ -72,17 +72,7 @@ export interface Config {
   probeTimeoutMs?: number
 }
 
-/**
- * Functional `bwrap` probe: can it actually build the read-only profile on
- * this host? (`--version` alone would miss a disabled unprivileged user
- * namespace.) Synchronous by design — it runs once, lazily, before the first
- * confined wrap, and the chain's verdict is cached for the provider's
- * lifetime. `timeoutMs` bounds the probe (the `probeTimeoutMs` config).
- * The Landlock rung needs no such helper: resolution (`launcherPath`) and
- * the functional probe (`probe`) come from `node-addon-landlock-run`, the
- * package family that ships the launcher binary itself, so the probe-report
- * parsing can never drift against the binary.
- */
+/** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
 function defaultProbeBwrap(timeoutMs: number): boolean {
   const probe = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--', 'true'], {
     timeout: timeoutMs,

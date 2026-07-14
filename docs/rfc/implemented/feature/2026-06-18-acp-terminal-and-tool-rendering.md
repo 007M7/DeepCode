@@ -6,7 +6,7 @@ Status: implemented
 
 The ACP bridge lets each tool own its call rendering via `presentCall`/`presentResult` (see [tool-call UI presentation](../../implemented/feature/2026-06-14-acp-agent-client-protocol.md) and `packages/core/tools`). For `bash` we surface the exact command as the `tool_call` title, the model's `description` as a content text block, `kind: 'execute'`, and the completed output wrapped in a fenced ` ```console ` text block.
 
-That is a correct, capability-free baseline, but not how the reference editors render a *terminal* tool at its best. An editor like Zed has a dedicated terminal tool-call card — a header showing the working directory, the command as the label, the command output rendered as a terminal, and an exit-status pill — but it only builds that card when the `tool_call` carries terminal metadata (below). With a plain text block the output appears as static markdown and there is no cwd header. (Zed also HIDES `rawInput` for `kind: 'execute'`, which is why the command IS the title — both reference adapters do the same. The human-readable description rides as a separate content block above the card; note this is a DELIBERATE divergence — claude-agent-acp DROPS the description in terminal mode and renders only the card — we keep the summary visible alongside.)
+Reference editors render terminal metadata as a dedicated card with cwd, command, live-style output, and exit status; plain text loses that structure. The command is the title because execute cards hide raw input, while the human-readable description remains a separate block above the card.
 
 ## Key finding: agent-executed terminals use a `_meta` convention, NOT `terminal/create`
 

@@ -19,7 +19,7 @@ Replay is keyed **per calling session**, and the harness harvests **every** sess
 
 ### 1. The calling session id rides on the model request
 
-`GenerateOptions` gains an optional `sessionId`, stamped by the agent loop from `agent.session.id` at request-assembly time (where the session is already in scope). Adapters ignore it; it exists so an `llm/stream` listener can route a call by WHICH session issued it. It is typed `Branded<'SessionId'>` (from `dsh-brand`) rather than importing `SessionId` from `dsh-session` — that package imports `Message` from `dsh-llm`, so importing its id back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a real id assigns with no cast. (A future dedicated ids package could own the brand and dissolve the note; tracked separately — it touches every id import and does not belong in this testing PR.)
+`GenerateOptions` gains an optional `sessionId`, stamped from `agent.session.id` during request assembly. Adapters ignore it; an `llm/stream` listener uses it to route by the issuing session. Its type is `Branded<'SessionId'>` (from `dsh-brand`) rather than `SessionId` from `dsh-session`, because that package imports `Message` from `dsh-llm` and importing back would create a cycle. The types are equivalent, so a session id assigns without a cast. Moving the brand to a dedicated ids package remains separate work because it would touch every id import.
 
 ### 2. Replay binds live sessions to recorded scripts by first-call order
 
@@ -29,7 +29,7 @@ Live session ids are freshly random every run and never equal the recorded ones,
 
 This keys by WHO calls, not by global call order — so it stays correct even if subagents ever run concurrently or in the background (a global cursor would interleave them). A call carrying no `sessionId` (a direct unit-test `stream()`) is treated as one anonymous session bound to the primary script, so the single-session path is byte-for-byte the old behavior. More distinct live sessions than recorded scripts is a fail-loud error (an unrecorded subagent appeared), never a silent mis-route.
 
-The ordering key is the session header `createdAt`. In the current synchronous cut this is sound because sibling children are created **strictly sequentially** — the subagent tool awaits one child's result and disposes it before the parent's next tool call starts the next child — so their `createdAt` values are strictly ordered and match first-call order exactly. A same-millisecond sibling tie is therefore unreachable; the `recordedId` tiebreak only keeps such a degenerate collision deterministic, it does not recover first-call order. A future cut that runs siblings concurrently/backgrounded WOULD be able to create two children in the same millisecond, and must then thread a real first-call ordinal (the order live sessions first stream) rather than leaning on `createdAt` — flagged with `XXX(concurrent-subagents)` at the sort site.
+Child fixtures sort by `createdAt`, which matches call order while siblings run strictly sequentially. The id tiebreak only makes degenerate collisions deterministic. Concurrent or background children must introduce an explicit first-call ordinal instead of relying on timestamps.
 
 ## Alternatives considered
 

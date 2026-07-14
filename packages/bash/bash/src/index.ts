@@ -1,16 +1,6 @@
 /**
- * The bash executor seam (`ctx.bash`): an abstract service defining WHAT a
- * bash backend does — run commands, manage background tasks — without saying
- * HOW. Implementations subclass {@link BashExecutor} and register themselves
- * as the `bash` service; `@deepseek-ai/dsh-bash-local` (local subprocesses)
- * is the first. Future implementations swap in sandboxes, containers, or
- * remote exec servers without touching the tool schemas that consume them
- * (`@deepseek-ai/dsh-tool-bash`).
- *
- * The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the
- * surveyed agents: pi hides execution behind a `BashOperations` interface
- * (local shell / SSH / VM backends), Codex behind an exec-server protocol.
- *
+ * The bash executor seam (`ctx.bash`): an abstract service defining what a bash backend does —
+ * run commands, manage background tasks — without saying how.
  * @module @deepseek-ai/dsh-bash
  */
 
@@ -39,25 +29,11 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract bash execution service. Subclass, implement the abstract methods,
- * and load the subclass as a plugin — it registers as `ctx.bash` (one
- * implementation per context; loading a second throws, which is cordis'
- * standard duplicate-service behavior).
- *
- * Semantics every implementation must honor:
- * - {@link run} REJECTS only for infrastructure failures (unusable workdir,
- *   missing shell, pre-aborted signal). Nonzero exits, timeout kills, and
- *   abort kills RESOLVE with a descriptive {@link BashRunResult} — reporting
- *   a failed command is the tool layer's job, not an exception.
- * - {@link start} returns immediately; no timeout applies to background
- *   tasks (callers stop them via {@link kill} or the spec's AbortSignal).
- *   Completion must fire the {@link onTaskDone} listeners exactly once per
- *   task, and must NOT fire after the service is disposed.
- * - {@link readOutput} is incremental: consecutive reads never re-deliver
- *   output. Implementations bound their buffers; reads that lost data flag
- *   `lossy` and point at full-stream spill files when available.
- * - Disposal kills every running task and awaits their exit (no orphan
- *   processes survive `fiber.dispose()`).
+ * Registers one `ctx.bash` implementation. Runtime command failures resolve as
+ * {@link BashRunResult}; only infrastructure failures reject. Background starts
+ * return immediately without a timeout, report completion exactly once while
+ * live, and remain cancellable by signal or {@link kill}. Output reads are
+ * incremental and flag lost buffered data; disposal kills and awaits all tasks.
  */
 export abstract class BashExecutor extends Service {
   private listeners = new Set<BashTaskListener>()
@@ -74,14 +50,11 @@ export abstract class BashExecutor extends Service {
   }
 
   /**
-   * The sandbox mode this executor confines commands under BY DEFAULT, or
-   * `undefined` when it does not sandbox at all — the capability fact the
-   * tool and ACP layers read to advertise sandbox controls honestly. The
-   * getter proves a sandboxing executor is mounted and supplies its fallback
-   * mode; a session override may make the effective mode narrower or wider,
-   * so strict escalation widening is checked per call rather than encoded in
-   * this default-relative capability fact. The base class reports
-   * `undefined`; a sandboxing implementation overrides the getter.
+   * The sandbox mode this executor confines commands under BY DEFAULT, or `undefined` when it
+   * does not sandbox at all — the capability fact the tool and ACP layers read to advertise
+   * sandbox controls honestly.
+   * A session or call may override this default, so widening is evaluated per
+   * execution rather than encoded in this getter.
    * @returns the configured default mode of a sandboxing executor;
    *   `undefined` for an executor that never confines.
    */
@@ -90,12 +63,7 @@ export abstract class BashExecutor extends Service {
   }
 
   /**
-   * Resolve a caller's {@link BashExecRequest} into a fully-specified
-   * {@link BashExecSpec}, applying this implementation's config defaults and
-   * caps (working directory, default/max timeout). Consumers (tool layer)
-   * call this, then pass the result to {@link run}/{@link start} — keeping
-   * defaulting in the implementation that owns the config while the seam type
-   * stays explicit (no hidden `?? default` inside run/start).
+   * Apply implementation-owned defaults and caps to a request before execution.
    * @param request - the caller's request; omitted fields get this
    *   implementation's defaults, capped fields are clamped.
    * @returns the fully-specified spec to hand to {@link run}/{@link start}.
@@ -125,17 +93,10 @@ export abstract class BashExecutor extends Service {
   abstract get(id: BashTaskId): BashTask | undefined
 
   /**
-   * The opaque OWNER token recorded for a background task at {@link start}
-   * (from the {@link BashExecSpec}'s `owner`), or `undefined` for an unknown id
-   * OR a known-but-ownerless task. The executor stores and returns the token
-   * verbatim — it never interprets it; the access POLICY (who may read/kill a
-   * task) lives in the consumer (`@deepseek-ai/dsh-tool-bash`), which compares
-   * `ownerOf(id)` to the caller's token. Collapsing unknown-id and
-   * known-but-unowned into the same `undefined` is fine: the consumer's access
-   * gate treats `undefined` as "open", and a genuinely unknown id then fails
-   * loudly at the subsequent {@link readOutput}/{@link kill} ("unknown task").
-   * Storing ownership in the executor (disposed with ITS fiber) — not in the
-   * tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
+   * The opaque OWNER token recorded for a background task at {@link start} (from the {@link
+   * BashExecSpec}'s `owner`), or `undefined` for an unknown id OR a known-but-ownerless task.
+   * The executor stores the token without interpreting policy; keeping it here
+   * lets ownership survive a consumer-plugin reload.
    * @param id - the background task id to look up ownership for.
    * @returns the token recorded at start, verbatim; undefined for an unknown
    *   id or a known-but-ownerless task.

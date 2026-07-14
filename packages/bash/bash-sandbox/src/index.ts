@@ -69,15 +69,11 @@ export interface Config extends LocalConfig {
 }
 
 /**
- * Sandbox-consuming bash executor. Registers as `ctx.bash` (loading it
- * INSTEAD OF `dsh-bash-local`, together with a `ctx.sandbox` provider, is
- * the whole swap — the tool layer is untouched). Its configured mode is the
- * fallback exposed by {@link sandboxMode}; `dsh-tool-bash` folds a session's
- * durable `bash/sandbox-mode` override and stamps the effective mode onto each
- * request, while an approved escalation may stamp a strictly wider mode for
- * one call. The prompt deliberately does not state the mode; each run's
- * `result.sandbox` reports what actually executed plus enforcement
- * completeness, and the tool layer renders denial or runner-failure facts.
+ * Registers as `ctx.bash` in place of the local executor and requires a
+ * `ctx.sandbox` provider; the tool layer is unchanged. The configured mode is
+ * the fallback, while a session override or approved one-shot escalation may
+ * select each call's mode. The prompt does not state the standing mode;
+ * `result.sandbox` reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox']
