@@ -1,9 +1,9 @@
 # The acp-agent plugin tree: the ACP server. Also the snapshot RECORD config
 # (the dsh-acp-agent bin selects it for DSH_SNAPSHOT=record): a real llm-deepseek
 # run whose persisted log the snapshot harness harvests. The swappable DeepSeek
-# adapter, local bash/filesystem executors, the ACP server app
-# (@deepseek-ai/dsh-acp-agent), and the optional model-facing fs/subagent/todo
-# tools loaded below.
+# adapter, sandboxed bash executor, the ACP server app
+# (@deepseek-ai/dsh-acp-agent), and the optional model-facing
+# fs/subagent/todo tools loaded below.
 #
 # CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved for
 # the ACP JSON-RPC protocol (see packages/ui/acp). That guarantee is now a
@@ -23,12 +23,27 @@
       - deepseek-v4-flash
       - deepseek-v4-pro
 
-# Local bash executor for agent-core's tool-bash schema (one of several tool
-# stacks in this tree: filesystem, subagent, and todo_write load below).
+# The default composition confines bash to the workspace and asks before a
+# wider retry. Snapshot runs select danger-full-access so the established
+# scenarios remain runner-independent; DSH_PERMISSION_MODE provides the same
+# explicit deployment/test override outside the snapshot harness.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
 - id: bash
-  name: '@deepseek-ai/dsh-bash-local'
+  name: '@deepseek-ai/dsh-bash-sandbox'
   config:
     timeoutMs: 60000
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) === 'danger-full-access' ? 'never' : 'ask'"
+
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
 
 # The ACP server app: the agent-core spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
@@ -44,7 +59,7 @@
     # loop resolves per session (every ACP session carries the client's cwd,
     # so the persona can state the workspace).
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
@@ -104,20 +119,22 @@
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
 
-# Filesystem capability stack: local provider, read-before-write/edit policy
-# gate, then the model-facing read/write/edit tools. Relative filesystem paths
-# resolve from the server launch cwd; the documented Zed setup launches this
-# demo from the harness checkout with `pnpm --dir`.
+# Filesystem tools do not ride the bash sandbox, so the confined default omits
+# them. Snapshot tests and explicit danger-full-access launches keep the
+# established filesystem scenarios by enabling the whole stack together.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
   config:
     cwd: !!js process.cwd()
 
 - id: fs-policy
   name: '@deepseek-ai/dsh-fs-policy'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
 # The Claude Code hook bridge. `configPath` is PROCESS-LEVEL: it is read ONCE at
 # load and the relative `./hooks.json` resolves against the ACP server's launch
