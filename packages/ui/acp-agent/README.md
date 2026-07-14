@@ -15,6 +15,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
 | ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |
+| ~~`@deepseek-ai/dsh-user-approval`~~ | **omitted by default** — permission policy is deployment-specific; sandbox/approval leaves opt in and the ACP bridge then supplies the answerer |
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
@@ -27,6 +28,8 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `model` | (required) | the per-session agent template the bridge creates agents from |
 | `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
+| `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-core` |
+| `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-core` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 
 The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor.
@@ -42,3 +45,13 @@ The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the
 Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers through its internal module loader, active only under that flag. (`demo:acp` runs under tsx, whose tsconfig `paths` map resolves them instead.)
 
 All diagnostics go to **stderr** — stdout is the protocol.
+
+## Model Experience
+
+Indirectly, through `dsh-agent-core` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
+
+## Known Limitations and Deferred Work
+
+- **JSONL persistence is baked in** — config chooses its root but cannot select a different backend; that requires a sibling entry or differently composed app package.
+- **User-question and approval mechanisms are omitted by default** — the bridge can answer both when their services/tools are composed, but this front door does not enable those deployment policies itself.
+- **A leaf can still corrupt stdout** — the app mounts no console logger, but it cannot prevent a sibling leaf entry from writing non-protocol bytes to the ACP channel.

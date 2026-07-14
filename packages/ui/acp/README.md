@@ -46,7 +46,7 @@ Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and
 
 ## Per-session cwd
 
-Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd and the request `cwd` must be absolute and equal to it, so the editor and bash executor agree on the workspace before an agent is constructed. A load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). So the server no longer has to be launched in the workspace — an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
+Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd and the request `cwd` must be absolute and equal to it, so the editor and bash executor agree on the workspace before an agent is constructed. A load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). The server may be launched outside every workspace: an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
 
 ## Tool-call presentation
 
@@ -67,7 +67,7 @@ A tool whose call IS a shell command (`bash`) can render as a real **terminal ca
 - `tool_call`: `content:[…, {type:'terminal', terminalId}]` + `_meta.terminal_info.{terminal_id, cwd}` — the terminal id is the harness `callId`; the cwd is the card's explicit absolute `cwd`, else a relative `cwd` resolved against the session cwd, else the session's workspace cwd (the bridge fills the default, since the pure tool presenter can't see it). The card's `description` renders as a content block BEFORE the terminal block, so the description sits above the card.
 - `tool_call_update`: `_meta.terminal_output.{terminal_id, data}` (the terminal card's `output`) plus `_meta.terminal_exit.{terminal_id, exit_code | signal}` when the card reported a structured `exitCode`/`signal`. In terminal mode the update's `content` is OMITTED — an ACP `tool_call_update.content` REPLACES the call's content, so sending the fenced text block would clobber the terminal content block from the call.
 
-When the client does NOT advertise the capability, none of the `_meta`/terminal content is emitted: the `tool_call` shows the `description` content block and the `tool_call_update` carries a ` ```console ` text block the bridge DERIVES by fencing the terminal result's `output` (the tool no longer double-encodes the fences) — so a non-Zed client is never worse off. The `_meta` object is ACP's spec-blessed extensibility point; the specific `terminal_info`/`terminal_output`/`terminal_exit` keys are a Zed convention, not the ACP `terminal/create` sub-protocol (which would make the editor execute the command, bypassing `dsh-bash`'s sandbox/env-scrub/ownership/cwd). Live incremental streaming and command classification are follow-ups. See [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [the render-intent-union RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
+When the client does NOT advertise the capability, none of the `_meta`/terminal content is emitted: the `tool_call` shows the `description` content block and the `tool_call_update` carries a ` ```console ` text block the bridge DERIVES by fencing the terminal result's unfenced `output` — so a non-Zed client is never worse off. The `_meta` object is ACP's spec-blessed extensibility point; the specific `terminal_info`/`terminal_output`/`terminal_exit` keys are a Zed convention, not the ACP `terminal/create` sub-protocol (which would make the editor execute the command, bypassing `dsh-bash`'s sandbox/env-scrub/ownership/cwd). Live incremental streaming and command classification are follow-ups. See [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [the render-intent-union RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
 
 ## Settle-exactly-once
 
@@ -80,10 +80,6 @@ The bridge registers an `approval/request` waterfall listener — the ACP answer
 ## Disposal & disconnect
 
 Teardown reaches quiescence: for EVERY live session settle any pending prompt as `cancelled`, then run that session's [`AgentHandle`](../../core/agent/README.md) `dispose()` — which stops the loop (sets `disposed` + aborts the in-flight step), `await`s the loop's exit (the final `turn/end` + `session/flush` are captured while the session is still attached), unregisters the agent, and removes its session from the store. A turn cut off mid-flight by teardown ends with reason `disposed` (not `aborted` — `dispose()` uses the disposed path, not `session/cancel`'s queue-aware `cancel()`). The per-session disposes run in parallel. The same teardown runs on a **client disconnect** (`conn.closed` resolves when the editor quits / the transport EOFs), so a vanished client never leaves an orphaned running — or idled-but-still-registered — agent whose `session/update` writes are silently swallowed. The two paths are idempotent and memoized (the first clears the `sessions` map; a second caller awaits the same teardown promise).
-
-## Known limitations (tracked TODOs)
-
-- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
 
 ## stdout is the protocol
 
@@ -103,3 +99,37 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
   }
 }
 ```
+
+## Model Experience
+
+### User messages
+
+**What the model sees**: Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted.
+
+**Token effect**: Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts.
+
+### Human answers and permission decisions
+
+**What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
+
+**Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+
+### Permission preset switches
+
+**What the model sees**: `session/set_config_option` emits no model message itself. When `dsh-permission` is composed, the bridge writes the selected preset through that service; the resulting model-visible policy prompt and change notice belong to [`dsh-user-approval`](../user-approval/README.md), while sandbox-mode effects belong to [`dsh-tool-bash`](../../bash/tool-bash/README.md). The ACP `Permissions` select, its option descriptions, pending idle value, and refreshed config response remain client-only.
+
+**Token effect**: Zero direct tokens from the ACP option or the log-only `permission/preset` event. Downstream cost is limited to the owning plugins' policy prompt, conditional retained change notice, and any changed tool outcome.
+
+### Loaded sessions
+
+**What the model sees**: `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message.
+
+**Token effect**: Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none.
+
+## Known Limitations and Deferred Work
+
+- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
+- **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
+- **One configured `model` for every created session** — per-session model selection has no config or protocol surface here yet.
+- **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
+- **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.

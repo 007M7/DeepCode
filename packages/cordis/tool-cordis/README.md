@@ -31,3 +31,29 @@ All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_
 ## Export shape
 
 Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no default export ([docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+
+## Model Experience
+
+### Tool schemas
+
+**What the model sees**: The conversation model sees the generated [`cordis_inspect`, `cordis_mount`, and `cordis_unmount` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
+
+**Token effect**: Fixed schema cost on every request in that tool view.
+
+### Tool-call history and results
+
+**What the model sees**: Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history.
+
+**Token effect**: Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small.
+
+### Later requests after a mount
+
+**What the model sees**: A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence.
+
+**Token effect**: Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime.
+
+## Known Limitations and Deferred Work
+
+- **The sandbox is containment for honest code, not a security boundary** — host-realm helpers on the sandbox global are reachable, so mount code can reach Node; load this plugin as deliberately as you would grant a bash tool (see § Trust stance).
+- **The `ctx` façade exposes no `effect()`** — mount code cannot register a bespoke disposer; `on`/`provide`/`tools.register` cover every mount seen so far, and a guarded `effect` waits on a real need (`FIXME(sandbox-effect)`).
+- **`vmTimeoutMs` bounds only synchronous evaluation** — an async mount body escapes it; there is no async budget on mount code.

@@ -32,7 +32,7 @@ This uses the normal system-prompt registration mechanism rather than a second p
 
 ### Tool filtering is one live global-view rule
 
-The tool filter controls visibility and executable lookup together. An in-process provider installs `ToolRegistry.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to prompt schemas, lookup, execution, and Code Mode SDK generation.
+The tool filter controls capability visibility and executable lookup together. An in-process provider installs `ToolRegistry.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to wire tool schemas, lookup, execution, and Code Mode SDK generation. Independently registered system-prompt sections are outside `ToolRegistry`, so filtering a tool does not remove that plugin's standalone guidance.
 
 Resolution follows these rules:
 

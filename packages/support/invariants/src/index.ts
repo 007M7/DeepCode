@@ -1,13 +1,15 @@
 /**
- * Dev-mode invariants: a pure-listener plugin that asserts relationships in
- * the harness event contract at runtime.
+ * Runtime invariants: a pure-listener plugin that asserts relationships in
+ * the harness event contract. It is intended for development diagnostics but
+ * has no environment guard, so it is active in every composition that mounts
+ * it (including the default `dsh-agent-core` bundle).
  *
  * Everything is a plugin — this is just listeners on `session/created`,
  * `session/event`, `agent/status`, and the scoped dispatch and request seams.
- * It is **off in production**: enable it in tests and demos, where a contract
- * violation should be a loud failure rather than a subtle one. It doubles as
- * executable documentation of the event taxonomy: the assertions below are
- * the contract.
+ * Custom compositions can omit it when the runtime assertion cost is
+ * undesirable. When mounted, a contract violation is a loud failure rather
+ * than a subtle one. It doubles as executable documentation of the event
+ * taxonomy: the assertions below are the contract.
  *
  * Session owns immutable log storage: it snapshots and deep-freezes every
  * accepted event at the source. This plugin checks relationships that one
@@ -344,7 +346,7 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
 }
 
 /**
- * Register the dev-mode invariants. Contributions are effect-scoped, so
+ * Register the runtime invariants. Contributions are effect-scoped, so
  * disposing the plugin fiber removes all listeners (HMR-safe). On (re-)apply
  * the trace state is rebuilt by replaying each existing session's log, so a
  * hot reload mid-turn does not falsely reject the next event.
