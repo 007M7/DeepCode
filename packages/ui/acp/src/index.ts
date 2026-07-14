@@ -249,6 +249,12 @@ export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
   /**
+   * Maximum tool calls each created agent runs concurrently within one assistant
+   * step (a positive integer; the agent loop defaults it when omitted). `1`
+   * preserves fully serial execution.
+   */
+  maxParallelToolCalls?: number
+  /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
    * in-memory `Stream` (e.g. an `ndJsonStream` over a `Duplex` pair) to drive
@@ -260,6 +266,9 @@ export interface AcpConfig {
 
 export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
+  // A positive integer; a bad value (0, negative, fractional) fails config
+  // validation here rather than being silently dropped from cordis.yml.
+  maxParallelToolCalls: Schema.number().step(1).min(1),
 })
 
 /**
@@ -1010,12 +1019,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
- * @param config - the plugin config carrying the optional model name.
- * @returns the per-agent options, with `model` present only when configured.
+ * @param config - the plugin config carrying the optional model name and parallel cap.
+ * @returns the per-agent options, with each field present only when configured.
  */
-export function agentOptions(config: AcpConfig): { model?: string } {
+export function agentOptions(config: AcpConfig): { model?: string; maxParallelToolCalls?: number } {
   return {
     ...config.model !== undefined ? { model: config.model } : {},
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
   }
 }
 

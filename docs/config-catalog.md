@@ -19,6 +19,12 @@ export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
   /**
+   * Maximum tool calls each created agent runs concurrently within one assistant
+   * step (a positive integer; the agent loop defaults it when omitted). `1`
+   * preserves fully serial execution.
+   */
+  maxParallelToolCalls?: number
+  /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
    * in-memory `Stream` (e.g. an `ndJsonStream` over a `Duplex` pair) to drive
@@ -591,6 +597,12 @@ Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-l
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
+  /**
+   * Maximum tool calls the `main` agent runs concurrently within one assistant
+   * step (a positive integer; the agent loop defaults it when omitted). `1`
+   * preserves fully serial execution.
+   */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */

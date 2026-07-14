@@ -65,6 +65,12 @@ export const name = 'stdio-agent'
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
+  /**
+   * Maximum tool calls the `main` agent runs concurrently within one assistant
+   * step (a positive integer; the agent loop defaults it when omitted). `1`
+   * preserves fully serial execution.
+   */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -87,6 +93,9 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
+  // A positive integer; a bad value (0, negative, fractional) fails config
+  // validation here rather than being silently dropped from cordis.yml.
+  maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
   // order" (the owning dsh-system-prompt schema does the same), while
@@ -116,6 +125,7 @@ export function apply(ctx: Context, config: Config): void {
       id: AgentId('main'),
       model: config.model,
       cwd: process.cwd(),
+      ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},

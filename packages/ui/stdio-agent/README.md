@@ -26,6 +26,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
+| `maxParallelToolCalls` | (agent-loop default) | positive integer cap on tool calls the `main` agent runs concurrently within one assistant step (`1` is fully serial), routed to `dsh-agent-loop` |
 | `persona` | — | the deployment persona template (may reference `{{model}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |

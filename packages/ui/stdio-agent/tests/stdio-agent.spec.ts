@@ -136,6 +136,17 @@ describe('dsh-stdio-agent app', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards maxParallelToolCalls onto the pre-created agent when set', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-parallel',
+      skills: await isolatedSkillsConfig(),
+    })
+    expect(ctx.get('agents')?.get(AgentId('main'))?.options.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('exposes its name and Config schema', () => {
     expect(stdioAgent.name).toBe('stdio-agent')
     expect(stdioAgent.Config).toBeDefined()
