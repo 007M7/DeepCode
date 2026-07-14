@@ -92,6 +92,27 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
+  it('contains an exact-id persistence lookup failure', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-failure-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    const failure = new Error('persistence index failed')
+    vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(failure)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-failure'), model: 'mock' }],
+    })
+
+    await expect.poll(() => warn).toHaveBeenCalledWith(expect.stringContaining(
+      'config-driven restore of "stdio-exact-failure" failed: Error: persistence index failed',
+    ))
+    expect(ctx.agents.get(SessionId('stdio-exact-failure'))).toBeUndefined()
+    warn.mockRestore()
+    await ctx.fiber.dispose()
+  })
+
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
