@@ -18,20 +18,10 @@ import { Readable, Writable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * BUILT-ARTIFACT smoke for the published `dsh-acp-agent` bin. `load-path.e2e.ts`
- * boots `src/bin.ts` under tsx — but the package's `bin` field points at
- * `lib/bin.js`, run under plain `node` by a real consumer. This runs the REAL
- * `lib/bin.js` under `node` (NOT tsx) and asserts it answers an `initialize`
- * JSON-RPC frame, so a regression in the published entry (a settle race that
- * exits before the bridge attaches, a stdout logger leaking onto the protocol)
- * fails here.
- *
- * It build-gates: SKIPS if `lib/bin.js` is absent (suite run without
- * `pnpm run build`); CI runs it after the build step. Setup mirrors a real
- * install (a temp dir whose `node_modules` symlinks the built packages) and runs
- * `node --expose-internals` (the cordis Loader resolves bare plugin specifiers
- * via its internal module loader, active only under that flag). KEYLESS:
- * `initialize` never reaches the model; a dummy key lets `llm-deepseek` boot.
+ * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
+ * require a valid initialize response. This catches built-only settle races and stdout protocol
+ * leaks that the tsx source-path smoke cannot. It skips before build; initialize is keyless, with a
+ * dummy key used only to boot the adapter. `--expose-internals` enables Cordis bare-plugin loading.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -48,12 +38,8 @@ const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
   'schemastery', 'cosmokit',
 ]
-// Third-party deps the ACP bridge needs at runtime. They are declared by
-// `dsh-acp` (NOT by `acp-agent`), so they live under `packages/ui/acp/node_modules`
-// and are NOT necessarily hoisted where THIS test file can resolve them — pnpm's
-// strict layout only exposes a package's deps under that package. Resolve each
-// from the `ui/acp` package directory (the one that declares it) so the lookup
-// works regardless of hoisting, then symlink it into the consumer for plain node.
+// Resolve ACP's declared third-party dependencies from that package, not this test: pnpm's strict
+// layout need not hoist them. Symlink those exact paths into the plain-Node consumer.
 const npmDeps = ['@agentclientprotocol/sdk', 'zod']
 const acpPkgDir = join(repoRoot, 'packages/ui/acp')
 
@@ -161,18 +147,15 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, 
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
-    // A typo'd config path must fail clearly, not exit 0. The include plugin
-    // itself cannot be imported from a non-existent dir; the Loader logs that and
-    // leaves the entry with no fiber, which boot()'s entry-load check throws on.
+    // A nonexistent directory prevents even the include plugin import. Loader logs the failure and
+    // leaves no fiber; boot's settled-entry guard must convert that state into non-zero exit.
     const { code, stderr } = await runBinExpectingExit('/nonexistent/dir/cordis.yml')
     expect(code).not.toBe(0)
     expect(stderr).toContain('failed to load')
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a missing config file in a real directory', async () => {
-    // The directory exists (the include imports), but the file does not — the
-    // include's init throws "config file not found", which surfaces as an
-    // unhandled rejection the fail-loud guard turns into a non-zero exit.
+    // Existing directory plus missing config exercises the include plugin's fail-loud path.
     consumer = await makeConsumer()
     const { code, stderr } = await runBinExpectingExit('./does-not-exist.yml', consumer)
     expect(code).not.toBe(0)

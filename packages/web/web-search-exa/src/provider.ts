@@ -1,14 +1,8 @@
 /**
- * `ExaSearchProvider`: a `WebSearchProvider` backed by the Exa search API
- * (`POST /search` with highlight contents). Maps Exa's flat `results[]` into the
- * seam's normalized `WebSearchResult`. Exa returns no provider-generated answer,
- * so `content` is omitted; each result maps to a `WebSearchSource` with `url`,
- * `title`, the first highlight as `snippet`, and `publishedDate` as
- * `publishedAt`.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter — not a cordis HTTP-client service.
- *
+ * `ExaSearchProvider`: a `WebSearchProvider` backed by the Exa search API (`POST /search` with
+ * highlight contents). It maps the first non-blank highlight to `snippet`, maps
+ * `publishedDate` to `publishedAt`, drops entries without a snippet, and omits `content`
+ * because Exa returns no generated answer.
  * @module @deepseek-ai/dsh-web-search-exa/provider
  */
 

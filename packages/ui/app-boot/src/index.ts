@@ -1,27 +1,7 @@
 /**
- * Shared boot glue for the app bins (`dsh-stdio-agent`, `dsh-acp-agent`): load
- * the gitignored `.env`, install the fail-loud Loader guards, resolve the
- * config path (snapshot-aware), and drive the cordis Loader against a leaf
- * `cordis.yml` until the whole tree has settled. Each bin stays a thin
- * self-executing composition over these helpers, parameterized by its
- * diagnostic prefix; the loader-failure lore lives here, once, under the
- * per-file coverage gate.
- *
- * Two failure classes the guards handle:
- *
- * - `loader.await()` does NOT rethrow a load error (`EntryTree.await()` uses
- *   `Promise.allSettled`, which swallows rejections). A plugin whose
- *   `[Service.init]` throws surfaces as an unhandled rejection AFTER `boot()`
- *   resolves — Node's default handler already exits non-zero, and
- *   {@link installFailLoud} replaces the noisy dump with one labelled stderr
- *   line and a guaranteed `exit(1)`.
- * - A plugin module that fails to IMPORT is caught and only LOGGED by the
- *   cordis Loader (`entry._init`), leaving the entry with no `fiber` and
- *   producing no rejection — the process would otherwise exit 0 with a usable
- *   config typo reported only as a log line; {@link assertEntriesLoaded} makes
- *   `boot()` reject on any such entry instead of returning a half-empty
- *   context.
- *
+ * Shared boot glue for the app bins (`dsh-stdio-agent`, `dsh-acp-agent`): load the gitignored
+ * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), and
+ * drive the cordis Loader against a leaf `cordis.yml` until the whole tree has settled.
  * @module @deepseek-ai/dsh-app-boot
  */
 
@@ -31,13 +11,11 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 
 /**
- * Resolve the config to boot, honoring snapshot REPLAY. Given the requested
- * path, replay mode swaps a `cordis.yml` basename for `cordis.snapshot.yml` in
- * the SAME directory (the keyless replay tree). Other modes — including no
- * snapshot mode at all — use the path as-is. Returns an absolute path resolved
- * from `cwd`.
+ * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
+ * `cordis.snapshot.yml` in the same directory; every other mode keeps the path.
  * @param configPath - the requested config path (absolute, or relative to `cwd`).
- * @param snapshotMode - the bin's `$DSH_SNAPSHOT` value; only `'replay'` swaps the basename.
+ * @param snapshotMode - the bin's `$DSH_SNAPSHOT` value; only `'replay'` swaps the
+ *   basename.
  * @param cwd - the base a relative `configPath` resolves against.
  * @returns the absolute path of the config to boot.
  */
@@ -52,12 +30,8 @@ export function resolveConfigPath(
 }
 
 /**
- * Load `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` from a gitignored `.env` in
- * `dir` (Node native `process.loadEnvFile`). An absent file is fine — the
- * environment may already carry the variables; the leaf `cordis.yml` reads
- * them via the `!!js` tag. A present-but-unreadable `.env` is a real
- * misconfiguration: surface it via `warn` (one line, default stderr) rather
- * than silently running with the wrong environment.
+ * Load the optional gitignored `.env` from `dir`. Missing files fall back to the
+ * ambient environment; other read failures are reported through `warn`.
  * @param binName - the diagnostic prefix on the warn line.
  * @param dir - the directory whose `.env` to load.
  * @param warn - sink for the one-line misconfiguration diagnostic.
@@ -88,15 +62,9 @@ export interface FailLoudProcess {
 }
 
 /**
- * Make a load failure fail loud with a clear message on stderr. Covers the
- * failure path {@link assertEntriesLoaded} cannot: an include whose
- * `[Service.init]` throws (e.g. a config FILE that does not exist in a real
- * directory) surfaces as an unhandled promise rejection AFTER `boot()`
- * resolves. Node's default handler already exits non-zero on an unhandled
- * rejection; this replaces the noisy stack dump with a single labelled line on
- * STDERR (never stdout — for the ACP bin that channel carries JSON-RPC) and
- * guarantees `exit(1)`. Install before `boot()`. Returns the uninstaller
- * (tests use it; the bins run until exit and never do).
+ * Install before boot to turn a late unhandled plugin-init rejection into one
+ * labelled stderr diagnostic and `exit(1)`. Stdout remains untouched for ACP;
+ * the returned function removes the handler.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
  * @returns the uninstaller that removes the rejection handler.
@@ -111,13 +79,9 @@ export function installFailLoud(binName: string, proc: FailLoudProcess = process
 }
 
 /**
- * After the tree settles, assert every loader entry actually started. A
- * started entry has a `fiber`; an entry with `fiber === undefined` after the
- * tree settled never loaded (its module failed to import), so throw and let
- * `boot()` reject instead of returning a half-empty context. A `disabled`
- * entry is the one legitimate fiber-less state: `Entry.refresh()` deliberately
- * skips `init()` for it — a valid "plugin turned off" config, not a failed
- * import — so it is excluded.
+ * After the tree settles, reject entries with no fiber, which indicates a
+ * swallowed module-import failure. Disabled entries are the only valid
+ * fiber-less state.
  * @param ctx - the settled context whose loader entries to audit.
  * @param binName - the diagnostic prefix on the thrown error.
  */
@@ -130,27 +94,11 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 }
 
 /**
- * Boot the Loader against `absoluteConfigPath` and return the root context
- * once the whole tree has settled. The include is handed the config's ABSOLUTE
- * `file://` URL as its `path`, so resolution never depends on `ctx.baseUrl`
- * (an absolute URL ignores the base) and can never fall back to the cwd;
- * `baseUrl` is still pinned to the config's directory so the config's OWN
- * relative plugin/include paths resolve against it.
- *
- * The `await ctx.loader.await()` is load-bearing: `loader.create()` returns
- * once the include ENTRY is registered, but the include then loads its child
- * plugins asynchronously — without awaiting the tree, `boot()` would resolve
- * while the app's plugins are still mounting, and a CLI process with no
- * attached handles yet exits 0 silently. Failures surface two ways: an entry
- * whose module failed to import is caught here by {@link assertEntriesLoaded}
- * (this `boot()` rejects); an init that THROWS surfaces as an unhandled
- * rejection caught by {@link installFailLoud} (installed by the bin first).
- *
- * Bare plugin specifiers in the config (`@deepseek-ai/dsh-*`, npm packages)
- * are resolved by the cordis Loader's internal module loader, which is only
- * active under `node --expose-internals`; a consumer running a built bin must
- * pass that flag (or install the plugins where node hoists them). Relative
- * specifiers resolve against the config directory with no flag.
+ * Boot the Loader against `absoluteConfigPath` and return only after the whole
+ * tree settles. The include uses an absolute file URL while `baseUrl` stays at
+ * the config directory for its relative imports. A missing fiber rejects here;
+ * a later init rejection is handled by {@link installFailLoud}. Built bins need
+ * `--expose-internals` for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).

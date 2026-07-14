@@ -1,14 +1,9 @@
 /**
+ * Centralize the non-secret product identity every provider request sends as `User-Agent`, keeping
+ * adapters from drifting. See
+ * `docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md`.
+ *
  * App-attribution vocabulary for provider requests.
- *
- * Every product LLM adapter must identify the application on every provider
- * HTTP request (see the adapter contract on {@link ../index.ts LlmAdapter}):
- * a static, non-secret product identity, sent as the standard `User-Agent`.
- * Adapters obtain the headers from {@link attributionHeaders} instead of
- * hand-copying constants, so the identity cannot drift between
- * implementations. The policy and its rationale are pinned in
- * docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md.
- *
  * @module @deepseek-ai/dsh-llm/attribution
  */
 

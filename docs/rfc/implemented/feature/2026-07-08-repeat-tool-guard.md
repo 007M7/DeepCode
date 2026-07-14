@@ -10,7 +10,7 @@ The harness already has every seam the pi extension uses, and better ones: [the 
 
 ## Decision
 
-The guard is a loop-hygiene plugin, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The purpose is to break unproductive loops within a few wasted steps instead of letting them run to the turn's natural end — while leaving the decision (retry differently, gather more evidence, or finish) entirely with the model, so a legitimately repeated call is delayed by nothing and blocked by nothing.
+The guard is a loop-hygiene plugin, not a model-facing tool. It counts consecutive calls to the same tool with identical canonical arguments and injects advisory reminders at configured thresholds. It never delays, blocks, or rewrites a call; the model decides whether to retry differently or finish.
 
 The plugin is `@deepseek-ai/dsh-repeat-tool-guard` at `packages/guard/repeat-tool-guard/`, opening the `guard/` group for loop-hygiene plugins (single-package groups have precedent: [the todo-write RFC](2026-06-29-todo-write-tool.md) shipped `todo/tool-todo`). It registers three listeners and holds all state in plugin-local maps keyed by `AgentId` — the tool registry is a context-level singleton whose waterfalls interleave every agent's calls (subagents run on the same context), so per-agent keying is correctness, not polish.
 
@@ -29,7 +29,7 @@ Two deliberate rules, both documented in [the package README](../../../../packag
 
 ### Reminder delivery
 
-Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}` — the label is load-bearing per `HookContext`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit, and the loop appends buffered context as `context/message`(s) after the step's results, which the session renders as the tagged synthetic-user envelope and derived history replays. Thresholds escalate: the first configured threshold gets a short "you are repeating yourself, analyze the previous result" nudge; each later threshold gets the detailed form naming the tool, the repeat count, and the canonical arguments (head-truncated at `argumentsPreviewChars`, default 500 — a looping `write`-sized payload must not ride into the next request unbounded; the chain key always compares the full canonical string), and stating that the calls made no progress. The pi original hardcodes the gentle text to the literal count 3; the guard keys it to `thresholds[0]`, fixing that bug in the port. When the downstream decision already carries `additionalContext` (a hook bridge on the same call), the guard concatenates content under its own `source` — a `HookContext` holds one `MessageSource`, and `source.kind` is what framing depends on.
+Reminders use `additionalContext` with the plugin source, preserving the original `tool/result`. The first threshold emits a short nudge; later thresholds include the tool, count, and a bounded argument preview while comparison still uses the full canonical string. Existing downstream context is concatenated under the guard's source because `HookContext` supports one source.
 
 ### Config
 
@@ -47,7 +47,9 @@ Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-too
 
 ## Testing
 
-**Unit** — the suite drives a real agent loop against a scripted mock adapter (no network) and covers, at per-file 100%: counting/reset semantics (identical, different-tracked, untracked-transparent, prompt-submit reset, disposal cleanup, per-agent isolation), canonicalization (deep key-order insensitivity), threshold escalation including the `thresholds[0]` gentle-text rule, denied-call counting, no-agent transparency, wildcard escaping, config fail-loud cases, and both fold-onto-downstream paths (block and accept-with-replacement). **Snapshot** — the `repeat-tool-guard` scenario in the acp-agent example suite scripts five identical `todo_write` calls and pins both reminder tiers (gentle at the third, detailed at the fifth) as `context/message`s in the ACP transcript and the session log; the guard is loaded in the example's live tree (`cordis.yml`), inert for every other scenario (none repeats a call three times). The scenario is authored keyless (like `error-finish`/`cancel`): deterministically forcing a live model to repeat one call three times is not a stable recording. **e2e** — none: the plugin is provider-independent and deterministic, and the seam contracts it relies on are e2e-covered by their owners.
+- **Unit:** A real loop with a scripted adapter covers counting and reset rules, untracked transparency, disposal cleanup, per-agent isolation, canonical argument key order, escalation, denied calls, no-agent execution, wildcard escaping, invalid config, and downstream block or replacement decisions at per-file 100% coverage.
+- **Snapshot:** The keyless `repeat-tool-guard` scenario makes five identical `todo_write` calls and pins the gentle third-call and detailed fifth-call reminders in both ACP output and the session log. The plugin is loaded in the live example but remains inert in other scenarios.
+- **E2e:** None; the plugin is deterministic and provider-independent, and its seam contracts are covered by their owners.
 
 ## Alternatives considered
 
@@ -64,7 +66,6 @@ Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-too
 - The reminder is advisory by design: idempotent polling patterns that repeat identical calls on purpose still receive nudges past the thresholds, and the pressure valves are config (`thresholds`, `exclude`) plus reminder text that explicitly allows finishing when enough evidence has been gathered. Each trigger costs reminder tokens on the next request; thresholds bound the frequency.
 - Chain state is in-memory only: a session resumed from persistence starts with a fresh chain, so a loop spanning a resume draws its reminders later than a live one — accepted, the guard is a heuristic nudge, not a logged invariant, and persisting counter state would buy little for real complexity.
 - When multiple post-execute producers attach context on one call, the fold concatenates under the guard's `source`; ordering between plugins follows listener registration order. The seam cannot represent mixed provenance — a limit inherited from `HookContext`, not owned by this plugin.
-- Implementing the snapshot tier surfaced a hidden assumption in the suite kit: the fixture guard equated "authored model scenario" with "override-driven". The `Scenario` table now carries an explicit `overridden` flag, and the sidecar's presence is checked BOTH ways against it (an unregistered stray sidecar would silently replace the derived script) — the suite kit is stricter than it was before this plugin existed.
 
 ## Deferred
 

@@ -1,14 +1,7 @@
 /**
- * Request-header reconstruction utilities: the pure fold/diff/apply trio over
- * the `request/header` / `request/header-delta` session events. Anyone
- * holding a session log reconstructs the {@link EpochHeader} any request was
- * built under by folding these events in log order; the loop uses the same
- * functions to decide whether a step's header changed and to encode the
- * change. Deltas are an encoding optimization with a safety valve — the
- * writer round-trip-verifies every delta before appending and falls back to
- * a full snapshot when the encoding cannot express the change — so folding
- * never needs error recovery on a well-formed log.
- *
+ * Request-header reconstruction utilities over `request/header` snapshots and
+ * `request/header-delta` events. Writers round-trip each proposed delta and use
+ * a full snapshot when the encoding cannot represent the change.
  * @module dsh-session/request-header
  */
 
@@ -114,13 +107,10 @@ function applyTools(prev: readonly ToolSchema[], delta: ToolsDelta): ToolSchema[
 }
 
 /**
- * Field-wise equality over canonical headers — the cheap comparison the
- * writer's round-trip guard runs (`applyHeaderDelta(prev, delta)` must equal
- * the intended header) and the loop runs to skip logging an unchanged header.
- * Tools compare per-schema IN ORDER (canonical JSON), so a pure reordering is
- * correctly unequal; the session prefix compares as canonical JSON (both
- * sides come from the same build path, so key order matches when the values
- * do).
+ * Field-wise equality over canonical headers — the cheap comparison the writer's round-trip
+ * guard runs (`applyHeaderDelta(prev, delta)` must equal the intended header) and the loop
+ * runs to skip logging an unchanged header.
+ *
  * @param a - one canonical header.
  * @param b - the other.
  * @returns whether config, system, tools (in order), and the session prefix all match.
@@ -139,13 +129,12 @@ function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] |
 }
 
 /**
- * Compute the `request/header-delta` payload between two canonical headers,
- * or undefined when they are equal. The caller MUST round-trip the result
- * ({@link applyHeaderDelta} on `prev` deep-equals `next`) before logging it —
- * the encoding cannot express every change (a pure tool reordering) — and
- * fall back to a full `request/header` snapshot when the check fails.
- * The session prefix is replaced whole (small advisory content, not worth
- * diffing); an empty replacement array encodes the transition to "none".
+ * Compute the `request/header-delta` payload between two canonical headers, or
+ * `undefined` when they are equal. The encoding cannot represent every change,
+ * including pure tool reordering, so callers must apply and compare the result
+ * before logging it and fall back to a full snapshot on mismatch. The session
+ * prefix is replaced whole; an empty array removes it.
+ *
  * @param prev - the folded header the log currently implies.
  * @param next - the header the next request will actually use.
  * @returns the delta payload, or undefined when nothing changed.
@@ -182,15 +171,13 @@ export function applyHeaderDelta(prev: EpochHeader, delta: HeaderDelta): EpochHe
 }
 
 /**
- * Fold the header events of a log (or any prefix of one) into the
- * {@link EpochHeader} in force after the last of them: each
- * `request/header` snapshot replaces the state, each `request/header-delta`
- * amends it. The pure, offline form of reconstruction — external tooling and
- * the dev invariant both use it; the live session tracks the same fold
- * incrementally.
+ * Fold the header events of a log (or any prefix of one) into the {@link EpochHeader} in
+ * force after the last of them: each `request/header` snapshot replaces the state, each
+ * `request/header-delta` amends it.
+ *
  * @param events - session events in log order (non-header events are skipped).
- * @param from - a previously folded state to continue from (the live session's
- *   incremental cursor); omit to fold from nothing.
+ * @param from - a previously folded state to continue from (the live session's incremental
+ *   cursor); omit to fold from nothing.
  * @returns the folded header, or undefined when no header event exists yet.
  */
 export function foldRequestHeader(events: readonly SessionEvent[], from?: EpochHeader): EpochHeader | undefined {

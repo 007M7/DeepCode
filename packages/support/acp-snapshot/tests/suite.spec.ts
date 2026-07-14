@@ -18,21 +18,14 @@ import {
 } from '../src/suite.ts'
 
 /**
- * Unit tests for the suite factory, by running it: two synthetic suites over
- * the scripted fake ACP bin (./fixtures/fake-acp-agent.ts) register REAL
- * describe/it trees at collection time, so every factory path — golden and log
- * compares, the per-suite header pin and its uniformity guard, record-mode
- * fixture write-back, skip semantics, and the fixture guard block — executes
- * as an ordinary green test. The pure helpers get direct cases below.
+ * Unit tests for the suite factory, by running it: two synthetic suites over the scripted fake
+ * ACP bin (./fixtures/fake-acp-agent.ts) register real describe/it trees at collection time,
+ * so every factory path — golden and log compares, the per-suite header pin and its uniformity
+ * guard, record-mode fixture write-back, skip semantics, and the fixture guard block —
+ * executes as an ordinary green test.
  *
- * The replay suite runs against the committed fixtures in ./fixtures/suite.
- * The record suite runs against a TEMP COPY of ./fixtures/record-suite
- * (record mode writes session fixtures back into its snapshots dir; a run must
- * never touch the committed tree). To re-bootstrap the record tree's goldens
- * after changing the fake bin's output, run this spec once with
- * `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1` (points the record suite at the committed
- * tree so vitest creates/updates the goldens and the write-back lands there),
- * then commit the result.
+ * Record tests use a temp copy. To intentionally rebuild their committed fixtures, run this
+ * spec once with `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1`, then review and commit the resulting tree.
  */
 
 const AGENT = {
@@ -44,12 +37,7 @@ const AGENT = {
 const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
-// The replay suite doubles as the header-CLASS coverage: every scenario names
-// the same explicit class (the record suite exercises the 'default' fallback),
-// and plain-turn boots through a per-scenario configPath override (the same
-// dummy path the agent default carries — the plumbing, not the composition,
-// is what this suite can exercise; the real overlay boot is the acp-agent
-// example's code-mode scenarios).
+// Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },

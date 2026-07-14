@@ -1,18 +1,5 @@
 /**
  * Negative-path tests for the config catalog generator (`scripts/gen-config-catalog.ts`).
- *
- * The generated catalog is frozen by a regenerate-and-diff freshness gate, so
- * the freshness half is exercised by `pnpm run verify-config-catalog` in CI.
- * What a freshness diff CANNOT prove is that the generator REJECTS malformed
- * source the way it promises to — an unclassifiable package, an undocumented
- * config field, a schema key the config type does not declare, or a referenced
- * type name that resolves nowhere. These tests drive `collectConfigCatalog()`
- * against synthetic fixture packages to prove each guard fires (and that
- * well-formed packages classify and extract correctly), mirroring the
- * negative tests for gen-cordis-catalog. The spec lives in this package
- * because agent-core is the config-composition plugin (its schema is the
- * intersection of its children's), the shape the generator's cross-package
- * folding exists for.
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'

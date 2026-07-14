@@ -1,29 +1,8 @@
 /**
- * Pure normalizers for the ACP snapshot goldens. They replace the
- * non-deterministic values in the two captured surfaces — the stdout JSON-RPC
- * transcript and the persisted session JSONL — with stable tokens, so a golden
- * compare reflects behavior, not run-to-run noise. Kept dependency-free and
- * side-effect-free so they unit-test trivially.
- *
- * Scrubbed: `randomUUID()` session ids → `{{sessionId}}`; the temp `mkdtemp`
- * cwd → `{{cwd}}` (it appears in terminal-card `_meta` and the log header);
- * JSON-RPC request `id` → a stable per-transcript sequence; the log's per-event
- * `time` (epoch ms) and header `createdAt` → 0; a `hook/result` event's
- * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
- * (deterministic — `seq = log.length`, part of the event-log contract).
- *
- * Separate, composable normalizers keep bulky request-header content out of
- * session fixtures. {@link scrubSystemPrompts} replaces the composed system
- * prompt in EVERY fixture; {@link scrubRequestHeaders} additionally replaces
- * tool schemas and the session prefix outside each suite's header-pinning
- * scenario. They are deliberately NOT folded into
- * {@link normalizeSessionLog}: the suite factory composes the right scrub for
- * each scenario and snapshots the pin's actual prompt as Markdown (see the
- * pinned-header RFC,
- * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
- *
- * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
- *
+ * Pure ACP transcript and session-log normalizers. They scrub session ids, temp cwd, RPC ids,
+ * timestamps, and hook duration while preserving deterministic event sequence numbers.
+ * Request-header scrubbers stay separate so one scenario per header class can pin tools and a
+ * readable prompt while other fixtures omit duplicated header bulk.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
@@ -68,12 +47,10 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 }
 
 /**
- * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a
- * stable golden in the SAME shape as the wire: one compact JSON frame per line
- * (NDJSON), with the JSON-RPC `id` rewritten to a per-transcript sequence
- * (1, 2, 3, …) and all volatile strings scrubbed. Throws if any non-empty line
- * is not valid JSON — that doubles as the stdout-purity check (no logger leaked
- * onto the protocol).
+ * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable golden
+ * in the same shape as the wire: one compact JSON frame per line (NDJSON), with the JSON-RPC
+ * `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all volatile strings scrubbed.
+ * Invalid JSON throws, doubling as a protocol-stdout purity check.
  *
  * @param rawStdout The captured stdout bytes, decoded utf8.
  * @param ctx The run's volatile values to scrub.

@@ -1,10 +1,10 @@
 # AGENTS.md
 
-The DeepSeek Harness group monorepo, hosting **DeepSeek Harness SDK** — a plugin-based SDK for building agent harnesses on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
 
 ## Pre-release stance: foundation over blast radius
 
-**Applies only while the harness is unreleased — remove this section at the first tagged release.** With no external consumers, optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
+**Remove this section at the first tagged release.** With no external consumers, prefer the correct foundation over compatibility shims: rename or repackage freely and update every reference together. Backends reject old on-disk formats. SQLite uses monotonic `SCHEMA_VERSION`; `dsh-session` keeps `SESSION_FORMAT_VERSION` at `0` with no compatibility promise.
 
 ## Repository layout
 
@@ -25,9 +25,10 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge, JSON-RPC SDK server, app-boot glue, stdio/ACP/SDK app bins, user-approval and user-interaction seams, ask-user tool
+  ui/          ACP/stdio/JSON-RPC front doors; boot, approval, and interaction plugins
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
+python/      Python SDK and bundled runtime (see python/README.md)
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
@@ -58,7 +59,7 @@ pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 
 ### Run the CI gates locally before marking a PR ready
 
-During implementation, run the narrowest affected checks; run this full CI-equivalent sequence only when complete and before marking a PR ready. From a fresh clone/worktree, `pnpm run build` first because publint and NodeNext validate built `lib/`:
+Run narrow checks during implementation and this CI-equivalent sequence before marking a PR ready. Fresh worktrees need `pnpm run build` before publint and NodeNext inspect `lib/`:
 
 ```sh
 set -euo pipefail
@@ -79,51 +80,53 @@ rm -rf .sessions
 pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
-`test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.
+`test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.
 
 ## Secrets / .env
 
-Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_URL`) from the environment or a gitignored root `.env` loaded via `process.loadEnvFile()`. cordis.yml references env vars with the `!!js` tag (never `!js`). Never commit credentials. CI has no secrets, so e2e suites self-skip without a key — a CI accommodation, not a cost signal; the with-key policy is in [docs/testing.md](docs/testing.md).
+Real-API tests and demos read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the environment or a gitignored root `.env` loaded by `process.loadEnvFile()`. cordis.yml uses `!!js` (never `!js`) for env vars. Never commit credentials. CI e2e self-skips without a key; [docs/testing.md](docs/testing.md) owns the with-key policy.
 
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
 - ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; builds are for outside consumers only.
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
-- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag and a `@param` per payload parameter (`this`/trailing `next` exempt); every public service-class method documents each parameter and non-void return (`@param`/`@returns`) — the catalog generator hard-errors otherwise; mode semantics are in the [generated events catalog](docs/cordis-catalog/events.md) header.
-- **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
+- **Typed events use declaration merging**; extensible unions use merge-extensible maps. Event JSDoc needs `@mode` and payload `@param` tags; public service methods document parameters and non-void returns. Catalog gates enforce this.
+- **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
 - **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
-- **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
-- **Misconfiguration fails loud**: a config value referencing something that does not exist (a `toolOrder` tool name, a plugin path) throws — at load when the check is self-contained, else at the earliest moment the referent exists (for `toolOrder`, every prompt assembly) — never a silent skip.
+- **No hardcoded tunables in plugins**: deployment choices are defaulted, validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test seam is not configurability. Protocol constants, external specs, and security invariants stay fixed.
+- **Misconfiguration fails loud** at load when self-contained, otherwise at the earliest resolvable point; never silently skip a missing referent.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string`.
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
-- **Symmetry is usually more correct**: parallel values get parallel form; asymmetry smells of a missed extraction.
-- **Tests document behavior, not golden truth**: a green test pins what the code DOES, not what it SHOULD do. Before preserving a behavior solely for its test, ask whether it is load-bearing; an artifact changes together with its test, with the why in the PR.
-- **RFCs are proposals, not golden truth**: validate its premise against current code before implementing; friction is evidence of over-reach — amend on the way to `implemented/`.
-- **Testing policy** — [docs/testing.md](docs/testing.md). Transcript/UX changes need snapshots or a PR note. Snapshot fixtures must replay on macOS/Linux; avoid GNU/BSD-only commands (e.g. `sed -i`); fix fixtures, not normalizers.
+- **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
+- **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
+- **Validate RFC premises against current code**; friction may expose overreach, so amend proposals before moving them to `implemented/`.
+- **Testing policy** — [docs/testing.md](docs/testing.md). Transcript changes need snapshots or a PR note. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
-- **A new capability seam, lifecycle shape, or transcript surface names its coverage at every tier (unit, e2e, snapshot) at plan time** and verifies the harness can express it — a gap is scheduled work, not a mid-build surprise.
-- **Merge PRs with merge commits** (`gh pr merge --merge`), never squash/rebase. **Never rewrite a pushed branch**; update a child by merging its parent down. **A review fix lands on the PR that introduced the issue, as a separate commit**, then merges down ([stacked-review guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
+- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces, and schedule any missing harness support before implementation.
+- **Merge PRs with merge commits**, never squash/rebase or rewrite pushed branches. Put a review fix on its introducing PR, then merge down the stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --check` (pre-push) gates it.
 
 ## Defensive patterns
 
-[docs/defensive-patterns.md](docs/defensive-patterns.md) carries the hard-won bug-class rules: report orthogonal outcomes independently; honor cross-seam contracts on both sides; async state is not synchronous state; dispose must reach quiescence; contain callback exceptions; never hand untrusted output the ambient environment or predictable paths. Read it before lifecycle, concurrency, subprocess, or teardown work.
+Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, concurrency, subprocess, or teardown work.
 
 ## Type safety and documentation
 
-Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` carries a comment saying why a narrower type is infeasible. Every module has a module-level doc comment; every export (and non-obvious method) has a JSDoc explaining semantics — contracts, disposal, errors — not the name restated; internal helpers only where non-obvious; one-liners when one line suffices. The export half is mechanical: `verify-export-jsdoc` (in `doc-sync`) requires description prose on every package export plus `@param`/`@returns` (and an annotated return) on function-like ones. Heritage-declared members, plugin-protocol slots, and constructors are exempt — their docs' one home is the seam declaration, the framework protocol, and the class doc respectively. Lean toward the stricter lint rule and the extra mechanical gate: encode invariants in checks (`verify-*` scripts), preferring a narrow justified escape hatch over a rule left off globally. Type gymnastics are acceptable inside core packages when they buy plugin-author DX (the `defineTool` schema DSL is the canonical example).
+Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why a narrower type is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring seam, protocol, or class.
+
+Comments and docs preserve complete contracts and non-obvious orientation, not reasoning transcripts. Do not narrate control flow or tests, preserve review history, or restate code. Keep factual clauses affecting behavior, failure, timing, ownership, or safe use; link aggressively to owning rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Encode enforceable invariants in checks, using narrow justified exceptions rather than disabling a rule globally.
 
 Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Editing these instructions
 
-`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (root, `packages/`, `examples/`). Edit `AGENTS.md`, never the symlink. Keep it self-contained: state each principle inline instead of citing RFCs (they stay discoverable via the RFC index); linking high-level docs — architecture, testing, cookbooks — is fine. This file is budget-gated (`verify-doc-budgets`): condense first if it is possible without sacrificing clarity; truly needed additions may justify a ceiling raise.
+`CLAUDE.md` symlinks `AGENTS.md` at root, `packages/`, and `examples/`; edit the real file. Keep each rule self-contained while linking high-level docs. Condense when clarity survives; raise a `verify-doc-budgets` ceiling when the contract genuinely needs more space.
 
 ## Vendoring policy
 

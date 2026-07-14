@@ -171,10 +171,9 @@ describe('timeoutOf', () => {
 
 describe('deadline — nested deadlines', () => {
   it("does not misclassify an outer deadline's timeout as the inner code", () => {
-    // The upstream handed to the inner deadline is ITSELF a deadline that has
-    // already timed out (outer). AbortSignal.any preserves the outer reason;
-    // scoping timeoutOf to the inner code keeps the inner capability from
-    // reporting the outer timeout as its own — it reads as an upstream cancel.
+    // The upstream handed to the inner deadline is ITSELF a deadline that has already timed out
+    // (outer). `AbortSignal.any` preserves that reason, but scoping `timeoutOf` to the inner code
+    // must classify it as upstream cancellation rather than the inner capability's timeout.
     const outer = new AbortController()
     outer.abort(new TimeoutReason('OUTER_TIMEOUT', 30))
     using inner = deadline(outer.signal, 60_000, 'BASH_TIMEOUT')

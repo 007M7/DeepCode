@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`cordis.snapshot.yml` is a declarative overlay, not a copy: its single entry mounts `@cordisjs/plugin-include` on `./cordis.yml` with `patches` that disable the `llm-deepseek` entry (matched by id AND asserted by `name`, so a reused id can never disable the wrong plugin) and insert the `llm-replay` entry ([the vendored include plugin](../../../../vendor/include/src/index.ts)'s patch mechanism: by-id overrides with an optional name assertion, plus top-level inserts). Every other entry — the app, the bash executor, the fs/subagent/todo tools, both hook bridges, the system prompt — is the live tree itself, loaded through the include, so replay exercises exactly what ships and an app-shape change lands once. The `dsh-acp-agent` bin is untouched (it still just selects this file for `DSH_SNAPSHOT=replay`); recording still boots `cordis.yml` directly; the bin's `assertEntriesLoaded` guard tolerates the disabled entry by design (a disabled entry is the one legitimate fiber-less state).
+`cordis.snapshot.yml` includes the live config, disables the named DeepSeek adapter by id and name, and inserts the replay adapter. Every other entry therefore comes from the shipping tree. Replay selects the overlay; recording still boots `cordis.yml`, and the load guard permits the intentionally disabled entry.
 
 One vendored-plugin fact the overlay depends on, deliberately: the include applies `patches` when it loads the file — its `refresh()`/`internal/update` paths re-read without re-patching — which is exactly enough for a one-shot replay boot (the replay app loads no `hmr` and nothing rewrites the config mid-run). The snapshot suite is the proof: all scenarios pass unchanged on the overlay, byte-identical goldens included.
 
