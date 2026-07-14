@@ -40,3 +40,12 @@ A scenario booting a differently-composed tree sets its own `configPath` (an ove
 The example also ships a `cordis.snapshot.yml` replay overlay next to its `cordis.yml` (the bin swaps them under `DSH_SNAPSHOT=replay` — [single-source replay config RFC](../../../docs/rfc/implemented/testing/2026-07-04-single-source-acp-replay-config.md)); replay fixtures are served by [`dsh-llm-replay`](../llm-replay/README.md), which this package points at via the `DSH_SNAPSHOT_*` env vars it sets on the child. `pnpm run test:snapshot:record` calls the live LLM and rewrites the recorded scenarios' model fixtures; `pnpm run test:snapshot:refresh` stays keyless, runs the replay overlay, and rewrites stdout, comparable session-log goldens, and each pin's Markdown prompt snapshot from the committed model scripts. Fixture roles, record/replay/refresh semantics, and scenario-table fields are documented on `Scenario` and in the [snapshot RFC](../../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md).
 
 Constraints: `suite.ts` imports vitest, so the package is importable only inside a vitest run (the harness and normalizers have no such dependency but ship from the same entry). ACP-specific by design — the harness speaks the SDK's `ClientSideConnection`. Permission round-trips are scriptable: `InputScript.permissionAnswers` is a FIFO queue of option-kind selections (`allow_once`, `reject_once`, …) the client maps to the agent-issued `optionId` at answer time; an absent or exhausted queue answers `cancelled`, and a kind the request never offered rejects the run (the agent is answered `cancelled`, so a tolerant agent cannot absorb the scenario bug). Session config options are scriptable too: the `setConfigOption` step switches a knob over `session/set_config_option`, and `setConfigOptionExpectError` asserts the bridge rejects an unknown id or out-of-vocabulary value (the error frame stays in the transcript).
+
+## Model Experience
+
+None, as this test-only harness records, normalizes, and compares ACP transcripts without changing the agent's assembled model request.
+
+## Known Limitations and Deferred Work
+
+- **Session harvest is JSONL-only** — `runScenario` collects persisted `.jsonl` logs, so an example composed over the SQLite persistence backend has no snapshot path.
+- **The subprocess boots the unbuilt tsx/Loader path only** — the built-bin artifact is guarded by the separate `built-bin` e2e smokes, never by this tier.
