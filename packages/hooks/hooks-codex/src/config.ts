@@ -1,17 +1,16 @@
 /**
- * Parse a Codex `hooks.json` into the shared {@link MatcherGroup} shape. Codex's
- * config format is a SUBSET of Claude Code's: the same event-name → matcher-group
- * structure and the same `{ type: 'command', command, timeout?/timeoutSec? }`
- * hook shape, but only five events and NO command-string substitution (Codex sets
- * no hook env vars and does not expand `${…}`). Non-command hooks (and Codex's
- * `async: true` commands) are parsed-and-skipped with a warning.
+ * Parse the bridge-supported subset of a Codex `hooks.json` into the shared
+ * {@link MatcherGroup} shape. The bridge accepts five events and the
+ * `{ type: 'command', command, timeout?/timeoutSec? }` hook shape, performs no
+ * config-time placeholder substitution or plugin-env injection, and skips
+ * non-command and `async: true` handlers with a warning.
  *
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
 
 import type { MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
-/** The five hook points Codex's engine supports. */
+/** The five current Codex hook points this bridge supports. */
 export const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 
 /** A parsed Codex config: event name → its matcher groups (command hooks only). */
@@ -37,10 +36,10 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 
 /**
  * Parse a raw Codex `hooks.json` object into runnable {@link MatcherGroup}s.
- * Only the five {@link CODEX_EVENTS} are honored; an unknown event is dropped.
+ * Only the five bridge-supported {@link CODEX_EVENTS} are honored; another event is dropped.
  * `type !== 'command'` and `async: true` command hooks are skipped (recorded in
  * `skipped`). Malformed entries are ignored rather than thrown — a bad config
- * must not crash boot. No command substitution (Codex does none).
+ * must not crash boot. No config-time placeholder substitution is performed.
  * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
  * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */

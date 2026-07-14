@@ -5,8 +5,8 @@ Packages that exist to serve development, testing, and the examples rather than 
 | Package | Role | ctx key |
 |---|---|---|
 | `acp-snapshot/` | ACP test kit: shared subprocess/client launcher + snapshot harness, normalizers, and suite factory | (library — imported by ACP e2e and `*.snapshot.ts` suites) |
-| `invariants/` | Dev-mode event-contract assertions | (listens on `session/*`, `agent/*`) |
+| `invariants/` | Runtime event-contract assertions for development diagnostics | (listens on `session/*`, `agent/*`) |
 | `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent-mock/` | Scripted `SubagentProvider` for deterministic seam/tool tests | (registers on `ctx.subagents`) |
 
-`invariants` runs only in dev mode (contract checks, not runtime behavior). `llm-replay` backs the demos and the snapshot test tier under the per-file coverage gate. `acp-snapshot` carries the ACP subprocess/client boundary plus the snapshot harness, normalizers, and suite machinery, so e2e tests share one launcher and every snapshot suite is a scenario table over one gate-covered implementation. `subagent-mock` exercises the real `ctx.subagents` load path without a model or child agent. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
+`invariants` is development support but has no environment guard: it runs wherever registered, and the default `dsh-agent-core` bundle mounts it unconditionally. `llm-replay` backs the demos and the snapshot test tier under the per-file coverage gate. `acp-snapshot` carries the ACP subprocess/client boundary plus the snapshot harness, normalizers, and suite machinery, so e2e tests share one launcher and every snapshot suite is a scenario table over one gate-covered implementation. `subagent-mock` exercises the real `ctx.subagents` load path without a model or child agent. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
