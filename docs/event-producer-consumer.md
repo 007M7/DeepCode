@@ -3,7 +3,7 @@
 
 # Event Producer And Consumer Matrix
 
-This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Dynamic dispatch overrides cover sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.
+This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
@@ -15,7 +15,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:167`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
 | `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:224`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
 | `agent/session-prefix` | `waterfall` | [`packages/core/agent/src/types.ts:239`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`tool-skill`](../packages/skill/tool-skill) |
-| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:180`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`invariants`](../packages/support/invariants) |
+| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:180`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `agent/status` | `emit` | [`packages/core/agent/src/types.ts:157`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`invariants`](../packages/support/invariants), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard), [`stdio-agent`](../packages/ui/stdio-agent) |
 | `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:250`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
 | `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:260`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
@@ -25,16 +25,16 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `fs/observed` | `emit` | [`packages/fs/fs/src/index.ts:68`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`emit`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/write-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:51`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `llm/stream` | `waterfall` | [`packages/llm/llm/src/index.ts:39`](../packages/llm/llm/src/index.ts) | [`llm`](../packages/llm/llm) (`waterfall`) | [`invariants`](../packages/support/invariants), [`llm-replay`](../packages/support/llm-replay) |
-| `session/created` | `emit` | [`packages/core/session/src/index.ts:46`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`invariants`](../packages/support/invariants), [`jsonrpc`](../packages/ui/jsonrpc), [`session-persistence`](../packages/session-persistence/session-persistence) |
-| `session/disposed` | `emit` | [`packages/core/session/src/index.ts:55`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | - |
-| `session/event` | `emit` | [`packages/core/session/src/index.ts:66`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`jsonrpc`](../packages/ui/jsonrpc), [`session-persistence`](../packages/session-persistence/session-persistence), [`stdio-agent`](../packages/ui/stdio-agent) |
-| `session/flush` | `parallel` | [`packages/core/session/src/index.ts:75`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`session-persistence`](../packages/session-persistence/session-persistence) |
+| `session/created` | `emit` | [`packages/core/session/src/index.ts:47`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`invariants`](../packages/support/invariants), [`jsonrpc`](../packages/ui/jsonrpc), [`session-persistence`](../packages/session-persistence/session-persistence) |
+| `session/disposed` | `emit` | [`packages/core/session/src/index.ts:57`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | - |
+| `session/event` | `emit` | [`packages/core/session/src/index.ts:69`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`jsonrpc`](../packages/ui/jsonrpc), [`session-persistence`](../packages/session-persistence/session-persistence), [`stdio-agent`](../packages/ui/stdio-agent) |
+| `session/flush` | `parallel` | [`packages/core/session/src/index.ts:79`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`session-persistence`](../packages/session-persistence/session-persistence) |
 | `skill/provider-added` | `emit` | [`packages/skill/skill/src/index.ts:131`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`emit`) | - |
 | `skill/provider-removed` | `emit` | [`packages/skill/skill/src/index.ts:137`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`emit`) | - |
-| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:90`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`jsonrpc`](../packages/ui/jsonrpc) |
+| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:92`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`jsonrpc`](../packages/ui/jsonrpc) |
 | `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:66`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`tool-subagent`](../packages/subagent/tool-subagent) |
 | `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:72`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`tool-subagent`](../packages/subagent/tool-subagent) |
-| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:82`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
+| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:83`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:27`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | - |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:33`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
 | `tools/change` | `emit` | [`packages/core/tools/src/index.ts:116`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
@@ -55,4 +55,4 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | --- | --- | --- |
 | `internal/dispatch` | - | [`invariants`](../packages/support/invariants) |
 
-Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.
+Maintenance mode: generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program.
