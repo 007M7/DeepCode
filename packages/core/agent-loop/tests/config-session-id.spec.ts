@@ -172,6 +172,8 @@ describe('config-driven session id', () => {
     const listing = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.list>>>()
     vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(listing.promise)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
 
     const loop = await ctx.plugin(AgentLoop, {
       agents: [{ id: 'main', sessionId: SessionId('stdio-exact-dispose'), model: 'mock' }],
@@ -181,9 +183,10 @@ describe('config-driven session id', () => {
     await Promise.resolve()
     expect(disposed).toBe(false)
 
-    listing.resolve([])
+    listing.reject(new Error('startup cancelled by teardown'))
     await disposal
     expect(ctx.agents.get(SessionId('stdio-exact-dispose'))).toBeUndefined()
+    expect(failures).toEqual([])
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
     await ctx.fiber.dispose()

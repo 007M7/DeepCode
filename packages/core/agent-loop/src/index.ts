@@ -339,7 +339,8 @@ declare module 'cordis' {
     /**
      * A declarative agent entry failed before it could publish a live agent.
      * Consumers that buffer work for the configured identity use this
-     * transient signal to reject that work instead of waiting forever.
+     * transient signal to reject that work instead of waiting forever. Normal
+     * factory teardown suppresses failures from the cancelled startup attempt.
      * @param sessionId - exact shared agent/session identity that failed startup.
      * @param error - persistence, setup, or publication failure.
      * @mode emit
@@ -430,6 +431,7 @@ export class AgentLoop extends Service implements AgentFactory {
     sessionId: SessionId,
     error: unknown,
   ): void {
+    if (!this.ownership.isActive()) return
     this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${renderThrown(error)}`)
     const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
     for (const callback of this.ctx.events.dispatch('emit', args)) {

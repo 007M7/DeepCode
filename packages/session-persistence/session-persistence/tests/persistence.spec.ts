@@ -22,6 +22,16 @@ function legacyHeaderDelta(seq = 0): SessionEvent {
   } as unknown as SessionEvent
 }
 
+/** An obsolete full-header reason fixture from the removed delta codec. */
+function legacyFallbackHeader(seq = 0): SessionEvent {
+  return {
+    type: 'request/header',
+    seq,
+    time: 1,
+    data: { header: { config: { model: 'legacy' } }, reason: 'fallback' },
+  } as unknown as SessionEvent
+}
+
 /** Optional plugin config: an EXTERNAL store shared across backend instances. */
 interface MemoryConfig { store?: MemoryStore }
 
@@ -190,6 +200,19 @@ describe('SessionPersistence service registration', () => {
     await fiber.dispose()
   })
 
+  it('rejects a legacy fallback header buffered by a pre-change live producer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('legacy-fallback-live'), { meta: { cwd: '/legacy' } })
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+
+    expect(() => appendLegacy('request/header', legacyFallbackHeader().data))
+      .toThrow('unsupported legacy request/header reason "fallback"')
+    expect(session.events).toHaveLength(0)
+    await fiber.dispose()
+  })
+
   it('rejects a legacy stored prefix during live HMR adoption', async () => {
     const id = SessionId('legacy-hmr')
     const m = meta(id, '/legacy')
@@ -206,5 +229,18 @@ describe('SessionPersistence service registration', () => {
     await expect(ctx.sessions.flush(session))
       .rejects.toThrow(/unsupported legacy request\/header-delta event at seq 0/)
     await Promise.allSettled([fiber.dispose()])
+  })
+
+  it('rejects a stored legacy fallback header during load', async () => {
+    const id = SessionId('legacy-fallback-load')
+    const m = meta(id, '/legacy')
+    const store: MemoryStore = new Map([[id, { meta: m, events: [legacyFallbackHeader()] }]])
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence, { store })
+
+    await expect(ctx.sessionPersistence.load(id))
+      .rejects.toThrow('unsupported legacy request/header reason "fallback" at seq 0')
+    await fiber.dispose()
   })
 })

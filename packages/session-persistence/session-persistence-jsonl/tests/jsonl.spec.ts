@@ -162,6 +162,25 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
   })
 
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const m = meta('legacy-header-fallback', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({
+        type: 'request/header',
+        seq: 0,
+        time: 1,
+        data: { header: { config: { model: 'legacy' } }, reason: 'fallback' },
+      }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
+  })
+
   it('persists a forked child seed through the existing session write path', async () => {
     const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source)
