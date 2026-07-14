@@ -245,7 +245,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:593`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:604`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

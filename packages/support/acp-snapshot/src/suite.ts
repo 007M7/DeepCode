@@ -486,8 +486,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const entries = await readdir(dir, { withFileTypes: true })
             await Promise.all(entries
               .filter(entry => entry.isFile()
-                && entry.name.startsWith('session.')
-                && entry.name.endsWith('.jsonl')
+                // Only valid numbered children are record-owned stale output.
+                // Malformed session-like names stay for the inventory guard to
+                // reject instead of being silently deleted during mutation.
+                && /^session\.[1-9]\d*\.jsonl$/.test(entry.name)
                 && !outputNames.has(entry.name))
               .map(entry => rm(join(dir, entry.name))))
             fixtureFiles = outputFixtureFiles
