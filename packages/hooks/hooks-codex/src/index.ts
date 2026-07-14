@@ -1,16 +1,11 @@
 /**
- * `dsh-hooks-codex` — a bridge plugin that runs a user's existing Codex
- * `hooks.json` on the harness's canonical interception seams. The CODEX DIALECT
- * half of the hooks subsystem.
- *
- * This bridge supports five of Codex's ten current hook points (`PreToolUse`,
- * `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`), regex-only
- * matchers, snake_case stdin payloads with `turn_id`/`model` extras and no
- * trailing newline, no config-time placeholder substitution or plugin-env
- * injection, and no pre-tool approval or rewrite path. The dialect-agnostic
- * primitives come from `@deepseek-ai/dsh-hook-protocol`; this bridge owns the
- * Codex-shaped payloads, matcher mode, and decision mapping.
- *
+ * Bridge for unmodified Codex command hooks on harness interception seams. It
+ * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
+ * matchers, snake_case payloads without a trailing newline, no hook environment
+ * or command substitution, and no pre-tool approval or rewrite path; only
+ * blocking decisions are honored. Shared execution and parsing live in
+ * `dsh-hook-protocol`; see the
+ * [hook-bridges RFC](../../../../docs/rfc/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-codex
  */
 
@@ -45,7 +40,7 @@ export const inject = ['bash']
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
   /**
-   * Path to a Codex `hooks.json`. PROCESS-LEVEL: read once at load, a relative
+   * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
    * `session/new.cwd` is not yet implemented.
@@ -81,8 +76,7 @@ function assertPositiveInteger(name: string, value: number): void {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Validate the cap BEFORE the config-file parse: a bad value must fail the
-  // load loudly, not be skipped by the parse-failure early return.
+  // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
@@ -115,12 +109,11 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
-    // Run the hook in the agent's session workspace (the `session/new` cwd), not
-    // the executor default (the server launch dir) — a hook reading a relative
-    // file or `pwd` must see the user's project tree. Absent for a no-agent run.
+    // Run hooks in the agent's session workspace so relative paths address the
+    // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
     for (const group of groups) {
-      // Codex matches with PURE regex (no literal fast path).
+      // Codex always interprets matchers as regexes; it has no literal fast path.
       if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
@@ -136,20 +129,12 @@ export function apply(ctx: Context, config: Config): void {
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
+          trailingNewline: false, // Codex writes stdin without a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
         }, () => performance.now())
-        // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN
-        // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
-        // `output.stdout` but only sets `additionalContext` from a JSON
-        // `hookSpecificOutput`, so fold plain stdout in here and let the shared
-        // merge + contextFrom path carry it. Gated exactly like the codec's own
-        // structured-stdout parse: only on a clean `exitCode === 0` (a non-zero
-        // exit is an error, not context — an `echo x; exit 2` must not inject
-        // `x`), only when stdout is non-JSON (`!startsWith('{')` — a structured
-        // hook's raw JSON is never dumped as prose), and never clobbering an
-        // explicit additionalContext from a JSON block.
+        // Clean plain stdout becomes context only when no structured context
+        // exists; nonzero output and raw JSON never leak as prose.
         if (opts.plainStdoutAsContext === true && output.exitCode === 0
           && output.additionalContext === undefined
           && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
@@ -170,11 +155,7 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
-  // TODO(hook-continue-false): the merge computes `merged.stop`/`stopReason` from
-  // a hook's `continue:false`, but no seam below honors it — there is no
-  // "hard-halt the whole agent" primitive on the interception seams yet. Deferred
-  // with the loop-guard work; until then a `continue:false` hook keeps its
-  // per-point effect and the halt request is recorded in `hook/result`, not acted on.
+  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
   function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -182,25 +163,15 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
-  /**
-   * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
-   * call sites) with a downstream listener's optional one, so folding our
-   * additionalContext onto a delegated decision drops neither. The merged block
-   * carries a single `source` — this bridge's — because a `HookContext` holds one
-   * `MessageSource` and the seam cannot represent mixed provenance; the rendered
-   * `context/message` only distinguishes by `source.kind` ('plugin'), so a
-   * downstream plugin's text is still correctly framed as plugin context.
-   */
+  /** Merge hook context while retaining this bridge's plugin-level source. */
   function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
     if (!theirs) return ours
     return { content: [...ours.content, ...theirs.content], source: ours.source }
   }
 
-  // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
-  // TODO(session-start-gating): a synchronous emit + detached `.then`, so the
-  // injected context is BEST-EFFORT — not guaranteed before the first turn reaches
-  // the model (a slow hook can miss the first request). Gating is a deferred
-  // loop-level change; the contract is "injected as soon as the hook resolves".
+  // SessionStart injects plain stdout when its detached hook resolves; a slow
+  // hook may miss the first request.
+  // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
   ctx.on('agent/session-start', (agent, source) => {
     detached.track(runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
@@ -211,7 +182,7 @@ export function apply(ctx: Context, config: Config): void {
     /* jscpd:ignore-end */
   })
 
-  // UserPromptSubmit → PromptDecision. Codex can only BLOCK (no allow/ask).
+  // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
   ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
     const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true })

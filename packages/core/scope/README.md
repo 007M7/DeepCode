@@ -1,6 +1,6 @@
 # dsh-scope
 
-Scoped-context registration primitive. `createScope(ctx, key)` mints a Cordis context that TAGS everything registered through it with an opaque `ScopeKey` and OWNS those registrations' lifetime (one backing fiber drives both facts); `scopeOf(ctx)` reads the tag; `scopeTarget(base, key)` builds the dispatch carrier that makes an event scope-filtered — listeners registered through a scoped context fire only for their key's subject, while plain plugin listeners keep firing for every subject. The agent loop is the one scope minter today (one scope per live agent, key = the `Agent` object — the `Agent.ctx` contract in `dsh-agent`), but the mechanism is key-agnostic so packages below the agent layer (`dsh-session`, `dsh-system-prompt`) depend on it without a dependency cycle.
+Scoped registration primitive. `createScope(ctx, key)` creates a tagged Cordis context whose backing fiber owns every registration made through it. `scopeOf(ctx)` reads the tag, and `scopeTarget(base, key)` routes scoped events to listeners with the same key while leaving unscoped listeners global. The agent loop creates one scope per live agent, but the mechanism is key-agnostic so lower-level packages can use it without depending on agents.
 
 ## Public API
 
@@ -15,7 +15,7 @@ Scoped-context registration primitive. `createScope(ctx, key)` mints a Cordis co
 
 ## Design contract
 
-Ownership and visibility derive from ONE fact — which context a registration went through. An explicit `{ scope }` registration parameter could express "visible to X, disposed with Y", which is almost always a bug; the scoped context makes it unrepresentable. This is trusted registration and listener routing, not sandboxing or an authority hierarchy: a same-process plugin is not confined, and a child scope need not be a subset of its parent's view. Rationale, alternatives, and the security non-goal: [the agent-scope RFC](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-explicit-non-goals).
+The registration context determines both visibility and ownership, preventing a registration from being visible in one scope but disposed with another. Scopes route trusted same-process plugins; they are not sandboxes or authority boundaries. See the [agent-scope RFC](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-explicit-non-goals) for rationale and security non-goals.
 
 Handing out a scoped context hands out the minting plugin's service-resolution surface (resolution walks the minting fiber's dependency chain, not the holder's) — mint it from the plugin whose dependencies the scoped registrations need to resolve.
 

@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-The `Session` event log is the single source of truth ([event-sourced sessions](2026-06-11-event-sourced-sessions.md)), but the only view over it was `deriveMessages()` — a linear scan that filtered and transformed raw events into `Message[]`. This creates problems for session-history-manipulating plugins (compaction, tool-call result pruning, etc.). Without a central mechanism, each plugin would need to wrap `agent/request` to rewrite the message list — a pattern that suffers from listener-ordering fragility, provides no durable record of what was changed, and forces repeated changes to the core `deriveMessages()` whenever a new manipulation is added. A central hub in the `session` package, with a provenance-recording mechanism and enough flexibility for future plugins to manipulate session history through a stable API, lays a solid foundation for plugin development.
+The event log is authoritative, but history manipulation had no durable shared mechanism. Plugins such as compaction would otherwise rewrite derived requests through order-sensitive listeners, leave no provenance, and require repeated changes to `deriveMessages()`.
 
 ## Decision
 
@@ -49,7 +49,7 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 
 The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
 
-Because the surface is the SOLE derivation path, a surface-eligible event that carries no `surfaceOp` marker is invisible to `deriveMessages()` — it would land in the log yet silently drop from history on resume/fork. `append`'s typed overload makes the marker mandatory for `SurfaceEventType` events at compile time, but only when the type argument is a SPECIFIC literal; when it widens to the `SessionEventType` union (a caller iterating raw events, e.g. `for (const e of log) append(e.type, e.data)`) the conditional rest collapses to optional and the compiler stops enforcing it. The marker requirement is therefore ALSO checked at runtime in two places: `append` itself throws on a marker-less surface-eligible event (covering the union-widening loophole), and the `Session` seed constructor re-checks the same invariant (alongside its seq-contiguity and JSON-serializability checks) so a seed/load/fork — which arrives as raw `SessionEvent[]`, bypassing `append` — is REJECTED rather than constructing a session that resumes with missing history. (No backward-compat path for surface-less logs: per the pre-release stance there is no persisted user data to preserve, so such a log is rejected, not upgraded.)
+Every surface-eligible event must carry `surfaceOp` or it would disappear from derived history. Typed `append` overloads enforce this for literal event types; runtime checks in `append` and the seed constructor cover widened unions and loaded logs. Invalid seeds are rejected rather than upgraded under the pre-release format policy.
 
 ## Alternatives considered
 

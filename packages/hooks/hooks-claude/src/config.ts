@@ -1,13 +1,8 @@
 /**
- * Parse the bridge-supported subset of a Claude Code hook config file into the
- * shared {@link MatcherGroup} shape.
- *
- * A CC config maps each event name to an array of matcher groups, each holding
- * an array of typed hooks. Only `type: 'command'` hooks run here; other types
- * (`http`/`mcp_tool`/`prompt`/`agent`) are parsed but skipped with a warning.
- * The `command` string undergoes
- * `${CLAUDE_PLUGIN_ROOT}` substitution at parse time so the runner sees a literal.
- *
+ * Parse Claude Code's event-to-matcher-group hook format into shared {@link MatcherGroup}s.
+ * Only command hooks run; other hook types are returned as skipped so the
+ * bridge can warn. Plugin-root and project-directory substitutions are applied
+ * to commands at parse time.
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 
@@ -57,13 +52,14 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 }
 
 /**
- * Parse a raw Claude Code config object (the value under the `hooks` key, or a
- * `hooks.json` whose top level IS that map) into runnable {@link MatcherGroup}s.
- * Non-command hooks and malformed entries are dropped (recorded in `skipped` /
- * silently ignored) rather than throwing — a bad hook config must not crash boot.
- * `vars` are substituted into every surviving `command`.
- * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare event map.
- * @param vars - substitution values applied to every surviving `command` (defaults to none).
+ * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
+ * ignored rather than failing boot; non-command hooks are returned in `skipped`, and substitutions
+ * are applied to every surviving command.
+ *
+ * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
+ *   event map.
+ * @param vars - substitution values applied to every surviving `command` (defaults to
+ *   none).
  * @returns the runnable per-event groups plus the skipped non-command hooks.
  */
 export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): ParsedClaudeConfig {

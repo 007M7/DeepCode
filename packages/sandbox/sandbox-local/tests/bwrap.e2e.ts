@@ -9,22 +9,11 @@ import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { bwrapProfileArgs, LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * KEYLESS bwrap integration proof for the BACKEND: the REAL `bwrap` confining
- * REAL processes through `confine()` + a direct spawn of the returned argv.
- * Nothing is forced off: bwrap is the ladder's FIRST rung, so a passing probe
- * selects it naturally — the wrap shape assertion pins that. Verifies the
- * WORLD (files exist or don't) and that the kernel's denial text matches the
- * dialect the wrap advertises; the through-`ctx.bash` consumer proof lives
- * with `@deepseek-ai/dsh-bash-sandbox`.
- *
- * Self-skips wherever the functional probe fails — no `bwrap` on PATH, or a
- * host that denies unprivileged user namespaces (the probe is the same
- * profile the provider enforces, so skip conditions match runtime exactly).
- *
- * Workspaces for the workspace-write tests live under the HOME directory on
- * purpose: bwrap's `/tmp` is an EPHEMERAL mount (the documented
- * bwrap-profile difference — pinned by its own test below), so only a
- * workspace OUTSIDE `/tmp` proves the workspace-root rebind itself.
+ * Keyless backend integration through `confine()` and a real bwrap process. With no rung forced,
+ * a passing probe must select the first rung. Tests assert world effects, wrap shape, and that the
+ * kernel denial matches the advertised dialect; consumer coverage lives in dsh-bash-sandbox.
+ * Skips when bwrap or user namespaces are unavailable. HOME-based workspaces avoid bwrap's
+ * ephemeral `/tmp`, so workspace-write actually proves the workspace-root rebind.
  */
 
 const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

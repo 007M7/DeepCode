@@ -1,9 +1,5 @@
-# The echo-agent plugin tree: the stdio chat app with its LLM backend swapped to
-# the local `mock-echo` mock and the local `echo` tool added. The clean
-# demonstration of "swap the backend, keep the app" — every service the agent
-# needs lives in @deepseek-ai/dsh-stdio-agent (which bundles @deepseek-ai/dsh-
-# agent-core); this leaf only picks the backends, `hmr`, and the app config.
-#
+# Stdio agent with the network-free `mock-echo` adapter and example-local `echo`
+# tool. The app bundle supplies the spine; this leaf selects backends, HMR, and app config.
 # No API key: the `mock-echo` adapter never touches the network.
 
 # Hot-module reload for the dev/demo loop (a leaf entry, not baked into
@@ -13,8 +9,7 @@
   config:
     root: ['.']
 
-# The mock model (registers the `mock-echo` adapter) and the demo `echo` tool —
-# example-local teaching plugins, resolved relative to THIS file's directory.
+# Example-local model and tool plugins resolve relative to this file.
 - id: mock-llm
   name: './src/mock-llm.ts'
 
@@ -27,8 +22,7 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-# The stdio chat app: console logger + the agent-core spine (pre-creating the
-# `main` agent on the mock model) + JSONL persistence + the readline UI.
+# The app pre-creates `main` on the mock model and supplies logging, persistence, and readline UI.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-agent'
   config:

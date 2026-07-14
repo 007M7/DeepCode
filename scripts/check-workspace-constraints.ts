@@ -178,13 +178,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 }
 
 /**
- * Enforce the packages/ hierarchy SHAPE: every package lives at exactly
- * `packages/<group>/<pkg>`. A group dir is a pure container — it holds packages,
- * never sources of its own — so it must NOT carry a package.json, and a package
- * must NOT sit directly at the `packages/` root (the old flat layout) nor nest a
- * level deeper. The group NAMES are open on purpose: a new group may be added
- * without touching this gate, but the depth-2 shape is fixed. This is what keeps
- * a stray flat package or an over-nested one from regressing the hierarchy.
+ * Enforce `packages/<group>/<pkg>`: groups are open-named containers without a
+ * package.json, and packages may be neither flat nor more deeply nested.
  */
 function checkHierarchyShape(): string[] {
   const errors: string[] = []

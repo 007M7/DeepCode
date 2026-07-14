@@ -16,7 +16,11 @@ The plugin contributes one user-role `<system-reminder>` catalog through `agent/
 |---|---|---|
 | `name` | string (required) | Exact kebab-case skill name from the available skills listing. |
 
-Execution uses the calling agent's `session.header.cwd` so workspace-sensitive providers can resolve the right winning skill. A successful call returns one text tool result with `<skill_content name="...">`, containing `<skill_resources>` followed by `<skill_instructions>`. Resource guidance resolves paths or URLs explicitly referenced by the loaded instructions against `resourceBase`; referenced scripts, references, and assets load only when needed, and the tool does not enumerate a skill directory. Local filesystem skills provide a base directory, while remote or embedded providers can provide a URL or opaque provider-managed guidance. A name that cannot be resolved reports that the skill is unknown or no longer available; invalid names and skills marked `disableModelInvocation: true` retain distinct `isError` results.
+Execution uses the calling agent's `session.header.cwd` so workspace-sensitive providers resolve the winning skill. A successful call returns one text result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`.
+
+Resource guidance resolves only paths or URLs explicitly referenced by the instructions against `resourceBase`; scripts, references, and assets load on demand, and the result does not enumerate a skill directory. Local providers may supply a directory, while remote or embedded providers may supply a URL or opaque loading guidance.
+
+An unresolved name reports that the skill is unknown or no longer available. Invalid names and `disableModelInvocation: true` skills produce distinct error results.
 
 The tool does not call `agent.inject()` in v1. Its result is already recorded as the tool result and becomes available to the next model step without duplicating the content as synthetic context.
 

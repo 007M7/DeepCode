@@ -52,14 +52,8 @@ export class DeepSeekAdapter extends LlmAdapter {
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, this.options.defaults ?? {})
 
-    // TODO(http): deliberately raw `fetch` for the hand-rolled SSE body.
-    // `@cordisjs/plugin-http` (ctx.http) would give proxy/intercept/timeout
-    // uniformity AND can stream (`responseType: 'stream'` yields the same
-    // ReadableStream<Uint8Array> parseSse consumes), but adopting it today
-    // costs a hard `undici` dependency (it does `require('undici')` with no
-    // globalThis.fetch fallback) plus an unconditional `@cordisjs/fetch-file`
-    // import (pulling file-type + mime-types) for a file:// path we never hit.
-    // Revisit when a second adapter wants shared proxy/intercept config.
+    // TODO(http): adopt the Cordis HTTP service when shared transport configuration
+    // outweighs its additional runtime dependencies.
     const response = await fetch(`${this.options.baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -79,15 +73,8 @@ export class DeepSeekAdapter extends LlmAdapter {
         const parsed = await response.json() as WireError
         if (parsed.error?.message) message = parsed.error.message
       } catch {
-        // Paranoid by design: `code` and the HTTP status are ALREADY captured
-        // above (and passed to LlmError below), so the only thing this `try`
-        // can add is a richer provider-supplied message. A malformed, empty,
-        // or non-JSON error body is a normal thing for gateways/proxies to
-        // return on a 5xx/429 — swallowing the parse failure keeps the usable
-        // status-line message instead of letting a JSON.parse throw mask the
-        // real HTTP error. Nothing else reaches this catch: response.json()
-        // is the sole statement, and any non-parse failure (e.g. body already
-        // consumed) is equally non-actionable here.
+        // Only swallow error-body parsing: status and code are already captured,
+        // so malformed gateway JSON must not mask the actionable HTTP failure.
       }
       throw new LlmError(message, code, response.status)
     }
