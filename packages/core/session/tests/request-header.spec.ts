@@ -62,11 +62,17 @@ describe('foldRequestHeader', () => {
 })
 
 describe('legacy request-header format', () => {
-  it('rejects a v0 seed containing request/header-delta', () => {
+  it('rejects request/header-delta in seeds and untyped appends', () => {
     const legacy = [{
       type: 'request/header-delta', seq: 0, time: 1, data: { config: CONFIG },
     }] as unknown as SessionEvent[]
     expect(() => new Session(SessionId('legacy'), legacy)).toThrow(/unsupported legacy request\/header-delta/)
+
+    const session = new Session(SessionId('legacy-append-delta'))
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+    expect(() => appendLegacy('request/header-delta', { config: CONFIG }))
+      .toThrow(/unsupported legacy request\/header-delta/)
+    expect(session.events).toHaveLength(0)
   })
 
   it('rejects the removed fallback reason in seeds and untyped appends', () => {
