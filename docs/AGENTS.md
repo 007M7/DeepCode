@@ -1,10 +1,10 @@
 # AGENTS.md — The documentation standard
 
-This file is the contract for every Markdown files in the repo: each tier's job, the writing rules, and the word budgets that `verify-doc-budgets` enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This is the repo's Markdown placement, writing, and budget contract. Use [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) to apply it; the [doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md) records the rationale.
 
 ## The tier taxonomy: one home per fact
 
-Every fact has exactly one home — the tier whose job it is — and every other place that needs it links there instead of restating it. A rule restated in two files drifts word-by-word until the copies disagree; a link cannot drift, and `verify-md-links` keeps it resolving.
+Each fact has one owning tier; other tiers link to it. Restated rules drift, while `verify-md-links` keeps links resolving.
 
 | Tier | Job | Does NOT belong there |
 |---|---|---|
@@ -15,12 +15,12 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | [rfc/](rfc/README.md) | Decision records: the why and the what-was-given-up; `implemented/` RFCs describe shipped reality in present tense | Migration plans, test checklists, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
-| Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
+| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](cookbook/adding-a-package.md#4-write-the-package-readme) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
 | [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 
-Placement test: a story about a bug → postmortem. Why we chose X → RFC. How to do task Y → cookbook. What type Z looks like → core-data-structures. What package P promises → its README. A rule every agent must always obey → root AGENTS.md, one line, linking the home that holds the why.
+Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; type shapes → core data; package promises → READMEs; standing orders → root `AGENTS.md` with a link to their rationale.
 
 ## Writing rules
 
@@ -28,7 +28,6 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 - **A decision worth re-litigating gets an RFC in the same PR.** The test: would a maintainer six months out ask "why was it done this way?" and find no answer in the code? If yes, write one ([when to write one](rfc/README.md)); mechanical or self-evident changes need none.
 - **One physical line per paragraph** (`verify-md-wrap`): the editor soft-wraps; hard breaks make a one-word edit re-diff the whole paragraph. Prose only — code blocks, tables, and list structure stay; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
-- **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
