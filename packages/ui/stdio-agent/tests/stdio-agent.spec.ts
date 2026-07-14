@@ -93,6 +93,19 @@ describe('dsh-stdio-agent app', () => {
     await ctx.fiber.dispose()
   })
 
+  it('normalizes an empty resume id to a fresh exact app identity', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      resumeSessionId: '',
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-empty-resume',
+      skills: await isolatedSkillsConfig(),
+    })
+    const agent = ctx.get('agents')?.list()[0]
+    expect(agent?.id).toMatch(/^main-session-[0-9a-f-]{36}$/)
+    expect(agent?.id).toBe(agent?.session.id)
+    await ctx.fiber.dispose()
+  })
+
   it('defaults persistenceRoot and welcome when omitted', async () => {
     // Direct apply (NOT via ctx.plugin, which validates+defaults the config
     // first) so the runtime `?? './.sessions'` / `?? 'ready.'` fallbacks on

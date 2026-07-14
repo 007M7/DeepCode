@@ -39,6 +39,7 @@
  */
 
 import type { Context } from 'cordis'
+import { randomUUID } from 'node:crypto'
 import ConsoleExporter from '@cordisjs/plugin-logger-console'
 import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -108,6 +109,8 @@ export const Config: z<Config> = z.object({
  * a leaf concern (see the module doc), so it is not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {
+  const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
+  const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
@@ -117,7 +120,7 @@ export function apply(ctx: Context, config: Config): void {
       id: 'main',
       model: config.model,
       cwd: process.cwd(),
-      ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
+      ...resumeSessionId === undefined ? { sessionId } : { resumeSessionId: sessionId },
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
@@ -126,6 +129,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(toolAskUser)
   ctx.plugin(uiStdio, {
     welcome: config.welcome ?? 'ready.',
-    ...config.resumeSessionId !== undefined ? { resumeSessionId: config.resumeSessionId } : {},
+    sessionId,
   })
 }

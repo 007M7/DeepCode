@@ -24,7 +24,37 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
+async function makeCoreContext(): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  return ctx
+}
+
 describe('config-driven session id', () => {
+  it('accepts one exact fresh id and rejects it alongside a resume id', async () => {
+    const exact = await makeCoreContext()
+    await exact.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('stdio-exact'), model: 'mock' }],
+    })
+    expect(exact.agents.get(SessionId('stdio-exact'))?.session.id).toBe('stdio-exact')
+    await exact.fiber.dispose()
+
+    const conflicting = await makeCoreContext()
+    await expect(conflicting.plugin(AgentLoop, {
+      agents: [{
+        id: 'main',
+        sessionId: SessionId('fresh'),
+        resumeSessionId: SessionId('persisted'),
+        model: 'mock',
+      }],
+    })).rejects.toThrow('sessionId and resumeSessionId are mutually exclusive')
+    await conflicting.fiber.dispose()
+  })
+
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
