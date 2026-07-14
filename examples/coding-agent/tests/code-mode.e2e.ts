@@ -16,14 +16,9 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 
 /**
- * The Code Mode with-key proof (the RFC's e2e tier): a REAL model under
- * `mode: 'code'`, a task that requires composing two tool calls, verified
- * against the WORLD — the persisted request header carried exactly
- * `[run_code]` as the wire tool list, each sub-call landed as a
- * `tool/code-dispatch` event, the file the program wrote exists on disk, and
- * the final answer is the program's curated output. Key-gated (see
- * vitest.e2e.config.ts); the keyless Loader-path smoke of the overlay lives
- * in `code-mode-keyless-smoke.e2e.ts`.
+ * With-key Code Mode proof: a real model receives only `run_code`, composes two
+ * sub-calls, writes a file, and returns curated output while the log records
+ * each `tool/code-dispatch`. The keyless Loader smoke is in the sibling test.
  */
 
 const PERSONA = 'You are coding-agent. You work by writing TypeScript programs for run_code: '

@@ -1,31 +1,14 @@
 /**
- * Exhaustiveness helper for switches over core unions.
- *
- * # When to use which pattern
- *
- * **Closed unions** (every variant is known at compile time in the consuming
- * code — e.g. `StreamChunk` inside the assembler, `FiberState`-like enums):
- * end the switch with `default: assertNever(value)`. Adding a variant then
- * fails compilation at every switch that must handle it — the error appears
- * exactly where work is needed.
- *
- * **Merge-extensible unions** (plugins add variants via declaration merging —
- * `SessionEventMap`, `ContentBlockMap`, `MessageSourceMap`, …): do NOT use
- * assertNever. From the core's view the union is open; plugin-added variants
- * are valid values the core has never heard of. Handle the known cases and
- * fall through intentionally, with a comment saying the switch is
- * deliberately non-exhaustive (see `Session.deriveMessages`). The lint rule
- * `switch-exhaustiveness-check` enforces that the choice is explicit either
- * way.
- *
+ * Exhaustiveness helper for closed core unions. Use {@link assertNever} at the default branch so a
+ * new variant fails compilation at every required handler. Do not use it for declaration-merged
+ * unions such as session events or content blocks: handle known variants and explicitly fall
+ * through because plugins may add valid unknown cases.
  * @module @deepseek-ai/dsh-llm/never
  */
 
 /**
- * Marks unreachable code on a closed union. If this is reachable, either a
- * variant was added without updating the switch (compile error at the call
- * site — the desired outcome) or a value escaped its type (runtime throw
- * with diagnostics — the safety net).
+ * Mark an unreachable closed-union branch. A newly unhandled typed variant fails at the call site;
+ * a value that escaped its type throws with diagnostics at runtime.
  * @param value - the impossible value; typed `never` so an unhandled variant fails compilation at the call site.
  * @param context - optional label (e.g. the switch site) prefixed into the throw message.
  * @returns never — it always throws, with the offending value JSON-rendered in the message.

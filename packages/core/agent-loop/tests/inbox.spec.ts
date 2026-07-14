@@ -64,17 +64,12 @@ describe('Inbox', () => {
     void inbox.waitForQueued(new Promise(() => {})) // first call, never resolved
     void inbox.waitForQueued(p1) // second call overwrites wakeup
 
-    // Cancel p1 (the latest waiter's cancel) — the wakeup was overwritten
-    // to p1's resolve, so canceling p1 triggers the finally block which
-    // clears the wakeup if it matches.
+    // Cancelling the latest waiter clears the shared callback; enqueue must neither
+    // wake the stale waiter nor fail on the cleared callback.
     r1()
     await p1
 
-    // Now enqueue: the first waiter's wakeup (which was overwritten) won't
-    // fire, and the second waiter's wakeup was cleared by cancel.
-    // The enqueue calls wakeup?.() but wakeup was cleared — no crash, no hang.
     inbox.enqueue({ content: [{ type: 'text', text: 'hey' }], source: { kind: 'user' } })
-    // The overwrite path + finally cleanup are exercised
   })
 
   it('clears wakeup in finally handler when enqueue resolves', async () => {
@@ -88,23 +83,17 @@ describe('Inbox', () => {
   })
 
   it('finally handler does not clear wakeup when a different waiter overwrote it', async () => {
-    // First waiter's cancel resolves AFTER a second waiter overwrote wakeup.
-    // First waiter's finally sees wakeup !== its resolve → does not clear.
+    // A stale waiter's finally must not clear the replacement waiter.
     const inbox = new Inbox()
     const { promise: c1, resolve: r1 } = resolverPair()
 
     void inbox.waitForQueued(c1) // wakeup = resolve1, c1.then(resolve1)
     void inbox.waitForQueued(new Promise(() => {})) // wakeup = resolve2, cancel never resolves
 
-    // Resolve c1 (the first cancel). c1.then(resolve1) fires → resolve1() called
-    // → waiter1's promise resolves → finally: wakeup === resolve1? NO (it's resolve2)
-    // → wakeup is NOT cleared.
     r1()
     await c1
 
-    // Now enqueue: wakeup() calls resolve2 → waiter2 resolves
-    // But waiter2's cancel never resolves — that's fine, enqueue resolves it.
+    // The replacement remains registered and is resolved by enqueue.
     inbox.enqueue({ content: [{ type: 'text', text: 'hey' }], source: { kind: 'user' } })
-    // No need to await anything further — enqueue is synchronous wakeup
   })
 })

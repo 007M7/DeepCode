@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-`packages/ui/stdio-agent/src/bin.ts` and `packages/ui/acp-agent/src/bin.ts` carried four near-twin helpers — `loadEnv`, `installFailLoud`, `assertEntriesLoaded`, `boot` — whose bodies differed essentially in the diagnostic prefix, plus two copies of the hardest-won boot lore in the repo: the `Promise.allSettled` swallow inside `loader.await()`, the silent-exit-0 import-failure guard, and the `--expose-internals` resolution note. The copies had drifted (`boot(configPath)` resolved the path internally in one bin but required a pre-resolved absolute path in the other, with forked JSDoc prose), and all of it sat outside the per-file 100% gate — `vitest.config.ts` excludes `packages/*/*/src/bin.ts` because importing a self-executing bin runs it — which also made the helpers' `export` keywords decorative: no spec could import them, so the only exercisers were subprocess smokes.
+The stdio and ACP bins duplicated environment loading, fail-loud handling, entry validation, and boot logic, including subtle Loader failure behavior. Their copies had already drifted and lived in self-executing files excluded from unit coverage, making their helper exports unusable.
 
 ## Decision
 

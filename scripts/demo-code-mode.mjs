@@ -1,12 +1,7 @@
 /**
- * Boot the Code Mode demo under the UI named on the command line:
- * `pnpm run demo:code-mode [repl|acp]`, default `repl`. Code Mode is the
- * point — the UI is just the surface it happens to wear: each UI boots its
- * base example through that example's `code-mode.cordis.yml` overlay
- * (include ./cordis.yml, flip `tools.mode` to `code`, insert the
- * worker-thread code runtime). Both need DEEPSEEK_API_KEY (repo-root .env
- * works). Anything else on the command line is a misconfiguration and
- * fails loud with usage.
+ * Boot the REPL or ACP Code Mode overlay, defaulting to REPL. Each overlay
+ * includes its base example, selects Code Mode, and adds the worker runtime.
+ * Both require a DeepSeek API key; unsupported arguments fail with usage.
  */
 import { spawn } from 'node:child_process'
 

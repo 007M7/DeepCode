@@ -15,7 +15,7 @@ This mirrors [drop the unconsumed `llm/adapter-change` event](../../implemented/
 
 ## Decision
 
-The event declaration, both emits, and the rollback-before-emit ordering are deleted (the plain `ctx.effect` disposer carries HMR cleanup). `searchStatus()`/`fetchStatus()`/`WebCapabilityStatus` are deleted — the provider-private `status()` stays, since it feeds execution-time selection. The listener-throw rollback test that existed solely for the removed event is gone, and the emission assertions and every status-based assertion are rewritten onto the behavior a real caller observes: a successful `search()`/`fetch()`, or the structured `WebError` codes for unavailable/ambiguous/misconfigured provider sets. The cordis catalog is regenerated; `packages/web/web/README.md`, `packages/web/tool-web/README.md` (the drifted reads-status sentence), [web.md](../../../core-data-structures/web.md), and the web paragraph in [architecture.md](../../../architecture.md) describe the shipped contract; the [web capability seam RFC](../../implemented/architecture/2026-06-24-web-capability-seam.md)'s facts (it specified the event and the status aggregation) are amended per [implemented/AGENTS.md](../AGENTS.md).
+Remove the registry-change event, aggregated status methods and type, and their dedicated tests. Provider-private status remains for execution-time selection. Caller-facing coverage now asserts successful execution or structured selection errors, and the owning web docs describe that on-call contract.
 
 ## Alternatives considered
 
