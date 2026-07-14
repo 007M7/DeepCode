@@ -26,6 +26,7 @@ This repo's documentation is read by people and agents both inside and outside t
 1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
 2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table column counts, list kinds, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
+4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new documents merge bilingual from birth.
 
 `pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
 
@@ -41,9 +42,10 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 - `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/module-graph.md` — generated files; their generators emit English only today, so a hand-written translation would go stale on every regeneration. The planned follow-up is to teach the generators to emit Chinese alongside English, at which point these leave the exclusion list.
 - `docs/AGENTS.md` — agent instructions, maintained in English only like the root `AGENTS.md`.
-- `docs/i18n/terminology.md` — the terminology table is itself bilingual by construction.
+- `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
+- [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.
 
-**Rollout**: the `required` list in the manifest is the enforcement frontier, not the goal. The goal is full bilingual coverage of the scope. Pairs land in reviewable batches (core entry docs, cookbook, RFCs, postmortems, …); each merged batch adds its files to `required`, so the gate ratchets forward and never regresses. Documents not yet in `required` are backlog — visible in `--list` — but any pair that already exists is held to the full contract regardless of the list. Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
+**Rollout**: new documents don't wait for a batch — a date-named document (`yyyy-mm-dd-*.md`, i.e. an RFC) dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so everything new is bilingual from birth. Files dated before the cutoff are the grandfathered backlog by definition — including files created on the cutoff's eve — and a document's filename date is its first-proposed date per the RFC convention, so backdating past the cutoff is a review-visible violation, not a loophole. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. The goal is full bilingual coverage of the scope. Pairs land in reviewable batches (core entry docs, cookbook, RFCs, postmortems, …); each merged batch adds its files to `required`, so the gate ratchets forward and never regresses. Documents not yet in `required` are backlog — visible in `--list` — but any pair that already exists is held to the full contract regardless of the list. Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
 
 ## Division of labor
 
