@@ -6,22 +6,16 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * Keyless Loader-path smoke for examples/cordis-agent: boot the REAL example
- * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` —
- * the cordis Loader, `unwrapExports`, the full plugin tree INCLUDING the
- * `@deepseek-ai/dsh-tool-cordis` package resolved by name (whose `inject`
- * would crash a collapsed export shape at load, see docs/postmortem/0001) —
- * then close stdin with no prompt and assert the ready banner + a clean exit.
- *
- * No prompt is ever sent, so the model is NEVER called — that is why it runs
- * without a real key: `llm-deepseek`'s apply() only requires a key to be
- * PRESENT, and the absence of any prompt guarantees no network call. The
- * with-key product proof lives in cordis-tools.e2e.ts.
+ * Keyless Loader-path smoke for examples/cordis-agent: boot the real example through the
+ * `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` — the cordis Loader,
+ * `unwrapExports`, the full plugin tree INCLUDING the `@deepseek-ai/dsh-tool-cordis` package
+ * resolved by name (whose `inject` would crash a collapsed export shape at load, see
+ * docs/postmortem/0001) — then close stdin with no prompt and assert the ready banner + a
+ * clean exit. A dummy key satisfies adapter boot, but no prompt means no network
+ * call; `cordis-tools.e2e.ts` owns the with-key product proof.
  */
 
-// The dsh-stdio-agent bin (the demo:cordis entry) and this example's cordis.yml.
-// The bin resolves its config-path arg from CWD; the test spawns from a temp
-// cwd, so we pass the example config's ABSOLUTE path.
+// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
@@ -29,10 +23,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
 // the repo, so point it at the repo tsconfig (root is three levels up).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// The real-API workflow runs up to 14 e2e files at once. Cold tsx/Loader
-// startup can therefore outlive a tight smoke-test deadline before the child
-// emits any output; 30s still detects a wedged process without confusing
-// bounded CI contention with a lifecycle failure.
+// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
+// 30s still detects a wedged child.
 const PROCESS_TIMEOUT_MS = 30_000
 // Leave enough room for the process-owned timeout to report captured output
 // before Vitest aborts the test itself.

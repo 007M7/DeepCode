@@ -1,34 +1,11 @@
 /**
- * The model-facing `subagent` tool: delegate a task to a child agent and return
- * its final output. Pure schema + lifecycle shaping — every transport concern
- * lives behind the `ctx.subagents` provider registry
- * (`@deepseek-ai/dsh-subagent`), so an in-process, ACP, or future A2A backend
- * swaps in without touching what the model sees.
+ * Model-facing delegation tool bound by configuration to one provider; transport selection is not
+ * exposed in its `{ description, prompt }` schema. Provider lifecycle controls registration and
+ * re-derives conversation-history wording after reload, so load order is irrelevant.
  *
- * Provider selection is config, not model-facing: this plugin is bound to
- * EXACTLY ONE provider name (`Config.provider`). To expose more than one
- * transport, load the plugin more than once, each bound to a different provider
- * — there is no provider/type parameter in the model-facing schema. The model
- * sees only `{ description, prompt }`.
- *
- * The tool DESCRIPTION is derived from the bound provider's conversation-history
- * descriptor ({@link providerWording}): a fresh-conversation provider (spawn,
- * ACP) gets the standalone-prompt wording, while a seeded-conversation provider
- * (fork) tells the model the child already sees the conversation's completed
- * turns. This descriptor says nothing about Cordis scope, services, tools, or
- * authority. The tool MIRRORS the
- * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
- * when the provider is (or becomes) available and unregisters when the
- * provider goes away — so no load-order requirement exists and an HMR reload
- * of the backend re-derives the wording from the fresh provider.
- *
- * Collection is SYNCHRONOUS this cut: `execute` starts a run and awaits
- * `run.result` inside a `try/finally` that always disposes the run, so the
- * owned child agent/session is torn down on every path (success, error, abort)
- * and never leaks as a live idle child. A non-`completed` stop reason maps to an
- * `isError` tool result (by throwing) rather than returning partial output as
- * success.
- *
+ * Execution synchronously awaits the child result and always disposes the run. Non-completed stop
+ * reasons become error results, while transport details remain behind `ctx.subagents`. Load this
+ * plugin more than once to expose multiple configured providers.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -105,16 +82,8 @@ export const Config: z<Config> = z.object({
     model: z.string(),
   }).default(undefined as unknown as { model: string }),
   persona: z.string(),
-  // A schemastery object materializes {} (with [] for nested arrays) when the
-  // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
-  // deny-everything, silently. Force the omitted key to stay absent (the same
-  // shape discipline as SystemPrompt's toolOrder); the cast is needed because
-  // .default() expects the object type.
-  // The NESTED arrays get the same treatment as the object itself: a partial
-  // filter ({deny: […]}) must not materialize allow: [] beside it — an empty
-  // allow-list means deny-EVERYTHING, so the materialized default would turn
-  // a deny-one config into deny-all. An EXPLICIT allow: [] (grant-only
-  // children) survives, since only the omitted key defaults to undefined.
+  // Schemastery otherwise materializes omitted objects and nested arrays as `{ allow: [] }`, which
+  // silently means deny all. Preserve omission while retaining an explicit empty allow-list.
   toolFilter: z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
@@ -290,7 +259,7 @@ export function apply(ctx: Context, config: Config): void {
   if (present !== undefined) {
     mount(present)
   } else {
-    // Not an error: the backend's fiber may simply activate after this one.
+    // Not an error: the backend's fiber may activate after this one.
     // The tool appears the moment the provider registers; a typo'd provider
     // name shows up as this note plus a tool that never materializes.
     ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)

@@ -1,22 +1,8 @@
 /**
- * `DeepSeekSearchProvider`: a `WebSearchProvider` backed by DeepSeek's
- * Anthropic-compatible Messages API with the native `web_search_20250305` server
- * tool enabled.
- *
- * Unlike a dedicated search endpoint (Exa's `POST /search`, Perplexity's
- * `/chat/completions`), this issues a FULL Messages model call carrying a server
- * tool, so a search costs a complete model turn in latency and tokens. In return
- * DeepSeek runs the search server-side and returns STRUCTURED
- * `web_search_tool_result` blocks — this provider parses those blocks and never
- * scrapes URLs out of model prose. Strict mode: if the response carries no
- * `web_search_tool_result` block (native search did not trigger), it throws
- * `WEB_PROVIDER_ERROR` rather than degrading to prose-scraping.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter — not a cordis HTTP-client service.
- * The Anthropic wire shape is a provider-private detail and does NOT make this
- * provider depend on `ctx.llm`.
- *
+ * DeepSeek search through an Anthropic-compatible Messages model call with the native
+ * `web_search_20250305` server tool. Each search costs a model turn, but returns structured
+ * result blocks; absence of those blocks is an error rather than a prose-scraping fallback.
+ * The wire format and native `fetch` client are provider-private and do not use `ctx.llm`.
  * @module @deepseek-ai/dsh-web-search-deepseek/provider
  */
 
@@ -101,19 +87,16 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
 }
 
 /**
- * Map a DeepSeek Anthropic Messages response to a normalized search result.
- * Walks `web_search_tool_result` blocks for citeable `web_search_result` items,
- * joins each to its citation excerpt as `snippet`, and dedupes by `url` (a
- * `max_uses > 1` request can surface the same URL across searches). The seam
- * owns the final `maxResults` truncation, so `truncated` is always `false` here.
- *
- * Throws `WEB_PROVIDER_ERROR` (strict mode) when no `web_search_tool_result`
- * block is present — native search did not trigger, and prose-scraping is not a
- * fallback.
+ * Map a DeepSeek Anthropic Messages response to a normalized search result. Walks
+ * `web_search_tool_result` blocks for citeable `web_search_result` items, joins each to its
+ * citation excerpt as `snippet`, and dedupes by `url` (a `max_uses > 1` request can surface
+ * the same URL across searches). The seam owns the final `maxResults` truncation, so
+ * `truncated` is always `false` here.
  *
  * @param query - the original request query, echoed on the result.
  * @param response - the parsed Messages response body.
  * @returns the normalized result with deduped, snippet-joined sources.
+ * @throws {@link WebError} when native search produced no result block.
  */
 export function mapAnthropicResponse(query: string, response: AnthropicResponse): WebSearchResult {
   const blocks = response.content ?? []

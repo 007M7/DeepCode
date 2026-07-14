@@ -14,24 +14,10 @@ import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
- * CBR-001 regression: a compaction checkpoint that the REAL loop lands is a
- * free surface boundary (it carries no tool-call/result pair), so it must be a
- * valid region edge on BOTH sides. A surface-anchored balance check sees that;
- * the abandoned log-position scan did not.
- *
- * The loop fires the compaction seam mid-flight, so the landed checkpoint
- * `user/message{replace}` sits at a HIGH log seq positioned beside the current
- * step even though its SURFACE position is the head. A log-position forward scan
- * from the checkpoint reaches the step's own later `assistant/message` and
- * wrongly reports the checkpoint as mid-step — refusing it as a region end. A
- * SECOND compaction that re-summarizes just that head checkpoint (region end ==
- * checkpoint) therefore throws and is swallowed, so the surface never
- * re-consolidates.
- *
- * This drives a real auto-compaction through the agent-loop and asserts the
- * landed checkpoint balances on both sides AND that re-compacting it (end ==
- * checkpoint) succeeds. RED on the log-position predicates; GREEN once alignment
- * is decided from surface tool-pairing balance.
+ * CBR-001 regression through the real loop. A replacement checkpoint has a high
+ * log seq at the surface head and carries no tool pair, so both adjacent cuts
+ * must be safe and re-compacting that checkpoint alone must succeed. This pins
+ * surface-position semantics rather than raw-log scanning.
  */
 
 const TOKENS_PER_BLOCK = 10
@@ -132,14 +118,8 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
       )
       expect(checkpoints.length).toBeGreaterThan(0)
 
-      // The loop fired compaction mid-flight, so each landed checkpoint sits at a
-      // high log seq beside the step it landed in, even though its SURFACE
-      // position is the head of the range it shadowed. A checkpoint carries no
-      // tool-call/result pair (only summarized prose), so every checkpoint still
-      // on the surface must be a balanced cut on BOTH sides — the cut before it
-      // (region START) and the cut after it (region END). The abandoned
-      // log-position scan reported the END as mis-aligned because the forward log
-      // scan reached the neighbouring step's assistant/message.
+      // High log position does not make a text-only checkpoint mid-step; both
+      // its start and end cuts are balanced in surface order.
       const nodes = agent.session.surface.nodes
       for (const cp of checkpoints) {
         const node = nodes.find(n => n.seq === cp.seq)

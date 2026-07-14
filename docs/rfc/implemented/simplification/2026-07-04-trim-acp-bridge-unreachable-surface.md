@@ -11,13 +11,13 @@ Two pieces of `dsh-acp` surface were unreachable from any shipped configuration:
 
 ## Decision
 
-`agentInfo` is hardcoded at the `initialize` site (`{ name: 'deepseek-harness-acp', version: '0.0.1' }`); the two config fields, their schema defaults, the `??` fallbacks, and the `TODO(double-default)` (whose subject vanished with them) are gone, along with the knob half of the direct-mount config test, the two config rows in `packages/ui/acp/README.md`, and the `packages/ui/acp/acp-feature-support.md` cells that described the knobs and the name inference. The emitted handshake wire value is unchanged — zero golden churn on the branding half. `toolKindFor` is replaced by the constant `'other'` at both fallback sites (the presenter fallback and `nullToolPresenter`), and the heuristic is deleted with its test rows. The fixed handshake identity stays pinned by the bridge's initialize unit test and by every snapshot golden. On the fallback half the transcript delta shows up in exactly one committed golden: `hook-codex-posttool-block`, whose recorded model omits the required `description` on three `bash` calls, so those cards take the declined-to-present fallback and carry `kind: 'other'` — the honest neutral card for a call the tool would not vouch for.
+Hardcode the existing handshake identity `{ name: 'deepseek-harness-acp', version: '0.0.1' }` at initialization and remove the unreachable config fields and duplicate defaults. Replace `toolKindFor` with neutral `'other'` at both presenter fallbacks. Normal first-party presentations are unchanged; malformed or failed presentations now render an honest generic card instead of inferring a kind from the tool name. Initialize tests and snapshots pin the handshake; only the malformed calls in `hook-codex-posttool-block` change fallback card kind.
 
 ## Alternatives considered
 
 ### Why not keep them?
 
-`agentInfo` is client-visible branding a deployment will eventually want configurable — but a knob no shipped config can reach is not configurability, it is drift surface (the double-default TODO was its symptom), and the honest re-add must include the `dsh-acp-agent` plumb-through that does not exist either; both arrive together with the deployment that needs them. For the heuristic: a hypothetical third-party presenter-less tool named `read_docs` loses an inferred `read` icon — but inferring kinds from unknown plugins' names is exactly the special-casing the render-intent design rejected. The only shipped paths the heuristic reached were the declined-to-present fallbacks (a throwing `presentCall`, or schema-invalid model args); rendering kind `other` there makes the client show the raw input instead of a masquerading first-party card — strictly better diagnostics for a broken presenter or a malformed call.
+Branding can return when the app package exposes it to deployments. Inferring presentation from unknown tool names violates the render-intent contract; neutral fallback cards also preserve raw input for malformed calls and broken presenters.
 
 ## Consequences
 

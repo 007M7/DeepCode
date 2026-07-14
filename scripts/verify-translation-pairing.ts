@@ -1,46 +1,10 @@
 /**
- * Doc-sync gate: enforce the bilingual pairing contract (docs/i18n/README.md).
- * English and Chinese carry EQUAL authority — either language may be authored
- * first — so consistency is recorded per pair in a sidecar metadata file,
- * `foo.i18n.yaml`, holding the full git blob hash of BOTH files as of the last
- * time a human confirmed the two say the same thing:
- *
- *   foo.md: <40-hex blob hash>
- *   foo.zh.md: <40-hex blob hash>
- *
- * The gate checks, mechanically, the checkable half of the contract:
- *
- *   1. Every file in the manifest's `required` list has a COMPLETE pair
- *      (the enforcement frontier — grows batch by batch).
- *   2. Every pair that exists at all is complete and consistent: all three
- *      files present (a `.zh.md` or a `.i18n.yaml` without its counterparts
- *      is an error — pairs merge whole, never half), each side's current
- *      blob hash equals the recorded one (an edit to EITHER side without a
- *      re-confirmed counterpart goes red), both sides carry the language
- *      switcher, and the structural signatures match one to one — heading
- *      depths in order, fenced code blocks VERBATIM (info string + content),
- *      table column counts, list kinds, and every link target except the
- *      switcher itself.
- *   3. `excluded` files (generated docs, agent instructions, the bilingual
- *      terminology table) have no `.zh.md` and no `.i18n.yaml` at all.
- *
- * What it deliberately does NOT check is translation quality or which side
- * is "right": a green gate means the pair was confirmed consistent at these
- * exact contents, not that the confirmation was sound — accuracy,
- * terminology, and tone are the human reviewer's half of the contract
- * (docs/i18n/translation-rules.md).
- *
- * Blob hashes, not commit hashes, so a pair edited in the same PR verifies
- * without any history lookup: consistency is a pure content comparison,
- * computed here directly (sha1 of `blob <size>\0<content>`) without spawning
- * git. The recorded hash also recovers the last-confirmed text of either
- * side (`git cat-file -p <hash>`) for diff-based minimal updates.
- *
- * Run: `tsx scripts/verify-translation-pairing.ts` — or with `--list` to
- * print the pairing state of every in-scope document as a work list (always
- * exits 0), or with `--write` to (re)record both hashes for every complete
- * pair after you have brought the two sides back in line (the resulting
- * yaml diff is the reviewable act of confirming consistency).
+ * Enforce complete English/Chinese pairs, matching structure, and recorded git
+ * blob hashes under the bilingual manifest. Required files and date-named docs
+ * at or after `requiredSince` must be paired; excluded docs may have neither a
+ * counterpart nor sidecar. `--list` reports state and `--write` records both
+ * sides after human review. Translation quality remains a review responsibility.
+ * See `docs/i18n/README.md` for the owning contract.
  */
 
 import { createHash } from 'node:crypto'
@@ -55,13 +19,15 @@ const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
 const writeMode = process.argv.includes('--write')
 
-/** Scope of the bilingual contract: the root README and the docs tree. */
-const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml']
+/** Scope of the bilingual contract: the root README, the docs tree, and the Python SDK tree. */
+const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml', 'python/**/*.md', 'python/**/*.i18n.yaml']
 
 /** The enforcement frontier and the never-paired set (docs/i18n/README.md § Scope). */
 interface Manifest {
   required: string[]
   excluded: string[]
+  /** Date-named documents (yyyy-mm-dd-*.md, i.e. RFCs) dated on/after this day must merge bilingual. */
+  requiredSince: string
 }
 const manifest = JSON.parse(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8')) as Manifest
 
@@ -249,7 +215,22 @@ for (const req of manifest.required) {
   }
 }
 
-// 2. Every pair that exists at all is complete and consistent. Anchor on the
+// 2. Date-named documents (RFCs) dated on/after the requiredSince cutoff merge
+// bilingual: a new RFC lands with its pair or not at all. Deterministic from
+// the filename alone — no git history, so it holds on shallow CI checkouts.
+const DATED = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
+for (const source of sources) {
+  if (isExcluded(source)) continue
+  const dated = DATED.exec(source)
+  if (!dated?.[1] || dated[1] < manifest.requiredSince) continue
+  const { zh } = pairPaths(source)
+  if (!existsSync(join(root, zh))) {
+    errors.push(`${source}: dated ${dated[1]} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
+    state.set(source, 'missing')
+  }
+}
+
+// 3. Every pair that exists at all is complete and consistent. Anchor on the
 // union of .zh.md files and .i18n.yaml records so a half-deleted pair is
 // caught from either remnant.
 const pairAnchors = new Set<string>()
@@ -316,7 +297,9 @@ if (listMode) {
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
     const required = manifest.required.includes(file)
-    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? (required ? '  (required)' : '  (backlog)') : ''}`)
+    const date = DATED.exec(file)?.[1]
+    const tag = required ? '  (required)' : date && date >= manifest.requiredSince ? '  (required by date)' : '  (backlog)'
+    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
   for (const status of state.values()) counts[status]++

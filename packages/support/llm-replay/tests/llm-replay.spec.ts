@@ -54,6 +54,16 @@ function chunkEvent(seq: number, turn: number, step: number, chunk: StreamChunk)
 let dir: string
 let file: string
 
+/** Write a session log file and return its path. */
+function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
+  let seq = 1
+  const events: SessionEvent[] = []
+  calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
+  const path = join(dir, filename)
+  writeFileSync(path, sessionJsonl(events, header), 'utf8')
+  return path
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'llm-replay-spec-'))
   file = join(dir, 'session.jsonl')
@@ -391,16 +401,6 @@ describe('parseSessionHeader', () => {
 })
 
 describe('loadSessionScripts', () => {
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
-
   it('returns one primary script for a single-session scenario', () => {
     const f = writeSession('session.jsonl', { id: 'p', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts: SessionScript[] = loadSessionScripts({ file: f })
@@ -427,11 +427,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('derives a FORK child script from its OWN events only (skips the seeded parent prefix)', () => {
-    // A fork child's log begins with the seeded parent prefix — the parent's
-    // events, INCLUDING its assistant/chunk events. Deriving the child script
-    // from the whole log would replay the PARENT's recorded responses as the
-    // child's model calls. With seedLength recorded, the child script must
-    // contain only the child's OWN chunks (those after the boundary).
+    // A fork log includes the parent's assistant chunks before `seedLength`. Deriving from the
+    // whole log would replay parent responses as child calls, so only child-owned chunks qualify.
     const parentChunk: StreamChunk = { type: 'text-delta', index: 0, text: 'PARENT-RESPONSE' }
     const childChunks: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'CHILD-RESPONSE' }, { type: 'finish', reason: { kind: 'stop' } }]
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
@@ -488,11 +485,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('keeps the primary first even when a child sorts BEFORE it in input order', () => {
-    // The primary is appended first internally but the child has an EARLIER
-    // createdAt — the primary must still win on the tie-break against a
-    // later-but-equal child, and lose only to a genuinely earlier child via
-    // createdAt (here the child is earlier, so order is child-then-primary only
-    // if createdAt strictly less; equal createdAt keeps primary first).
+    // The primary is appended first internally. A strictly earlier child sorts before it, while
+    // equal creation times preserve primary-first order regardless of input order.
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
     const earlier = writeSession('session.1.jsonl', { id: 'early', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts = loadSessionScripts({ file: f, childFiles: [earlier] })
@@ -507,16 +501,6 @@ describe('installLlmReplay (per-session keying)', () => {
     { type: 'text-delta', index: 0, text: 'child' },
     { type: 'finish', reason: { kind: 'stop' } },
   ]
-
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
 
   const live = (id: string): GenerateOptions =>
     ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })

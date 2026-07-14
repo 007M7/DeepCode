@@ -65,3 +65,24 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 | Service | Usage |
 |---|---|
 | `ctx.tools` | Register/unregister MCP tools |
+
+## Model Experience
+
+### Discovered MCP tools
+
+**What the model sees**: After initial discovery succeeds, each advertised MCP tool appears as a native tool named `mcp__<serverName>__<rawName>` (or its deterministic normalized form), with the server-provided description and input schema. A successful re-sync replaces the generation; plugin disposal removes it.
+
+**Token effect**: Data-dependent schema cost is paid on every request while the tools are registered. Re-sync replaces rather than accumulates schemas, and the server-qualified name adds tokens to every tool definition and call.
+
+### Tool-call history and results
+
+**What the model sees**: The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained text result; image, audio, resource, and unsupported blocks become short placeholders, and MCP `isError` results follow the registry's model-visible error path.
+
+**Token effect**: Arguments and mapped text are retained until compaction. Binary and resource payloads are discarded rather than added to context.
+
+## Known Limitations and Deferred Work
+
+- **Initial discovery is asynchronous** — plugin load does not wait for connection and `listTools()`, so a turn started immediately after boot or HMR can assemble before the MCP tools are registered.
+- **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumption surface and are deferred.
+- **Crash recovery is manual** — transport closure unregisters the server's tools, but reconnect requires an HMR reload or harness restart.
+- **Non-text results are lossy** — image, audio, and resource payloads are replaced with placeholders, and a structured-only result has no model-visible structured representation.

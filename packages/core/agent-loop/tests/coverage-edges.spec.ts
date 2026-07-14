@@ -225,9 +225,7 @@ describe('disposed vs aborted branching', () => {
     await fiber.dispose() // dispose during hang
     await agent.done
 
-    // The review-fixes test for 'HIGH: disposed status' already covers
-    // this assertion path. The reason is 'disposed' because isDisposed() is
-    // checked before the abort signal check in the error path.
+    // Disposal wins abort classification because the error path checks it first.
     expect(reasons).toContainEqual({ kind: 'disposed' })
   })
 })
