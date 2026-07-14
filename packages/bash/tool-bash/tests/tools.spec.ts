@@ -102,16 +102,7 @@ async function callUntilText(
   throw new Error(`${name} output did not include ${JSON.stringify(expected)}; last text was ${JSON.stringify(last !== undefined ? text(last) : '')}`)
 }
 
-class LossyReadBashExecutor extends BashExecutor {
-  private readonly task: BashTask = {
-    id: BashTaskId('bash-lossy'),
-    command: 'fake',
-    status: 'running',
-    exitCode: null,
-    signal: null,
-    done: Promise.resolve(),
-  }
-
+abstract class TestBashExecutor extends BashExecutor {
   resolve(request: BashExecRequest): BashExecSpec {
     return {
       command: request.command,
@@ -121,6 +112,17 @@ class LossyReadBashExecutor extends BashExecutor {
       owner: request.owner,
       sandboxMode: request.sandboxMode,
     }
+  }
+}
+
+class LossyReadBashExecutor extends TestBashExecutor {
+  private readonly task: BashTask = {
+    id: BashTaskId('bash-lossy'),
+    command: 'fake',
+    status: 'running',
+    exitCode: null,
+    signal: null,
+    done: Promise.resolve(),
   }
 
   run(): Promise<BashRunResult> {
@@ -1057,7 +1059,7 @@ describe('sandbox rendering', () => {
     // it anyway: an executor that reports no sandboxMode (fields never
     // advertised) whose task nonetheless carries denial facts must render
     // the marker without suggesting a lever the schema does not offer.
-    class FactsOnlyExecutor extends BashExecutor {
+    class FactsOnlyExecutor extends TestBashExecutor {
       private readonly task: BashTask = {
         id: BashTaskId('bash-facts'),
         command: 'fake',
@@ -1066,17 +1068,6 @@ describe('sandbox rendering', () => {
         signal: null,
         done: Promise.resolve(),
         sandbox: { mode: 'read-only', denied: true },
-      }
-
-      resolve(request: BashExecRequest): BashExecSpec {
-        return {
-          command: request.command,
-          workdir: request.workdir ?? process.cwd(),
-          timeoutMs: request.timeoutMs ?? 0,
-          ...request.signal ? { signal: request.signal } : {},
-          owner: request.owner,
-          sandboxMode: request.sandboxMode,
-        }
       }
 
       run(): Promise<BashRunResult> { return Promise.reject(new Error('not used')) }

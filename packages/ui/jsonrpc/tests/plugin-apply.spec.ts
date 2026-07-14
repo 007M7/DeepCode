@@ -1,0 +1,316 @@
+import { createServer } from 'node:http'
+import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { PassThrough, Writable } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import * as agentCore from '@deepseek-ai/dsh-agent-core'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as jsonrpc from '../src/index.ts'
+
+/**
+ * apply()-level lifecycle coverage for the @deepseek-ai/dsh-jsonrpc plugin:
+ * the plugin is mounted through the REAL namespace mount path —
+ * `ctx.plugin(jsonrpc, config)` over the module namespace object, exactly what
+ * the Loader hands cordis after `unwrapExports` (plugin-shape.spec pins that
+ * identity) — with the runtime-only `input`/`output`/`exit` seams from
+ * {@link jsonrpc.JsonRpcConfig} replacing the process stdio, so the whole
+ * pipeline (line transport → HarnessSdkServer → notifications back onto the
+ * wire) runs in-process. The scenarios pin the plugin's exit-lifecycle split:
+ * a `shutdown` REQUEST answers first, then disposes the plugin's own fiber and
+ * calls `exit(0)` exactly once (a racing second `shutdown` must not re-exit);
+ * a bare fiber dispose (HMR-style unload, no request) only stops serving and
+ * never touches `exit`.
+ */
+
+/** One ordered observation on the plugin's outward-facing seams: a JSON-RPC frame written to `output`, or an `exit(code)` call. */
+type WireEvent =
+  | { kind: 'frame'; frame: Record<string, unknown> }
+  | { kind: 'write-complete'; ids: (string | number)[] }
+  | { kind: 'exit'; code: number }
+
+interface ApplyHarness {
+  ctx: Context
+  /** The jsonrpc plugin's own fiber (NOT the root), for the HMR-style dispose scenario. */
+  fiber: Awaited<ReturnType<Context['plugin']>>
+  /** Every output frame and exit call, in observation order — ordering assertions read this. */
+  events: WireEvent[]
+  outputErrors: Error[]
+  send(frame: Record<string, unknown>): void
+  sendRaw(text: string): void
+  frames(): Record<string, unknown>[]
+  exits(): number[]
+  waitForFrame(predicate: (frame: Record<string, unknown>) => boolean, description: string): Promise<Record<string, unknown>>
+  dispose(): Promise<void>
+}
+
+/** Poll `get` until it yields a value (5s cap) — the output side is fed asynchronously from the transport's read loop. */
+async function waitFor<T>(get: () => T | undefined, description: string): Promise<T> {
+  const deadline = Date.now() + 5000
+  for (;;) {
+    const value = get()
+    if (value !== undefined) return value
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${description}`)
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
+
+/** Let pending microtasks, setImmediate callbacks, and stream events drain — for asserting that something did NOT happen. */
+async function settle(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 25))
+}
+
+/**
+ * Boot a minimal harness context (agent-core bundle + JSONL persistence, the
+ * server.spec recipe) and mount the jsonrpc plugin on it through the real
+ * namespace mount path, with in-memory seams standing in for stdio/exit.
+ */
+async function mountPlugin(
+  storageDir: string,
+  options: { writeDelayMs?: number; failFlush?: boolean } = {},
+): Promise<ApplyHarness> {
+  const ctx = new Context()
+  await ctx.plugin(agentCore)
+  await ctx.plugin(SessionPersistenceJsonl, { root: storageDir })
+  await new Promise(resolve => setTimeout(resolve, 50))
+
+  const input = new PassThrough()
+  const events: WireEvent[] = []
+  const outputErrors: Error[] = []
+  let pendingOutput = ''
+  // A hand-rolled Writable (not a PassThrough): _write records frames on
+  // admission and write-complete only when its callback fires, so a delayed
+  // output proves exit waits for the transport's flush barrier.
+  const output = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      const ids: (string | number)[] = []
+      pendingOutput += chunk.toString('utf8')
+      for (;;) {
+        const newline = pendingOutput.indexOf('\n')
+        if (newline < 0) break
+        const line = pendingOutput.slice(0, newline).trim()
+        pendingOutput = pendingOutput.slice(newline + 1)
+        if (line) {
+          const frame = JSON.parse(line) as Record<string, unknown>
+          events.push({ kind: 'frame', frame })
+          if (typeof frame.id === 'string' || typeof frame.id === 'number') ids.push(frame.id)
+        }
+      }
+      const complete = (): void => {
+        if (options.failFlush === true && chunk.length === 0) {
+          callback(new Error('flush callback failed'))
+          return
+        }
+        events.push({ kind: 'write-complete', ids })
+        callback()
+      }
+      if ((options.writeDelayMs ?? 0) > 0) setTimeout(complete, options.writeDelayMs)
+      else complete()
+    },
+  })
+  output.on('error', (error: Error) => { outputErrors.push(error) })
+  const exit = (code: number): void => { events.push({ kind: 'exit', code }) }
+
+  const fiber = await ctx.plugin(jsonrpc, { input, output, exit })
+
+  const frames = (): Record<string, unknown>[] =>
+    events.flatMap(event => event.kind === 'frame' ? [event.frame] : [])
+  return {
+    ctx,
+    fiber,
+    events,
+    outputErrors,
+    send: (frame) => { input.write(`${JSON.stringify(frame)}\n`) },
+    sendRaw: (text) => { input.write(text) },
+    frames,
+    exits: () => events.flatMap(event => event.kind === 'exit' ? [event.code] : []),
+    waitForFrame: (predicate, description) => waitFor(() => frames().find(predicate), description),
+    dispose: async () => { await ctx.fiber.dispose() },
+  }
+}
+
+const servers: Server[] = []
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
+  vi.unstubAllEnvs()
+})
+
+/** The server.spec mock OpenAI-compatible SSE endpoint, so a prompt turn completes without a real key. */
+async function mockCompletionServer(): Promise<{ url: string; requests: unknown[] }> {
+  const requests: unknown[] = []
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let body = ''
+    request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
+    request.on('end', () => {
+      requests.push(JSON.parse(body))
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.write('data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}\n\n')
+      response.write('data: {"choices":[{"delta":{"content":"done"}}]}\n\n')
+      response.write('data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n')
+      response.write('data: [DONE]\n\n')
+      response.end()
+    })
+  })
+  servers.push(server)
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('no port')
+  return { url: `http://127.0.0.1:${address.port}`, requests }
+}
+
+describe('dsh-jsonrpc plugin apply', () => {
+  it('serves initialize over the injected stdio pair', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-init-'))
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+    const harness = await mountPlugin(storageDir)
+    try {
+      harness.send({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { cwd: storageDir, model: 'apply-model' } })
+
+      const response = await harness.waitForFrame(frame => frame.id === 'init-1', 'initialize response')
+      expect(response).toEqual({
+        jsonrpc: '2.0',
+        id: 'init-1',
+        result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } },
+      })
+      expect(harness.exits()).toEqual([])
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('drives a session/prompt turn end-to-end and forwards session notifications as output frames', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-prompt-'))
+    const llmServer = await mockCompletionServer()
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+    vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
+    const harness = await mountPlugin(storageDir)
+    try {
+      harness.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { cwd: storageDir, model: 'dsagent-model' } })
+      await harness.waitForFrame(frame => frame.id === 1, 'initialize response')
+
+      harness.send({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'session/prompt',
+        params: { sessionId: 'main', contentBlocks: [{ type: 'text', text: 'fix it' }] },
+      })
+      const response = await harness.waitForFrame(frame => frame.id === 2, 'prompt response')
+      expect(response.result).toEqual({ accepted: true })
+
+      expect(llmServer.requests).toHaveLength(1)
+      const body = llmServer.requests[0] as { model: string; messages: { role: string }[] }
+      expect(body.model).toBe('dsagent-model')
+      expect(body.messages.at(-1)?.role).toBe('user')
+
+      // The server's notify() path rides the SAME transport apply() built:
+      // session.event / session.finished arrive as id-less frames on output.
+      const notifications = harness.frames().filter(frame => frame.id === undefined)
+      expect(notifications.some(frame => frame.method === 'session.event')).toBe(true)
+      expect(notifications.find(frame => frame.method === 'session.finished')).toMatchObject({
+        jsonrpc: '2.0',
+        params: { sessionId: 'main', status: 'ok' },
+      })
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('answers shutdown before exiting 0 exactly once, even against a racing second shutdown', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-shutdown-'))
+    const harness = await mountPlugin(storageDir, { writeDelayMs: 10 })
+    try {
+      // Two shutdown frames in ONE chunk: both are dispatched from the same
+      // read-loop pass, so both setImmediate exit callbacks get scheduled and
+      // the second must hit the `exiting` guard instead of re-entering.
+      const first = { jsonrpc: '2.0', id: 'sd-1', method: 'shutdown' }
+      const second = { jsonrpc: '2.0', id: 'sd-2', method: 'shutdown' }
+      harness.sendRaw(`${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
+
+      await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit recorder call')
+      expect(harness.exits()).toEqual([0])
+
+      // Response-then-exit ordering: both response write callbacks and the
+      // empty flush barrier complete before exit(0), even on delayed output.
+      const exitIndex = harness.events.findIndex(event => event.kind === 'exit')
+      const firstResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-1')
+      const secondResponse = harness.events.findIndex(event => event.kind === 'frame' && event.frame.id === 'sd-2')
+      const firstComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-1'))
+      const secondComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-2'))
+      const flushComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.length === 0)
+      expect(firstResponse).toBeGreaterThanOrEqual(0)
+      expect(secondResponse).toBeGreaterThanOrEqual(0)
+      expect(firstComplete).toBeGreaterThan(firstResponse)
+      expect(secondComplete).toBeGreaterThan(secondResponse)
+      expect(flushComplete).toBeGreaterThan(firstComplete)
+      expect(flushComplete).toBeGreaterThan(secondComplete)
+      expect(exitIndex).toBeGreaterThan(flushComplete)
+
+      // Idempotent: the racing second shutdown never produces a second exit.
+      await settle()
+      expect(harness.exits()).toEqual([0])
+
+      // The plugin fiber is disposed: the transport reads no further frames.
+      const before = harness.frames().length
+      harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      await settle()
+      expect(harness.frames().length).toBe(before)
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('still disposes and exits once when the flush callback fails', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-flush-failure-'))
+    const harness = await mountPlugin(storageDir, { failFlush: true })
+    try {
+      harness.send({ jsonrpc: '2.0', id: 'sd-fail', method: 'shutdown' })
+
+      await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit after flush failure')
+      await settle()
+      expect(harness.exits()).toEqual([0])
+      expect(harness.outputErrors.map(error => error.message)).toEqual(['flush callback failed'])
+
+      const before = harness.frames().length
+      harness.send({ jsonrpc: '2.0', id: 'after-flush-failure', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      await settle()
+      expect(harness.frames().length).toBe(before)
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('stops serving on a bare fiber dispose (HMR-style unload) without calling exit', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-dispose-'))
+    const harness = await mountPlugin(storageDir)
+    try {
+      // Prove the pipeline is live first (an unknown method still answers, as
+      // a JSON-RPC error frame — the transport's handler-rejection path).
+      harness.send({ jsonrpc: '2.0', id: 'probe-1', method: 'nope/unknown' })
+      const error = await harness.waitForFrame(frame => frame.id === 'probe-1', 'error response for unknown method')
+      expect(error.error).toMatchObject({
+        code: -32603,
+        message: 'unknown DeepSeek Harness SDK runtime method: nope/unknown',
+      })
+
+      await harness.fiber.dispose()
+
+      // The effect disposer shut the server and closed the transport — later
+      // frames are never read — and the exit seam was never touched.
+      const before = harness.frames().length
+      harness.send({ jsonrpc: '2.0', id: 'probe-2', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      await settle()
+      expect(harness.frames().length).toBe(before)
+      expect(harness.exits()).toEqual([])
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+})

@@ -26,7 +26,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-approval and user-interaction seams, ask-user tool
+  ui/          ACP bridge, JSON-RPC SDK server, app-boot glue, stdio/ACP/SDK app bins, user-approval and user-interaction seams, ask-user tool
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
@@ -47,6 +47,7 @@ pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
@@ -64,6 +65,7 @@ During implementation, run the narrowest affected checks; run this full CI-equiv
 set -euo pipefail
 pnpm run typecheck
 pnpm run lint
+pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync
@@ -82,9 +84,9 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests
 
 ## Agent efficiency
 
-Habits that cut agent round-trips, each earned by measured session waste.
+Habits earned by measured session waste.
 
-- **One-round gate runs**: any command beyond a few seconds lands its FULL output in a temp file, prints a short summary, and on non-zero exit auto-expands capped failure context (`grep -B3 -A15 -E 'FAIL|ERROR' "$out" | head -60`) in the SAME invocation — never re-run a gate to recover detail a filter discarded.
+- **One-round gate runs**: any long command lands its FULL output in a temp file, prints a short summary, and on non-zero exit auto-expands capped failure context (`grep -B3 -A15 -E 'FAIL|ERROR' "$out" | head -60`) in the SAME invocation — never re-run to recover detail a filter discarded.
 
 ## Secrets / .env
 

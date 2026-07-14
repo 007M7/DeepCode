@@ -4,7 +4,11 @@
     "docs/development.md",
     "docs/i18n/README.md",
     "docs/i18n/translation-rules.md",
-    "docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md"
+    "docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md",
+    "docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md",
+    "python/README.md",
+    "python/sdk-runtime/README.md",
+    "python/sdk/README.md"
   ],
   "excluded": [
     "docs/AGENTS.md",
@@ -13,6 +17,7 @@
     "docs/tool-catalog.md",
     "docs/persistence-catalog.md",
     "docs/cordis-catalog/",
-    "docs/i18n/terminology.md"
+    "docs/i18n/terminology.md",
+    "python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/"
   ]
 }
