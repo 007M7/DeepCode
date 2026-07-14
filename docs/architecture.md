@@ -51,14 +51,17 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains work, assembles requests, streams model answers, executes tools, applies continuation policy, and checkpoints state. Every pause is a service call or event available to plugins.
+Default loop processing remains exposed through plugin-visible services and events.
 
 A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+
+Declarative startup chooses one agent/session identity. No id mints `<config-id>-session-<uuid>`; exact `sessionId` resumes when stored and otherwise creates; `resumeSessionId` requires stored history. Failures emit `agent-loop/config-start-failed(sessionId, error)`, letting front doors reject buffered work.
 
 ### Turn Flow
 
 ```text
-prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and fresh/resume path
+  -> prepare private session + agent.ctx -> await unpublished setup
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:

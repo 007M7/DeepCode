@@ -239,6 +239,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
 /** Every harness event, sorted by name. */
 export const EVENT_API: readonly EventApiEntry[] = [
   {
+    name: 'agent-loop/config-start-failed',
+    mode: 'emit',
+    signature: '\'agent-loop/config-start-failed\'(sessionId: SessionId, error: unknown): void',
+    summary: 'A declarative agent entry failed before it could publish a live agent.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',

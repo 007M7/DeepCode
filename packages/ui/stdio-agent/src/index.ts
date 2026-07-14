@@ -102,16 +102,23 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Compose the spine with the stdio front door. The console logger comes first
- * (infra), then the agent-core bundle pre-creating one agent from this app's
- * `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
- * backend, then the readline UI rendering that object as `main`. The `hmr` dev-reload plugin is
- * a leaf concern (see the module doc), so it is not mounted here.
+ * Compose the spine with the stdio front door. Console logging, persistence,
+ * and user interaction mount first; the readline UI then waits on the agent
+ * registry and subscribes to config-start failures before agent-core can start
+ * the configured identity. The ask-user tool waits on the completed spine.
+ * The `hmr` dev-reload plugin is a leaf concern (see the module doc), so it is
+ * not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   ctx.plugin(ConsoleExporter)
+  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(UserInteractionService)
+  ctx.plugin(uiStdio, {
+    welcome: config.welcome ?? 'ready.',
+    sessionId,
+  })
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
@@ -124,11 +131,5 @@ export function apply(ctx: Context, config: Config): void {
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
-  ctx.plugin(uiStdio, {
-    welcome: config.welcome ?? 'ready.',
-    sessionId,
-  })
 }
