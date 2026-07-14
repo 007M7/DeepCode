@@ -747,6 +747,15 @@ describe('createStdioChat input', () => {
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toHaveLength(1)
   })
+
+  it('treats an empty resume session id as a fresh configured identity', async () => {
+    const { ctx, input } = await setup({ welcome: 'w', resumeSessionId: '' })
+    const agent = makeAgent('main-session-fresh')
+    ctx.agents.register(agent)
+    input.feed('hi')
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toHaveLength(1)
+  })
 })
 
 describe('createStdioChat EOF exit', () => {
