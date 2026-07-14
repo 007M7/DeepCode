@@ -19,7 +19,6 @@ import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types.ts'
 
 export { BashTaskId, OwnerToken } from './types.ts'
-export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 export type {
   BashExecRequest,
   BashExecSpec,

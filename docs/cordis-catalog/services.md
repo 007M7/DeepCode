@@ -79,7 +79,7 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:61`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -139,13 +139,13 @@ abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefine
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
 abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
-abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
-abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>
+abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>
 ```
 
-Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxMode](../core-data-structures/sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:172`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:173`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
@@ -174,7 +174,7 @@ set(session: Session, name: string): void
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:115`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:118`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -192,7 +192,13 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:180`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:191`](../../packages/sandbox/sandbox/src/index.ts)
+
+## `ctx.sandboxPolicy` — `SandboxPolicyService`
+
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and workspace root; enforcing implementations read defaultMode and workspaceRoot, and the tool layers fold each session's `sandbox/mode` override with effectiveSandboxMode on top.
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:60`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

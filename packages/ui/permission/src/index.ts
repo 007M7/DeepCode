@@ -1,7 +1,7 @@
 /**
  * User-facing PERMISSION PRESETS: one product-level knob over the two
  * mechanism knobs. A preset names a bundle — its sandbox mode
- * (`bash/sandbox-mode`) and its approval policy (`approval/policy`) — so a
+ * (`sandbox/mode`) and its approval policy (`approval/policy`) — so a
  * user picks `workspace-write` or `danger-full-access` while the mechanism
  * tiers stay orthogonal capabilities. Switching a preset WRITES THROUGH: one `permission/preset` event
  * records the chosen bundle (the audit fact reverse-mapping cannot recover —
@@ -19,7 +19,10 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
+import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+// Side-effect type import: declaration-merges `ctx.bash` (the capability fact
+// `sandboxMode` this service reads), without a value dependency on the seam.
+import type {} from '@deepseek-ai/dsh-bash'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 
@@ -33,7 +36,7 @@ declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
      * The session's permission preset was switched — log-only (the
-     * `bash/sandbox-mode` precedent): durable and replayable, never in the
+     * `sandbox/mode` precedent): durable and replayable, never in the
      * model transcript. The LAST such event is the session's preset
      * ({@link effectivePermissionPreset}); the knob events the switch wrote
      * through follow it in the same turn, and they — not this record of the
@@ -48,7 +51,7 @@ declare module '@deepseek-ai/dsh-session' {
  * runs under while the preset is active — plus its presentation.
  */
 export interface PresetSpec {
-  /** The `bash/sandbox-mode` value the preset writes through. */
+  /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy

@@ -53,7 +53,7 @@ describe('PermissionService', () => {
   it('a knob state matching no table entry derives custom — a state, not an error', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-custom')
-    session.append('bash/sandbox-mode', { mode: 'read-only' })
+    session.append('sandbox/mode', { mode: 'read-only' })
     expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
     // Switching FROM custom is an ordinary write-through; custom itself is
     // never a target.
@@ -80,7 +80,7 @@ describe('PermissionService', () => {
     expect(ctx.permission.current(session.events)).toBe('agentish')
     // A knob drifts: the fold's bundle no longer matches → reverse map wins.
     session.append('approval/policy', { policy: 'never' })
-    session.append('bash/sandbox-mode', { mode: 'danger-full-access' })
+    session.append('sandbox/mode', { mode: 'danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
   })
 
@@ -90,7 +90,7 @@ describe('PermissionService', () => {
     ctx.permission.set(session, 'danger-full-access')
     expect(session.events.map(e => [e.type, e.data])).toEqual([
       ['permission/preset', { preset: 'danger-full-access' }],
-      ['bash/sandbox-mode', { mode: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
     ])
   })
@@ -109,12 +109,12 @@ describe('PermissionService', () => {
     // A knob drifts out from under the preset (a direct setter call, a test
     // scenario): the session derives custom, and re-asserting the preset is
     // a real switch again — choice re-recorded, only the drifted knob moves.
-    session.append('bash/sandbox-mode', { mode: 'read-only' })
+    session.append('sandbox/mode', { mode: 'read-only' })
     ctx.permission.set(session, 'danger-full-access')
     const tail = session.events.slice(4)
     expect(tail.map(e => [e.type, e.data])).toEqual([
       ['permission/preset', { preset: 'danger-full-access' }],
-      ['bash/sandbox-mode', { mode: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
     ])
   })
 

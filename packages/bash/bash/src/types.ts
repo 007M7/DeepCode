@@ -130,7 +130,7 @@ export interface BashExecRequest {
    * consumer sets it only from an explicit policy source — an
    * `'allowed-once'` grant a human just issued through `ctx.approval` (the
    * escalation flow in the sandbox RFC § Escalation, which outranks), or the
-   * session's standing override folded from its own `bash/sandbox-mode`
+   * session's standing override folded from its own `sandbox/mode`
    * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
    * choice). A sandboxing executor confines THIS call under the given mode;
    * a non-sandboxing executor carries the field and confines nothing (the

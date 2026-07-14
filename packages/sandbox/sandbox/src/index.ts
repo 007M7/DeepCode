@@ -25,6 +25,17 @@
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
+export {
+  ESCALATION_TARGETS,
+  WIDER_MODES,
+  approveEscalation,
+  escalationHintMarker,
+  sandboxDenialMarker,
+  validateEscalationArgs,
+} from './escalation.ts'
+export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
+export { canonicalPath, writableRoots } from './roots.ts'
+
 /**
  * File-effect policy a sandbox backend enforces on confined processes.
  *

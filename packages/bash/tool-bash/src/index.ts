@@ -44,7 +44,7 @@
  * that the composition cannot honor.
  *
  * Per-session mode switching (the sandbox RFC § Per-session mode switching): a session may carry a
- * standing sandbox-mode override — the `bash/sandbox-mode` event fold from
+ * standing sandbox-mode override — the `sandbox/mode` event fold from
  * `@deepseek-ai/dsh-bash` — which this plugin makes real at EXECUTION: each
  * call is stamped `escalation grant > session override > executor default`.
  * The prompt deliberately does NOT state the mode and no switch is narrated:
@@ -60,14 +60,21 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 // Side-effect type import: declaration-merges `ctx.approval`, consumed
 // opportunistically by the escalation gate (`ctx.get('approval')` — the seam
 // stays optional at runtime, same pattern as dsh-tools' ask routing).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { BashTaskId, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import {
+  ESCALATION_TARGETS,
+  approveEscalation,
+  escalationHintMarker,
+  sandboxDenialMarker,
+  validateEscalationArgs,
+} from '@deepseek-ai/dsh-sandbox'
+import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
@@ -93,15 +100,9 @@ function validateBashArgs(args: BashToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  if (args.sandbox_permissions !== undefined && args.justification === undefined) {
-    throw new Error('invalid escalation: sandbox_permissions requires a justification')
-  }
-  if (args.justification !== undefined && args.sandbox_permissions === undefined) {
-    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
-  }
-  if (args.justification !== undefined && args.justification.trim().length === 0) {
-    throw new Error('invalid justification: expected a non-empty sentence')
-  }
+  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+  // the shared rule both enforcing families validate identically.
+  validateEscalationArgs(args.sandbox_permissions, args.justification)
 }
 
 /**
@@ -131,27 +132,6 @@ interface BashToolArgs {
   sandbox_permissions?: string
   justification?: string
 }
-
-/**
- * The strictly-wider table: what a call whose effective mode is the key may
- * escalate TO. Checked at EXECUTION, never baked into the schema — the
- * schema's enum is {@link ESCALATION_TARGETS}, because schemas are
- * registry-global while the effective mode is per-call truth.
- */
-const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
-  'read-only': ['workspace-write', 'danger-full-access'],
-  'workspace-write': ['danger-full-access'],
-}
-
-/**
- * The closed escalation-target vocabulary — every mode a call could ever
- * escalate TO (`read-only` is the floor; nothing escalates to it). Advertised
- * whenever the mounted executor confines: cutting the enum down to the modes
- * wider than the executor's DEFAULT would strand a session whose effective
- * mode sits below it (a `danger-full-access` default would advertise nothing
- * while a narrower-switched session stays confined with no lever).
- */
-const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
 /**
  * The bash tool's static description. The base text is byte-stable regardless
@@ -222,13 +202,13 @@ export function renderResult(
   // stays the LAST line (exitStatus() anchors its parse there). Denial is a
   // reported fact like timeout: the model decides how to react.
   if (result.sandbox?.denied) {
-    markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
+    markers.push(sandboxDenialMarker(result.sandbox.mode))
     // The same-turn nudge lives at the decision point: only when this
     // composition advertises the fields (a lever is never hinted that the
     // schema does not offer), and inside the sandbox marker family so the
     // exit-code marker stays the last line.
     if (escalationModes.length > 0) {
-      markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
+      markers.push(escalationHintMarker('command'))
     }
   }
   // Timeout is reported independently of how the process actually ended: a
@@ -482,7 +462,7 @@ export function apply(ctx: Context): void {
 
   /**
    * The session's standing mode override for an ordinary (non-escalating)
-   * call: the `bash/sandbox-mode` fold of the calling agent's log, stamped
+   * call: the `sandbox/mode` fold of the calling agent's log, stamped
    * onto the request so EXECUTION follows the same effective mode the prompt
    * section states. Weakest precedence — an escalation grant (freshly
    * approved for exactly this call) outranks it, and without either the
@@ -495,58 +475,30 @@ export function apply(ctx: Context): void {
 
   /**
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
-   * anything executes. Returns the granted mode to stamp onto the bash
-   * request; throws the distinct fail-closed text for every other path (no
-   * service composed, an agent-less execution, a rejection, a cancellation,
-   * an unanswerable ask) — the registry turns the throw into this call's
-   * isError result, and nothing has run. The seam is consumed
-   * opportunistically (`ctx.get`, the dsh-tools ask-routing pattern), so a
-   * deployment without it degrades per call, never at registration.
+   * anything executes, delegating the shared fail-closed sequence (strict
+   * widening, channel resolution, outcome mapping) to
+   * {@link approveEscalation}. This tool contributes only the composition
+   * guard (the fields are unadvertised without a sandboxing executor, yet
+   * schema validation checks advertised keys only, so an unadvertised
+   * `sandbox_permissions` still reaches execute) and the channel closure over
+   * `ctx.approval` — consumed opportunistically (`ctx.get`, the dsh-tools
+   * ask-routing pattern) so a deployment without it degrades per call.
    */
-  const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
-    // Schema validation only checks ADVERTISED keys, so an unadvertised
-    // `sandbox_permissions` (no sandboxing executor) still reaches execute — reject it here so a
-    // human is never prompted to "escalate" a sandbox that is not there. When
-    // the fields ARE advertised, the registry's SchemaSpec enum has already
-    // pinned `mode` to this ladder for every caller.
+  const approveBashEscalation = (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    // Strict widening is an EXECUTION check against the call's effective
-    // mode — session override ?? executor default, the same fold ordinary
-    // calls are stamped with — deliberately not a schema constraint (the
-    // enum is the closed target vocabulary; the effective mode is per-call
-    // truth). A non-widening request fails closed here and never prompts a
-    // human.
     const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
-    if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
-      throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
-    }
-    const approval = ctx.get('approval')
-    if (approval === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`)
-    }
-    if (exec.agent === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`)
-    }
-    const outcome = await approval.request({
-      agent: exec.agent,
-      toolName: 'bash',
-      callId: exec.callId,
-      // Self-contained for the audit trail: approval/asked stores this
-      // reason, and the target mode is part of the grant's identity.
-      reason: `escalate sandbox to ${mode}: ${justification}`,
-      ...exec.signal ? { signal: exec.signal } : {},
-    })
-    switch (outcome) {
-      // The SchemaSpec enum already pinned `mode` to the closed target
-      // vocabulary; the per-call check above proved it is strictly wider.
-      case 'allowed-once': return mode as SandboxMode
-      case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
-      case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
-      case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)
-      default: return assertNever(outcome, 'ApprovalOutcome')
-    }
+    return approveEscalation(
+      { requestedMode: mode, justification, effectiveMode, subject: 'command' },
+      {
+        approver: ctx.get('approval'),
+        agent: exec.agent,
+        callId: exec.callId,
+        toolName: 'bash',
+        ...exec.signal ? { signal: exec.signal } : {},
+      },
+    )
   }
 
   ctx.tools.register(defineTool({
@@ -589,7 +541,7 @@ export function apply(ctx: Context): void {
       // An ordinary call carries the session's standing override instead —
       // grant > session override > executor default (see sessionOverride).
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
+        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)
       // Default the workdir to the calling agent's session cwd so each ACP
       // session runs in its own workspace (see resolveWorkdir); an explicit
@@ -649,9 +601,9 @@ export function apply(ctx: Context): void {
         // hint). Background denials are only classifiable once the task
         // settles (the classifier needs the whole stderr), so the marker
         // rides every read that sees the settled task.
-        text += `\n[sandbox: file access denied under ${read.task.sandbox.mode} mode]`
+        text += `\n${sandboxDenialMarker(read.task.sandbox.mode)}`
         if (escalationModes.length > 0) {
-          text += '\n[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]'
+          text += `\n${escalationHintMarker('command')}`
         }
       }
       return Promise.resolve([{ type: 'text', text }])

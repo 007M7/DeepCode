@@ -153,28 +153,21 @@ Source: [`packages/bash/bash-local/src/index.ts:29`](../packages/bash/bash-local
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
-Requires: `sandbox`
+Requires: `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /**
- * Plugin config: the local executor's knobs plus the sandbox policy. All
- * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
- * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is NOT configured here: which platform
- * backend confines the command is the `ctx.sandbox` provider's config.
+ * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
+ * the default mode and the `workspace-write` boundary root — is NOT here: it
+ * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
+ * home both enforcing families read, so bash and fs can never confine to
+ * different roots. The runner choice is likewise the `ctx.sandbox` provider's
+ * config, not this executor's.
  */
-export interface Config extends LocalConfig {
-  /** File-sandbox mode commands run under (default: `read-only`). */
-  mode?: SandboxMode
-  /**
-   * Root directory `workspace-write` mode may write under (default: the
-   * executor's default working directory — `cwd`, else `process.cwd()`).
-   */
-  workspaceRoot?: string
-}
+export type Config = LocalConfig
 ```
 
-Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/bash/bash-sandbox/src/index.ts:60`](../packages/bash/bash-sandbox/src/index.ts)
 
@@ -266,6 +259,24 @@ export interface Config {
 ```
 
 Source: [`packages/fs/fs-local/src/index.ts:58`](../packages/fs/fs-local/src/index.ts)
+
+## `@deepseek-ai/dsh-fs-sandbox`
+
+Requires: `sandboxPolicy`
+
+```ts config-catalog
+/**
+ * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
+ * base for relative paths). The sandbox default (mode + `workspace-write`
+ * boundary root) is NOT here — it lives on `ctx.sandboxPolicy`, the one home
+ * both enforcing families share.
+ */
+export type Config = LocalConfig
+```
+
+Depends on: [`LocalConfig`](#deepseek-aidsh-fs-local)
+
+Source: [`packages/fs/fs-sandbox/src/index.ts:49`](../packages/fs/fs-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -464,7 +475,7 @@ export interface Config {
  * runs under while the preset is active — plus its presentation.
  */
 export interface PresetSpec {
-  /** The `bash/sandbox-mode` value the preset writes through. */
+  /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
@@ -477,7 +488,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:97`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:100`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -557,6 +568,31 @@ export interface Config {
 ```
 
 Source: [`packages/sandbox/sandbox-local/src/index.ts:36`](../packages/sandbox/sandbox-local/src/index.ts)
+
+## `@deepseek-ai/dsh-sandbox-policy`
+
+```ts config-catalog
+/**
+ * Plugin config: the deployment's sandbox default. All optional — `Config`
+ * supplies the defaults (`mode: 'read-only'` is the fail-safe default; a
+ * deployment that wants a workspace-writable agent opts in explicitly). The
+ * runner choice is NOT here (it is the `ctx.sandbox` provider's config), nor
+ * is any per-family knob: this is the one shared policy home.
+ */
+export interface Config {
+  /** File-sandbox mode a session starts from (default: `read-only`). */
+  mode?: SandboxMode
+  /**
+   * Absolute root directory `workspace-write` may write under (default:
+   * `process.cwd()`). Both enforcing families fence against this SAME root.
+   */
+  workspaceRoot?: string
+}
+```
+
+Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:44`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
@@ -900,7 +936,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:48`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:52`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 

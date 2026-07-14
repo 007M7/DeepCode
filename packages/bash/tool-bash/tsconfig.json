@@ -15,9 +15,6 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../llm/llm"
-    },
-    {
       "path": "../../core/tools"
     },
     {
@@ -34,6 +31,9 @@
     },
     {
       "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
     }
   ]
 }

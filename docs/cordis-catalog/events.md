@@ -201,7 +201,7 @@ Single-slot decision: produce the optional version guard for the next FileSystem
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:123`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:124`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
@@ -213,7 +213,7 @@ Record that an actor observed a target at a version, after a successful read/wri
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:138`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:139`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
@@ -225,7 +225,7 @@ Single-slot decision: produce the write intent for the next FileSystem.writeText
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:109`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:110`](../../packages/fs/fs/src/index.ts)
 
 ## `llm/*`
 

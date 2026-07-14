@@ -71,18 +71,6 @@ Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-st
 
 Source: [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
 
-### `bash/*`
-
-#### `bash/sandbox-mode` — log-only
-
-The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
-
-```ts persistence-catalog
-'bash/sandbox-mode': { mode: SandboxMode }
-```
-
-Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
-
 ### `compact/*`
 
 #### `compact/end` — log-only
@@ -157,13 +145,13 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../packages/hooks/hook-
 
 #### `permission/preset` — log-only
 
-The session's permission preset was switched — log-only (the `bash/sandbox-mode` precedent): durable and replayable, never in the model transcript. The LAST such event is the session's preset (effectivePermissionPreset); the knob events the switch wrote through follow it in the same turn, and they — not this record of the user's choice — are what execution reads.
+The session's permission preset was switched — log-only (the `sandbox/mode` precedent): durable and replayable, never in the model transcript. The LAST such event is the session's preset (effectivePermissionPreset); the knob events the switch wrote through follow it in the same turn, and they — not this record of the user's choice — are what execution reads.
 
 ```ts persistence-catalog
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:42`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:45`](../packages/ui/permission/src/index.ts)
 
 ### `prompt/*`
 
@@ -200,6 +188,18 @@ Amendment to the folded EpochHeader: at least one of a SystemDelta, a ToolsDelta
 ```
 
 Source: [`packages/core/session/src/types.ts:391`](../packages/core/session/src/types.ts)
+
+### `sandbox/*`
+
+#### `sandbox/mode` — log-only
+
+The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
+
+```ts persistence-catalog
+'sandbox/mode': { mode: SandboxMode }
+```
+
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `steering/*`
 

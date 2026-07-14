@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { BashExecutor, BashTaskId, setSandboxMode } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -15,6 +15,7 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
+import { SandboxPolicyService, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
@@ -1040,6 +1041,7 @@ describe('sandbox rendering', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
+    await ctx.plugin(SandboxPolicyService, {})
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1106,6 +1108,7 @@ describe('sandbox rendering', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(FakeProvider)
+    await ctx.plugin(SandboxPolicyService, {})
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1126,6 +1129,7 @@ describe('sandbox rendering', () => {
       runnerCommand: ['bash', '-c', `printf '${signature}\\n' >&2; exit 125`, 'custom-runner'],
       runnerFailureSignatures: [signature],
     })
+    await ctx.plugin(SandboxPolicyService, {})
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1144,6 +1148,7 @@ describe('sandbox rendering', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
+    await ctx.plugin(SandboxPolicyService, {})
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
@@ -1167,7 +1172,8 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
-    await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...mode !== undefined ? { mode } : {} })
+    await ctx.plugin(SandboxPolicyService, mode !== undefined ? { mode } : {})
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
     if (opts.approval === true) await ctx.plugin(ApprovalService, opts.policy !== undefined ? { policy: opts.policy } : {})
@@ -1381,7 +1387,7 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
   })
 })
 
-describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
+describe('per-session sandbox mode (the sandbox/mode fold)', () => {
   /** Compose the real sandbox stack (passthrough runner) at a given default mode. */
   async function setupModal(mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'read-only', opts: { approval?: boolean } = {}) {
     const ctx = new Context()
@@ -1389,7 +1395,8 @@ describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSandboxProvider, PASSTHROUGH_RUNNER_CONFIG)
-    await ctx.plugin(SandboxBashExecutor, { graceMs: 200, mode })
+    await ctx.plugin(SandboxPolicyService, { mode })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200 })
     ;(ctx.bash as SandboxBashExecutor).internals = { spillDir }
     if (opts.approval === true) await ctx.plugin(ApprovalService)
     await ctx.plugin(ToolBash)

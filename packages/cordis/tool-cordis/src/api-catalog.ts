@@ -121,8 +121,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
       'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
       'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
-      'abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>',
-      'abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>',
+      'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>',
+      'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>',
     ],
   },
   {
@@ -150,6 +150,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
     ],
+  },
+  {
+    key: 'sandboxPolicy',
+    summary: 'The sandbox-policy service (`ctx.sandboxPolicy`).',
+    methods: [],
   },
   {
     key: 'sessionPersistence',
