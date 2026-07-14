@@ -85,7 +85,7 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests
 
 ## Secrets / .env
 
-Real-API tests and demos read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the environment or a gitignored root `.env` loaded by `process.loadEnvFile()`. cordis.yml uses `!!js` (never `!js`) for env vars. Never commit credentials. CI e2e self-skips without a key; [docs/testing.md](docs/testing.md) owns the with-key policy.
+Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, and root `.env`. cordis.yml allows `!!js` (never `!js`) only under plugin `config`; Loader metadata is static, so conditional composition uses overlays ([primer](docs/cordis-primer.md#loader-configuration)). Never commit credentials. CI e2e skips without a key; [testing.md](docs/testing.md) owns key policy.
 
 ## Conventions
 
