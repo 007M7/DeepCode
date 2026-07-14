@@ -6,7 +6,7 @@ Status: implemented
 
 The harness leans hard on real-API tests by policy: [docs/testing.md](../../../testing.md) argues that a no-key suite proves the plumbing but not the product, and the [ACP inject postmortem](../../../postmortem/0001-acp-default-export-drops-inject.md) is the standing proof — 178 keyless tests stayed green while a real editor session crashed instantly. The real-API e2e suite (`pnpm run test:e2e`, the `*.e2e.ts` files) exists precisely to close that gap: it drives the agent against the live DeepSeek API — real model calls, real bash tools, multi-turn, resume, ACP-over-stdio.
 
-But until this change **nothing in CI ran it**. The default gate ([.github/workflows/ci.yml](../../../../.github/workflows/ci.yml)) is deliberately keyless — it carries no secret, runs on every push and PR including from forks, and stays green for any contributor. `test:e2e` self-skips without a key (`describe.skipIf(!process.env.DEEPSEEK_API_KEY)`), so even if ci.yml invoked it, a keyless runner would skip it green. The real-API safety net therefore only fired when a developer happened to run it locally with a key in their environment — i.e. unreliably, and never as a merge gate.
+The default gate ([.github/workflows/ci.yml](../../../../.github/workflows/ci.yml)) is deliberately keyless: it carries no secret and runs for forks. `test:e2e` self-skips without a key (`describe.skipIf(!process.env.DEEPSEEK_API_KEY)`), so adding it there would report green without exercising the real suite. A separate secret-bearing workflow is required to make real-API coverage a merge signal.
 
 This RFC records the decision to add a **second, secret-consuming workflow** that runs the real-API suite in CI, and — because introducing the first CI secret into a repo that may later go public is a security/isolation decision — the threat model it relies on and what changes when the repo becomes public.
 
@@ -20,11 +20,11 @@ ci.yml's value is that it is keyless, forkable, and always-green: any contributo
 
 ### Cost is not the constraint; reliability is
 
-The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all matching `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the [docs/testing.md](../../../testing.md) with-key policy.
+Internal inference cost is not the limiting constraint, so the workflow optimizes for coverage and signal. It runs every matching `*.e2e.ts` file on multiple triggers and every trusted PR, implementing the [docs/testing.md](../../../testing.md) with-key policy.
 
 ### Triggers: trusted events only
 
-`workflow_dispatch` + `push` to `main`/`master` + nightly `schedule` (`17 0 * * *`, 08:17 Asia/Shanghai) + `pull_request`. Push gives a post-merge signal; schedule catches drift in the external API itself even with no commits; dispatch is the manual escape hatch; `pull_request` gives a pre-merge gate. The user explicitly chose to include PR runs for the pre-merge signal, accepting the larger key-exposure surface that implies (see § Security).
+`workflow_dispatch` + `push` to `main`/`master` + nightly `schedule` (`17 0 * * *`, 08:17 Asia/Shanghai) + `pull_request`. Push gives a post-merge signal; schedule catches external-API drift; dispatch is the manual escape hatch; and trusted pull requests get a pre-merge gate. That pre-merge signal deliberately accepts the larger key-exposure surface described under § Security.
 
 ### The untrusted-PR gate
 
@@ -50,15 +50,15 @@ The repo secret is named `DEEPSEEK_API_KEY_EXTERNAL`; it is mapped to the `DEEPS
 - **Step-scoped secret.** `DEEPSEEK_API_KEY` is set in the `env:` of only the preflight and e2e steps, never job-level — so checkout/setup-node/install never see it. A compromised install-time lifecycle script in a dependency cannot read a secret that isn't in its environment.
 - **`permissions: contents: read`.** The job only reads the repo to run tests; it needs no write scopes (no PR comments, no status writes), so the `GITHUB_TOKEN` is dropped to least privilege.
 - **`DEEPSEEK_BASE_URL` pinned** to `https://api.deepseek.com` on the e2e step. The adapter would default to this when unset ([packages/llm/llm-deepseek/src/index.ts](../../../../packages/llm/llm-deepseek/src/index.ts) `PUBLIC_BASE_URL`), but pinning is self-documenting and hermetic — a stray repo-root `.env` (which `vitest.e2e.config.ts` loads if present) cannot silently redirect the run to another endpoint.
-- **No secret echoed.** The preflight prints only `DEEPSEEK_API_KEY present.` — not the value, not its length. (An earlier draft echoed `${#KEY}`; dropped as needless metadata.)
+- **No secret echoed.** The preflight prints only `DEEPSEEK_API_KEY present.` — not the value or its length.
 
 ### Scope, runtime shape
 
-Run **only** `test:e2e`. The keyless gates (typecheck/lint/coverage/snapshot/build/hygiene) already run in ci.yml on every push and PR; repeating them here would duplicate signal and slow the real-API job. No build step — e2e tests run unbuilt via tsx + the tsconfig paths map. Single Node 24 (the primary line): these tests exercise API integration, not node-version compatibility, which ci.yml's Node 22.19/24/26 matrix owns. `vitest.e2e.config.ts` runs files through a bounded worker pool (`DSH_E2E_MAX_WORKERS`, default `4`, CI value `14`) so CI and local with-key runs parallelize independent files while retaining a one-line serial escape hatch for quota investigations. `timeout-minutes: 45` bounds a wedged run given 120s/test and `retry: 2`. `cancel-in-progress` is enabled only for `pull_request` runs — a superseded PR run is on a stale commit and worth cancelling, whereas a push/schedule run is already producing the post-merge/nightly signal and is never cancelled.
+The job runs only `test:e2e` on Node 24; keyless gates and version compatibility belong to the main CI workflow. Tests run unbuilt through the workspace paths map with a bounded configurable worker pool, per-test retries, and a job timeout. Superseded PR runs are cancelled, while push and scheduled runs complete for post-merge signal.
 
 ## Security
 
-Introducing the first CI secret is the part of this change that warrants a recorded threat model, because the natural question — *"can anyone who opens a PR steal the key?"* — has a non-obvious answer, and the answer shifts when the repo goes public.
+The repository's first CI secret requires a recorded threat model because access differs between same-repository, fork, and Dependabot pull requests and changes when the repository becomes public.
 
 ### Who can reach the secret today (private repo)
 
@@ -69,7 +69,7 @@ So "everyone who could open a PR can steal it" is false: only the write-access s
 
 ### The residual exposure the `pull_request` trigger adds
 
-Because PR runs are enabled, the key is handed to **the code on a write-access author's PR branch** — code under review, not yet merged — which is a strictly larger surface than `push`-to-main + `schedule` + `workflow_dispatch` alone (where the key only ever touches already-merged or manually-dispatched code). This was the explicit round-1 tradeoff: the pre-merge real-API gate is worth it for a trusted internal write set and a low-value (internal, free) key. If that calculus changes, the hardening is one line — drop the `pull_request` trigger — keeping post-merge + nightly + on-demand coverage.
+Because PR runs are enabled, the key is handed to **the code on a write-access author's PR branch** before merge. This is a larger surface than `push` + `schedule` + `workflow_dispatch`, accepted for a pre-merge signal within the trusted write set. If that calculus changes, drop the `pull_request` trigger while retaining post-merge, nightly, and on-demand coverage.
 
 ### What changes when the repo goes public
 

@@ -1,15 +1,9 @@
 /**
+ * Decode an SSE byte stream into event `data` payloads. Network reads may split UTF-8 or lines;
+ * CRLF, comments, non-data fields, and multi-data events are handled per SSE rules. The literal
+ * `[DONE]` is yielded so the caller owns final flushing, and EOF before it raises {@link LlmError}.
+ *
  * Minimal SSE (text/event-stream) parser for the chat-completions stream.
- *
- * Yields each event's `data:` payload as a string, ending with the literal
- * `'[DONE]'` sentinel so the consumer owns end-of-stream flushing. A stream
- * that closes WITHOUT `[DONE]` is a protocol violation → `LlmError`.
- *
- * Handles the wire realities: payloads split across network reads at
- * arbitrary byte positions (including mid-UTF-8), CRLF line endings,
- * multi-`data:` events (joined with newlines per the SSE spec), comment
- * lines, and non-data fields (ignored).
- *
  * @module dsh-llm-deepseek/sse
  */
 

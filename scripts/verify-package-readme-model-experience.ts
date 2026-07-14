@@ -1,13 +1,8 @@
 /**
- * Doc-sync gate: require every workspace package README to explain its exact
- * model-visible context surface and token behavior. Most packages require the
- * canonical context-surface blocks with optional nested verbatim H4 blocks.
- * Direct system-prompt surfaces must contain exact `markdown` blocks,
- * tool-schema surfaces must link generated catalog sections, local subsection
- * links are rejected, and audited package classifications either use one
- * concise sentence or omit the section entirely.
- *
- * Run: `tsx scripts/verify-package-readme-model-experience.ts`.
+ * Doc-sync gate for package README Model Experience sections. It validates
+ * audited package classifications, context-surface fields, package-owned text
+ * blocks, generated-catalog links, and final-section order. See the
+ * [Model Experience RFC](../docs/rfc/implemented/process/2026-07-12-package-model-experience-contract.md).
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
@@ -52,7 +47,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/fs/fs-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
   'packages/hooks/hook-protocol': { kind: 'indirect', reason: 'Only the hook bridge plugins render decoded hook output to a model.' },
   'packages/llm/llm': { kind: 'none', reason: 'The adapter registry forwards already-assembled requests unchanged.' },
-  'packages/sandbox/sandbox': { kind: 'indirect', reason: 'Sandbox consumers render enforcement and availability facts.' },
   'packages/sandbox/sandbox-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-bash-sandbox and dsh-tool-bash.' },
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/skill/skill': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-skill.' },

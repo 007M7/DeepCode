@@ -1,16 +1,13 @@
 /**
- * Parse the bridge-supported subset of a Codex `hooks.json` into the shared
- * {@link MatcherGroup} shape. The bridge accepts five events and the
- * `{ type: 'command', command, timeout?/timeoutSec? }` hook shape, performs no
- * config-time placeholder substitution or plugin-env injection, and skips
- * non-command and `async: true` handlers with a warning.
- *
+ * Parse Codex's five-event hook subset into shared {@link MatcherGroup}s. Only synchronous command
+ * hooks run; other types and `async: true` commands are recorded as skipped. Codex performs no
+ * command substitution.
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
 
 import type { MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
-/** The five current Codex hook points this bridge supports. */
+/** The five Codex hook points this bridge supports. */
 export const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 
 /** A parsed Codex config: event name → its matcher groups (command hooks only). */
@@ -35,11 +32,8 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Parse a raw Codex `hooks.json` object into runnable {@link MatcherGroup}s.
- * Only the five bridge-supported {@link CODEX_EVENTS} are honored; another event is dropped.
- * `type !== 'command'` and `async: true` command hooks are skipped (recorded in
- * `skipped`). Malformed entries are ignored rather than thrown — a bad config
- * must not crash boot. No config-time placeholder substitution is performed.
+ * Parse a wrapped or bare Codex event map. Unknown events and malformed entries are ignored rather
+ * than failing boot; unsupported or asynchronous hooks are returned in `skipped`.
  * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
  * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */

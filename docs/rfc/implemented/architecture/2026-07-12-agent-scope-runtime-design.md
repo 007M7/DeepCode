@@ -26,7 +26,7 @@ The design can be skimmed as seven choices:
 | Compose the model-visible prompt and tool surface | One shared tool view plus the authoritative assembly-waterfall result |
 | Coordinate subagent, worker, and process shutdown | One cancellation signal plus the independent terminal/quiescence facts of that boundary |
 
-The rest of this RFC expands those choices in dependency order. It first explains the Cordis mechanics, then scope routing, creation and session commit, tools and prompts, subagents and workflows, and finally the checks that make the reasoning executable.
+The rest of this RFC expands those choices in dependency order: Cordis mechanics, scope routing, creation and session commit, tools and prompts, subagents and workflows, then executable checks.
 
 The [July 8 RFC](2026-07-08-agent-scope-contexts.md) remains the contributor contract. The separate [subagent composition-controls RFC](../feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns `persona`, `toolFilter`, and `maxDepth`; this document discusses only how their setup fits the lifecycle.
 

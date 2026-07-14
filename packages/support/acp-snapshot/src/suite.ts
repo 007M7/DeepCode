@@ -1,33 +1,12 @@
 /**
- * The ACP snapshot suite factory (REPLAY by default, keyless). A suite is a
- * scenario table plus a snapshots directory: each scenario under
- * `<snapshotsDir>/<name>/` ships an `input.json` (the client stdin script) and
- * a `session.jsonl` fixture; replay boots the real agent subprocess
- * (./harness.ts), drives it, and diffs the normalized stdout transcript
- * against the committed `stdout.golden.jsonl`. For model scenarios it ALSO
- * checks the re-persisted session log — against the `session.jsonl` fixture
- * itself, not a separate golden: the fixture doubles as the replay source
- * (recorded scenarios) and the expected produced log (both sides normalized
- * before comparing).
+ * Keyless-by-default ACP snapshot suite factory. Each scenario drives the real subprocess and
+ * compares normalized stdout; comparable session fixtures are both replay input and expected
+ * output. Record mode refreshes reproducible model scenarios from the live API, while refresh
+ * mode replays committed scripts and rewrites derived artifacts without a key.
  *
- * Request-header content is pinned by exactly ONE scenario per HEADER CLASS —
- * scenarios that boot the same config compose the same header. Every JSONL
- * fixture scrubs the system prompt to `{{system}}`; each class's pinning
- * scenario stores the readable prompt in `system-prompt.golden.md` and keeps its full
- * tool schemas in `session.jsonl`, while every other fixture also scrubs tools
- * to `{{tools}}`. A per-run uniformity guard compares both artifacts against
- * every live header and forbids unrepresented header deltas (see the
- * pinned-header RFC,
- * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
- *
- * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
- * `session.jsonl` fixtures against the real API and refreshes the stdout golden
- * in one pass. `pnpm run test:snapshot:refresh` (DSH_SNAPSHOT=refresh) instead
- * replays the committed model scripts keylessly and writes the current stdout
- * + persisted-log goldens back without calling a live LLM. The caller resolves
- * that env into {@link SnapshotSuiteOptions} (env reading stays at the suite
- * edge, not in this library).
- *
+ * Exactly one scenario per header-composition class pins tool schemas in JSONL and the system
+ * prompt in Markdown. Every live header is checked against that pin, so session-dependent
+ * composition must declare a separate class instead of escaping coverage.
  * @module @deepseek-ai/dsh-acp-snapshot/suite
  */
 
@@ -89,20 +68,8 @@ export interface Scenario {
    */
   childSessions?: number
   /**
-   * Whether THIS scenario pins its header class's model-facing request-header
-   * content. Its actual composed prompt is maintained as a readable
-   * `system-prompt.golden.md`; its JSONL keeps full tool schemas but stores the prompt
-   * as `{{system}}`. Every other scenario of the class stores tools as
-   * `{{tools}}` too ({@link scrubRequestHeaders}). A prompt or tool-schema
-   * change therefore shows up in one focused artifact per class, not every
-   * session fixture. One pin per class suffices because
-   * header composition is class-uniform (parent, spawn child, and fork child
-   * all compose the same prompt-modulo-cwd and the same tools) — and that
-   * premise is ASSERTED, not assumed: every non-pinning run's live headers
-   * must equal its class's pinned fixture's (normalized), so a
-   * session-dependent header (say, a restricted subagent toolset) fails loud
-   * until it gets its own pinning scenario.
-   * Defaults to false.
+   * Whether this scenario is its header class's sole request-header pin. Its Markdown file owns
+   * the prompt, its JSONL keeps tool schemas, and every classmate is checked for equality.
    */
   pinsHeader?: boolean
   /**
@@ -164,17 +131,9 @@ export function childFixturePaths(dir: string, childSessions: number): string[] 
 }
 
 /**
- * Derive the {@link NormalizeContext} for a `session.jsonl` fixture from its own
- * header line (`{ type: 'session', id, cwd }`). A committed fixture carries the
- * session id and cwd of the run that harvested it — different from the live
- * replay run — so normalizing it against the live run's ctx would leave those
- * recorded values unscrubbed. Reading them from the header scrubs the fixture's
- * own id/cwd to the same `{{sessionId}}`/`{{cwd}}` tokens the replay output gets.
- * An authored fixture whose header is already normalized (`id:'{{sessionId}}'`,
- * `cwd:'{{cwd}}'`) yields those tokens as the volatile values, so scrubbing them
- * is an idempotent no-op. A header with no `cwd` falls back to a sentinel that
- * cannot occur in a log (NOT `''`, which `String.split` would match on every
- * character boundary and corrupt the output).
+ * Derive normalization values from a fixture's own session header. Recorded ids and cwd differ
+ * from the live replay run; the non-empty sentinel for missing cwd avoids accidental empty-
+ * string replacement.
  *
  * @param fixture The committed `session.jsonl` content.
  * @returns The fixture's own volatile values, ready for {@link normalizeSessionLog}.
@@ -419,10 +378,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
   for (const scenario of scenarios) {
     describe(`snapshot: ${scenario.name}`, () => {
-      // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the
-      // `authored` ones (sidecar-driven errors/cancel) are never re-recorded.
-      // REFRESH mode is replay-backed and deterministic, so it runs every
-      // scenario and rewrites the comparable fixtures from that replay run.
+      // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
+      // (sidecar-driven errors/cancel) are never re-recorded.
       it.skipIf(RECORDING && !scenario.recorded)('matches the goldens', async () => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
@@ -444,10 +401,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
         })
 
-        // Scrub every volatile id the run produced: the ACP server-issued session
-        // id plus every harvested log's recorded id (a subagent child id never
-        // surfaces over ACP, but it appears in the child's own log header). The
-        // normalizer's UUID catch-all covers any we don't enumerate.
+        // Scrub every volatile id the run produced: the ACP server-issued session id plus every
+        // harvested log's recorded id (a subagent child id never surfaces over ACP, but it
+        // appears in the child's own log header).
         const ctx: NormalizeContext = {
           sessionIds: [
             ...result.sessionId !== undefined ? [result.sessionId] : [],
@@ -456,15 +412,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           cwd: result.cwd,
         }
 
-        // RECORD mode (recorded model scenarios only): persist the freshly-harvested
-        // live logs back to their fixtures. REFRESH mode does the same from a
-        // keyless replay run for every comparable log, including authored
-        // scenarios that live record deliberately skips. The primary goes to
-        // session.jsonl, each child to session.<n>.jsonl in harvest order. A
-        // Every fixture is written with its system prompt scrubbed. A pinning
-        // scenario keeps the remaining header content (notably tool schemas);
-        // every other scenario scrubs that bulk too. Record/refresh therefore
-        // cannot smuggle prompt text back into JSONL or duplicate schemas.
+        // Record writes live model fixtures; keyless refresh writes every comparable replayed
+        // fixture. Pins keep tools but all JSONL files scrub prompt text.
         const scrub = scenario.pinsHeader === true
           ? scrubSystemPrompts
           : scrubRequestHeaders
@@ -515,14 +464,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         // A model turn always produces a log worth comparing; a hook scenario can
         // produce one without a model turn (a `rejected` turn carrying `hook/*`).
         if (comparesLog) {
-          // The harvested logs (primary-first) must match their committed fixtures
-          // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
-          // OWN volatile values — the live run's via `ctx`, the committed fixture's
-          // via its own header (a committed file cannot share the live run's ids).
-          // Both sides pass through the scenario's idempotent scrub: every live
-          // prompt becomes the fixture's `{{system}}`; non-pinning scenarios
-          // additionally tokenize tools/prefix. The dedicated header guard below
-          // compares those omitted values against their class's pin artifacts.
+          // The harvested logs (primary-first) must match their committed fixtures 1:1.
           expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
           for (let i = 0; i < fixtureFiles.length; i++) {
             const harvested = scrub((result.sessionLogs[i] as HarvestedLog).content)
@@ -532,11 +474,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        // Header-uniformity guard: every live header in a class must equal the
-        // class pin split across its JSONL header (system token + real tools)
-        // and readable Markdown prompt. A pinning scenario may carry its
-        // declared header deltas; their prompt edits live in the Markdown
-        // golden while JSONL retains the tokenized edit structure.
+        // Header-uniformity guard: every live header in a class must equal the class pin split
+        // across its JSONL header (system token + real tools) and readable Markdown prompt.
         /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
         const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
         const pinningDir = join(snapshotsDir, pinningScenario.name)
@@ -586,18 +525,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     })
 
     it('every registered scenario has its required fixture files', () => {
-      // Every scenario has an input script and an stdout golden. EVERY scenario
-      // also needs `session.jsonl`: the suite boots `llm-replay` with that path
-      // as the replay source for ALL scenarios (the factory passes
-      // `fixtureFile: <dir>/session.jsonl` unconditionally), and `loadReplayScript`
-      // throws "fixture not found" when it is absent and no override replaces it.
-      // A no-model scenario ships a header-only `session.jsonl` (it derives to an
-      // empty script — no model call is made); a model scenario's fixture also
-      // doubles as the expected-log artifact the run is diffed against. The
-      // `replay.override.json` sidecar is matched BOTH ways against the table's
-      // `overridden` flag: required when set, forbidden when not — the harness
-      // forwards the file purely on existence, so an unregistered stray sidecar
-      // would silently replace the derived script.
+      // Every scenario has an input script and an stdout golden.
       for (const { name, overridden, childSessions, pinsHeader } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
@@ -616,10 +544,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     })
 
     it('exactly one scenario pins the request-header content of each header class', () => {
-      // Zero pins would drop a class's prompt/schema surface from the suite
-      // entirely; two would split it. One pin per class is the design
-      // (pinned-header RFC); WHICH scenario pins is the scenario table's
-      // reviewable choice.
+      // Zero pins would drop a class's prompt/schema surface from the suite entirely; two would
+      // split it.
       const pins = new Map<string, string[]>()
       for (const scenario of scenarios.filter(s => s.pinsHeader === true)) {
         const cls = classOf(scenario)
@@ -633,12 +559,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     })
 
     it('every pinning fixture carries one request/header, one readable prompt, and its declared deltas', async () => {
-      // The live uniformity guard runs only in NON-pinning scenarios, so a
-      // class made of just its pinning scenario would otherwise accept a
-      // re-recorded pin with several headers or an undeclared mid-run
-      // header-delta — shapes the pin design cannot represent. Assert the
-      // committed pins directly; a scenario whose arc legitimately rewrites
-      // a prompt section declares the exact count via expectedHeaderDeltas.
+      // The live uniformity guard runs only in NON-pinning scenarios, so a class made of just
+      // its pinning scenario would otherwise accept a re-recorded pin with several headers or
+      // an undeclared mid-run header-delta — shapes the pin design cannot represent.
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))

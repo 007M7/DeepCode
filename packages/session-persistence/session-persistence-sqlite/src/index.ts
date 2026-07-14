@@ -1,19 +1,7 @@
 /**
- * SQLite durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-sqlite`).
- *
- * A SECOND {@link SessionPersistence} implementation, built to validate that the
- * abstract seam + the shared `runPersistenceContract` suite are genuinely
- * backend-agnostic: the same append-only / contiguous-seq / lazy-materialization
- * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
- * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
- * 1:1 onto a row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`.
- *
- * Like the JSONL backend it supplies ONLY the storage primitives (the
- * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
- * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
- *
+ * SQLite durable session-persistence backend. It maps each session header and
+ * event to rows, and delegates write-path orchestration to
+ * {@link PersistenceCoordinator}.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
@@ -89,10 +77,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Open the database asynchronously (the parent directory may need creating);
-    // every hook awaits `ready` first. Opening synchronously would force a sync
-    // mkdir and block plugin apply. schemastery (static Config) has already
-    // filled `journalMode`; the cast records that runtime fact.
+    // Open asynchronously so directory creation does not block plugin apply;
+    // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
@@ -121,10 +107,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  // `list` is BOTH the public service method and the PersistenceBackend hook —
-  // one method (the SELECT below). The coordinator adds no orchestration for
-  // listing, so routing it through the coordinator would just recurse. Defined
-  // once, in the "PersistenceBackend hooks" section.
+  // One method serves both public `list` and the backend hook; delegating it to
+  // the coordinator would call this hook recursively.
 
   /**
    * The per-session init promises, exposed for white-box tests that await a
