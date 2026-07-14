@@ -79,14 +79,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'approval',
-    summary: 'The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent\'s session log.',
+    summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
     ],
   },
   {
     key: 'bash',
-    summary: 'Abstract bash execution service.',
+    summary: 'Registers one `ctx.bash` implementation.',
     methods: [
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
@@ -101,7 +101,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'codeRuntime',
-    summary: 'Abstract code-execution service.',
+    summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
       'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
     ],
@@ -116,7 +116,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'fs',
-    summary: 'Abstract filesystem provider service.',
+    summary: 'Abstract filesystem provider.',
     methods: [
       'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
@@ -138,7 +138,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'permission',
-    summary: 'The permission service (`ctx.permission`).',
+    summary: 'Owns the deployment\'s permission presets and their write path.',
     methods: [
       'current(events: readonly SessionEvent[]): string',
       'resolve(name: string): PresetSpec',
@@ -155,7 +155,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionPersistence',
-    summary: 'Abstract durable session-persistence service.',
+    summary: 'Durable append-only session storage.',
     methods: [
       'abstract create(meta: SessionHeader): Promise<void>',
       'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
@@ -208,7 +208,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'systemPrompt',
-    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.',
+    summary: 'Registry service for the prompt inputs assembled before each model step.',
     methods: [
       'section(section: PromptSection): () => void',
       'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
@@ -218,7 +218,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'tools',
-    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.',
+    summary: 'Tool registry and execution pipeline.',
     methods: [
       'register(definition: ToolDefinition): () => void',
       'restrict(filter: ToolRestriction): () => void',
@@ -248,7 +248,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workflows',
-    summary: 'Abstract workflow execution service.',
+    summary: 'Workflow execution seam.',
     methods: [
       'abstract start(request: WorkflowStartRequest): WorkflowRun',
     ],
@@ -345,25 +345,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'approval/request',
     mode: 'waterfall',
     signature: '\'approval/request\'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
-    summary: 'Waterfall asking the composed answerers to decide one approval request.',
+    summary: 'Ask composed answerers for one decision.',
   },
   {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
-    summary: 'Single-slot decision: produce the optional version guard for the next FileSystem.editText.',
+    summary: 'Single-slot decision for the next FileSystem.editText.',
   },
   {
     name: 'fs/observed',
     mode: 'emit',
     signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
-    summary: 'Record that an actor observed a target at a version, after a successful read/write/edit.',
+    summary: 'Record a successful observation.',
   },
   {
     name: 'fs/write-intent',
     mode: 'waterfall',
     signature: '\'fs/write-intent\'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>',
-    summary: 'Single-slot decision: produce the write intent for the next FileSystem.writeText.',
+    summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
     name: 'llm/stream',
@@ -375,25 +375,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/created',
     mode: 'emit',
     signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
-    summary: 'A session was created in the store.',
+    summary: 'Creation announcement during session publication.',
   },
   {
     name: 'session/disposed',
     mode: 'emit',
     signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
-    summary: 'A previously announced session left the store.',
+    summary: 'Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin.',
   },
   {
     name: 'session/event',
     mode: 'emit',
     signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
-    summary: 'An event was appended to a session log (sync, fire-and-forget).',
+    summary: 'Post-commit, fire-and-forget append feed.',
   },
   {
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    summary: 'Awaited durability checkpoint.',
+    summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
     name: 'skill/provider-added',
@@ -435,13 +435,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    summary: 'Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered.',
+    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
     mode: 'emit',
     signature: '\'system-prompt/change\'(): void',
-    summary: 'A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed — possibly for one scope only).',
+    summary: 'Emitted when any prompt provider changes.',
   },
   {
     name: 'tools/change',
@@ -453,25 +453,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
-    summary: 'Around-dispatch waterfall wrapping the registry\'s core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam.',
+    summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
   },
   {
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
+    summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
-    summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+    summary: 'Allow, deny, or ask before dispatch.',
   },
   {
     name: 'tools/result',
     mode: 'emit',
     signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined',
-    summary: 'Synchronous notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
+    summary: 'Observe the frozen, lossless-JSON final outcome.',
   },
   {
     name: 'workflow/agent-end',
