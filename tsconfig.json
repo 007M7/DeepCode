@@ -32,6 +32,7 @@
     { "path": "./packages/session-query/session-query" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
+    { "path": "./packages/context/time-context" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
     { "path": "./packages/ui/permission" },
