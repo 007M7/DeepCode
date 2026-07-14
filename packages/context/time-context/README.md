@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Optional temporal request context. The plugin contributes one dynamic system-prompt section with the current zoned time and the elapsed duration since the last model-visible message before the current turn. It is not mounted by `dsh-agent-core` or any shipped example; deployments opt in explicitly. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
+Opt-in dynamic system-prompt context with the current zoned time and elapsed time since the latest model-visible message before the turn. `dsh-agent-core` and shipped examples do not mount it. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
 
 ## Config
 
@@ -12,21 +12,21 @@ Optional temporal request context. The plugin contributes one dynamic system-pro
     refreshIntervalMs: 60000  # default; 0 refreshes on every step
 ```
 
-`timeZone` is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer and is evaluated only when a request is assembled: every turn's first request gets a fresh reading, and a later step in the same turn reuses that reading until it is at least this old. Thus `0` means per-step refresh, while a positive value bounds staleness at request boundaries without creating timer-driven turns.
+`timeZone` is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer. Every turn's first request refreshes; later steps reuse the reading until its age reaches the interval. `0` refreshes every step. Refresh occurs only during request assembly and creates no timer work.
 
 ## Message baseline
 
-The duration starts at the latest model-visible session event before the current `turn/start`: a user, assistant, tool-result, context, or steering message. All later refreshes in that turn retain the same baseline, so the value measures elapsed time since the preceding conversation message rather than collapsing to approximately zero after the current prompt is appended. The first turn reports that no earlier message exists. Session event append time is the durable clock source; client-side send time is not part of the session contract.
+The duration starts at the latest user, assistant, tool-result, context, or steering message before the current `turn/start`. Every refresh in the turn retains that baseline, so the current prompt does not collapse the interval to approximately zero. The first turn reports that no earlier message exists. The durable clock source is session-event append time, not client send time.
 
-The plugin uses a dynamic system-prompt section rather than retained `context/message` history. The loop records the exact rendered value in `request/header` / `request/header-delta`, so requests remain reconstructable while the current request carries only one timing block.
+The loop records the dynamic section in `request/header` / `request/header-delta`. Requests therefore remain reconstructable, carry one timing block, and retain no earlier readings in conversation history.
 
 ## Model Experience
 
 ### Temporal system prompt
 
-**What the model sees**: Every request in an active turn includes the two-line section below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; `<duration-or-unavailable>` is compact whole-second units or the first-turn fallback.
+**What the model sees**: Every request in an active turn includes the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; `<duration-or-unavailable>` is compact whole-second units or the first-turn fallback.
 
-**Token effect**: Fixed two-line request context. A refresh replaces the section in the request header rather than retaining prior readings in conversation history.
+**Token effect**: Fixed two-line cost per request. A refresh replaces the request-header section; prior readings do not accumulate.
 
 #### Temporal context section
 

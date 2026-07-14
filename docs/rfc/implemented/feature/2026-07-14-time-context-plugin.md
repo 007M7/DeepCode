@@ -6,49 +6,49 @@ English | [中文](2026-07-14-time-context-plugin.zh.md)
 
 ## Problem
 
-An agent request has no live clock unless a deployment hard-codes one into prompt text or gives the model a tool to query it. Static text becomes false immediately, while a tool call is unnecessary overhead for ordinary reasoning about dates, deadlines, or how long a conversation has been idle. The missing companion fact is elapsed time: the model receives the current user prompt but cannot distinguish a quick follow-up from one sent hours after the preceding conversation message.
+An agent request has no live clock unless a deployment puts one in prompt text or gives the model a query tool. Static text becomes stale, while a tool call adds overhead to ordinary reasoning about dates, deadlines, or idle time. Without elapsed time, the model cannot distinguish an immediate follow-up from one sent hours after the preceding message.
 
-The prompt assembly and session log already provide the necessary inputs. A section provider runs once per step with the active agent, model-visible session events carry durable append timestamps, and the request-header fold records the exact rendered system prompt. The design question is where temporal facts belong and how often they change without accumulating stale readings or creating background work.
+Prompt assembly can derive both facts per step from durable session timestamps, and request-header logging can record the exact rendered value. Accumulating stale readings in conversation history or waking idle agents would violate the existing request lifecycle.
 
 ## Decision
 
-`@deepseek-ai/dsh-time-context` is an optional function plugin at `packages/context/time-context/`. It opens the `context/` product group for bounded request-context enrichments that define neither a tool nor a service seam. The package is not loaded by `dsh-agent-core` or a shipped example; a deployment mounts it explicitly when temporal context is worth the tokens and disclosure.
+`@deepseek-ai/dsh-time-context` is an opt-in function plugin at `packages/context/time-context/`. The `context/` product group holds bounded request-context enrichments that define neither a tool nor a service. `dsh-agent-core` and shipped examples do not load the package; deployments mount it explicitly when its token and disclosure costs are acceptable.
 
-The plugin registers one global `ctx.systemPrompt.section()` contribution named `context:time` at order 10, after the deployment persona and before tool guidance. Its provider returns two lines for an active agent turn: an ISO-shaped timestamp with numeric UTC offset and IANA zone, and a compact whole-second duration since the last model-visible message before that turn opened. A bare or idle prompt assembly receives an empty section.
+The plugin registers the global `context:time` system-prompt section at order 10, after the deployment persona and before tool guidance. For an active turn it emits an ISO-shaped timestamp with numeric UTC offset and IANA zone, plus a compact whole-second duration since the last model-visible message before the turn opened. Bare and idle assemblies receive an empty section.
 
 ### Previous-message baseline
 
-At a turn's first assembly, the provider scans backward from that turn's `turn/start` and uses the latest `user/message`, `assistant/message`, `tool/result`, `context/message`, or `steering/message` timestamp. It deliberately excludes the current turn's newly appended user prompt: measuring from that event would make the first request report approximately zero and lose the inter-turn gap the feature exists to convey. Every later refresh in the same turn retains the baseline, so a long-running turn reports the growing duration since the preceding conversation message. The first turn reports `unavailable (no earlier message in this session)`.
+At a turn's first assembly, the provider scans before `turn/start` for the latest `user/message`, `assistant/message`, `tool/result`, `context/message`, or `steering/message`. It excludes the current prompt so the duration expresses the inter-turn gap instead of approximately zero. Every refresh in that turn keeps the same baseline, and the first turn reports `unavailable (no earlier message in this session)`.
 
-The baseline is the session event's append time, not an unlogged client receipt time. That makes resume and fork behavior deterministic from the durable log and keeps the model-visible value reconstructable without introducing a new event. A backward wall-clock adjustment clamps the displayed duration to zero rather than producing a negative interval.
+The baseline is the session event's append time, not an unlogged client timestamp. Resume and fork behavior are therefore deterministic from the durable log, and the model-visible value remains reconstructable without a new event. A backward wall-clock adjustment clamps the duration to zero.
 
 ### Refresh policy
 
-`refreshIntervalMs` defaults to 60,000 and must be a non-negative safe integer. Every turn's first request refreshes regardless of the prior turn's timestamp. Within a multi-step turn, a later assembly reuses the cached block until its age reaches the interval; `0` refreshes every step. The policy is request-bound: no timer creates work while the agent is inside a model call, running a tool, or idle, because no request exists to consume a new value.
+`refreshIntervalMs` defaults to 60,000 and must be a non-negative safe integer. Every turn's first request refreshes. Later assemblies in that turn reuse the block until its age reaches the interval; `0` refreshes every step. No timer creates work during model calls, tools, or idle time because refresh is request-bound.
 
-`timeZone` defaults to `UTC` and is validated as an IANA identifier at plugin load. The formatter emits an ISO-shaped local timestamp including the resolved zone and its current numeric offset, so daylight-saving changes remain explicit instead of silently shifting a zone-less clock.
+`timeZone` defaults to `UTC` and is validated as an IANA identifier at plugin load. The ISO-shaped local timestamp includes the resolved zone and current numeric offset, making daylight-saving changes explicit.
 
 ### Logging and token shape
 
-The temporal block is dynamic system-prompt state. The loop's existing `request/header` snapshot and `request/header-delta` fold records every rendered change before transmission, satisfying the [reconstructable-requests contract](../architecture/2026-07-05-reconstructable-requests.md). A request carries exactly one current block; previous readings do not remain in derived conversation history. This follows the ownership rule in the [prompt-variables RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md): the optional plugin owns the temporal fact and contributes it through the ordinary prompt registry, with no loop special case.
+The loop records the temporal block through `request/header` and `request/header-delta` before transmission, satisfying the [reconstructable-requests contract](../architecture/2026-07-05-reconstructable-requests.md). Each request carries one current block; earlier readings do not remain in conversation history. The plugin owns the fact and contributes it through the prompt registry, following the [prompt-variables RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md) without a loop special case.
 
 ## Testing
 
-The package suite uses fake system time and covers UTC and offset formatting, first-turn fallback, every eligible previous-message variant, whole-duration units, backward-clock clamping, per-turn refresh, interval reuse, interval expiry, `0` per-step behavior, independent per-agent caches, invalid config, HMR disposal, and the Loader namespace path. A real agent-loop test pins the transmitted system prompt and its `request/header-delta` refresh record. No default snapshot changes because the plugin is intentionally absent from every shipped composition; mounting it in a default snapshot fixture would violate the opt-in decision.
+Unit tests pin formatting, baselines, refresh policy, validation, per-agent state, and disposal. A real agent-loop test pins the transmitted prompt and `request/header-delta`; a Loader test pins the named-export path. Default snapshot compositions omit the plugin, so their transcript fixtures contain no temporal block.
 
 ## Alternatives considered
 
-- **Append a `context/message` on every turn or refresh** — rejected: each reading remains in derived history, so stale clock values and token cost accumulate with conversation length. A surface replacement cannot both remove the old node and move the new reading to the tail; replacement preserves the old node's position, while replacing through the tail would hide intervening conversation.
-- **Use `agent/session-prefix`** — rejected: the prefix is composed once per loop instance and is intentionally session-stable, so it cannot represent a clock that changes per turn or step.
-- **Mutate requests in `agent/request`** — rejected: that seam shapes call config only, fires after the message boundary, and model-visible content inserted there would bypass both prompt-pressure accounting and the logged-header contract.
-- **Register separate `{{current_time}}` and `{{elapsed}}` prompt variables** — rejected: independent providers can sample different instants and need shared caching to keep refresh semantics atomic. One section provider computes and records the pair as one value; deployments do not need to repeat a temporal template in their persona.
-- **Inject from a background timer at the configured interval** — rejected: while no model request is being assembled, a fresh value has no consumer. Timer-driven `agent.inject()` would create durable one-shot turns and wake or mutate idle sessions merely to announce time passing.
-- **Mount the plugin in `dsh-agent-core`** — rejected: time zone, disclosure, token budget, and desired freshness are deployment policy. Explicit opt-in keeps the default harness context stable.
-- **Place the package in `core/`** — rejected: core owns the product API spine. A context enrichment is an optional leaf with no service key, so the dedicated group states its composition role directly.
+- **Append a `context/message` on every turn or refresh** — rejected because readings and token cost would accumulate in history. Replacing a prior surface node would preserve its old position, while replacing the tail would hide intervening conversation.
+- **Use `agent/session-prefix`** — rejected because the session-stable prefix cannot represent a per-turn or per-step clock.
+- **Mutate requests in `agent/request`** — rejected because that seam shapes call config after the message boundary; inserted model content would bypass prompt-pressure accounting and request-header logging.
+- **Register separate `{{current_time}}` and `{{elapsed}}` variables** — rejected because independent providers can sample different instants and require shared caching. One section records the pair atomically without a deployment-authored template.
+- **Refresh from a background timer** — rejected because a new value has no consumer outside request assembly. Timer-driven `agent.inject()` would create turns and wake idle sessions merely to report time passing.
+- **Mount the plugin in `dsh-agent-core`** — rejected because time zone, disclosure, token budget, and freshness are deployment policy. Opt-in keeps default context stable.
+- **Place the package in `core/`** — rejected because `core/` owns the product API spine, while this plugin is an optional leaf with no service key.
 
 ## Consequences
 
-- Models in opted-in deployments receive an unambiguous zoned clock and an inter-turn elapsed duration without spending a tool call. The system-prompt token cost is fixed per request instead of growing with the session.
-- A refresh changes the request header and therefore adds a `request/header-delta` event. `refreshIntervalMs` trades clock freshness against those durable deltas; setting it to zero intentionally records a new value on every step whose whole-second rendering changed.
-- No request is created solely to refresh time. A tool that runs longer than the interval leaves the prior reading in place until the next step assembles, when the provider catches up.
-- The duration reflects harness processing time at durable append boundaries, not client-network latency before the message entered the log. Preserving a client-origin timestamp would require a separate durable input contract and is outside this plugin.
+- Opted-in models receive a zoned clock and inter-turn duration without a tool call. The system-prompt cost is fixed per request instead of growing with the session.
+- A refresh changes the request header and can add a `request/header-delta`. `refreshIntervalMs` trades freshness against durable deltas; `0` records a new value on every step whose whole-second rendering changes.
+- No request exists solely to refresh time. A long-running tool leaves the prior reading until the next step assembles.
+- Duration reflects harness processing time at durable append boundaries, not client-network latency before logging. Preserving a client-origin timestamp requires a separate durable input contract.

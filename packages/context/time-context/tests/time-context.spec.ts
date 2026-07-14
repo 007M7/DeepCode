@@ -1,5 +1,3 @@
-/** Unit, loop-integration, lifecycle, and real-Loader coverage for dsh-time-context. */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
@@ -25,7 +23,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** Mount the system-prompt service and the optional plugin. */
 async function mount(config: Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -33,18 +30,15 @@ async function mount(config: Config = {}) {
   return { ctx, fiber }
 }
 
-/** Minimal agent-shaped holder over a real append-only Session. */
 function sessionAgent(session: Session, id = 'agent'): Agent {
   return { id: AgentId(id), session } as unknown as Agent
 }
 
-/** Resolve only this plugin's assembled section text. */
 async function sectionText(ctx: Context, agent?: Agent): Promise<string | undefined> {
   const assembly = await ctx.systemPrompt.assemble(agent === undefined ? {} : { agent })
   return assembly.sections.find(section => section.name === 'context:time')?.text
 }
 
-/** Append the prompt side of an open message turn. */
 function openMessageTurn(session: Session, turn: number): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
   session.append('user/message', {
@@ -53,7 +47,6 @@ function openMessageTurn(session: Session, turn: number): void {
   }, { surfaceOp: 'append' })
 }
 
-/** Script helper for a text-only model response. */
 function textResponse(text: string): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
@@ -62,7 +55,6 @@ function textResponse(text: string): StreamChunk[] {
   ]
 }
 
-/** Script helper for one tool-call response. */
 function toolCallResponse(): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -75,7 +67,6 @@ function toolCallResponse(): StreamChunk[] {
   ]
 }
 
-/** Deterministic adapter that records each request and consumes one chunk script. */
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
 
@@ -91,7 +82,6 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
-/** Mount the real loop spine plus this optional plugin. */
 async function loopHarness(adapter: ScriptedAdapter, config: Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)

@@ -785,7 +785,7 @@ Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system
 Requires: `systemPrompt`
 
 ```ts config-catalog
-/** Configuration for the request-time clock section. */
+/** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
 export interface Config {
   /** IANA time zone used for the rendered timestamp (default `UTC`). */
   timeZone?: string
@@ -794,7 +794,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:28`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 

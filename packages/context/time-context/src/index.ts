@@ -1,14 +1,8 @@
 /**
- * Optional temporal context for model requests. The plugin contributes one
- * dynamic system-prompt section that reports the current zoned time and the
- * elapsed duration since the last model-visible message before the current
- * turn. A turn always gets a fresh reading on its first request; later steps
- * refresh only when the configured maximum age is reached.
- *
- * The section is request state, not retained conversation history. The agent
- * loop records each rendered value through its existing `request/header` or
- * `request/header-delta` event, preserving the model-visible/logged invariant
- * without accumulating stale `context/message` entries.
+ * Opt-in request-time clock context. Active turns receive the current zoned
+ * time and elapsed time since the preceding model-visible message. The loop
+ * logs each rendered value as request-header state rather than conversation
+ * history.
  *
  * @module @deepseek-ai/dsh-time-context
  */
@@ -24,7 +18,7 @@ export const name = 'time-context'
 /** The system-prompt registry that owns the dynamic request section. */
 export const inject = ['systemPrompt']
 
-/** Configuration for the request-time clock section. */
+/** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
 export interface Config {
   /** IANA time zone used for the rendered timestamp (default `UTC`). */
   timeZone?: string
@@ -38,13 +32,12 @@ export const Config: z<Config> = z.object({
   refreshIntervalMs: z.number().default(60_000),
 })
 
-/** The open turn currently being assembled, including its log boundary. */
 interface OpenTurn {
   turn: number
   startSeq: number
 }
 
-/** One agent's last rendered block and its fixed previous-turn baseline. */
+/** Cached text and the fixed inter-turn baseline used by one agent's open turn. */
 interface RenderState {
   turn: number
   renderedAt: number
@@ -52,10 +45,8 @@ interface RenderState {
   text: string
 }
 
-/** Date-time fields required from the fixed formatter below. */
 type TimestampPart = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'timeZoneName' | 'year'
 
-/** Find the open turn at the tail of an agent's balanced session log. */
 function openTurn(agent: Agent): OpenTurn | undefined {
   for (const event of [...agent.session.events].reverse()) {
     switch (event.type) {
@@ -71,7 +62,7 @@ function openTurn(agent: Agent): OpenTurn | undefined {
   return undefined
 }
 
-/** Timestamp of the last model-visible message before one turn opened. */
+/** Find the latest model-visible timestamp strictly before one turn boundary. */
 function previousMessageTime(agent: Agent, turnStartSeq: number): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
     if (event.seq >= turnStartSeq) continue
@@ -116,7 +107,6 @@ function formatDuration(elapsedMs: number): string {
   return parts.join(' ')
 }
 
-/** Build the exact two-line model-facing section. */
 function renderText(
   now: number,
   previous: number | undefined,
@@ -130,9 +120,10 @@ function renderText(
 }
 
 /**
- * Register the dynamic temporal system-prompt section.
+ * Register the request-time clock section for the lifetime of `ctx`.
  * @param ctx - plugin context; the section registration is disposed with it.
  * @param config - validated time zone and intra-turn refresh interval.
+ * @throws when the time zone or refresh interval is invalid.
  */
 export function apply(ctx: Context, config: Config): void {
   const timeZone = config.timeZone as string

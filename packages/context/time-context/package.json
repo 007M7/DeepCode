@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-time-context",
-  "description": "Optional dynamic system-prompt context with the current time and elapsed duration since the previous message",
+  "description": "Opt-in system-prompt context with the current time and elapsed time since the previous message",
   "version": "0.0.1",
   "private": true,
   "type": "module",
