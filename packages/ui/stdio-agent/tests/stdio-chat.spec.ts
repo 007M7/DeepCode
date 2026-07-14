@@ -4,7 +4,7 @@ import { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, type Config, type StdioRuntime } from '../src/stdio-chat.ts'
 
@@ -750,6 +750,32 @@ describe('createStdioChat input', () => {
     expect(agent.sent).toEqual([[{ type: 'text', text: 'nobody home' }]])
   })
 
+  it('drops later input after the configured startup fails', async () => {
+    const { ctx, input } = await setup()
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    const failure = new Error('persisted session is corrupt')
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), failure)
+
+    input.feed('cannot run')
+    await new Promise(r => setImmediate(r))
+
+    expect(error).toHaveBeenCalledWith(
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): Error: persisted session is corrupt',
+    )
+  })
+
+  it('ignores a stale config-start failure after the exact target is ready', async () => {
+    const { ctx, input } = await setup()
+    const agent = makeAgent('main')
+    registerReady(ctx, agent)
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), new Error('stale'))
+
+    input.feed('still live')
+    await new Promise(r => setImmediate(r))
+
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'still live' }]])
+  })
+
   it('drives the exact app-configured resumed session', async () => {
     const { ctx, input } = await setup({ welcome: 'w', sessionId: 'worker' })
     const agent = makeAgent('worker')
@@ -805,6 +831,25 @@ describe('createStdioChat EOF exit', () => {
     ;(agent as { status: AgentStatus }).status = 'idle'
     ctx.emit('agent/status', agent, 'idle')
     await flushExit()
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
+  it('drains buffered piped input and exits when configured startup fails', async () => {
+    const { ctx, input, exit } = await setup()
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    input.feed('work')
+    input.finish()
+    await new Promise(r => setImmediate(r))
+    ctx.emit('agent-loop/config-start-failed', SessionId('other'), new Error('unrelated'))
+    await flushExit()
+    expect(exit).not.toHaveBeenCalled()
+
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), new Error('missing persisted session'))
+    await flushExit()
+
+    expect(error).toHaveBeenCalledWith(
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): Error: missing persisted session',
+    )
     expect(exit).toHaveBeenCalledWith(0)
   })
 
