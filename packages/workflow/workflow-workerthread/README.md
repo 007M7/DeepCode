@@ -78,3 +78,25 @@ The host keeps a ledger of forwarded child starts. A graceful worker supplies th
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice. |
 | `disposeGraceMs` | `5000` | Bound before force-settlement/termination and for public disposal. |
+
+## Model Experience
+
+### Child-agent requests
+
+**What the model sees**: Every script `agent()` call sends its prompt verbatim and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
+
+**Token effect**: Potentially many independent child contexts are paid, bounded by `maxConcurrentAgents`, `maxTotalAgents`, and `maxItemsPerCall`; they never join the parent history directly.
+
+### Parent tool result, indirectly
+
+**What the model sees**: Through `dsh-tool-workflow`, success exposes only the materialized final JSON value and child count in that consumer's exact wrapper. An engine failure becomes exactly `Error: workflow run failed: <engine-error>`; stable engine-error shapes include `workflow script does not parse: <error>`, `invalid meta: <violations>`, `agent() requires a non-empty prompt string`, `agent() could not start a child: <error>`, `child agent run failed: <error>`, and the exact `parallel()`, `pipeline()`, `phase()`, option, schema, and JSON-boundary validation messages from this package. Intermediate child outputs are available to the script but not the parent model.
+
+**Token effect**: Zero direct parent tokens from this engine. Final result size is capped by the tool consumer and retained until compaction.
+
+## Known Limitations and Deferred Work
+
+- **The worker/vm is not a security boundary** — model-written code can escape `node:vm` and reach the worker's process authority; a hostile-code deployment needs a separate-process or container engine.
+- **One worker thread is paid per run** — there is no pool, warm runtime, or cross-run script cache.
+- **No ambient timers, filesystem, or network are injected, but escaped code can still reach Node** — the missing globals are portability API, not containment.
+- **Termination can only report host-observed starts** — `agentsStarted` excludes worker-side calls still queued behind concurrency when a forced termination makes them unknowable.
+- **Cross-realm errors fail `instanceof Error` inside scripts** — workflow authors must branch on stable fields such as `name` and `code`.

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-invariants",
-  "description": "Dev-mode event-contract assertions for the DeepSeek Harness",
+  "description": "Runtime event-contract assertions for DeepSeek Harness development diagnostics",
   "version": "0.0.1",
   "private": true,
   "type": "module",

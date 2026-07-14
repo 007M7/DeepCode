@@ -143,9 +143,9 @@ function matchesSignature(exitCode: number | null, stderr: string, signatures: r
  * fallback exposed by {@link sandboxMode}; `dsh-tool-bash` folds a session's
  * durable `bash/sandbox-mode` override and stamps the effective mode onto each
  * request, while an approved escalation may stamp a strictly wider mode for
- * one call. The tool's per-agent prompt section states that same effective
- * mode, and each run's `result.sandbox` reports what actually executed plus
- * enforcement completeness.
+ * one call. The prompt deliberately does not state the mode; each run's
+ * `result.sandbox` reports what actually executed plus enforcement
+ * completeness, and the tool layer renders denial or runner-failure facts.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox']
