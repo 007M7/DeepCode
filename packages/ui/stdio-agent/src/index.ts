@@ -96,6 +96,8 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   dshHome: z.string(),
+  // TODO(single-default-literal): share these schema defaults and defensive
+  // apply() fallbacks through named constants while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,

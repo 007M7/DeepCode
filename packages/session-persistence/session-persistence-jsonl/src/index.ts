@@ -89,6 +89,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
 
+  // Each backend keeps the typed service surface beside its storage hooks;
+  // extracting these trivial forwards would add an inheritance seam.
+  /* jscpd:ignore-start */
   // --- SessionPersistence service surface (delegated to the coordinator) ---
 
   /** Resolve the absolute target path without touching the filesystem. */
@@ -121,6 +124,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   get inits(): Map<Session, Promise<void>> {
     return this.coordinator.inits
   }
+  /* jscpd:ignore-end */
 
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 

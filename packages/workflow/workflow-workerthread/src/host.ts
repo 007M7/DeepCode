@@ -43,6 +43,7 @@
 
 import { Worker } from 'node:worker_threads'
 import type { WorkerOptions } from 'node:worker_threads'
+import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { assertNever } from '@deepseek-ai/dsh-llm'
@@ -87,12 +88,12 @@ interface ChildRecord {
  * AMBIENT channel only — an escapee still holds process-wide privileges
  * like fs access (the README's trust premise stands).
  * @param init - the run payload, passed as `workerData`.
- * @returns the entry URL and the Worker options to spawn it with.
+ * @returns the entry path or URL and the Worker options to spawn it with.
  */
-function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOptions } {
+function resolveWorkerSpawn(init: WorkerInit): { entry: string | URL; options: WorkerOptions } {
   /* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/); the built-worker e2e exercises this shape for real */
   if (!import.meta.url.endsWith('.ts')) {
-    return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init, env: {}, execArgv: [] } }
+    return { entry: fileURLToPath(new URL('./worker.cjs', import.meta.url)), options: { workerData: init, env: {}, execArgv: [] } }
   }
   // Resolve tsx lazily: only the unbuilt shape executes this arm, so a built
   // consumer never needs the dev-only loader installed. A JavaScript entry is

@@ -39,8 +39,9 @@
  * Run: `tsx scripts/verify-package-paths.ts`.
  */
 
-import { existsSync, globSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { existsSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { findReferenceViolations, uniqueRepoFiles, type ReferenceViolation as Violation } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -89,12 +90,22 @@ const packageNames = realPackageNames()
  */
 const PKG_REF = /\bpackages\/[A-Za-z0-9._/-]+/g
 
-/** A broken package reference: a stale root-relative `packages/…` path. */
-interface Violation {
-  file: string
-  /** 1-based line where the reference appears. */
-  line: number
-  ref: string
+function isDriftedPackageReference(ref: string): boolean {
+  if (existsSync(resolve(root, ref))) return false
+  // A reference INTO a package's built `lib/` is a build OUTPUT, not an
+  // authored-source location: it does not exist until `pnpm run build` emits
+  // it, and CI runs this gate BEFORE the build step. Skip it — but ONLY when
+  // the `packages/<group>/<pkg>` ROOT it sits under is real and on disk, so
+  // `packages/ui/acp-agent/lib/bin.js` (correct, just not yet built) is
+  // exempt while a stale `packages/acp-agent/lib/bin.js` (group-less, the
+  // exact moved-package drift this gate exists to catch) still flags. A bare
+  // `lib` segment is not a blanket escape hatch.
+  const parts = ref.split('/')
+  const libAt = parts.indexOf('lib')
+  if (libAt === 3 && existsSync(resolve(root, parts.slice(0, 3).join('/')))) return false
+  // Only a stale path to a REAL (moved) package is a violation; a segment
+  // matching a live package name is the drift signal.
+  return ref.split('/').slice(1).some(segment => packageNames.has(segment))
 }
 
 /**
@@ -105,54 +116,20 @@ interface Violation {
  * skeletons whose segment is not a package.
  */
 function findViolations(absPath: string): Violation[] {
-  const file = relative(root, absPath)
-  const source = readFileSync(absPath, 'utf8')
-  const out: Violation[] = []
-  const lines = source.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (line === undefined) continue
-    for (const m of line.matchAll(PKG_REF)) {
-      // Trim a trailing path separator or sentence punctuation that the greedy
-      // class may have swallowed (`packages/core/tools.` / `…/tools/`).
-      const ref = m[0].replace(/[./]+$/, '')
-      if (existsSync(resolve(root, ref))) continue
-      // A reference INTO a package's built `lib/` is a build OUTPUT, not an
-      // authored-source location: it does not exist until `pnpm run build` emits
-      // it, and CI runs this gate BEFORE the build step. Skip it — but ONLY when
-      // the `packages/<group>/<pkg>` ROOT it sits under is real and on disk, so
-      // `packages/ui/acp-agent/lib/bin.js` (correct, just not yet built) is
-      // exempt while a stale `packages/acp-agent/lib/bin.js` (group-less, the
-      // exact moved-package drift this gate exists to catch) still flags. A bare
-      // `lib` segment is not a blanket escape hatch.
-      const parts = ref.split('/')
-      const libAt = parts.indexOf('lib')
-      if (libAt === 3 && existsSync(resolve(root, parts.slice(0, 3).join('/')))) continue
-      // Only a stale path to a REAL (moved) package is a violation; a segment
-      // matching a live package name is the drift signal.
-      const segments = ref.split('/').slice(1)
-      if (segments.some(seg => packageNames.has(seg))) {
-        out.push({ file, line: i + 1, ref })
-      }
-    }
-  }
-  return out
+  return findReferenceViolations(
+    root,
+    absPath,
+    PKG_REF,
+    // Trim a trailing path separator or sentence punctuation that the greedy
+    // class may have swallowed (`packages/core/tools.` / `…/tools/`).
+    ref => ref.replace(/[./]+$/, ''),
+    isDriftedPackageReference,
+  )
 }
 
-const all: Violation[] = []
-let checked = 0
-const seen = new Set<string>()
-for (const pattern of PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) {
-    if (isExcluded(match)) continue
-    // Dedup by real path: the root/packages CLAUDE.md are symlinks to AGENTS.md.
-    const real = realpathSync(resolve(root, match))
-    if (seen.has(real)) continue
-    seen.add(real)
-    checked++
-    all.push(...findViolations(real))
-  }
-}
+const files = uniqueRepoFiles(root, PATTERNS, isExcluded)
+const all = files.flatMap(file => findViolations(file.real))
+const checked = files.length
 
 if (all.length === 0) {
   console.log(`verify-package-paths: ${checked} file(s) checked, all packages/* references resolve.`)
