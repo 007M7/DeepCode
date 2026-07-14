@@ -48,10 +48,8 @@ export interface PreparedReactLoopAgent {
 }
 
 /**
- * Construct one concrete agent together with unforgeable, instance-bound
- * lifecycle controls. The package surface deliberately exposes neither source
- * subpaths nor this helper: setup code may identify the concrete class, but it
- * cannot publish or start the factory's unpublished instance.
+ * Construct an unpublished concrete agent with instance-bound lifecycle
+ * controls. Only those paired controls can publish or start this instance.
  * @param ctx - the agent-loop service context used for driving and events.
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
@@ -131,16 +129,7 @@ export class ReactLoopAgent implements Agent {
    * leave it set to wrongly drop a later prompt.
    */
   private cancelRequested = false
-  /**
-   * The resolved reason for the pending {@link cancel} (`reason ?? 'cancelled'`),
-   * read by the driver loop's marker branches so a turn dropped in a
-   * marker-only window (pre-step / continuation, where no `AbortController`
-   * carries the reason) ends with the SAME `{kind:'aborted', reason}` the
-   * mid-step abort path produces from `abort.signal.reason`. Without this the
-   * caller's `cancel(reason)` would be silently replaced by the literal
-   * 'cancelled' whenever the cancel landed outside a running step — making the
-   * logged reason race-dependent and the public `reason?` param half-effective.
-   */
+  /** Pending cancellation reason, preserved even outside an active step signal. */
   private cancelReason = 'cancelled'
   private disposed: Promise<void>
   private resolveDisposed!: () => void
@@ -179,11 +168,7 @@ export class ReactLoopAgent implements Agent {
   private setStatus(status: AgentStatus): void {
     if (this._status === status || this._status === 'disposed') return
     this._status = status
-    // Release quiescence waiters on a transition OUT of running BEFORE emitting
-    // (the disposer handles the disposed transition separately). Settling first
-    // means a throwing `agent/status` subscriber cannot starve a `whenIdle()`
-    // waiter (docs/defensive-patterns.md "contain callback exceptions" — a lifecycle await must
-    // not hang on one bad listener).
+    // Settle first so a throwing status listener cannot starve quiescence waiters.
     if (status !== 'running') this.settleIdleWaiters()
     agentEvents(this.loopCtx, this).emit('agent/status', status)
   }
@@ -269,18 +254,8 @@ export class ReactLoopAgent implements Agent {
       // Decide the durability checkpoint from the log: an accepted one-shot
       // turn must be flushed even when its message append was the failing step.
       const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
-      // Checkpoint the one-shot turn for durability, exactly as the loop does at
-      // every turn/end. The loop is NOT running (we are idle), so nothing else
-      // will flush this turn. Fire-and-forget with error containment: inject()
-      // is synchronous, and a persistence backend failing must not throw into
-      // the caller (e.g. a tool-bash task-done callback). Disposal still drains
-      // independently, so a slow flush is safe. The task is tracked until it
-      // settles: driver disposal awaits every pending idle-injection checkpoint
-      // before unregistering the agent or detaching the session. A flush failure
-      // is reported via agent/error (step 0 — the idle-injection convention,
-      // there is no real step) AND the logger, mirroring the loop's post-turn/end
-      // flush path so plugins monitoring agent/error see idle-injection
-      // persistence failures too. A throwing agent/error listener is contained.
+      // Keep inject() synchronous: report checkpoint failures live instead of
+      // rejecting the caller, and track the task so disposal still drains it.
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
         const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
@@ -290,10 +265,7 @@ export class ReactLoopAgent implements Agent {
           agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
         })
         this.pendingIdleFlushes.add(flush)
-        // Attach the same retirement callback to both settlement arms so even a
-        // logger failure in the catch above cannot become an unhandled rejection.
-        // Teardown uses allSettled for the same reason: a reporting failure must
-        // not strand ownership.
+        // Retire on either settlement path.
         const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
         void flush.then(retire, retire)
       }
@@ -301,15 +273,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(reason?: string): void {
-    // Arm-gate: only mark a cancellation when there is actually work to cancel —
-    // a running turn, an in-flight step, or queued/steering work. An idle cancel
-    // with nothing pending is a true no-op; arming the marker then would wrongly
-    // drop the NEXT legitimate prompt (the marker is consumed only at the loop's
-    // turn-decision points, which an idle parked loop does not reach until woken
-    // by a real send()). Note the gate canNOT be `status === 'running'` alone:
-    // the pre-step window (a send() queued but the loop not yet flipped to
-    // running) has status `idle` with `hasQueued` true, and the marker exists
-    // precisely to cover it.
+    // Arm only for current work; an idle marker would cancel the next prompt.
     if (this._status === 'running' || this.currentAbort !== undefined || this.#inbox.hasQueued || this.#inbox.hasSteering) {
       this.cancelRequested = true
       // Capture the resolved reason for the marker-only windows (pre-step /
@@ -329,29 +293,14 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Resolve once the agent has reached quiescence after settling out of
-   * `running`. If it is already disposed, awaits {@link done} (the loop-exit
-   * promise) — `agent/status('disposed')` fires in the disposer BEFORE the
-   * driver loop has unwound, so it is NOT itself a quiescence signal. If it is
-   * idle AND has no queued work, resolves immediately. Otherwise queues an
-   * internal waiter (see {@link idleWaiters}) released on the next
-   * running→idle/disposed transition, resolving on `idle` directly (the turn
-   * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
-   * actually exit). Implements the {@link Agent.whenIdle} contract: a non-owner
-   * quiescence-observation hook, distinct from teardown (a lifecycle owner stops
-   * and unregisters via `AgentHandle.dispose()`, whose driver boundary awaits
-   * both {@link done} and outstanding idle-injection flushes, not through this).
+   * Resolve immediately when idle with no queued work, on the next quiescent
+   * idle transition otherwise, or after driver exit when already disposed.
+   * This observes quiescence; it does not own teardown.
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
     if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
-    // Register an internal waiter (resolved by settleIdleWaiters on the next
-    // running→idle/disposed transition), NOT an effect-scoped `ctx.on` listener:
-    // a concurrent fiber disposal runs this agent's listener disposers, which
-    // could remove a `ctx.on` waiter before the `disposed` transition fires and
-    // hang the promise. On disposal the disposer settles the waiter AND we chain
-    // `done` here for true loop-exit quiescence (status flips to disposed before
-    // the loop unwinds); a plain idle transition resolves directly.
+    // Agent-owned waiters survive concurrent fiber disposal.
     return new Promise<void>((resolve) => {
       this.idleWaiters.push(() => {
         resolve(this._status === 'disposed' ? this.done : undefined)
@@ -387,12 +336,7 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
-      // Settle whenIdle() waiters WITHOUT a status transition — the pre-step
-      // cancel-skip path drops the about-to-run turn and re-parks without ever
-      // flipping running→idle, so a waiter registered in the pre-step window
-      // (status idle, hasQueued was true) would otherwise hang. This emits no
-      // agent/status, so an ACP agent/status listener never sees a spurious idle
-      // that would resolve a freshly-queued prompt as cancelled.
+      // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     })
   }
@@ -432,11 +376,8 @@ export class ReactLoopAgent implements Agent {
     // cleanup. The normal loop contains turn failures itself; allSettled is the
     // final lifecycle backstop for anything outside those boundaries.
     await Promise.allSettled([this.done])
-    // No new inject() can start after the synchronous disposed transition.
-    // Loop because settled tasks retire themselves in promise reactions that
-    // may run beside this continuation; either the set is empty or this waits
-    // the exact remaining quiescence boundary. allSettled keeps a failure in
-    // error reporting from skipping registry/session/scope disposers.
+    // Repeat because settled flushes retire in adjacent promise reactions;
+    // allSettled keeps reporting failures from skipping ownership teardown.
     while (this.pendingIdleFlushes.size > 0) {
       await Promise.allSettled([...this.pendingIdleFlushes])
     }

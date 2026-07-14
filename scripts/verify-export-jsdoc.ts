@@ -1,77 +1,10 @@
 /**
- * Verify JSDoc completeness for EVERY module-level exported name of every
- * non-vendored package (each `packages/<group>/<pkg>/src/` tree). This is the
- * mechanical form of the AGENTS.md rule "every export has a JSDoc explaining
- * semantics", generalizing the cordis-surface gate (`gen-cordis-catalog.ts`,
- * which owns `interface Events` members and `ctx.<key>` service classes) to
- * the whole export surface; the parsing + check helpers are shared via
- * `scripts/jsdoc.ts` so "documented" means the same thing on both.
- *
- *   `tsx scripts/verify-export-jsdoc.ts`  → exit 1 listing every offender
- *
- * The contract, per exported declaration kind:
- *
- * - Every exported name needs JSDoc with non-empty description prose (prose
- *   ends at the first block tag, standard JSDoc semantics).
- * - A function-like export (function declaration, a const with a function
- *   initializer or an INLINE callable annotation, or a non-identifier
- *   function default export) additionally needs a non-empty `@param` per
- *   parameter (`this` receiver annotations exempt; a stale `@param` errors)
- *   and a non-empty `@returns` unless the return type is `void` /
- *   `Promise<void>`. Wrapper expressions (parentheses, `as` / `satisfies`
- *   casts, non-null assertions) are peeled before classifying. The walk
- *   classifies returns syntactically, so the return type must be ANNOTATED —
- *   except a const whose declarator is annotated with a NAMED type (e.g.
- *   `export const f: Handler = …`), where that type's own declaration owns
- *   the signature contract and `@returns` stays optional; an inline
- *   `(x: T) => U` annotation or single-call-signature literal is the surface
- *   signature itself and gets the full contract, and a literal mixing
- *   call/construct signatures with anything else is refused (extract a named
- *   type).
- * - An exported class needs class-level JSDoc; its public methods (static
- *   included — they are reachable on the exported name) follow the function
- *   contract, and public properties and accessors need description prose (on
- *   a get/set pair the getter's doc covers both). A member declared by an
- *   `extends`/`implements` heritage type is EXEMPT — the seam declaration is
- *   the doc's one home, the IDE inherits it, and re-documenting every
- *   implementation invites drift — UNLESS the override grows surface the
- *   base never documented: a protected-only base member does not exempt a
- *   public override, parameters the base never names keep their `@param`
- *   duty, and a concrete result above a void base return keeps its
- *   `@returns` duty. Heritage members (and classifying an unannotated
- *   override's inferred return above a void base) are the questions the walk
- *   asks the TYPE CHECKER; everything else is pure AST.
- *   Constructors are exempt like the cordis gate's: plugin classes are
- *   framework-constructed, and the class doc owns the story.
- * - Exported interfaces, type aliases, enums: description prose on the
- *   declaration (member-level docs stay review's job; the highest-value
- *   member surface — seam service classes — is already under the cordis
- *   gate).
- * - An exported namespace recurses (its exported members are package
- *   surface; in an ambient `declare` namespace every member exports
- *   implicitly); the namespace itself needs prose only when it does not
- *   merge with an already-documented same-name declaration (the
- *   Config-namespace idiom documents the class/function once, not twice).
- * - The cordis plugin-protocol slots are exempt: top-level `name` / `inject`
- *   / `reusable` / `Config` consts and the `apply` entry, plus the same
- *   slots as statics on a plugin class. Their shape is fixed by the
- *   framework, so a doc would restate the protocol — the module doc comment
- *   and the `interface Config` carry the plugin's real semantics. (These
- *   names are reserved by cordis convention; documenting one anyway is
- *   allowed, only absence goes unchecked.)
- * - Overload groups: each overload signature carries its own docs; the
- *   implementation signature is exempt (callers never see it).
- * - Skipped: `declare module` / `declare global` augmentation bodies (the
- *   cordis gate's turf; an augmentation is not an export of the package) and
- *   re-export statements with a module specifier (`export … from`) — the
- *   defining module is walked on its own, and external definitions are not
- *   ours to document. An `export import X = N.member` alias documents
- *   ITSELF, and only prose-only target kinds are gate-supported: a callable,
- *   class, or namespace target carries signature/member contracts the alias
- *   cannot hold and is refused (export the declaration directly).
- * - Everything else fails CLOSED: `export =` is refused outright, and an
- *   exported statement kind the dispatch does not recognize is itself a
- *   violation, so no export form can pass unchecked by omission.
+ * Enforce JSDoc on every non-vendored package export. Functions and public
+ * class methods require parameter and non-void return documentation; exported
+ * declarations require description prose. Inline callable types, overload
+ * signatures, namespace members, and public class members are included;
+ * framework slots, constructors, inherited contracts, augmentations, and source
+ * re-exports keep their docs at the declaring contract. Unknown forms fail closed.
  */
 
 import { existsSync, globSync } from 'node:fs'
@@ -141,12 +74,8 @@ function unwrapExpression(e: ts.Expression): ts.Expression {
 }
 
 /**
- * Classify a declarator's type annotation for the function contract: an
- * inline function type or a type literal that is EXACTLY one call signature
- * is the surface signature itself; a literal mixing call/construct
- * signatures with anything else cannot be classified syntactically and is
- * refused (fail closed — extract a named type); everything else is a plain
- * value shape.
+ * Classify inline callable annotations. Mixed callable literals fail closed;
+ * other annotations are ordinary value shapes.
  * @param type - the declarator's type annotation.
  * @returns the signature to check, 'refuse' for an unclassifiable callable literal, or null for a non-callable shape.
  */
@@ -162,29 +91,12 @@ function callableAnnotation(type: ts.TypeNode): ts.SignatureDeclarationBase | 'r
 }
 
 /**
- * The heritage-member exemption for one class member. When the member's name
- * is declared by an `extends`/`implements` heritage type, the seam declaration
- * is the doc's one home (the IDE inherits it on hover) and the member needs no
- * doc of its own — EXCEPT where the override grows public surface the base
- * never documented: a base member that is protected on every declaration does
- * not exempt a public override (consumers could not call it before);
- * parameters the base never names keep their own `@param` duty (the caller
- * reads the seam doc, which cannot describe them; an underscore-prefixed
- * rename of a base parameter — the deliberately-unused marker — is the same
- * parameter, not new surface); and a void base return carried no `@returns`
- * duty, so an override returning a concrete result documents it itself.
- * Static members are looked up on the base CONSTRUCTOR type (only an
- * `extends` expression has one; an unresolvable or interface expression
- * yields no property and therefore no exemption).
+ * Find inherited documentation for a class member without exempting newly public surface.
  * @param cls - the class whose heritage to search.
  * @param name - the member name to look up.
  * @param staticSide - whether to search the constructor side instead of the instance side.
  * @param checker - the program's type checker.
- * @returns null when no exemption applies; otherwise the parameter names the
- * base declarations carry (`baseParams: null` when not syntactically
- * recoverable — a complex heritage type — exempting all parameters) plus
- * whether every recoverable base return annotation is `void`-like
- * (`baseVoidReturn: null` when none is recoverable, exempting the result).
+ * @returns inherited parameter and return coverage, or `null` when none applies.
  */
 function heritageExemption(
   cls: ts.ClassDeclaration,
@@ -326,11 +238,8 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
           checkParams(where, 'export', m.parameters, parseTags(raw).params, w.sf,
             p => thisReceiver(p) || inBase(p), w.violations)
         }
-        // A void base return carried no @returns duty, so an override growing
-        // a concrete result documents it itself. An annotated override runs
-        // the standard check; an inferred one is classified by the checker
-        // (this branch is already the checker's domain), so a faithful void
-        // override stays exempt without a boilerplate annotation.
+        // A void base return carried no @returns duty, so an override growing a concrete result
+        // documents it itself.
         if (exemption.baseVoidReturn === true) {
           if (m.type !== undefined) {
             checkReturns(where, m.type, parseTags(raw).returns, w.sf, w.violations)
@@ -354,20 +263,14 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
 }
 
 /**
- * Check one exported declaration statement, dispatching on its kind. Any
- * exported statement kind the dispatch does not recognize is a violation
- * (fail closed), so no export form can pass unchecked by omission.
- * @param stmt - the exported statement (export modifier or export-list target).
- * @param prefix - the namespace qualification for surface names ('' at top level).
- * @param overloadSigs - names in this scope declared as bodyless function overload signatures.
- * @param byName - this scope's named declarations (for namespace/sibling-merge lookups).
- * @param ambient - whether the enclosing scope is ambient (`declare`), where members export implicitly.
- * @param w - the walk state violations append to.
- * @param only - for a multi-declarator variable statement reached through an
- *   export list (or a default-export identifier), the declarator names that
- *   are actually exported; `null` means the whole statement is surface
- *   (direct `export` modifier or ambient scope). Non-variable statements
- *   declare exactly one name, so the filter never applies to them.
+ * Check one exported declaration.
+ * @param stmt - exported statement.
+ * @param prefix - namespace qualifier.
+ * @param overloadSigs - bodyless overload names.
+ * @param byName - declarations keyed by name.
+ * @param ambient - whether exports are implicit.
+ * @param w - walk state.
+ * @param only - selected declarators, or all.
  */
 function checkDecl(
   stmt: ts.Statement,
@@ -455,13 +358,9 @@ function checkDecl(
   }
   if (ts.isImportEqualsDeclaration(stmt)) {
     const where = `exported alias '${prefix}${stmt.name.text}'${at(stmt)}`
-    // An alias is a distinct exported name whose target may be a non-exported
-    // namespace member no walk ever visits, so it documents ITSELF — which
-    // matches the gate's strength only for prose-only target kinds. A
-    // callable, class, or namespace target carries signature or member
-    // contracts the alias prose cannot hold: refuse those (fail closed) and
-    // demand the declaration be exported directly. An unresolvable target is
-    // refused for the same reason.
+    // An alias is a distinct exported name whose target may be a non-exported namespace member
+    // no walk ever visits, so it documents ITSELF — which matches the gate's strength only for
+    // prose-only target kinds.
     const sym = w.checker.getSymbolAtLocation(stmt.name)
     const target = sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0 ? w.checker.getAliasedSymbol(sym) : sym
     const RICH_TARGETS = ts.SymbolFlags.Function | ts.SymbolFlags.Class | ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule
@@ -511,17 +410,7 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       }
     }
   }
-  // Two-phase dispatch. Phase one accumulates WHICH statements are surface
-  // and, for a variable statement reached by name (an export list or a
-  // default-export identifier), which of its declarators the exports actually
-  // name — `null` marks the whole statement as surface (a direct `export`
-  // modifier, or an ambient scope). Requests for the same statement merge:
-  // `null` absorbs any name set, and name sets union, so
-  // `export { a }; export { b }` over one `const a = …, b = …` checks both
-  // declarators while a never-exported sibling stays out of the surface.
-  // Phase two runs each surfaced statement exactly once. (Checking a
-  // statement eagerly per request would either re-check on the second list or
-  // — deduplicated — silently drop the second list's declarators.)
+  // Two-phase dispatch.
   const requested = new Map<ts.Statement, Set<string> | null>()
   const request = (stmt: ts.Statement, name: string | null): void => {
     const prior = requested.get(stmt)
@@ -575,14 +464,8 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
 }
 
 /**
- * Compiler options for the walk's program. The real repo hands over its
- * tsconfig.base.json (whose `paths` map resolves cross-package imports to
- * source, so heritage-member lookups see seam types); a fixture root without
- * one gets `noLib` + no `@types` — fixtures are single-file and
- * self-contained, nothing in the walk resolves a lib symbol, and default-lib
- * parsing is ~99% of per-program cost (it made the fixture spec time out
- * under CI coverage instrumentation). Emit-side options are stripped: the
- * walk never emits or asks for diagnostics, it only binds types on demand.
+ * Compiler options for the walk's program.
+ *
  * @param scanRoot - the root being scanned.
  * @returns compiler options for ts.createProgram.
  */

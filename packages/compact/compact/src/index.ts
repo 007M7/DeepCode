@@ -1,23 +1,9 @@
 /**
- * The compaction service seam (`ctx.compact`): an abstract service defining
- * WHAT compaction does — decide when to compact, summarize a range of
- * conversation history into a single surface node — without saying HOW.
- *
- * Implementations subclass {@link CompactService}, implement
- * {@link CompactService.compactIfNeeded} and {@link CompactService.compactRegion},
- * and load as a plugin — registering as `ctx.compact` (one implementation per
- * context). A tokenizer-, template-, or model-backed implementation can live
- * as a sibling package; callers stay on the same `ctx.compact` seam without
- * touching consumers.
- *
- * The split follows the capability-seams RFC — interface (this) /
- * implementation (`dsh-compact-basic`) / consumer (a `/compact` tool, deferred) — modeled
- * on the bash trio. Unlike `dsh-bash`, this interface necessarily
- * depends on `dsh-session` and `dsh-llm`: the contract's verbs are defined over
- * a `Session` and its output is the `ContentBlock` vocabulary. That deviation
- * from the "interface depends only on cordis" guidance is intentional and
- * recorded in the [compaction capability-seam RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
- *
+ * Compaction service seam (`ctx.compact`): implementations decide when to
+ * compact and replace a history range with one summary node by subclassing
+ * {@link CompactService}. This interface necessarily depends on session and LLM
+ * vocabulary; the rationale is in the
+ * [compaction RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
  * @module @deepseek-ai/dsh-compact
  */
 
@@ -42,25 +28,10 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract compaction service. Subclass implement the two abstract methods,
- * and load the subclass as a plugin — it registers as `ctx.compact` (one
- * implementation per context; loading a second throws, which is cordis'
- * standard duplicate-service behavior).
- *
- * Both core methods are abstract: the contract states WHAT compaction does,
- * while the entire strategy — token estimation, retention policy, event
- * sequencing, summarization — is a HOW decision owned by the implementation.
- *
- * Implementations MUST honor:
- * - **Surface contract**: a successful compaction shadows the compacted surface
- *   nodes with a SINGLE replacement node carrying the summary. Because
- *   `SurfaceEventType` is a closed union, that node is a `user/message` with
- *   `surfaceOp: { op:'replace', start, end }`; the `compact/*` events are
- *   log-only (lock + provenance).
- * - **Blocking**: no compaction begins while another is in progress for the
- *   same session. The recommended mechanism is the log-recorded lock — append
- *   `compact/start` before the slow work and `compact/end` after (even on
- *   failure) — so the lock is visible to replay and crash recovery.
+ * Abstract compaction service. Implementations own token estimation, retention,
+ * and summarization, but a successful run must replace the selected surface span
+ * with one summary node and prevent concurrent compaction of the same session.
+ * Load one implementation per context as `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {
@@ -69,43 +40,17 @@ export abstract class CompactService extends Service {
 
   /**
    * Check token pressure and compact if the conversation is too large.
-   *
-   * Estimates the NEXT request's size — the session prefix, the
-   * surface-derived history, and the system prompt — and if it exceeds the
-   * backend's threshold, compacts an older range
-   * via {@link compactRegion}, keeping recent context intact. Returns `null`
-   * when no compaction is needed.
-   *
-   * Scope and guarantees a backend MUST honor:
-   * - **Compaction acts on surface-derived history only**, but the ESTIMATE
-   *   counts everything the request carries: the loop composes the session
-   *   prefix before the pre-step seam fires and hands it here, so the gate
-   *   sees the prefix this instance will actually send (`EpochHeader.messagePrefix`
-   *   — request-only, never derived history). Non-surface context injected
-   *   downstream (into the request `messages` by a later listener) is out of
-   *   this accounting by construction.
-   * - **Head-anchored, best-effort.** Auto-compaction consolidates from the
-   *   surface HEAD up to a balanced tool-pairing cutoff, so a prior head
-   *   checkpoint is
-   *   re-summarized into one fresh checkpoint (the surface holds at most one
-   *   auto-generated checkpoint, always at the head). It is best-effort over
-   *   CLOSED steps: when the only compactable content left is an un-splittable
-   *   open tail step, it declines (`null`) and retries once that step closes.
-   * - **Single-unit overflow is out of scope.** If a single retained unit (one
-   *   closed step, or a large free node such as a pasted `user/message`) ALONE
-   *   exceeds the budget, compaction cannot help and the call may go out
-   *   over-budget. Bounding an individual unit's size is a separate concern —
-   *   as is a session prefix that alone approaches the window (a
-   *   configuration error no compactor fixes: compaction cannot shrink the
-   *   prefix).
+   * Estimate the next request, including its session prefix, derived history,
+   * and system prompt. Above threshold, compact a head-anchored range ending at
+   * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
+   * Return `null` when no compaction is needed or an open tail leaves no safe
+   * cutoff. A single oversized retained unit or prefix cannot be repaired here.
    *
    * @param agent - agent context owning the session surface and model options.
    * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
-   * @param sessionPrefix - the instance's composed session prefix, counted toward the estimate.
-   * @param signal - cancellation signal. A backend summarizing via
-   *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
-   *   so an abort/dispose tears down the in-flight summarization rather than
-   *   leaving an orphaned model call running past the cancellation.
+   * @param sessionPrefix - the instance's composed session prefix, counted toward the
+   *   estimate.
+   * @param signal - cancellation signal; model-backed implementations must forward it.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
@@ -117,36 +62,19 @@ export abstract class CompactService extends Service {
 
   /**
    * Forcibly compact a range of surface nodes into a single summary node.
+   * `start` and `end` name an inclusive span by surface position, not numeric seq
+   * order; replacements can make visible seqs non-monotonic. Both edges must be
+   * balanced so assistant tool calls remain paired with their results. A model-
+   * backed implementation forwards cancellation and rejects active, missing,
+   * reversed, or unbalanced ranges.
    *
-   * `start` and `end` are inclusive seqs of surface nodes to shadow; the backend
-   * summarizes their content and appends a replacement surface node. Used by the
-   * (future) `/compact` tool and internally by {@link compactIfNeeded}.
-   *
-   * The region MUST NOT split a step's `assistant/message` tool-calls from their
-   * `tool/result`s, leaving the rehydrated transcript with a dangling tool-call
-   * or an orphaned tool-result that every provider rejects. A region is safe iff
-   * both its edges are balanced cuts on the surface: the cut before `start` and
-   * the cut after `end` each have no unanswered tool-call before them. A node
-   * that belongs to no step (a pre-step user message, inter-step steering, or an
-   * injection context message) is a balanced (free) boundary; an `end` inside an
-   * open (unclosed) tail step is invalid — its tool-calls have no results yet.
-   * `dsh-session` exports `isToolPairingBalanced` for this check.
-   *
-   * @param session - the session whose surface is mutated.
-   * @param start - inclusive seq of the first surface node to compact.
-   * @param end - inclusive seq of the last surface node to compact.
-   * @param agent - agent context used by router-aware summarizers.
-   * @param signal - optional cancellation signal. A backend that summarizes via
-   *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
-   *   so an abort/dispose tears down the in-flight summarization rather than
-   *   leaving an orphaned model call running past the cancellation.
-   * @throws if compaction is already in progress, if `start`/`end` are not
-   *   valid surface nodes, if `start` is positioned after `end` on the surface
-   *   (the range is a surface-POSITION span, not a numeric seq interval — a
-   *   prior replace can leave the surface non-monotonic in seq order), or if
-   *   either boundary is not a balanced tool-pairing cut (would split a step's
-   *   tool-call/result pair).
-   * @returns what the compaction did (the replaced range and its summary node).
+   * @param session - session to mutate.
+   * @param start - first surface seq, inclusive.
+   * @param end - last surface seq, inclusive.
+   * @param agent - summarizer context.
+   * @param signal - optional cancellation; model-backed implementations must forward it.
+   * @throws when compaction is active or the range is missing, reversed, or unbalanced.
+   * @returns the replaced range and summary.
    */
   abstract compactRegion(
     session: Session,

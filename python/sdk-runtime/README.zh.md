@@ -13,7 +13,7 @@ Python SDK 的运行时载体包（分发名 `deepseek-harness-runtime-bin`，�
 
 两种载体承载相同的内容，且只定义一次：本包根目录的 [package.json](package.json) 是 single-exe 流水线的部署根目录——一份零代码的纯依赖 manifest，其依赖闭包既是编译进 exe 的插件集，也是物化到 `runtime/node/` 的文件树。往分发物里加插件，就是在那里加一行依赖再重新构建。
 
-载体缺失时抛出 `FileNotFoundError` 并写明获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或安装 `build-exe-for-python-sdk` CI 工作流生成的对应平台运行时 wheel 包。该工作流只保留 wheel 包，不保留独立 exe 归档。获取策略与查找接口刻意分离，之后可以换成按需下载而不改动任何调用方。
+exe 缺失时抛出 `FileNotFoundError`，并写明两种获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或安装 `build-exe-for-python-sdk` CI 工作流生成的对应平台运行时 wheel 包。仅限开发的 `node` 载体缺失时只提示构建脚本这一条途径。该工作流只保留 wheel 包，不保留独立 exe 归档。获取策略与查找接口刻意分离，之后可以换成按需下载而不改动任何调用方。
 
 每个 wheel 包只包含一个可执行文件。固定标签为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、可执行文件缺失或重复以及不支持的平台标签。仓库根目录的 `package.json` 为本包和 SDK 提供共同版本，`python-vX.Y.Z` 发布标签必须与其匹配。
 
@@ -26,4 +26,4 @@ Python SDK 的运行时载体包（分发名 `deepseek-harness-runtime-bin`，�
 
 ## 零配置设计
 
-运行时二进制始终要求显式配置（`$DSH_CORDIS_CONFIG`，或作为 argv 位置参数的配置路径），缺了就报错退出——这一硬语义是运行时设计的一部分，本包不软化它。`bin`（`dsh-jsonrpc-agent`）只启动配置里列出的插件；对外服务接口（stdio JSON-RPC 服务器）也是其中一个条目（`@deepseek-ai/dsh-jsonrpc`），缺了它，启动出的 agent 就没有对外通道。本包检入 `runtime/cordis.yml`（JSON-RPC 服务条目、`agent-core`、预载的 DeepSeek 适配器、JSONL 会话持久化、本地 bash，各项由 SDK 设置的 `DSH_*` 环境变量参数化）；调用方未使用任何显式配置通道时，`deepseek_harness` 客户端把该文件路径注入 `DSH_CORDIS_CONFIG`（注入条件见 [sdk README](../sdk/README.md)）。因此，零配置是包装层中一次显式、可见的参数传递，而不是运行时中的隐藏回退。
+运行时二进制始终要求显式配置（`$DSH_CORDIS_CONFIG`，或作为 argv 位置参数的配置路径），缺了就报错退出——这一硬语义是运行时设计的一部分，本包不软化它。`bin`（`dsh-jsonrpc-agent`）只启动配置里列出的插件；对外服务接口（stdio JSON-RPC 服务器）也是其中一个条目（`@deepseek-ai/dsh-jsonrpc`），缺了它，启动出的 agent 就没有对外通道。本包检入的 `runtime/cordis.yml` 包含 JSON-RPC 服务条目、`agent-core`、预载的 DeepSeek 适配器、JSONL 持久化与本地 bash。DeepSeek 适配器读取 `DEEPSEEK_API_KEY` 与 `DEEPSEEK_BASE_URL`，持久化与 bash 则使用 `DSH_SESSION_ROOT` 和 `DSH_CWD`，并为手动运行提供回退值。调用方未使用任何显式配置通道时，`deepseek_harness` 客户端把该文件路径注入 `DSH_CORDIS_CONFIG`（注入条件见 [sdk README](../sdk/README.md)）。因此，零配置是包装层中一次显式、可见的参数传递，而不是运行时中的隐藏回退。

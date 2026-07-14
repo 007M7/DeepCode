@@ -67,9 +67,7 @@ These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests withou
 
 ## CI gates
 
-The keyless GitHub workflow has eight jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and three compatibility jobs run `pnpm run check:node-compat` on Node 22.19, 24, and 26. The compatibility command runs the TypeScript typecheck and a keyless workflow-workerthread source-launch smoke on every runtime, so the matrix proves that the source graph typechecks and that a real unbuilt Worker loader path executes; the other lane schedulers fan out independent gates from `package.json`: constraints, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
-
-`pnpm run build` feeds the artifact lane, and `publint`, `verify-node-next-types`, and built-bin smoke tests wait for build output. The separate real-API workflow runs `pnpm run test:e2e` with a secret and `DSH_E2E_MAX_WORKERS=14`.
+The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 
 ## Daily commands
 

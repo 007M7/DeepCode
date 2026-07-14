@@ -1,13 +1,7 @@
 /**
- * A scripted {@link SubagentProvider} for testing the subagent seam WITHOUT a
- * model or a real child agent. Mirrors `@deepseek-ai/dsh-llm-replay`: it lets a
- * test drive the service and the model-facing tool through the REAL cordis
- * Loader / export path, exercising registration, capability validation, the
- * run lifecycle, and the structured-output branch deterministically.
- *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default —
- * a functional plugin (it only registers a provider; it is never injected).
- *
+ * Scripted, model-free subagent provider for deterministic coverage of registration,
+ * capability checks, lifecycle, the model-facing tool, and structured results through the real
+ * loader path. It is a named-export functional plugin; no default export.
  * @module @deepseek-ai/dsh-subagent-mock
  */
 
@@ -28,12 +22,7 @@ const STOP_REASONS = ['completed', 'aborted', 'error', 'max-tokens', 'refusal'] 
 
 const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
 
-/**
- * A scripted provider: every {@link start} returns a ready run whose `result`
- * resolves on the next task with the configured reply (and a structured value
- * when the request asked for one and the capability is on). The required
- * signal and `dispose()` both flip an unsettled result to `aborted`.
- */
+/** Scripted provider whose configured result aborts if disposed or signalled first. */
 class MockSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities
   readonly inheritsParentContext: boolean

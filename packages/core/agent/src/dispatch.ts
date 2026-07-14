@@ -1,14 +1,7 @@
 /**
- * Fused scope-carrier dispatch for agent-subject operations, plus the assembly
- * context builder. The sanctioned ordinary spelling is
- * `agentEvents(ctx, agent).waterfall('agent/request', …)`: it builds the scope
- * carrier ({@link scopeTarget} keyed by the agent) AND injects the subject as
- * the first argument in one move, so a site cannot name a different subject.
- * The registry lifecycle pair is the deliberate exception: `enter()` captures
- * one stable carrier before commit and `announce()`/detach dispatch through it
- * directly, so both lifecycle edges use the same routing identity. The dev
- * scoped-dispatch invariant checks both shapes.
- *
+ * Agent-scoped dispatch and prompt assembly helpers. Ordinary events use the
+ * fused dispatcher so subject and scope key cannot diverge; registry lifecycle
+ * code instead captures one stable carrier for both edges.
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
@@ -74,9 +67,7 @@ export interface AgentEventDispatch {
 }
 
 /**
- * Build the fused dispatcher for `agent`'s events (see the module doc). Cheap
- * (one carrier + one small object) — dispatch sites create it per run/turn
- * rather than caching it on the agent.
+ * Build a dispatcher that couples the agent subject to its scope carrier.
  * @param ctx - the context to dispatch through (any context of the app).
  * @param agent - the subject agent; also the scope-carrier key.
  * @returns the fused dispatcher.
@@ -121,11 +112,8 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
 }
 
 /**
- * The assembly context for one agent's prompt: the typed `agent` DX field and
- * the `scope` layer selector, set together (setting `agent` without `scope`
- * silently drops the agent's scoped sections/tools from the assembly — the
- * dev invariants flag it). THE way the loop (and any custom driver) builds
- * its per-step `ctx.systemPrompt.assemble(…)` input.
+ * Build the prompt assembly context with agent and scope set together, so
+ * agent-scoped prompt and tool contributions cannot be silently omitted.
  * @param agent - the agent the assembly is for.
  * @returns the context to pass to `assemble()`.
  */

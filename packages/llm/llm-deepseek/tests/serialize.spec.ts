@@ -187,7 +187,7 @@ describe('serializeRequest', () => {
   })
 })
 
-describe('review fixes: assistant content shapes', () => {
+describe('assistant empty and tool-call content shapes', () => {
   it('serializes a content-less, tool-call-less assistant message as null content', () => {
     // Aborted/empty assistant turns: no text, no calls → null (the wire
     // accepts it; "" is reserved for tool-call turns per the samples).

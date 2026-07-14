@@ -1,20 +1,7 @@
 /**
- * DeepSeek LLM adapter plugin: registers a {@link DeepSeekAdapter} for the
- * configured model names on `ctx.llm`.
- *
- * Config is cordis-native (schemastery). Secrets flow per the repo policy:
- * `apiKey` from cordis.yml via the `!!js` tag (`!!js process.env.DEEPSEEK_API_KEY`)
- * or from the environment directly; never from ad-hoc files.
- *
- * ```yaml
- * - id: llm-deepseek
- *   name: '@deepseek-ai/dsh-llm-deepseek'
- *   config:
- *     apiKey: !!js process.env.DEEPSEEK_API_KEY
- *     baseURL: !!js process.env.DEEPSEEK_BASE_URL
- *     models: [deepseek-v4-flash, deepseek-v4-pro]
- * ```
- *
+ * Register a {@link DeepSeekAdapter} for configured model names on `ctx.llm`. Configuration uses
+ * Cordis schemastery; pass secrets from environment variables through `cordis.yml` with `!!js`,
+ * as shown in the package README, rather than reading ad hoc files.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 

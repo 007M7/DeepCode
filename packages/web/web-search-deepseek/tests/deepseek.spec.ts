@@ -300,14 +300,8 @@ describe('web-search-deepseek plugin registration', () => {
   })
 
   it('survives the real Loader unwrapExports path keeping name/inject/Config', () => {
-    // A stray `export default apply` would make the cordis Loader's
-    // unwrapExports (`exports.default ?? exports`) collapse the module to the
-    // bare `apply` function, DROPPING `inject: ['web']` — the plugin would then
-    // read ctx.web without injecting it and throw "cannot get property … without
-    // inject" the moment it loads. A hand-built ctx.plugin(namespace) mount
-    // bypasses unwrapExports and cannot catch that, so drive the real path.
-    // Prove it bites: add `export default apply` to src/index.ts, watch this go
-    // red, revert.
+    // A default export would make `unwrapExports` collapse the namespace and drop `inject: ['web']`.
+    // Drive the real Loader path because hand-built namespace mounting cannot expose that failure.
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(deepseekPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(deepseekPlugin)

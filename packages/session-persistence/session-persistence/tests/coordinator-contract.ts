@@ -1,28 +1,11 @@
 /**
- * Reusable ORCHESTRATION suite for any backend that composes a
- * {@link PersistenceCoordinator}. Where {@link runPersistenceContract} (in
- * contract.ts) pins the public read/write SEMANTICS, this suite pins the
- * coordinator's WRITE-PATH ORCHESTRATION — the behavior that is identical across
- * every first-party backend because it lives in the shared coordinator, not in
- * the storage primitives: the `session/created` → `session/event` →
- * `session/flush` → dispose drain, lazy materialization, fork-seed persistence,
- * the four `onCreated` adoption cases (new / HMR-adopt / collision /
- * ownerless-claim), crash-tail repair on load, and dispose-time quiescence.
+ * Shared write-path orchestration contract for backends using {@link PersistenceCoordinator}.
+ * Unlike the public storage-semantics suite in `contract.ts`, it covers SessionStore event wiring,
+ * lazy creation, fork seed persistence, four adoption/collision cases, crash-tail repair, reload,
+ * flush, and disposal quiescence through public APIs rather than storage primitives.
  *
- * A backend imports {@link runCoordinatorContract} and calls it with a
- * {@link CoordinatorFixture} factory that knows how to (a) mount the REAL
- * backend plugin on a {@link Context} over a SHARED storage scope (so HMR/reload
- * tests can dispose one instance and mount another over the same bytes/rows),
- * and (b) inject a never-committed torn tail for one session
- * ({@link CoordinatorFixture.corruptTail}) so the through-coordinator torn-tail
- * repair branch is exercised against real storage. The suite drives everything
- * through the PUBLIC {@link SessionPersistence} API + the cordis SessionStore
- * write path — never the storage primitives directly — so it runs unchanged for
- * every backend (memory / jsonl / sqlite).
- *
- * Each scenario lives here once and runs once per backend through the fixture;
- * the per-backend specs keep ONLY their storage-mechanics tests.
- *
+ * Each real backend supplies a shared storage scope and optional torn-tail injector; backend specs
+ * retain only storage-mechanics tests, while these scenarios run once per backend.
  * @module @deepseek-ai/dsh-session-persistence/tests/coordinator-contract
  */
 
@@ -39,25 +22,12 @@ import { meta, oneTurnLog, appendLog } from './contract.ts'
  * the suite mounts/disposes backend instances on it and cleans it up at the end.
  */
 export interface CoordinatorFixture {
-  /**
-   * Mount the REAL backend plugin (via `ctx.plugin`, the Loader path) on `ctx`,
-   * over THIS fixture's shared storage scope. Returns the plugin fiber so the
-   * suite can dispose a single instance (HMR/reload) while the storage — and any
-   * still-live session in another fiber — survives. The caller has already
-   * mounted `SessionStore` on `ctx`.
-   */
+  /** Mount the real backend through `ctx.plugin` over shared storage and return only that fiber. */
   mount: (ctx: Context) => Promise<Fiber>
 
   /**
-   * Inject a NEVER-COMMITTED torn tail into the backend's storage for `id` at
-   * the given `cwd` (the cwd the session was created with): a half-written
-   * record past the committed region (JSONL: a partial line with no newline;
-   * SQLite: a row with invalid `data` JSON past the committed seq). This drives
-   * the coordinator's `loadCore` `tornMarker !== undefined` → `commitRepair`
-   * branch against real storage.
-   *
-   * OMITTED by a backend that structurally has no torn tails (memory): the
-   * torn-tail scenario then self-skips (asserted explicitly in the suite).
+   * Inject a never-committed partial record after the durable region so `loadCore` reaches
+   * `commitRepair`. Omit only when the backend structurally cannot produce torn tails.
    */
   corruptTail?: (id: SessionId, cwd: string | undefined) => Promise<void>
 
@@ -124,10 +94,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
     })
 
     it('round-trips the seed boundary (seedLength) through persistence', async () => {
-      // A forked child records how many leading events were inherited via the
-      // seed; the boundary must survive a reload (so a resume/replay can tell the
-      // inherited prefix from the child's own events). Both backends carry it on
-      // the header — JSONL on the header line, SQLite in the seed_length column.
+      // A forked child records how many leading events were inherited via the seed; the
+      // boundary must survive a reload (so a resume/replay can tell the inherited prefix from
+      // the child's own events). JSONL stores it in the header; SQLite uses `seed_length`.
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
@@ -213,10 +182,10 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
     })
 
     it('resume: a re-created session seeded with the loaded log does not re-append its seed and continues the seq', async () => {
+      // Separate backend lifecycles distinguish persisted-seed adoption from an in-memory continuation.
       const fix = await makeFixture()
       const first = await freshCtx(fix)
       try {
-        // First lifecycle: persist a session through the store.
         const s1 = first.ctx.sessions.create(SessionId('resumed'), { meta: { cwd: WORK } })
         send(s1, oneTurnLog())
         await first.ctx.parallel('session/flush', s1)
@@ -224,9 +193,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await first.fiber.dispose()
       }
 
-      // Second lifecycle: a NEW backend instance + a session re-created with the
-      // same id SEEDED with the loaded events. onCreated adopts the stored log
-      // (does not re-persist the seed); a new turn appends at seq 6.
       const second = await freshCtx(fix)
       try {
         const loaded = await second.ctx.sessionPersistence.load(SessionId('resumed'))
@@ -237,7 +203,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await second.ctx.parallel('session/flush', s2)
 
         const reloaded = await second.ctx.sessionPersistence.load(SessionId('resumed'))
-        // 6 original + 2 new, contiguous, no duplicated seed.
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
       } finally {
         await second.fiber.dispose()
@@ -304,10 +269,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.parallel('session/flush', session)
 
-        // Hot-reload: dispose instance 1, mount instance 2 over the SAME storage
-        // while the session stays live. Instance 2 has an empty states map but the
-        // log is materialized and is a prefix of the live events — it must ADOPT
-        // (not reject). A second turn appended after reload then persists.
+        // Hot-reload: dispose instance 1, mount instance 2 over the same storage while the
+        // session stays live. The new instance has no coordinator state but must adopt the
+        // materialized prefix, then persist another turn rather than rejecting it as a collision.
         await backend1.dispose()
         await fix.mount(ctx)
         session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -399,9 +363,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await first.fiber.dispose()
       }
 
-      // A FRESH backend + a NEW live session with the same id but NO explicit
-      // resume. onCreated treats it as new; create() rejects because a log already
-      // exists. The rejection surfaces via the init promise (flush awaits it).
+      // A fresh backend + a NEW live session with the same id but NO explicit resume. onCreated
+      // treats it as new; create() rejects because a log already exists, and `flush()` surfaces
+      // that initialization rejection.
       const second = await freshCtx(fix)
       try {
         const s2 = second.ctx.sessions.create(SessionId('collide'), { meta: { cwd: WORK } })
