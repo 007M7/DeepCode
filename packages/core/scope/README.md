@@ -19,10 +19,6 @@ Ownership and visibility derive from ONE fact — which context a registration w
 
 Handing out a scoped context hands out the minting plugin's service-resolution surface (resolution walks the minting fiber's dependency chain, not the holder's) — mint it from the plugin whose dependencies the scoped registrations need to resolve.
 
-## Model Experience
-
-None, as this scoping primitive emits no model-bound text, schema, or message; it only routes registrations and restrictions owned by other plugins.
-
 ## Known Limitations and Deferred Work
 
 - **Only scope-aware surfaces isolate state** — registries must file by `scopeOf()` and events must dispatch through `scopeTarget()`; an arbitrary Cordis service remains context-global merely because it is called through a scoped context.

@@ -4,8 +4,8 @@
  * canonical context-surface blocks with optional nested verbatim H4 blocks.
  * Direct system-prompt surfaces must contain exact `markdown` blocks,
  * tool-schema surfaces must link generated catalog sections, local subsection
- * links are rejected, and audited allowlists use either one concise sentence
- * or the exact bare `None.` form.
+ * links are rejected, and audited package classifications either use one
+ * concise sentence or omit the section entirely.
  *
  * Run: `tsx scripts/verify-package-readme-model-experience.ts`.
  */
@@ -29,11 +29,12 @@ interface SentenceContract {
 }
 
 /**
- * Packages whose lack of model behavior is already self-evident from their
- * package contract, so repeating that contract after `None.` adds no value.
- * The reason stays here as reviewable audit evidence.
+ * Generic packages whose public contract is model-agnostic. Their READMEs omit
+ * Model Experience entirely; the reason stays here as reviewable audit evidence
+ * so an absent section cannot be mistaken for forgotten documentation.
  */
-const BARE_NONE_MODEL_EXPERIENCE: Readonly<Record<string, string>> = {
+const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
+  'packages/core/scope': 'The package is a model-agnostic registration and lifecycle primitive; model-facing consumers own any context selection.',
   'packages/util/brand': 'The package is a type-only primitive erased at compile time.',
 }
 
@@ -48,7 +49,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/code-runtime/code-runtime': { kind: 'indirect', reason: 'The service interface delegates model rendering to Code Mode in dsh-tools.' },
   'packages/code-runtime/code-runtime-worker': { kind: 'indirect', reason: 'The worker backend delegates model rendering to Code Mode in dsh-tools.' },
   'packages/core/agent-core': { kind: 'indirect', reason: 'The bundle only mounts model-facing child plugins.' },
-  'packages/core/scope': { kind: 'none', reason: 'The routing primitive emits no model-bound content.' },
   'packages/fs/fs': { kind: 'indirect', reason: 'The service interface delegates model rendering to dsh-tool-fs.' },
   'packages/fs/fs-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
   'packages/hooks/hook-protocol': { kind: 'indirect', reason: 'Only the hook bridge plugins render decoded hook output to a model.' },
@@ -155,22 +155,22 @@ const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 let structuredCount = 0
 let contextSurfaceCount = 0
-let bareNoneCount = 0
+let omittedSectionCount = 0
 let explainedNoneCount = 0
 let indirectCount = 0
 let verbatimBlockCount = 0
 let systemPromptSurfaceCount = 0
 let toolSchemaSurfaceCount = 0
 
-for (const [pkg, reason] of Object.entries(BARE_NONE_MODEL_EXPERIENCE)) {
+for (const [pkg, reason] of Object.entries(NO_MODEL_EXPERIENCE_SECTION)) {
   if (!scannedPackages.has(pkg)) {
-    failures.push({ path: `${pkg}/README.md`, message: 'bare-none allowlist entry does not name a scanned package' })
+    failures.push({ path: `${pkg}/README.md`, message: 'no-section allowlist entry does not name a scanned package' })
   }
   if (reason.trim().length === 0) {
-    failures.push({ path: `${pkg}/README.md`, message: 'bare-none allowlist entry must retain its audit justification' })
+    failures.push({ path: `${pkg}/README.md`, message: 'no-section allowlist entry must retain its audit justification' })
   }
   if (SENTENCE_MODEL_EXPERIENCE[pkg] !== undefined) {
-    failures.push({ path: `${pkg}/README.md`, message: 'package cannot appear in both Model Experience sentence allowlists' })
+    failures.push({ path: `${pkg}/README.md`, message: 'package cannot appear in both Model Experience allowlists' })
   }
 }
 
@@ -188,7 +188,7 @@ for (const packageJson of packageJsons) {
   const readme = packageJson.replace(/package\.json$/, 'README.md')
   const abs = resolve(root, readme)
   if (!existsSync(abs)) {
-    failures.push({ path: readme, message: `missing package README; add one with ${HEADING}` })
+    failures.push({ path: readme, message: 'missing package README' })
     continue
   }
 
@@ -197,6 +197,14 @@ for (const packageJson of packageJsons) {
   const lines = markdownProseLines(text)
   const h2Headings = lines.filter(line => H2_HEADING.test(line.raw))
   const modelHeadings = h2Headings.filter(line => line.raw === HEADING)
+  if (NO_MODEL_EXPERIENCE_SECTION[pkg] !== undefined) {
+    if (modelHeadings.length !== 0) {
+      failures.push({ path: readme, message: `audited model-agnostic package must omit ${HEADING}` })
+    } else {
+      omittedSectionCount += 1
+    }
+    continue
+  }
   if (modelHeadings.length !== 1) {
     failures.push({
       path: readme,
@@ -227,17 +235,6 @@ for (const packageJson of packageJsons) {
   const nextH2Line = nextH2 < 0 ? rawLines.length + 1 : (body[nextH2] as Line).index
   const rawSection = rawLines.slice(modelHeading.index, nextH2Line - 1)
   const content = section.filter(line => line.raw.trim().length > 0)
-  const bareNoneReason = BARE_NONE_MODEL_EXPERIENCE[pkg]
-  if (bareNoneReason !== undefined) {
-    const rawContent = rawSection.filter(line => line.trim().length > 0)
-    if (content.length !== 1 || rawContent.length !== 1 || content[0]?.raw !== 'None.') {
-      failures.push({ path: readme, message: 'must contain exactly the bare sentence `None.`' })
-      continue
-    }
-    bareNoneCount += 1
-    continue
-  }
-
   const sentenceContract = SENTENCE_MODEL_EXPERIENCE[pkg]
   if (sentenceContract !== undefined) {
     const pattern = sentenceContract.kind === 'none' ? /^None, as .+\.$/ : /^Indirectly, through .+\.$/
@@ -254,7 +251,7 @@ for (const packageJson of packageJsons) {
 
   const shortSentence = content.find(line => line.raw === 'None.' || /^None, as |^Indirectly, through /.test(line.raw))
   if (shortSentence !== undefined) {
-    failures.push({ path: readme, message: `line ${shortSentence.index}: short Model Experience form requires an audited entry in BARE_NONE_MODEL_EXPERIENCE or SENTENCE_MODEL_EXPERIENCE` })
+    failures.push({ path: readme, message: `line ${shortSentence.index}: short Model Experience form requires an audited entry in SENTENCE_MODEL_EXPERIENCE` })
     continue
   }
 
@@ -373,7 +370,7 @@ for (const packageJson of packageJsons) {
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${bareNoneCount} bare none, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${omittedSectionCount} audited omissions, ${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 
