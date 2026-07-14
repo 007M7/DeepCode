@@ -68,4 +68,18 @@ describe('legacy request-header format', () => {
     }] as unknown as SessionEvent[]
     expect(() => new Session(SessionId('legacy'), legacy)).toThrow(/unsupported legacy request\/header-delta/)
   })
+
+  it('rejects the removed fallback reason in seeds and untyped appends', () => {
+    const legacy = [{
+      type: 'request/header', seq: 0, time: 1, data: { header: { config: CONFIG }, reason: 'fallback' },
+    }] as unknown as SessionEvent[]
+    expect(() => new Session(SessionId('legacy-seed-reason'), legacy))
+      .toThrow('unsupported legacy request/header reason "fallback"')
+
+    const session = new Session(SessionId('legacy-append-reason'))
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+    expect(() => appendLegacy('request/header', { header: { config: CONFIG }, reason: 'fallback' }))
+      .toThrow('unsupported legacy request/header reason "fallback"')
+    expect(session.events).toHaveLength(0)
+  })
 })
