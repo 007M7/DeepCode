@@ -6,7 +6,6 @@
  */
 
 import { Context, Service } from 'cordis'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
@@ -19,35 +18,6 @@ export type { PersistenceBackend, StoredPrefix } from './coordinator.ts'
 declare module 'cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
-  }
-}
-
-/**
- * Check whether a live seed exactly reproduces a durable prefix, including full
- * payloads. This distinguishes resume/HMR rebinding from an id collision.
- * @param seed - the live session's creation-time event snapshot.
- * @param prefix - the persisted prefix the seed must reproduce.
- * @returns `true` when the prefix fits within the seed and every event matches by JSON text.
- */
-export function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
-  return prefix.length <= seed.length
-    && prefix.every((event, index) => {
-      const seedEvent = seed[index]
-      return seedEvent !== undefined && JSON.stringify(seedEvent) === JSON.stringify(event)
-    })
-}
-
-/**
- * Reject a batch that is not wholly losslessly JSON-serializable. Live session
- * appends already enforce this; persistence append paths also accept replay or
- * direct batches that may bypass a live session instance. Validation uses the
- * same one-pass materializer as the coordinator, so getters are read once.
- * @param events - the complete event batch to validate.
- */
-export function assertSerializable(events: readonly SessionEvent[]): void {
-  const snapshot = snapshotJsonValue(events)
-  if (snapshot === undefined) {
-    throw new Error('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
   }
 }
 
