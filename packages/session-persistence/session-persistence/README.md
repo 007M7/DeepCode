@@ -22,9 +22,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 ## The write coordinator
 
-The two first-party backends were byte-identical (or same-algorithm) for ALL of their write-path orchestration — the in-memory bookkeeping (per-id state, write-behind buffers, per-id serialization chains, per-session init promises), the `session/event` → buffer → `session/flush` drain, lazy materialization, crash-tail repair on load, the four `session/created` adoption cases (new / HMR-adopt / collision / ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives differed (write bytes vs. INSERT rows).
-
-`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its four public service methods to the coordinator. The correctness-heavy orchestration therefore has one implementation and one place for fixes.
+`PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 

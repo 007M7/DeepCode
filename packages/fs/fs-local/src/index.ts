@@ -1,15 +1,6 @@
 /**
- * Local-filesystem implementation of the `ctx.fs` provider seam.
- * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the seven
- * text-storage primitives with the host filesystem via
- * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
- * `realpath`, so the stable `targetKey` is the real file identity (two input
- * paths reaching the same file through symlinks share one key, and writes land
- * on the link target — preserving the link).
- *
- * Future sandboxed/remote/virtual backends are sibling packages implementing
- * the same interface; loading this one populates `ctx.fs`.
- *
+ * Host-filesystem implementation of `ctx.fs`. Realpath-derived target identity makes aliases
+ * share stale guards, and writes through a symlink update its target without replacing the link.
  * @module @deepseek-ai/dsh-fs-local
  */
 
@@ -156,18 +147,10 @@ export class LocalFileSystem extends FileSystem {
         // createIfAbsent onto an existing file: a blind overwrite — require a read first.
         throw new FsError(`cannot overwrite existing "${target.displayPath}" without reading it first`, 'FS_NOT_OBSERVED')
       }
-      // expected === undefined: unconditional create-or-overwrite (the bare
-      // provider) — no version guard, no read-first requirement. Still atomic
-      // (the per-target lock is unconditional), so the write is never torn.
+      // No expectation means an unconditional but still atomic write.
 
-      // Capture the prior text (the before/after diff basis) BEFORE the write.
-      // `null` for a create (no existing file) OR an existing-but-undiffable
-      // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
-      // basis, so a consumer falls back to a whole-file diff (the tool still
-      // renders a result-time diff card, not the raw result text).
-      // TODO(overwrite-diff-bound): this reads the whole prior file into memory
-      // for a UI-only diff; bound the pre-read and fall back to no contextual
-      // basis above a size threshold (see the applied-hunk-diffs RFC non-goals).
+      // Preserve prior text for contextual diffs; null falls back to a whole-file diff.
+      // TODO(overwrite-diff-bound): cap this UI-only pre-read for large files.
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
@@ -191,10 +174,9 @@ export class LocalFileSystem extends FileSystem {
   ): Promise<FsEditOutcome> {
     return this.withLock(target.targetKey, async () => {
       const existing = await probe(target.targetKey)
-      // Stale guard BEFORE literal matching: an edit based on an old read reports
+      // Stale guard before literal matching: an edit based on an old read reports
       // FS_STALE_VERSION, not FS_EDIT_NOT_FOUND/FS_AMBIGUOUS_EDIT against newer content.
-      // A missing target reports FS_STALE_VERSION on BOTH paths (guarded and
-      // unconditional) — one "cannot edit this target now" code.
+      // Missing targets use the same stale code on guarded and unconditional edit paths.
       if (!existing) throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       // expected === undefined: unconditional edit of the current content — no

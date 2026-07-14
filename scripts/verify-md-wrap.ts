@@ -1,30 +1,8 @@
 /**
- * Doc-sync gate: enforce the repo's "Markdown is not hard-wrapped" convention
- * (docs/AGENTS.md § Writing rules) — prose paragraphs are written as
- * one physical line per paragraph and the editor soft-wraps. A hard-wrapped
- * paragraph (a one-word edit reflows and re-diffs the whole block) is a defect
- * this script catches before review.
- *
- * Detection is AST-based: we parse each file with mdast-util-from-markdown (the
- * CommonMark parser behind remark) plus the GFM extension, then flag any
- * `paragraph` node whose source span covers more than one line. The parser owns
- * all the structure that legitimately occupies multiple lines — fenced code
- * (any fence length), tables, list items, blockquotes, HTML blocks, headings,
- * thematic breaks, link-reference definitions — so a hard wrap is simply "a
- * paragraph node that starts and ends on different lines." This is checker, not
- * formatter: it reports and never rewrites, so it introduces zero cosmetic
- * churn (no emphasis-marker or table-delimiter normalization).
- *
- * A wrapped paragraph inside a list item or blockquote is still a `paragraph`
- * node, so those are caught too. Scope mirrors doc-typecheck plus the two
- * AGENTS.md files that doc-sync does NOT otherwise cover (the convention itself
- * lives there), plus generated system-prompt Markdown goldens: README.md,
- * docs/** /*.md, packages/* /*.md, examples/** /system-prompt.golden.md,
- * packages/** /system-prompt.golden.md, AGENTS.md, packages/AGENTS.md. The root
- * and packages/ CLAUDE.md are symlinks to the AGENTS.md files, so they are
- * deduped by real path.
- *
- * Run: `tsx scripts/verify-md-wrap.ts`.
+ * Reject Markdown prose paragraphs spanning multiple physical lines. The GFM
+ * AST distinguishes paragraphs—including those in lists and blockquotes—from
+ * multiline structural nodes. The checker never rewrites; symlinked instruction
+ * files are deduped. The owning convention is in `docs/AGENTS.md`.
  */
 
 import { readFileSync } from 'node:fs'
@@ -70,8 +48,7 @@ function findViolations(absPath: string): Violation[] {
         const firstLine = source.split('\n')[start.line - 1] ?? ''
         out.push({ file, line: start.line, text: firstLine.trim() })
       }
-      // A paragraph's children are inline (text/emphasis/…); no nested
-      // paragraphs to find, so don't descend.
+      // Paragraph children are inline, so no further paragraph can be nested.
       return false
     }
   })

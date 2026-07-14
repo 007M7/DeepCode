@@ -1,17 +1,7 @@
 /**
- * The stdio app's readline UI: reads lines from stdin → `agent.send()`/
- * `steer()`, and renders the durable transcript to stdout. A UI is "just a
- * plugin" — it consumes the `session/event` feed (the assistant token stream,
- * turn/step boundaries, tool activity, todos) plus a few `agent/*` control
- * events (`agent/status`, `agent/created`/`agent/disposed`) and the `agents`
- * service. Dimmed chain-of-thought rendering plus robust piped-stdin EOF→idle
- * exit handling, configured via {@link Config}.
- *
- * An internal module of the stdio app, not a package of its own: the app's
- * front-door cluster always includes this UI, and nothing else composes it.
- * The export shape stays named `name`/`inject`/`Config`/`apply` — the plugin
- * contract the app's `ctx.plugin(uiStdio, …)` mount consumes.
- *
+ * The stdio app's readline UI: reads lines from stdin into `agent.send()` or
+ * `steer()`, renders the durable event stream to stdout, and exits piped input
+ * only after submitted work reaches idle.
  * @module @deepseek-ai/dsh-stdio-agent/stdio-chat
  */
 
@@ -82,15 +72,10 @@ type OptionSelection =
   | { kind: 'invalid' }
 
 /**
- * The plugin body, parameterized over its I/O runtime. `apply` is the thin
- * production wrapper that binds the real `process` streams; tests call this
- * directly with fakes. Returns nothing — all registration is via `ctx.on`/
- * `ctx.effect`, so fiber disposal tears every listener and the readline
- * interface down.
- * @param ctx - the context supplying the `agents` service and the event feeds.
- * @param config - the plugin config; defaults are re-applied here for direct
- * callers that bypass Loader validation.
- * @param runtime - the process-I/O seam (line source, render sink, exit hook).
+ * Register stdio chat against an injectable I/O runtime.
+ * @param ctx - agent and event context.
+ * @param config - plugin config, defaulted for direct callers.
+ * @param runtime - line source, render sink, and exit hook.
  */
 export function createStdioChat(ctx: Context, config: Config, runtime: StdioRuntime): void {
   // Default here too (not just via schemastery's `.default()`): this helper is
@@ -101,26 +86,15 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const agentId = AgentId(config.agent ?? 'main')
   const { input, output, exit } = runtime
 
-  // Render label lookup: the `turn/start` session event carries only the turn
-  // number, so to print the short agent id (`[main turn 1]`) we map the
-  // session's id to its agent's id. The session id is not reliably the agent id
-  // (a session can be created with an explicit/client-supplied id), so build the
-  // map from `agent/created` rather than parsing the id string. Seed from the
-  // registry's current agents first: an agent registered before this plugin
-  // installed (e.g. the pre-created `main` agent, or any agent surviving an HMR
-  // reload of just this fiber) already fired its `agent/created`, so the live
-  // listener alone would miss it and its turns would fall back to the raw
-  // session id.
+  // Session ids need not equal agent ids. Seed existing agents before listening
+  // so a pre-created or HMR-surviving agent still gets its short render label.
   const labelBySession = new Map<string, string>()
   for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
   ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
   ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
 
-  // Transcript rendering off the durable `session/event` feed — the assistant
-  // token stream, turn/step boundaries, tool activity, and todos all come from
-  // the one canonical stream (no agent/* mirrors). A single listener over the
-  // append order keeps `inReasoning` transitions deterministic across chunk and
-  // boundary events.
+  // Render the canonical append order from session/event so reasoning state is
+  // deterministic across chunks and boundaries; there are no agent/* mirrors.
   let inReasoning = false
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/chunk') {
@@ -163,16 +137,9 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
 
   ctx.effect(() => {
     const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
-    // Piped-input exit, once stdin reaches EOF:
-    //  - If no line ever submitted work (empty stdin, blank-only lines), exit
-    //    immediately — no turn will ever start, so there is nothing to wait
-    //    for. (Gating on an observed 'running' here would hang forever.)
-    //  - If work WAS submitted, exit the next time the agent settles to idle
-    //    AFTER having run. Two subtleties this handles: the loop batches
-    //    several queued messages into ONE turn (one idle), so we don't count
-    //    sends; and agent.send() does NOT synchronously flip status to
-    //    'running', so requiring an observed 'running' first (`sawRunning`)
-    //    avoids exiting in the gap before the turn starts and dropping work.
+    // On piped EOF, exit immediately if no work was submitted. Otherwise wait
+    // for a real running state followed by idle: sends do not synchronously mark
+    // running, and several queued lines may share one turn.
     let stdinClosed = false
     let disposed = false
     let submittedWork = false
@@ -190,10 +157,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         const agent = ctx.agents.get(agentId)
         if (agent && agent.status !== 'idle') return // a turn is still running
       }
-      // Let any final output flush, then exit. The handle is tracked so the
-      // disposer can cancel it — a dispose within the flush window must not let
-      // the process exit out from under HMR. Re-entrant `maybeExit` calls (e.g.
-      // repeated idle signals) coalesce onto the one pending timer.
+      // Let final output flush; track the timer so re-entry coalesces and HMR
+      // disposal can cancel it before it exits the replacement process.
       if (exitTimer !== undefined) {
         return // exit already scheduled — coalesce re-entrant calls
       }

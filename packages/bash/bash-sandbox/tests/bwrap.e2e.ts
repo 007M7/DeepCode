@@ -9,20 +9,13 @@ import { bwrapProfileArgs, LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 
 /**
- * KEYLESS consumer-integration proof under bwrap: the REAL
- * `LocalSandboxProvider` (nothing forced — bwrap is the ladder's first rung,
- * so a passing probe selects it) underneath the REAL `SandboxBashExecutor`,
- * driven through the executor's public run/start paths. Verifies the WORLD
- * (files exist or don't) plus the stamped result facts — in particular that
- * bwrap's EROFS denial text classifies as `denied: true` through the
- * wrap-carried dialect; the backend-only confinement proofs live with
- * `@deepseek-ai/dsh-sandbox-local`.
+ * Keyless integration of the real provider and executor through public run/start paths. With
+ * no rung forced, a passing bwrap probe selects the ladder's first rung. The tests check world
+ * effects and stamped facts, including EROFS classification through the wrap-carried dialect;
+ * backend-only confinement is covered by `@deepseek-ai/dsh-sandbox-local`.
  *
- * Self-skips wherever the functional probe fails — no `bwrap` on PATH, or a
- * host that denies unprivileged user namespaces.
- *
- * HOME-based dirs on purpose: bwrap's `/tmp` is an ephemeral mount, so only
- * paths outside it prove the workspace-root boundary.
+ * Skips when bwrap or unprivileged user namespaces are unavailable. HOME-based paths are
+ * intentional because bwrap replaces `/tmp`, which cannot prove the workspace-root boundary.
  */
 
 const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })

@@ -16,7 +16,7 @@ The date in the filename is when the topic was **first proposed** (per git histo
 
 ## Classification
 
-Each RFC is filed under exactly one **class** — the kind of decision it records. The class is encoded in the path (the folder *is* the label, so a file's location declares its class) and the set is **closed**: `scripts/rfc-index.ts` owns the canonical set, `scripts/verify-rfc-classification.ts` rejects any folder outside it, and [INDEX.md](INDEX.md) is **generated** from the tree in full (`pnpm run gen-rfc-index` rewrites it from each RFC's path, H1 title, and filename date; the gate fails when it is stale, and rejects an index-shaped row in this file). Adding a new class means amending that `const` and this section, not just dropping a new folder. See [the classification RFC](implemented/process/2026-06-20-rfc-classification.md) for why the taxonomy is path-encoded and gated, and [the index-generation RFC](implemented/process/2026-07-04-generate-rfc-index-tables.md) for why the index is generated while this prose stays curated.
+Each RFC belongs to one path-encoded class from the closed set in `scripts/rfc-index.ts`; the classification gate rejects other folders. [INDEX.md](INDEX.md) is generated from paths, titles, and filename dates, and its freshness is gated. Adding a class requires updating the canonical set and this section. See the [classification](implemented/process/2026-06-20-rfc-classification.md) and [index-generation](implemented/process/2026-07-04-generate-rfc-index-tables.md) RFCs.
 
 | Class | What it covers |
 |---|---|

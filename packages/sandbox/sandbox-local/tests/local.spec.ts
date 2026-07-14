@@ -252,19 +252,15 @@ describe('the platform chains', () => {
   })
 
   it('a rogue chain entry throws via the probe walk\'s exhaustiveness guard (closed union)', async () => {
-    // Same convention as the wrap switch below: the union is closed, so a
-    // runner added later fails to compile at the probe switch instead of
-    // silently selecting without a probe. Only a cast can reach the guard.
+    // Same convention as the wrap switch below: the union is closed, so a runner added later
+    // fails to compile at the probe switch instead of silently selecting without a probe.
     const { sandbox } = await setup({}, { chain: ['chroot', 'bwrap'] as unknown as readonly ['bwrap'] })
     expect(() => sandbox.confine(['true'], RO)).toThrow('unreachable variant')
   })
 
   it('a rogue cached runner tag throws via the exhaustiveness guard (closed union)', async () => {
-    // The wrap switches on the chain verdict's runner tag and ends with
-    // assertNever: a rogue tag (only reachable by a cast — the union is
-    // closed and chainVerdict writes only its own literals) must throw, so a
-    // runner added later fails to compile at the switch instead of silently
-    // wrapping with another runner's dialect.
+    // Only a cast can create this rogue closed-union tag. It must hit `assertNever`, ensuring a new
+    // runner cannot silently use another runner's wrap or denial dialect.
     const { sandbox } = await setup()
     ;(sandbox as unknown as { selectedRunner: unknown }).selectedRunner = { runner: 'chroot', enforcement: 'full' }
     expect(() => sandbox.confine(['true'], RO)).toThrow('unreachable variant')
