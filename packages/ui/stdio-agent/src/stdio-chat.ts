@@ -36,10 +36,13 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
+  /** Exact persisted session id the app configured for resume; absent selects the app's fresh `main-session-*` identity. */
+  resumeSessionId?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
+  resumeSessionId: z.string(),
 })
 
 /**
@@ -95,16 +98,25 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const welcome = config.welcome ?? 'ready.'
   const { input, output, exit } = runtime
 
-  // This app owns one configured top-level agent. Hold the live object
-  // directly: its per-run id is intentionally fresh, while `main` remains only
-  // the terminal's fixed display label. Runtime creator ownership distinguishes
-  // that root from its subagents even if a child is registered after an HMR
-  // replacement. Persisted parentSession lineage is deliberately irrelevant:
-  // a resumed child session can itself be this process's configured root.
-  let target: Agent | undefined = ctx.agents.roots()[0]
-  ctx.on('agent/created', () => { target ??= ctx.agents.roots()[0] })
+  // Bind only to this app's configured top-level agent. Fresh runs own the
+  // `main-session-*` namespace; resumed runs own the exact persisted id. The
+  // registry's runtime-root relation excludes subagents without confusing it
+  // with durable parentSession lineage. Keeping the matching candidates also
+  // covers HMR's publish-new-before-dispose-old ordering without ever falling
+  // through to an unrelated root owned by another app or test fixture.
+  const matchesConfiguredIdentity = (agent: Agent): boolean => config.resumeSessionId === undefined
+    ? agent.id.startsWith('main-session-')
+    : agent.id === config.resumeSessionId
+  const configuredRoots = new Set(ctx.agents.roots().filter(matchesConfiguredIdentity))
+  let target: Agent | undefined = [...configuredRoots].at(-1)
+  ctx.on('agent/created', (agent) => {
+    if (!matchesConfiguredIdentity(agent) || !ctx.agents.roots().includes(agent)) return
+    configuredRoots.add(agent)
+    target ??= agent
+  })
   ctx.on('agent/disposed', (agent) => {
-    if (target === agent) target = ctx.agents.roots().at(-1)
+    configuredRoots.delete(agent)
+    if (target === agent) target = [...configuredRoots].at(-1)
   })
 
   // Transcript rendering off the durable `session/event` feed — the assistant
