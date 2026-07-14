@@ -1,39 +1,14 @@
 /**
- * Per-run execution state for the engine's THREAD side: the script's vm
- * context and its injected hooks (`agent`/`parallel`/`pipeline`/`phase`/
- * `log`/`args`), the concurrency semaphore and caps, cancellation, and the
- * drive loop that turns a script settlement into a {@link WorkflowResult}.
- * Children are started by RPC to the host through a {@link ChildPort}, so
- * this module never touches a cordis context — it runs inside the worker
- * thread.
+ * Per-run worker-side vm hooks, child RPC, concurrency/caps, cancellation, and result shaping; it
+ * never touches Cordis. Script values leaving the realm are materialized as plain JSON before
+ * messaging. Values entering the trusted model-written realm are passed directly; `args` alone is
+ * cloned so script mutation cannot alter initialization data. See `./realm.ts` for the trust model.
  *
- * Value boundary (the trust premise lives in ./realm.ts): values ENTERING the
- * worker-side host code from the script (hook options, schemas, the return
- * value) are materialized by `materializeFromRealm` — a plain walk that
- * rejects loud everything JSON cannot carry, which also makes every value
- * safe for the later postMessage hop. Values ENTERING the realm (`args`,
- * `agent()` results, hook promises and their failures, combinator arrays) are
- * handed over DIRECTLY as worker-realm values: the script is model-written
- * and trusted, so outer prototypes are not a leak. `args` is cloned once at
- * start so a script scribbling on it cannot mutate the session's init object
- * (a benign-bug guard; the postMessage clone already isolated the caller).
- *
- * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
- * unsupported options/schemas, tripped caps, synchronous start refusal,
- * provider-start failure, ready-child result rejection, and
- * cancellation) ALWAYS propagate through
- * `parallel`/`pipeline` — recognized by `instanceof` against this realm's
- * class, which a script inside the vm context cannot forge — and the per-item
- * `null` is reserved for child-run failures and ordinary in-stage script
- * errors. Every hook-returned promise gets a no-op rejection consumer, so a
- * dropped promise cannot surface an unhandled rejection (which would kill the
- * worker and read as an engine fault).
- *
- * There is deliberately NO worker-side abandon channel: a script that never
- * settles after a cancel simply never posts a result, and the HOST enforces
- * the settles-within-grace guarantee by force-settling `cancelled` and
- * terminating the worker — the real kill an in-process engine could not have.
- *
+ * Fatal workflow errors—bad hook arguments, unsupported schemas/options, caps, start failures, and
+ * cancellation—propagate through combinators. Only child failures and ordinary stage errors become
+ * per-item nulls. Every returned promise has a rejection consumer so dropped script promises cannot
+ * kill the worker. A cancelled script that never settles emits nothing; the host force-settles the
+ * run within grace and terminates the thread.
  * @module @deepseek-ai/dsh-workflow-workerthread/runtime
  */
 

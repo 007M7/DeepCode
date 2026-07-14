@@ -1,14 +1,6 @@
 /**
- * Result-time contextual-diff computation for the `write`/`edit` tools. Turns a
- * before/after pair of file texts into one {@link FileDiff} per applied hunk —
- * each hunk's `oldText`/`newText` reconstructed from the unified-diff lines with
- * ±{@link DIFF_CONTEXT} surrounding context lines, matching how claude-agent-acp
- * renders an editor inline diff.
- *
- * This is display-only presentation vocabulary (a UI concern), so it lives in
- * the model-facing tool, NOT the `dsh-fs` storage seam — the backend returns
- * only the raw before/after text (storage facts) and the tool computes the diff.
- *
+ * Result-time contextual diff presentation for write and edit. Storage returns before/after
+ * text; this model-facing layer derives one three-line-context card per applied hunk.
  * @module @deepseek-ai/dsh-tool-fs/src/diff
  */
 
@@ -29,18 +21,12 @@ export const DIFF_CONTEXT = 3
 export type FsDiffMeta = { diffs: FileDiff[] }
 
 /**
- * Compute one {@link FileDiff} per hunk between `before` and `after`, each
- * carrying the applied change plus {@link DIFF_CONTEXT} context lines. Returns an
- * empty array when the texts are identical (no hunks). For a scattered
- * `replace_all` edit the patch yields multiple hunks, so multiple `FileDiff`s
- * come back — matching the editor rendering one diff block per site.
+ * Compute one {@link FileDiff} per hunk between `before` and `after`, each carrying the
+ * applied change plus {@link DIFF_CONTEXT} context lines. Pure insertions use `oldText: null`,
+ * patch-only no-newline markers are omitted, and scattered replacements remain separate hunks.
  *
- * Each hunk's `oldText` is its `-` (removed) and context lines joined by `\n`;
- * `newText` is its `+` (added) and context lines. A hunk with no old lines
- * (a pure insertion) reports `oldText: null` (nothing to diff against), mirroring
- * the call-time card's new-file convention. The unified-diff "\ No newline at end
- * of file" markers are dropped — they annotate the patch, not file content.
- * @param path - the path stamped on every produced diff (the model-facing `file_path`; the bridge relativizes it).
+ * @param path - the path stamped on every produced diff (the model-facing `file_path`; the
+ *   bridge relativizes it).
  * @param before - the file text before the change (the backend's LF-normalized diff basis).
  * @param after - the file text after the change, on the same basis.
  * @returns one diff per applied hunk, in file order; empty when the texts are identical.
@@ -81,14 +67,10 @@ function isFileDiff(value: unknown): value is FileDiff {
 }
 
 /**
- * Narrow an opaque `tool/result` `meta` back to this tool's {@link FileDiff}
- * hunks, or `undefined` when it is absent/malformed. `presentResult` runs on
- * arbitrary logged `meta` (possibly from an older shape or a hand-edited log), so
- * it validates defensively rather than trusting the payload — a bad `meta` yields
- * `undefined`, and the caller decides the fallback (edit → the generic result
- * rendering; write → an args-derived whole-file diff), never a thrown presenter.
- * @param meta - the opaque `tool/result` meta payload (live or replayed from the session log).
- * @returns the validated non-empty hunk list, or undefined for an absent/empty/malformed payload.
+ * Narrow opaque live or replayed result metadata to non-empty file diffs. Malformed metadata
+ * returns `undefined` so presentation can fall back instead of throwing during replay.
+ * @param meta - result metadata.
+ * @returns validated hunks, or `undefined` for absent or malformed data.
  */
 export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined

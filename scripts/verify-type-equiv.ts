@@ -1,25 +1,7 @@
 /**
- * Doc-sync gate: verify every ` ```ts type-equiv ` block in the docs is a
- * VERBATIM copy of the source type definition it documents.
- *
- * The core-data-structures docs paste real type definitions so a reader sees
- * the exact shape. A paste drifts the moment source changes — this script is
- * the drift guard. For each block it extracts the documented symbol's
- * declaration from source via the TypeScript compiler API, whitespace-
- * normalizes both the source text and the block, and asserts they are equal.
- *
- * Provenance lives in a central manifest (`scripts/type-equiv.manifest.json`),
- * NOT in the doc prose: each entry names `{ doc, symbol, source }`. The script
- * enforces a 1:1 correspondence — every type-equiv block in the docs has
- * exactly one manifest entry (keyed by doc + declared symbol), and every
- * manifest entry resolves to exactly one block. An orphan on either side fails,
- * so a block can never be silently unchecked and an entry can never rot.
- *
- * doc-typecheck.ts recognizes the same ` ```ts type-equiv ` fence and skips it
- * (it is not standalone-compilable and is not counted in the opt-out ratio);
- * the two scripts share the fence, this one owns the verification.
- *
- * Run: `tsx scripts/verify-type-equiv.ts`.
+ * Verify every `ts type-equiv` block against the source symbol named by the
+ * manifest. Blocks and entries have a one-to-one relationship; comparison
+ * ignores comments and whitespace but preserves declaration structure.
  */
 
 import { globSync, readFileSync, existsSync } from 'node:fs'
@@ -28,13 +10,7 @@ import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
-/**
- * Markdown globs scanned for ` ```ts type-equiv ` blocks — the SAME scope
- * doc-typecheck uses. Scanning every doc (not only the docs the manifest names)
- * is what makes the 1:1 guarantee real in both directions: a type-equiv block
- * added to a doc with NO manifest entry is still discovered here and reported as
- * an orphan, instead of being silently skipped.
- */
+/** Scan doc-typecheck's full Markdown scope so unmanifested blocks also fail. */
 const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
 
 /** One manifest entry: a documented type-equiv block and its source symbol. */
@@ -58,12 +34,11 @@ interface EquivBlock {
   code: string
 }
 
-/** Collapse a declaration to its structural form for comparison: drop comments
- * (block + line), then collapse all whitespace runs to single spaces. This lets
- * a doc block show a CLEAN definition (without source's verbose inline JSDoc)
- * while still guaranteeing the field shapes match — drift in a field name or
- * type fails; a reworded inline comment does not. Adequate for our own type
- * source (no string literal contains `//` or `/* *​/`); not a general tokenizer. */
+/**
+ * Remove comments and normalize whitespace so prose-only edits do not drift
+ * structural copies. This is intentionally not a general tokenizer: repo type
+ * declarations do not contain comment delimiters inside string literals.
+ */
 function normalize(code: string): string {
   return code
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -72,8 +47,7 @@ function normalize(code: string): string {
     .trim()
 }
 
-/** Strip a leading `export ` / `export default ` modifier — the doc block shows
- * the bare declaration, the source carries the export modifier. */
+/** Strip source-only export modifiers. */
 function stripExport(code: string): string {
   return code.replace(/^export\s+(default\s+)?/, '')
 }

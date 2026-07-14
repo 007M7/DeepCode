@@ -337,7 +337,7 @@ describe('LocalBashExecutor background tasks', () => {
   })
 })
 
-describe('review fixes: lifecycle hardening', () => {
+describe('executor cancellation, callback, and disposal contracts', () => {
   it('start honors a pre-aborted or later-aborted AbortSignal', async () => {
     const { bash } = await setup()
     const controller = new AbortController()

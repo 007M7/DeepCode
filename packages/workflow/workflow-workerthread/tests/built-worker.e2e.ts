@@ -12,17 +12,12 @@ const builtWorker = join(packageRoot, 'lib', 'worker.cjs')
 const run = promisify(execFile)
 
 /**
- * The BUILT-output guard for the worker entry: every other suite runs
- * unbuilt (src/ + tsx), so nothing else proves that `lib/index.js` resolves
- * its sibling `lib/worker.cjs` and that the bundle boots a worker under plain
- * node (no tsx loader). Keyless — a zero-agent script needs no provider —
- * and self-skips until `pnpm run build` has produced the bundles.
+ * Keyless built-artifact guard: plain Node loads `lib/index.js` and its sibling
+ * `lib/worker.cjs` without tsx. Skips until the build produces both bundles.
  */
 describe.skipIf(!existsSync(builtIndex) || !existsSync(builtWorker))('built worker entry (lib/worker.cjs)', () => {
   it('the built engine spawns its built worker under plain node and completes a run', async () => {
-    // ESM resolves bare specifiers from the IMPORTING FILE's location, so the
-    // driver must live inside the package for its node_modules to apply — a
-    // temp-named file at the package root, removed on the way out.
+    // Keep the driver in-package so bare imports resolve its node_modules.
     const driver = join(packageRoot, `.built-worker-driver-${process.pid}.mjs`)
     try {
       await writeFile(driver, `
@@ -36,7 +31,7 @@ await ctx.plugin(WorkerWorkflowEngine, {})
 const run = ctx.workflows.start({
   script: 'return 6 * 7',
   meta: { name: 'built-smoke', description: 'built worker smoke' },
-  // A zero-agent script never touches the provider, so a bare id suffices.
+  // A zero-agent script never touches the provider.
   parent: { id: 'built-smoke-parent', options: {} },
 })
 const result = await run.result
@@ -47,7 +42,6 @@ if (result.stopReason !== 'completed' || result.value !== 42) {
 }
 console.log('built-worker-smoke-ok')
 `, 'utf8')
-      // Plain node — no tsx loader anywhere; the bundle must stand on its own.
       const { stdout } = await run(process.execPath, [driver], { cwd: packageRoot, timeout: 60_000 })
       expect(stdout).toContain('built-worker-smoke-ok')
     } finally {
