@@ -138,7 +138,47 @@ Under `mode: code` (or `both`) the registry turns the tool surface into a progra
 
 The wire collapse is the registry's own contribution (`systemPrompt.tools()` is mode-aware), so the logged `request/header` records it for free. When no assembly listener changes the registry's prompt or schema contributions, `code` assembles exactly `[run_code]`, pinned by tests and the snapshot goldens. Try it: `pnpm run demo:code-mode` ([the coding-agent example's Code Mode overlay](../../../examples/coding-agent/README.md#code-mode)); `pnpm run demo:code-mode acp` serves the same mode over ACP instead of the REPL.
 
-### What is NOT here (TODO)
+## Model Experience
 
-- **Concurrency metadata** — tool definitions do not declare whether executions are safe to overlap.
-- **Parallel execution** — the loop and Code Mode bridge execute tool calls sequentially until that metadata exists.
+### Normal tool schemas
+
+**What the model sees**: In normal mode the model sees each visible definition's exact name, description, and JSON schema; the shipped definitions are recorded in the generated [tool package map and schema sections](../../../docs/tool-catalog.md#tool-package-map). Agent-scoped restrictions, shadows, and extension registrations change that agent's end-tool set.
+
+**Token effect**: Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+
+### Code Mode schema and system prompt
+
+**What the model sees**: Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface.
+
+**Token effect**: Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+
+#### Code Mode SDK instructions
+
+```markdown
+## Writing code for run_code
+
+Pass `run_code` the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:
+
+- Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's text output as a string. Tool arguments must be JSON-serializable.
+- A FAILED tool call rejects with an `Error` carrying the tool's error text — `try/catch` it to handle and continue.
+- Calls execute sequentially, even under `Promise.all`.
+- Emit results with `return` and/or `console.log(...)`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
+
+The available tools:
+```
+
+### Tool-call history and results
+
+**What the model sees**: The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result.
+
+**Token effect**: Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them.
+
+## Known Limitations and Deferred Work
+
+- **Native tool calls execute sequentially** — `ToolDefinition` carries no concurrency-safety metadata; adding it (and parallel execution in the loop) waits on the deferred tool-shapes review (`TODO(review)`).
+- **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
+- **`defineTool`'s schema DSL is a deliberate subset** — string/number/boolean/object/array with string-only `enum`; `validateArgs` tolerates extra keys and never applies `default` (`XXX(unused-default)` flags removing that field); raw-registered JSON-Schema tools validate their own input.
+- **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-timeout-policy` wrapper.
+- **Code Mode is TypeScript-only and the presentation mode is service-wide** — `mode: code`/`both` rejects prompt assembly unless `ctx.codeRuntime.language === 'typescript'`; scoped restrictions/shadows still choose each agent's visible bindings, but one tool cannot be native-only while another is code-only.
+- **Code Mode bindings return text only** — non-text content blocks in a sub-call result collapse to `[<type> content]` placeholders.
+- **`run_code` state is fresh per run** — a persistent REPL-style kernel is rejected for the MVP (cross-call state would be invisible to the log); see [the Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md).

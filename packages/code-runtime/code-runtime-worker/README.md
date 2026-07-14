@@ -30,3 +30,15 @@ Every field is validated (positive numbers) and defaulted; there are no other tu
 ## The worker entry, unbuilt and built
 
 `worker.ts` is deliberately erasable-only TypeScript with type-only cross-package imports: unbuilt (vitest/tsx), the host spawns `src/worker.ts` directly and Node's native type stripping loads it; built, the entry ships as the sibling CommonJS bundle `lib/worker.cjs` (its own tsdown entry). The CommonJS format is required because pkg's VFS Worker hook compiles filesystem-string entries as CommonJS. The host converts either entry URL to a filesystem string before constructing `Worker`, which works through both ordinary Node resolution and that pkg hook. The built path is pinned by `tests/built-lib.e2e.ts`, the real-load-path guard from [docs/testing.md](../../../docs/testing.md).
+
+## Model Experience
+
+Indirectly, through Code Mode in `dsh-tools`, which renders this worker's capped printed or returned data, exact `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes` and `… [truncated]` markers, and `Error: code run failed (<kind>): <message>` failures into a retained `run_code` result while keeping binding traffic and worker internals outside context.
+
+## Known Limitations and Deferred Work
+
+- **OS processes a program spawns survive termination** — `worker.terminate()` ends the thread only, weaker than bash-local's process-group kill; orphan cleanup is a deployment concern until a container backend exists.
+- **Type-strip rides Node's experimental `stripTypeScriptTypes` API** — the relied-on behavior is pinned by unit tests, with amaro/sucrase as named drop-in replacements if it shifts.
+- **`computeMs` expiry can overshoot by up to one poll interval** — busy time is sampled every 25 ms (an internal constant, deliberately not config).
+- **Programs get a five-method `console` shim** (`log`/`info`/`warn`/`error`/`debug`) — deliberately not Node's full console surface.
+- **A non-cloneable or oversize completion value does not cross as a value** — it arrives as a bounded, truncation-marked `util.inspect` rendering in `value`'s place.
