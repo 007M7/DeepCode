@@ -82,7 +82,7 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      # The with-key escalation e2e (examples/sandbox-acp-agent/tests/
+      # The with-key escalation e2e (examples/acp-agent/tests/
       # escalation.e2e.ts) self-skips without a usable runner — without this
       # step it would never actually execute anywhere (CI had no bwrap, dev
       # macs run Seatbelt instead), which is exactly how a broken harness

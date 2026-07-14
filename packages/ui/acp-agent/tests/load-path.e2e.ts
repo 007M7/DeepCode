@@ -82,7 +82,7 @@ async function boot(): Promise<Spawned & { cwd: string }> {
   await writeFile(configPath, CORDIS_YML)
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
+    ['--import', tsxLoader, binScript, '--config', configPath],
     {
       cwd,
       env: {
