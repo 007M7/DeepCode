@@ -18,7 +18,7 @@ This proposal deliberately retains append and replacement `sourceEventSeqs`, cra
 
 Request headers use canonical full snapshots only. Initial and resume anchors remain full snapshots even when unchanged; an in-instance change appends another full `request/header` with reason `change`. The delta event, codec types, diff/apply helpers, and codec-only `fallback` reason are removed. Request reconstruction selects the latest snapshot.
 
-`SESSION_FORMAT_VERSION` remains pinned at `0`, so seed and persistence-load validation explicitly reject an old v0 log containing `request/header-delta`. There is no compatibility fold or migration. JSONL and SQLite tests pin this fail-loud boundary, and the ACP snapshot harness represents legitimate mid-session changes as full pinned headers and full readable prompts.
+`SESSION_FORMAT_VERSION` remains pinned at `0`, so seed, append, and persistence-load validation explicitly reject old v0 `request/header-delta` events and full snapshots carrying the removed `fallback` reason. There is no compatibility fold or migration. JSONL and SQLite tests pin this fail-loud boundary, and the ACP snapshot harness represents legitimate mid-session changes as full pinned headers and full readable prompts.
 
 ## Alternatives considered
 

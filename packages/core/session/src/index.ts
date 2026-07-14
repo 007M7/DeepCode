@@ -212,6 +212,15 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   }
 }
 
+/** Reject request-header vocabulary removed with the legacy delta codec. */
+function assertSupportedRequestHeader(type: string, data: unknown, location: string): void {
+  if (type === 'request/header'
+    && data !== null && typeof data === 'object' && !Array.isArray(data)
+    && (data as Record<string, unknown>)['reason'] === 'fallback') {
+    throw new Error(`${location} uses unsupported legacy request/header reason "fallback"`)
+  }
+}
+
 type SessionCallback = (...args: unknown[]) => unknown
 
 /** Resolve one listener snapshot, including Cordis's internal dispatch checks. */
@@ -306,6 +315,7 @@ export class Session {
           throw new Error(`seed event at index ${index} is not losslessly JSON-serializable`)
         }
         assertSessionEventEnvelope(snapshot, index)
+        assertSupportedRequestHeader(snapshot.type, snapshot.data, `seed event at index ${index}`)
         if (snapshot.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
@@ -391,6 +401,7 @@ export class Session {
     if (dataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
+    assertSupportedRequestHeader(type, dataSnapshot, `session event "${type}"`)
     const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
