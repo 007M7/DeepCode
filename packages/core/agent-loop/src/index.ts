@@ -45,6 +45,7 @@ const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
 class FactoryOwnership {
   private accepting = true
   private transactions = new Set<AgentCreationTransaction>()
+  private startupTasks = new Set<Promise<void>>()
 
   constructor(private readonly fiber: Context['fiber']) {}
 
@@ -57,12 +58,20 @@ class FactoryOwnership {
     return () => { this.transactions.delete(transaction) }
   }
 
+  /** Join config startup work that begins before an agent transaction exists. */
+  trackStartup(task: Promise<void>): void {
+    this.startupTasks.add(task)
+    const forget = () => { this.startupTasks.delete(task) }
+    void task.then(forget, forget)
+  }
+
   async dispose(): Promise<void> {
     this.accepting = false
     const reason = new Error('agent loop is not active')
-    await Promise.all(
-      [...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
-    )
+    await Promise.all([
+      ...[...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
+      ...this.startupTasks,
+    ])
   }
 }
 
@@ -371,9 +380,10 @@ export class AgentLoop extends Service implements AgentFactory {
         if (persistence === undefined) {
           this.create(configuredId, options, meta)
         } else {
-          void this.restoreOrCreateConfigured(ctx, persistence, configuredId, options, meta).catch((error: unknown) => {
+          const startup = this.restoreOrCreateConfigured(ctx, persistence, configuredId, options, meta).catch((error: unknown) => {
             ctx.logger.warn(`agent "${id}": config-driven restore of "${configuredId}" failed: ${String(error)}`)
           })
+          this.ownership.trackStartup(startup)
         }
         continue
       }
@@ -403,6 +413,7 @@ export class AgentLoop extends Service implements AgentFactory {
     meta: Pick<SessionHeader, 'cwd'>,
   ): Promise<void> {
     const exists = (await persistence.list()).some(header => header.id === sessionId)
+    if (!this.ownership.isActive()) return
     if (exists) {
       await this.resumeWith(ownerCtx, persistence, { resumeSessionId: sessionId, agentOptions })
       return
