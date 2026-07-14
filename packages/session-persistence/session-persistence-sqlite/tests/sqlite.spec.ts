@@ -161,6 +161,25 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await mounted.dispose()
   })
 
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-fallback', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+      .run(m.id, 0, 'request/header', 1, JSON.stringify({
+        header: { config: { model: 'legacy' } },
+        reason: 'fallback',
+      }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
+    await mounted.dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
