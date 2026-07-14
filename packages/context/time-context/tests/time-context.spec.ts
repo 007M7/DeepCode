@@ -117,6 +117,7 @@ describe('temporal section rendering', () => {
     const session = new Session(SessionId('offset'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
       turn: 1,
       step: 1,
       content: [{ type: 'text', text: 'previous' }],
@@ -136,6 +137,7 @@ describe('temporal section rendering', () => {
     const session = new Session(SessionId('backward-duration'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
       turn: 1,
       step: 1,
       content: [{ type: 'text', text: 'future by adjusted clock' }],
@@ -152,7 +154,7 @@ describe('temporal section rendering', () => {
       session.append('user/message', { content: [{ type: 'text', text: 'u' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     }],
     ['assistant/message', (session: Session): void => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
     }],
     ['tool/result', (session: Session): void => {
       session.append('tool/result', {
@@ -239,6 +241,7 @@ describe('refresh policy', () => {
     const first = await sectionText(ctx, agent)
     vi.setSystemTime(BASE + 1_000)
     session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
       turn: 1,
       step: 1,
       content: [{ type: 'text', text: 'done' }],
@@ -330,7 +333,7 @@ describe('real agent-loop request logging', () => {
         return [{ type: 'text' as const, text: 'advanced' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('loop'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('loop'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
