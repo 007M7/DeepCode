@@ -1,16 +1,8 @@
 /**
- * Integration tests: the real local backend (`dsh-fs-local`) plus the model
- * tools (`dsh-tool-fs`) as the executor, exercised through `ctx.tools.execute()`
- * so nothing bypasses the tool registry. Two deployments:
- *
- *  - DEFAULT — with the real `dsh-fs-policy` policy gate plugin: read-before-
- *    write/edit, version-guarded mutation, FS_NOT_OBSERVED for unread edits.
- *  - BARE — WITHOUT the policy plugin: every `fs/*` waterfall falls through to
- *    its undefined default, so write/edit are unconditional. This proves the
- *    tool carries no dependency on the policy plugin.
- *
- * These verify the WORLD — files are read back from disk and asserted
- * byte-for-byte — not the tool's self-report.
+ * End-to-end tool-registry tests against the real local backend. The policy deployment verifies
+ * observed-state and guarded mutation; the bare deployment proves unconditional tools have no
+ * policy-service dependency. Assertions read files back byte-for-byte rather than trusting tool
+ * messages.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,9 +20,7 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 let dir: string
 let ctx: Context
 let fiber: Awaited<ReturnType<Context['plugin']>>
-// A stable session object stands in for an agent session (the file-state
-// owner). It carries a `header` (no `cwd`) so `sessionCwd(exec)` resolves to
-// `undefined` and the backend falls back to its configured cwd (= `dir`).
+// No header cwd: sessionCwd returns undefined and the provider's configured test dir applies.
 const session = { header: {} }
 
 let callCounter = 0
@@ -290,13 +280,9 @@ describe('bare provider (no dsh-fs-policy)', () => {
   })
 })
 
-// --------------------------------------------------------------------------
-// Per-session cwd: a relative file_path resolves against the CALLING session's
-// workspace (`exec.agent.session.header.cwd`), NOT the backend's config.cwd —
-// so an ACP editor's per-session dir wins, matching dsh-tool-bash. The regression
-// this guards: before the seam fix the tool passed no cwd, so a relative write
-// landed in config.cwd instead of the session dir.
-// --------------------------------------------------------------------------
+// Per-session cwd: a relative file_path resolves against the calling session's workspace
+// (`exec.agent.session.header.cwd`), not the backend's config.cwd — so an ACP editor's
+// per-session dir wins, matching dsh-tool-bash.
 describe('per-session cwd', () => {
   let sessionDir: string
   beforeEach(async () => {
@@ -399,9 +385,8 @@ describe('signal, concurrency, and the fs/observed contract', () => {
   })
 
   it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {
-    // fs/observed is a plain ctx.emit AFTER the write succeeded; a throwing
-    // listener cannot roll the write back — it only turns the tool result into
-    // isError. The file must still carry the written bytes.
+    // fs/observed is a plain ctx.emit after the write succeeded; a throwing listener cannot
+    // roll the write back — it only turns the tool result into isError.
     ctx.on('fs/observed', () => { throw new Error('recording bug') })
     const result = await callOwned('write', { file_path: 'w.txt', content: 'durable' })
     expect(result.isError).toBe(true)

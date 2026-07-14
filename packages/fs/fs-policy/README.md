@@ -37,7 +37,7 @@ Three `fs/*` events (declared by `@deepseek-ai/dsh-fs`, dispatched by `@deepseek
 
 ## Observed state is the prior-observation record; freshness is provider CAS
 
-Observed state is a `WeakMap<owner, Map<targetKey, FsVersion>>`. An entry exists **iff** the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence is the prior-observation record — there is no `hasRead` flag and no `full`/`partial` view. This plugin does **no** filesystem I/O: "have you observed this file?" is a `WeakMap` lookup, and "is the version you read still current?" is decided inside `ctx.fs.editText`/`writeText` in the same atomic lock that performs the mutation — this plugin only supplies `vObserved` as the basis. A windowed read of lines 100-150 records the file's version, and a later edit of line 120 is authorized as long as the file is unchanged. State is held weakly and dropped on disposal (HMR safety); persistence across sessions is deferred.
+Observed state is a weak owner-to-target version map updated after every successful read or mutation; presence alone is the prior-observation record. The plugin performs no filesystem I/O: it supplies the observed version to the provider's atomic mutation guard. A windowed read observes the whole file version, so a later targeted edit is allowed only while that file remains unchanged. State is discarded on plugin disposal and is not persisted across sessions.
 
 ## Single-slot, first-wins
 
@@ -51,7 +51,7 @@ Because the plugin influences the world only through events, removing it does no
 
 ### Filesystem tool outcome
 
-**What the model sees**: This plugin adds no prompt or schema. Through `dsh-tool-fs`, an edit without a prior read becomes exactly `Error: edit requires reading "<path>" first` with code `FS_NOT_OBSERVED`; guarded mutations whose observed version is stale receive the backend's exact `Error: cannot <write-or-edit> "<path>": file changed since it was read` with code `FS_STALE_VERSION`. Observation state itself is never shown.
+**What the model sees**: This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper; observation state is never shown.
 
 **Token effect**: Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
 

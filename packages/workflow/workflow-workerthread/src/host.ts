@@ -1,43 +1,8 @@
 /**
- * The host half of one worker-engine run: spawn the Worker, bridge its child
- * RPC onto the holder-bound subagent service, fan its observer messages into
- * the engine's events, and own cancellation, the settle-within-grace
- * guarantee, and child cleanup. The worker's lifetime IS the run's lifetime:
- * `dispose()` always ends with `worker.terminate()`, so no thread outlives its
- * run.
- *
- * The run's `result` promise settles exactly once, from whichever of these
- * lands first: receipt of the worker's `result` message, an unexpected worker
- * death (`error`/`messageerror`/premature `exit` → `stopReason: 'error'`, or
- * `'cancelled'` when a cancel was in flight), or the post-cancel grace timer (a
- * script that never settles is force-settled `cancelled` and its worker
- * terminated — the real kill an in-process engine could not perform). At
- * `result` receipt the host snapshots whether caller/signal/dispose
- * cancellation is already in flight: an earlier cancellation overrides a
- * non-cancelled report; otherwise the report wins before settlement-only child
- * cleanup invokes arbitrary provider callbacks. Worker death uses the same
- * boundary: it claims `error` (or a previously requested `cancelled`) before
- * reaping children, so cleanup callbacks cannot rewrite the outcome. That
- * first signal also closes inbound message admission: Node may emit `error`,
- * then deliver queued messages, then emit `exit`, but those late messages may
- * neither create work nor narrate after settlement. If Result or grace already
- * owns the outcome, death preserves it while still cleaning resources; the
- * eventual exit performs a final disposal-only sweep without repeating child
- * cancellation.
- *
- * Provider starts and published children are tracked separately. Every start
- * receives one shared per-run abort signal; the provider owns partial setup
- * until its promise fulfills. If admission closes while a start is pending,
- * the signal aborts it; a late fulfillment is disposed without publication to
- * the worker. Ready runs enter a callId registry whose memoized disposal is
- * shared by graceful worker RPC, public disposal, normal-settlement reap, and
- * worker-death cleanup. Quiescence requires both pending starts and published
- * children to drain. Lifecycle pairing is host-guaranteed independently:
- * every forwarded `agent-start` enters a ledger, and a dead or terminated
- * worker's missing `agent-end` is synthesized exactly once as cancelled. On a
- * termination path `agentsStarted` reports the host-observed child-start count;
- * calls still queued worker-side for a concurrency slot are unknowable.
- *
+ * Host side of one workflow run. The first worker result, unexpected death, or
+ * cancellation-grace expiry owns settlement and closes message admission.
+ * Pending starts share one abort signal; published children share idempotent
+ * cleanup, and quiescence waits for both while synthesizing any missing end events.
  * @module @deepseek-ai/dsh-workflow-workerthread/host
  */
 
@@ -64,29 +29,10 @@ interface ChildRecord {
 }
 
 /**
- * Resolve the worker entry and spawn options for the current runtime shape.
- * Unbuilt (tsx demos, vitest — `import.meta.url` points into `src/`), the
- * entry is a JavaScript data-URL bootstrap. That bootstrap runs INSIDE the
- * user worker, registers tsx's ESM AND CommonJS transforms there, and only
- * then imports the TypeScript sibling. The whole mixed-module source graph
- * therefore receives TypeScript transformation and the tsconfig paths map in
- * the worker's own module-loader realm. A worker inherits no
- * transform pipeline from vitest (vite transforms in-process), and a parent
- * `--import tsx` registration is not a contract that user workers share on
- * every supported Node line. Built (`lib/index.js`), the entry is the sibling
- * bundle the package tsdown config emits and no loader is needed (`execArgv`
- * pinned empty in both shapes — hermetic, like the environment).
- *
- * Both shapes spawn with an EMPTY environment (`env: {}`): the documented vm
- * escape reaches `process`, and the harness's ambient credentials
- * (`DEEPSEEK_API_KEY` et al.) must not ride along — the same stance as
- * `dsh-code-runtime-worker`, stronger than the scrubbed env the
- * defensive-patterns rule requires for spawned commands (a shell needs PATH;
- * this worker needs nothing). Sole exception: the unbuilt shape forwards
- * `TSX_TSCONFIG_PATH` when the parent carries it (loader plumbing the paths
- * map depends on outside the repo cwd, not a secret). This closes the
- * AMBIENT channel only — an escapee still holds process-wide privileges
- * like fs access (the README's trust premise stands).
+ * Resolve a built worker bundle or an unbuilt bootstrap that installs both tsx
+ * transforms inside the worker. Both shapes clear `execArgv` and the ambient
+ * environment; the unbuilt shape forwards only `TSX_TSCONFIG_PATH` for path
+ * resolution.
  * @param init - the run payload, passed as `workerData`.
  * @returns the entry path or URL and the Worker options to spawn it with.
  */
@@ -95,15 +41,7 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: string | URL; options: W
   if (!import.meta.url.endsWith('.ts')) {
     return { entry: fileURLToPath(new URL('./worker.cjs', import.meta.url)), options: { workerData: init, env: {}, execArgv: [] } }
   }
-  // Resolve tsx lazily: only the unbuilt shape executes this arm, so a built
-  // consumer never needs the dev-only loader installed. A JavaScript entry is
-  // essential — it can install tsx's ESM and CommonJS hooks from INSIDE the
-  // user worker before any TypeScript enters Node's native strip-only parser.
-  // Both hooks are load-bearing because the source graph crosses both module
-  // shapes on supported Node lines. TSX_TSCONFIG_PATH is
-  // the one variable forwarded through the scrub: a parent running outside
-  // the repo cwd (the ACP snapshot harness is the real case) pins the paths
-  // map through it. Loader plumbing, not a secret.
+  // Resolve tsx only for unbuilt consumers and install it before importing TS.
   const workerEntry = new URL('./worker.ts', import.meta.url)
   const tsxEsmApiEntry = import.meta.resolve('tsx/esm/api')
   const tsxCjsApiEntry = import.meta.resolve('tsx/cjs/api')

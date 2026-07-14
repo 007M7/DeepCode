@@ -9,16 +9,9 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as acp from '../src/index.ts'
 
 /**
- * With-key e2e for the ACP subagent backend: the harness drives ITSELF as an ACP
- * server. The backend spawns the real `acp-agent` example as a child PROCESS,
- * speaks ACP to it over stdio, and the child runs the REAL model in its own
- * process to answer a prompt. We verify the child's real answer comes back
- * through the seam — the "talk to our own process" smoke the design called for.
- * Key-gated (self-skips without DEEPSEEK_API_KEY).
- *
- * This is the out-of-process analogue of the in-process spawn e2e: there a
- * parent agent on the same context drove a child; here the child is a separate
- * process reached over ACP, proving the seam generalizes across the boundary.
+ * With-key cross-process seam proof: the backend spawns the real acp-agent example, speaks ACP over
+ * stdio, and returns its real model answer. This is the out-of-process counterpart to in-process
+ * spawn coverage and self-skips without `DEEPSEEK_API_KEY`.
  */
 
 // The real acp-agent example: its bin + cordis.yml (the live DeepSeek config).

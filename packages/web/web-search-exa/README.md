@@ -27,7 +27,7 @@ Exa returns a flat `results[]` and no generated answer, so `content` is omitted.
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-web`, which retains this provider's `maxResults`-bounded URLs, titles, first highlights, and publication dates or exact `Error: Exa search aborted`, `Error: Exa search request failed: <error>`, and `Error: Exa returned an unprocessable response body: <error>` failures while generated answers and provider-private fields remain outside context.
+Indirectly, through [`dsh-tool-web`](../tool-web/README.md), which retains this provider's `maxResults`-bounded URLs, titles, first highlights, and publication dates or its exact `Exa search aborted`, `Exa search request failed: <error>`, and `Exa returned an unprocessable response body: <error>` failures under the consumer's error wrapper while generated answers and provider-private fields remain outside context.
 
 ## Known Limitations and Deferred Work
 

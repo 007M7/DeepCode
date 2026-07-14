@@ -35,7 +35,7 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 ### Conversation tool result, indirectly
 
-**What the model sees**: Through `dsh-tool-web`, the conversation model sees the generated answer plus structured result metadata or URL-only citations. Failures become `Error: Perplexity search aborted`, `Error: Perplexity search request failed: <error>`, or `Error: Perplexity returned an unprocessable response body: <error>`; HTTP failures pass through their provider message after `Error:`.
+**What the model sees**: Through [`dsh-tool-web`](../tool-web/README.md), the conversation model sees the generated answer plus structured result metadata or URL-only citations. This provider's exact failures are `Perplexity search aborted`, `Perplexity search request failed: <error>`, and `Perplexity returned an unprocessable response body: <error>`; HTTP failures preserve the provider message. The consumer owns the error wrapper.
 
 **Token effect**: Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result or error is resent until compaction.
 

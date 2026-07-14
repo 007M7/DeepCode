@@ -1,21 +1,8 @@
 /**
- * Generate (and verify) the relationship-diagram docs.
- *
- * This is the relationship layer above the existing catalogs:
- * - module-graph.md answers "which packages depend on which packages?"
- * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog.md answers "which tools does the model see?"
- * - generated relationship diagrams answer "how do those pieces fit together?"
- *
- * Generated pages discover the enumerable facts from source. Hybrid pages use
- * discovered inventory plus small manifests for policy that source cannot infer
- * (for example, whether a package is an implementation or consumer in a seam).
- * Curated pages are still emitted here so the graph docs are one regenerated unit,
- * but their diagrams intentionally explain flow and ownership rather than
- * pretending to enumerate every source edge.
- *
- *   `tsx scripts/gen-doc-graphs.ts`          -> write generated diagram docs
- *   `tsx scripts/gen-doc-graphs.ts --check`  -> exit 1 if any file is stale
+ * Generate the relationship layer above the module, Cordis, and tool catalogs.
+ * Enumerable facts come from source; hybrid graphs add manifests for policy the
+ * source cannot infer, while curated graphs explain flow and ownership.
+ * `--check` verifies the generated set.
  */
 
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -576,13 +563,8 @@ function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.Sourc
   }
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
-  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
-  // dispatcher (`events` from `agentEvents(ctx, agent)`), an agent's setup
-  // context (`childCtx`), the agent's own context handle (`this.loopCtx`), and
-  // the session store's captured dispatch context (`emitCtx`). Conventional
-  // receiver names, pinned by the fused-dispatch convention; a rename here
-  // must update this list (the producer/consumer matrix silently losing a
-  // dispatcher or listener is the failure mode this list exists to prevent).
+  // Scoped-dispatch spellings are conventional names. Keep this list in sync
+  // with renames or the relationship matrix can silently lose an edge.
   return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
@@ -629,13 +611,8 @@ function renderEventRelations(pkgs: Pkg[]): string {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
-  // Completeness guard: every DECLARED event must have at least one dispatcher
-  // edge — a zero-dispatcher row is either dead vocabulary or (the observed
-  // failure mode) a dispatch spelling the AST scan does not recognize, silently
-  // dropping the producer from the matrix. Fail the generation loud instead:
-  // teach the scan the new spelling, add a DYNAMIC_EVENT_DISPATCHERS override,
-  // or remove the dead event. Zero LISTENERS is deliberately legal — an event
-  // dispatched for out-of-repo plugins is an ordinary extension point.
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized dispatch spelling. Listener-free extension points remain valid.
   const undispatched = [...events]
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
@@ -762,7 +739,7 @@ function renderToolPipeline(): string {
     '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The synchronous `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
