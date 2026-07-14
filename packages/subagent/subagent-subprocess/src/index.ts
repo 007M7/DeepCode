@@ -2,11 +2,10 @@
  * Shared machinery for OUT-OF-PROCESS subagent backends — providers that spawn
  * an external agent as a child process and must keep the parent deployment's
  * credentials out of it, tear it down to quiescence, and isolate it from the
- * host user's on-disk CLI state. The pieces: the credential env scrub
- * ({@link SENSITIVE_ENV_PATTERN} / {@link buildChildEnv}), the spawn-failure
- * capture ({@link spawnFailure}), the child-exit waits ({@link waitForExit} /
- * {@link exitsWithin}), the stdin-EOF → SIGTERM → SIGKILL dispose ladder
- * ({@link disposeChildProcess}), and the per-run isolated config dir
+ * host user's on-disk CLI state. The pieces: credential-shaped env scrubbing
+ * ({@link buildChildEnv}), spawn-failure capture ({@link spawnFailure}),
+ * bounded child-exit waits inside the stdin-EOF → SIGTERM → SIGKILL dispose
+ * ladder ({@link disposeChildProcess}), and the per-run isolated config dir
  * ({@link createIsolatedConfigDir}).
  *
  * This package owns no provider and registers nothing; it is a pure library
@@ -37,8 +36,7 @@ const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 /**
  * The ambient env minus credential-shaped vars, plus the caller's explicit
  * env. `PATH`, `HOME`, `TMPDIR`, locale, and proxy vars survive the scrub, so
- * a child CLI runs normally; only {@link SENSITIVE_ENV_PATTERN}-shaped names
- * are dropped.
+ * a child CLI runs normally; only credential-shaped names are dropped.
  * @param extra - explicit vars layered on top AFTER the scrub, so a
  * credential-shaped name supplied deliberately still reaches the child.
  * @returns the environment to spawn the child with.

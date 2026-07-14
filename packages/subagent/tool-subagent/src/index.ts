@@ -12,11 +12,11 @@
  * sees only `{ description, prompt }`.
  *
  * The tool DESCRIPTION is derived from the bound provider's conversation-history
- * descriptor ({@link providerWording}): a fresh-conversation provider (spawn,
- * ACP) gets the standalone-prompt wording, while a seeded-conversation provider
- * (fork) tells the model the child already sees the conversation's completed
- * turns. This descriptor says nothing about Cordis scope, services, tools, or
- * authority. The tool MIRRORS the
+ * descriptor ({@link SubagentProvider.inheritsParentContext}): a
+ * fresh-conversation provider (spawn, ACP) gets the standalone-prompt wording,
+ * while a seeded-conversation provider (fork) tells the model the child already
+ * sees the conversation's completed turns. This descriptor says nothing about
+ * Cordis scope, services, tools, or authority. The tool MIRRORS the
  * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
  * when the provider is (or becomes) available and unregisters when the
  * provider goes away — so no load-order requirement exists and an HMR reload
