@@ -8,7 +8,9 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 The provider owns **safe resource retrieval**: URL validation, HTTP transport, redirect policy, a resource-backstop timeout, abort propagation, byte caps, charset decoding, content-type classification, and binary rejection. `@deepseek-ai/dsh-tool-web` owns **presentation** (HTML→markdown, truncation formatting). A non-2xx HTTP response is a *result* (status code + decoded body), not an error; `WebError` is reserved for failures to safely retrieve or represent the resource.
 
-The provider's `timeoutMs`/`maxTimeoutMs` is a **resource backstop** for direct `ctx.web.fetch()` callers and misconfigured deployments — it is NOT the model-facing tool-call budget. The tool-call budget for `web_fetch` is deployment policy owned by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md), which arms a per-call deadline on `exec.signal`. A shipped web-tool deployment sets the provider backstop **above** the `tool-timeout` budget, so the tool-call policy normally wins for model calls (returning `TOOL_TIMEOUT`); when the outer deadline signal reaches this provider first, it classifies as `WEB_ABORTED` and the outer wrapper replaces the result with `TOOL_TIMEOUT`. The provider's own `WEB_FETCH_TIMEOUT` only fires for a direct seam caller whose own budget elapsed.
+The provider's `timeoutMs`/`maxTimeoutMs` is a resource backstop for direct `ctx.web.fetch()` callers and misconfigured deployments, not the model-facing tool-call budget. [`dsh-timeout-policy`](../../timeout/timeout-policy/README.md) owns the `web_fetch` tool-call budget by arming `exec.signal`.
+
+A shipping web-tool deployment sets the provider backstop above the tool budget, so model calls normally return `TOOL_TIMEOUT`. If the outer deadline reaches the provider first, the provider reports `WEB_ABORTED` and the outer policy replaces it with `TOOL_TIMEOUT`. `WEB_FETCH_TIMEOUT` therefore identifies a direct seam caller whose provider budget elapsed.
 
 ## Transport hygiene
 
@@ -35,7 +37,7 @@ The numeric limits are validated at plugin construction: every cap except `maxRe
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-web`, which renders this provider's `maxBodyChars`-bounded decoded text or markdown-shaped HTML under the exact fetch header and its stable failures under `Error: <message>` into retained tool history while redirects, headers, and transport mechanics remain hidden.
+Indirectly, through [`dsh-tool-web`](../tool-web/README.md), which places this provider's `maxBodyChars`-bounded decoded text or markdown-shaped HTML under its fetch-result wrapper and retains provider failures while redirects, headers, and transport mechanics remain hidden.
 
 ## Known Limitations and Deferred Work
 

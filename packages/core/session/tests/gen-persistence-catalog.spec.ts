@@ -1,16 +1,6 @@
 /**
  * Negative-path tests for the persistence log catalog generator
  * (`scripts/gen-persistence-catalog.ts`).
- *
- * The generated catalog is frozen by a regenerate-and-diff freshness gate, so
- * the freshness half is exercised by `pnpm run verify-persistence-catalog` in
- * CI. What a freshness diff CANNOT prove is that the generator REJECTS
- * malformed source the way it promises to — a member without description
- * prose, a forbidden `@mode` tag, a non-literal member name, a duplicate event
- * declaration, a missing or ambiguous `SurfaceEventType` union, a stale union
- * member. These tests drive the exported collectors against synthetic fixture
- * packages to prove each guard fires (and that well-formed declarations pass),
- * mirroring the gen-cordis-catalog negative tests.
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'

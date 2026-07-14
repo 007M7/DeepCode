@@ -63,10 +63,8 @@ describe('BlockAssembler', () => {
 
   it('throws from assemble() when a partial has an unhandled blockType', () => {
     const assembler = new BlockAssembler()
-    // A partial whose blockType is not text/reasoning/tool-call cannot be
-    // assembled without its block-end. A plugin-added block type (here
-    // 'video', via the merge-extensible ContentBlockMap) opened by a
-    // block-start with no closing block-end exercises that throw.
+    // Unknown declaration-merged block types cannot be assembled from partial deltas. Opening a
+    // plugin-added `video` block without its required `block-end` exercises that failure.
     assembler.push({ type: 'block-start', index: 0, blockType: 'video' } as unknown as StreamChunk)
     expect(() => assembler.blocks()).toThrow('cannot assemble incomplete block of type "video"')
   })
@@ -135,13 +133,9 @@ describe('assertNever', () => {
   })
 })
 
-describe('BlockAssembler regressions (property-test findings)', () => {
+describe('BlockAssembler duplicate-close contract', () => {
   it('first block-end wins: a duplicate block-end for a closed index is ignored', () => {
-    // Found by fast-check (the property-testing RFC): two block-ends at the same index made the
-    // streamed prefix (first block) disagree with final blocks() (second
-    // block). The first close must win — same straggler rule as post-close
-    // deltas — so the prefix returned incrementally by push() and the final
-    // blocks() stay identical.
+    // The first close wins so streamed and final output cannot disagree.
     const chunks: StreamChunk[] = [
       { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'first' } },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'second' } },

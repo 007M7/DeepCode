@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-The [generated cordis catalog](2026-06-20-generated-cordis-catalog.md) already walks every harness `interface Events` member and every `ctx.<key>` service class with the TypeScript compiler API, and already hard-errors on a missing `@mode` tag — a forcing function that made dispatch modes impossible to leave undocumented. Nothing equivalent guarded the rest of the JSDoc: a service method could ship with no doc at all, and no event or method documented its parameters or return value individually. A survey at adoption found 5 public service methods with no JSDoc and roughly 139 missing `@param`/`@returns` entries across 15 files — on the product API spine (`ctx.bash`, `ctx.fs`, `ctx.sessions`, …) and the cross-plugin event payload contracts, exactly the surface where "what does this argument mean" is the question a plugin author asks the IDE.
+The generated Cordis catalog enforced event dispatch modes but not complete service and event contracts. Methods could lack descriptions, and parameters or returns could be undocumented on the cross-plugin API surface where IDE guidance matters most.
 
 The AGENTS.md rule ("every export has a JSDoc explaining semantics") is prose-checkable only by review; the repo's stated preference is to encode invariants in mechanical gates. The scope "cordis service functions and events" has a precise machine definition that only the catalog generator knows: events are the `interface Events` members inside `declare module 'cordis'`, and the service surface is the public methods of the class each `interface Context` key names. An ESLint rule cannot see that mapping; the generator computes it on every run.
 

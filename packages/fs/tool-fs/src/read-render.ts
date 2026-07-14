@@ -1,18 +1,7 @@
 /**
- * Cordis-free read rendering for `@deepseek-ai/dsh-tool-fs`: turn a file's
- * decoded text into a bounded, line-numbered window (offset/limit, byte cap,
- * per-line truncation) and format it as the model-facing text block. This is
- * the `read` tool's RENDERING detail — not a storage primitive, not freshness
- * policy — so it lives apart from the tool's I/O and event wiring as a pure,
- * independently-testable module (no cordis, no filesystem).
- *
- * The provider (`ctx.fs.readText`/`streamText`) hands back already-decoded text
- * (UTF-8 validated, binary rejected); {@link buildWindow} only scans that text
- * for newlines and builds the requested window. A capped line buffer means a
- * newline-free giant line can never balloon memory even when streamed.
- * {@link formatReadOutput} turns the resulting {@link FileReadOutcome} into the
- * `<path>/<content>` envelope the model sees.
- *
+ * Pure read presentation: turn provider-decoded text into a bounded, line-numbered window and
+ * model-facing envelope. Chunk scanning caps the current line, so even one newline-free giant
+ * line cannot grow memory without bound.
  * @module @deepseek-ai/dsh-tool-fs/read-render
  */
 
@@ -113,12 +102,8 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
 }
 
 /**
- * Build a bounded, line-numbered window from a file's decoded text chunks.
- * Accepts an `AsyncIterable<string>` (a chunked `streamText`) or an
- * `Iterable<string>` (a whole-file `readText` wrapped as `[text]`), so one code
- * path serves both. Scans for newlines with a capped line buffer (a newline-free
- * giant line is truncated, never buffered past `request.maxLineLength`),
- * enforces the byte cap, and throws `FS_NOT_FOUND` for an offset past EOF.
+ * Build one window from streamed or whole-file chunks, enforcing line and byte caps and throwing
+ * `FS_NOT_FOUND` when the requested offset is past EOF.
  * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
  * @param request - the resolved window; the caller has already applied its defaults and caps.
  * @param displayPath - the caller-facing path used in the offset-out-of-range error.

@@ -74,12 +74,9 @@ function signalAbortError(id: AgentId, signal: AbortSignal): Error {
 }
 
 /**
- * One create/resume transaction from caller ownership through unpublished
- * setup, rollback-covered publication, and final quiescent teardown.
- *
- * The class deliberately owns the state machine in one place. Registries only
- * arbitrate identity at their final `enter()` calls; before that point every
- * resource is private to this transaction.
+ * Caller-owned create/resume transaction through rollback-covered publication
+ * and quiescent teardown. Resources remain private until the final registry
+ * entry arbitrates identity.
  */
 class AgentCreationTransaction {
   private active = true

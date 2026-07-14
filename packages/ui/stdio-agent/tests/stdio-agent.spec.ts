@@ -10,20 +10,10 @@ import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
- * Unit coverage for the @deepseek-ai/dsh-stdio-agent app plugin: mounting it
- * composes the console logger, the agent-core spine (pre-creating the `main`
- * agent from the app config), the JSONL backend, and the readline UI in one
- * `ctx.plugin`. The forwarded `model` reaches the pre-created agent and
- * `persona` the system-prompt plugin; `persistenceRoot`/`welcome`/
- * `resumeSessionId` route to their backends.
- *
- * `hmr` is NOT part of this plugin (it is a leaf entry — a Loader-only dev
- * plugin the in-process tier cannot import); the keyless echo smoke in
- * `examples/echo-agent` proves the whole subprocess tree (incl. `hmr`) boots
- * through the real Loader, while the export SHAPE is pinned by this suite's
- * explicit `unwrapExports` assertion (an inject-less app would boot past a
- * stray default rather than crash). Here we assert the composition + config
- * forwarding the unit tier can reach.
+ * Unit coverage for app composition and config forwarding: console logger, pre-created main agent,
+ * agent-core spine, JSONL backend, and readline UI. HMR is a Loader-only leaf concern covered by the
+ * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
+ * survive namespace collapse while silently losing its schema.
  */
 async function mount(config: stdioAgent.Config): Promise<Context> {
   const ctx = new Context()
@@ -163,14 +153,8 @@ describe('dsh-stdio-agent app', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // Postmortem 0001 guard: a stray `export default apply` makes the Loader's
-    // `unwrapExports` (`exports.default ?? exports`) collapse the module to the
-    // bare `apply` function, DROPPING the named `name`/`Config`. This package has
-    // no `inject` export, so that collapse would NOT crash at load (the keyless
-    // echo smoke would still boot the tree) — it would silently lose its config
-    // schema. So guard the shape directly here: assert no `default` export, and
-    // that the real `unwrapExports` leaves `name`/`Config`/`apply` intact. Adding
-    // `export default` to src/index.ts fails this test.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config` while the app still boots. Guard the postmortem-0001 shape directly.
     expect('default' in stdioAgent).toBe(false)
     expect(typeof stdioAgent.apply).toBe('function')
 
