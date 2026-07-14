@@ -40,6 +40,15 @@ const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
   FiberState.FAILED,
 ])
 
+/** Render an arbitrary thrown value without letting coercion escape containment. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
 /** Factory-level ownership of every preparing or live transaction. */
 class FactoryOwnership {
   private accepting = true
@@ -421,16 +430,16 @@ export class AgentLoop extends Service implements AgentFactory {
     sessionId: SessionId,
     error: unknown,
   ): void {
-    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${String(error)}`)
+    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${renderThrown(error)}`)
     const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
         void Promise.resolve(returned).catch((listenerError: unknown) => {
-          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${String(listenerError)}`)
+          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${renderThrown(listenerError)}`)
         })
       } catch (listenerError: unknown) {
-        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${String(listenerError)}`)
+        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${renderThrown(listenerError)}`)
       }
     }
   }
