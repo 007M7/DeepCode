@@ -3,14 +3,13 @@
  * `hooks.json` on the harness's canonical interception seams. The CODEX DIALECT
  * half of the hooks subsystem.
  *
- * Codex's hook protocol is a deliberate SUBSET of Claude Code's: five hook points
- * (`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop` — no
- * subagent/notification/compaction), regex-only matchers, snake_case stdin
- * payloads with `turn_id`/`model` extras and NO trailing newline, no env vars and
- * no command substitution, and a block-only decision model (allow/ask are not
- * honored — a hook can only block, never pre-approve). The dialect-agnostic
+ * This bridge supports five of Codex's ten current hook points (`PreToolUse`,
+ * `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`), regex-only
+ * matchers, snake_case stdin payloads with `turn_id`/`model` extras and no
+ * trailing newline, no config-time placeholder substitution or plugin-env
+ * injection, and no pre-tool approval or rewrite path. The dialect-agnostic
  * primitives come from `@deepseek-ai/dsh-hook-protocol`; this bridge owns the
- * Codex-specific payloads + matcher mode + decision mapping.
+ * Codex-shaped payloads, matcher mode, and decision mapping.
  *
  * @module @deepseek-ai/dsh-hooks-codex
  */
@@ -263,9 +262,9 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // Stop → ContinuationDecision. A blocking Stop hook forces continuation.
-  // TODO(stop-loop-guard): like CC, a Stop hook that unconditionally blocks would
-  // force-continue every step (`stop_hook_active` is always false here); the
-  // loop-guard (stop_hook_active + a max-consecutive cap) is deferred.
+  // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
+  // avoid continuing the same turn indefinitely. It is always false here, so an
+  // unconditionally blocking hook force-continues every step until it self-limits.
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
     const merged = await runPoint('Stop', '', { ...turnBase(agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn })
     /* jscpd:ignore-end */

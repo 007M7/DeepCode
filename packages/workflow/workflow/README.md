@@ -38,6 +38,16 @@ Same-process event payloads are borrowed immutable values. Every listener is ind
 
 A child that resolves normally with a non-completed stop reason is not an infrastructure exception: `agent()` returns `null`, allowing the script to handle an ordinary child failure.
 
-## Non-goals
+## Model Experience
 
-Background collection, journaling/resume, saved workflows, nested `workflow()`, and token budgets are deferred. See the [dynamic-workflows RFC](../../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md).
+Indirectly, through `dsh-tool-workflow` and a workflow engine, which create child-agent requests and return a retained parent tool result.
+
+## Known Limitations and Deferred Work
+
+- **Foreground collection only** — the caller owns one live run and awaits it; background start/poll, spill handles, and detached collection are deferred.
+- **No journaling or resume** — scripts, child progress, and intermediate values are not checkpointed, so a process restart cannot continue a run.
+- **No saved or nested workflows** — the seam starts caller-supplied scripts only, and a workflow script receives no `workflow()` hook for recursive orchestration.
+- **No token-budget vocabulary** — engines cap concurrency, items, and children, but neither the request nor result accounts for model tokens across children.
+- **Runs are holder-owned, not service-tracked** — unloading the engine does not discover independent live handles; every consumer must dispose the run it started.
+
+See the [dynamic-workflows RFC](../../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md) for the deferred workflow surface.
