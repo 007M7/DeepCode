@@ -1,5 +1,7 @@
 # Responding to review across a stacked PR chain
 
+English | [中文](responding-to-pr-review-on-a-stack.zh.md)
+
 A wave of review comments lands across several PRs in a dependent stack (`A ← B ← C …`). This is the discipline for resolving it without corrupting the stack. The two invariants it rests on are standing orders in the root [AGENTS.md](../../AGENTS.md) § Conventions: merge commits only, and never rewrite a pushed branch.
 
 ## Ground rules

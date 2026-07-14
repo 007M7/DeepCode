@@ -1,5 +1,7 @@
 # Cookbook: adding a tool
 
+English | [中文](adding-a-tool.zh.md)
+
 How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/bash/tool-bash` (production-grade, three-package seam).
 
 ## The minimal shape
