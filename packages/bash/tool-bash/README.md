@@ -1,10 +1,10 @@
 # @deepseek-ai/dsh-tool-bash
 
-The model-facing bash tools — `bash`, `bash_output`, `bash_kill` — registered over the `ctx.bash` executor seam (`@deepseek-ai/dsh-bash`). Pure schema + text shaping; every process concern lives behind the seam, so sandboxed or remote executor implementations swap in without changing what the model sees.
+The model-facing bash tools — `bash`, `bash_output`, `bash_kill` — registered over the `ctx.bash` executor seam (`@deepseek-ai/dsh-bash`). This package owns schema and text shaping while process concerns stay behind the seam. Executor facts can change rendered results, and a sandboxing executor activates the escalation fields, without moving those presentation rules into the backend.
 
 Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); the plugin stays pending until `ctx.bash` exists (`inject: ['tools', 'bash', 'systemPrompt']`).
 
-The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on. Under a sandboxing executor it additionally contributes the per-agent `env:bash-sandbox` section (order 110) stating each session's EFFECTIVE mode, and the pre-step narrator — see [Per-session mode](#per-session-mode-switching-and-visibility).
+The plugin also contributes the `tool:bash` prompt section (order 105) — the cross-call habit the per-tool descriptions cannot carry: check the `[exit code: N]` marker on every result and investigate failures before moving on. A sandboxing executor changes the `bash` schema and result markers but adds no mode statement or switch notice; see [Per-session mode](#per-session-mode-switching).
 
 ## Tools
 
@@ -38,7 +38,7 @@ The owning agent's session token (`session.header.id`) is stamped onto the task 
 
 ## UI presentation
 
-These tools own how their calls render in a UI (an editor's tool-call card) via the `dsh-tools` `presentCall`/`presentResult` seam, each returning a `card`-tagged render intent — a UI never special-cases tool names. A FOREGROUND `bash` run declares a **terminal card**: `presentCall` returns `{ card: 'terminal', title, description?, cwd? }` — the **title** is the exact `command` ("ls -la src"), the model-written `description` rides along (rendered ABOVE the card), and `cwd` comes from the model `workdir` when given (absolute as-is, relative for the UI bridge to resolve against the session cwd; else left for the bridge to fill from the session cwd) — and `presentResult` returns `{ card: 'terminal', title?, output?, exitCode?, signal? }` carrying the raw output plus the parsed `exitCode`/`signal`, so a capable client (Zed) renders a terminal card with an exit-status pill. The result carries the raw `output`; the bridge DERIVES the ` ```console ` fenced fallback for a no-terminal-capability UI (the tool no longer encodes the fences itself), so the model-facing result text stays unfenced. A `run_in_background` call is NOT a terminal (it returns a task id immediately and never streams a terminal — poll with `bash_output`) and instead returns a **generic card** (`{ card: 'generic', title, kind: 'execute', rawInput: command, content: [description] }`); an `isError` result (spawn failure / abort) likewise returns a `generic` result view with no exit pill (there is no real process exit). `bash_output`/`bash_kill` return a `generic` card with a task-scoped title ("Read output from background task bash-3" / "Kill background task bash-3") and the task id as rawInput. These methods are pure/display-only (they also run on `session/load` replay), and a malformed/older logged arg shape falls back to a generic presentation rather than throwing. See `packages/core/tools` ("Tool-owned UI presentation") and `packages/ui/acp` ("Terminal card" / "Tool-call presentation").
+These tools own how their calls render in a UI (an editor's tool-call card) via the `dsh-tools` `presentCall`/`presentResult` seam, each returning a `card`-tagged render intent — a UI never special-cases tool names. A FOREGROUND `bash` run declares a **terminal card**: `presentCall` returns `{ card: 'terminal', title, description?, cwd? }` — the **title** is the exact `command` ("ls -la src"), the model-written `description` rides along (rendered ABOVE the card), and `cwd` comes from the model `workdir` when given (absolute as-is, relative for the UI bridge to resolve against the session cwd; else left for the bridge to fill from the session cwd) — and `presentResult` returns `{ card: 'terminal', title?, output?, exitCode?, signal? }` carrying the raw output plus the parsed `exitCode`/`signal`, so a capable client (Zed) renders a terminal card with an exit-status pill. The result carries the raw `output`; the bridge DERIVES the ` ```console ` fenced fallback for a no-terminal-capability UI while the tool keeps model-facing result text unfenced. A `run_in_background` call is NOT a terminal (it returns a task id immediately and never streams a terminal — poll with `bash_output`) and instead returns a **generic card** (`{ card: 'generic', title, kind: 'execute', rawInput: command, content: [description] }`); an `isError` result (spawn failure / abort) likewise returns a `generic` result view with no exit pill (there is no real process exit). `bash_output`/`bash_kill` return a `generic` card with a task-scoped title ("Read output from background task bash-3" / "Kill background task bash-3") and the task id as rawInput. These methods are pure/display-only (they also run on `session/load` replay), and a malformed/older logged arg shape falls back to a generic presentation rather than throwing. See `packages/core/tools` ("Tool-owned UI presentation") and `packages/ui/acp` ("Terminal card" / "Tool-call presentation").
 
 ## Background completion notices
 
@@ -57,3 +57,48 @@ On top of a denial sits the escalation gate ([the sandbox RFC § Escalation](../
 ## Per-session mode switching
 
 Under a sandboxing executor this plugin makes the session's standing mode override ([the sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md); the `bash/sandbox-mode` fold owned by [`dsh-bash`](../bash/README.md)) real at EXECUTION: every call is stamped `escalation grant > session override > undefined` onto `BashExecRequest.sandboxMode`; without either, the executor's `resolve()` applies its configured default. Nothing is stamped under a non-sandboxing executor (nothing would honor it) or for an agent-less caller (no session to fold). The prompt deliberately does NOT state the mode and a switch is not narrated: a standing declaration teaches the model to refuse preemptively, while the denial marker already names the mode the command ran under exactly when the boundary is hit — behavior, not belief, carries the state.
+
+## Model Experience
+
+### System prompt
+
+**What the model sees**: Every request in this plugin's registration scope contains the bash guidance below. A sandboxing executor adds no mode statement or switch notice. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+
+**Token effect**: Small fixed input cost per request while the plugin is active, unchanged by sandbox mode or mode switches.
+
+#### Bash guidance
+
+```markdown
+Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+```
+
+### Tool schemas
+
+**What the model sees**: The model sees the generated [`bash`, `bash_output`, and `bash_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash). `sandbox_permissions` and `justification` augment `bash` only when the mounted executor advertises sandboxing. Agent-scoped tool restrictions can remove the definitions for that agent.
+
+**Token effect**: Fixed schema cost on every request where the tools are visible; sandbox support adds the escalation fields and its conditional description paragraph.
+
+### Foreground result
+
+**What the model sees**: The renderer emits the data-dependent stdout tail, then optional `[stderr]` and the stderr tail. With no output it emits exactly `(no output)`. Conditional lines are exactly `[output truncated; full output: <path-or-(unavailable)>]`, `[sandbox: file access denied under <mode> mode]`, `[timed out after <timeoutMs>ms]`, `[killed by signal: <signal>]`, and `[exit code: <exitCode>]`; the sandbox escalation and runner-failure lines are quoted in [`dsh-bash-sandbox`](../bash-sandbox/README.md).
+
+**Token effect**: Zero result tokens before a call. Output is bounded per stream, while each emitted line remains in history until compaction.
+
+### Background task context and results
+
+**What the model sees**: Start returns exactly `started background task <taskId>`. Completion injects exactly `background bash task <taskId> finished <status>. Read its output with bash_output.` Reads return only the data-dependent delta or `(no new output)`, optionally `[some output was dropped from memory; full output: <paths-or-(unavailable)>]`, then exactly one of `[status: running]`, `[status: killed]`, `[status: killed by <signal>]`, or `[status: completed, exit code: <exitCode>]`. Kill returns `killed background task <taskId>` or `task <taskId> had already finished`.
+
+**Token effect**: Start and status text is small; deltas are data-dependent. The completion notice and every tool result are retained until compaction, but polling does not repeat already-delivered output.
+
+### Tool errors
+
+**What the model sees**: Validation and policy failures are normalized as `Error: <message>`. This package's stable messages are `invalid command: expected a non-empty string`, `invalid description: expected a non-empty string`, `invalid timeoutMs: expected a positive number, got <value>`, `invalid escalation: sandbox_permissions requires a justification`, `invalid escalation: justification is only valid together with sandbox_permissions`, `invalid justification: expected a non-empty sentence`, `invalid task_id: expected a string, got <value>`, `task <taskId> belongs to another session`, `sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`, `sandbox escalation to "<mode>" is not strictly wider than this call's current "<mode>" mode`, the approval-availability/rejection/cancellation variants, and `command aborted`.
+
+**Token effect**: Only the failing call adds these retained tokens; a rejected escalation does not add command output because the command does not run.
+
+## Known Limitations and Deferred Work
+
+- **Replay exit pills parse from result text** — output whose final line happens to be exactly `[exit code: N]` / `[killed by signal: …]` shows a wrong pill on session replay; a display-only known residual.
+- **The bash tools opt out of `timeout-policy` budgets** — `bash` keeps the executor-owned `BASH_TIMEOUT` path and `bash_output`/`bash_kill` declare no budget, per [the tool-call timeout-policy RFC](../../../docs/rfc/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).
+- **Completion notices do not wake an idle agent** — they become durable context for the next request; a caller needing progress now must poll `bash_output` or send another message.
+- **Tasks started outside an agent have no ownership fence** — their predictable ids are readable and killable by any caller; only agent-started tasks carry a session owner token.

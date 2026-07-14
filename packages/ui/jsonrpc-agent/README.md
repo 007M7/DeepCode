@@ -15,3 +15,13 @@ The bin owns the PROCESS-level exits: stdin EOF (the SDK client is gone — an i
 ## stdout is the protocol
 
 stdout carries only JSON-RPC frames; the bin and the app-boot guards write diagnostics to stderr only, and the booted config must load no stdout logger (see the `dsh-jsonrpc` README).
+
+## Model Experience
+
+Indirectly, through the plugins loaded from the external `cordis.yml`, which own every model-bound prompt, schema, message, and result; this bin adds none of its own.
+
+## Known Limitations and Deferred Work
+
+- **The bin cannot prove that the config serves JSON-RPC** — a valid config with no `dsh-jsonrpc` entry boots successfully and serves nothing.
+- **No built-in or default config exists** — every launch must provide `DSH_CORDIS_CONFIG` or a positional path, and deployment owns the complete plugin tree and stdout discipline.
+- **stdin EOF cuts off in-flight work** — client disappearance disposes the root immediately; callers that need orderly completion use the protocol-level `shutdown` request.
