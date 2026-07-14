@@ -145,7 +145,7 @@ describe('config-driven session id', () => {
     const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
-    const first = ctx.agents.get(sessionId) as ReactLoopAgent
+    const first = ctx.agents.get(sessionId) as Agent
 
     const flushGate = Promise.withResolvers<undefined>()
     ctx.on('session/flush', (session) => {
