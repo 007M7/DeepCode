@@ -6,7 +6,9 @@ import { defineConfig } from 'tsdown'
  * entries are JS emitted by tsc under lib/types and are bundled as two
  * single-entry passes so shared modules (realm, runtime, session) are inlined
  * into each instead of split into a hash-named chunk (the worker entry must
- * be a self-contained file the Worker constructor can load by path).
+ * be a self-contained file the Worker constructor can load by path). The
+ * worker bundle is CommonJS because pkg's VFS Worker hook compiles
+ * filesystem-string entries as CommonJS.
  */
 export default defineConfig([
   {
@@ -22,7 +24,7 @@ export default defineConfig([
   {
     entry: ['lib/types/worker.js'],
     outDir: 'lib',
-    format: ['esm'],
+    format: ['cjs'],
     platform: 'node',
     target: 'es2024',
     fixedExtension: false,

@@ -135,6 +135,30 @@ class RecordingSandboxExecutor extends BashExecutor {
   }
 }
 
+/** Test executor that records whether the background start boundary was crossed. */
+class CountingStartExecutor extends BashExecutor {
+  starts = 0
+
+  resolve(request: BashExecRequest): BashExecSpec {
+    return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
+  }
+
+  run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
+
+  start(spec: BashExecSpec): BashProcess {
+    this.starts += 1
+    return {
+      command: spec.command,
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      readOutput: () => ({ delta: '', lossy: false }),
+      kill: () => false,
+    }
+  }
+}
+
 async function setupSandboxed(withApproval = false) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -412,25 +436,6 @@ describe('background execution through the task runtime', () => {
   })
 
   it('a pre-aborted call refuses to start: isError, no process spawned', async () => {
-    class CountingStartExecutor extends BashExecutor {
-      starts = 0
-      resolve(request: BashExecRequest): BashExecSpec {
-        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
-      }
-      run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
-      start(spec: BashExecSpec): BashProcess {
-        this.starts += 1
-        return {
-          command: spec.command,
-          status: 'completed',
-          exitCode: 0,
-          signal: null,
-          done: Promise.resolve(),
-          readOutput: () => ({ delta: '', lossy: false }),
-          kill: () => false,
-        }
-      }
-    }
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -454,26 +459,6 @@ describe('background execution through the task runtime', () => {
   })
 
   it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
-    class LeakProbeExecutor extends BashExecutor {
-      starts = 0
-      resolve(request: BashExecRequest): BashExecSpec {
-        return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
-      }
-
-      run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
-      start(spec: BashExecSpec): BashProcess {
-        this.starts += 1
-        return {
-          command: spec.command,
-          status: 'completed',
-          exitCode: 0,
-          signal: null,
-          done: Promise.resolve(),
-          readOutput: () => ({ delta: '', lossy: false }),
-          kill: () => false,
-        }
-      }
-    }
     // TaskService WITHOUT any control surface: tasks.start preflights that
     // fence BEFORE invoking the producer's run(), so the executor is never
     // asked to spawn — there is no orphan to roll back.
@@ -482,14 +467,14 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TaskService)
-    await ctx.plugin(LeakProbeExecutor)
+    await ctx.plugin(CountingStartExecutor)
     await ctx.plugin(ToolBash)
 
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('no control surface is attached')
     // Declare-then-execute: the failed preflight means no process ever ran.
-    expect((ctx.bash as LeakProbeExecutor).starts).toBe(0)
+    expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
 
   it('enableRunInBackground: false removes the parameter and flips the description', async () => {
