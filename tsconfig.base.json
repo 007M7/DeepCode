@@ -57,6 +57,7 @@
         "./packages/sandbox/*/src",
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
+        "./packages/session-query/*/src",
         "./packages/ui/*/src",
         "./packages/util/*/src",
         "./packages/support/*/src"

@@ -6,6 +6,7 @@ Integrations that expose the agent to an external editor or client. These are **
 |---|---|---|
 | `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor (Zed) over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `user-approval/` | One-shot user-approval mechanism, closed outcome vocabulary, audit events, and per-session approval policy | `ctx.approval` |
+| `permission/` | User-facing permission presets (`workspace-write`/`danger-full-access`): one product-level select bundling the sandbox-mode and approval-policy knobs, written through to their session events | `ctx.permission` |
 | `user-interaction/` | Abstract human question/answer seam used by UI-backed confirmation tools | `ctx.userInteraction` |
 | `tool-ask-user/` | Model-facing `ask_user_question` tool over `ctx.userInteraction` | (registers on `ctx.tools`) |
 | `stdio-agent/` | Terminal stdio chat APP: the agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |

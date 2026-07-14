@@ -175,6 +175,26 @@ export interface SurfaceIntent {
 
 Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
 
+### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
+
+`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history.
+
+```ts type-equiv
+export interface SurfaceFoldReplacement {
+  seq: number
+  start: number
+  end: number
+  shadowedSeqs: number[]
+}
+```
+
+```ts type-equiv
+export interface SurfaceFoldResult {
+  nodes: number[]
+  replacements: SurfaceFoldReplacement[]
+}
+```
+
 ## Derived history: `deriveMessages()` and `deriveEventMessage()`
 
 `Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:

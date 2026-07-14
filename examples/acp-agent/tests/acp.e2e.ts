@@ -25,6 +25,7 @@ const AGENT: AgentUnderTest = {
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
+const DANGER_FULL_ACCESS_ENV = { DSH_PERMISSION_MODE: 'danger-full-access' }
 
 let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
@@ -52,7 +53,10 @@ describe('acp-agent over real stdio (no key required)', () => {
     spawned = launchAcpTestAgent({
       agent: AGENT,
       cwd: workdir,
-      env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      env: {
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        ...DANGER_FULL_ACCESS_ENV,
+      },
     })
     await spawned.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
 
@@ -83,7 +87,10 @@ describe('acp-agent over real stdio (no key required)', () => {
     spawned = launchAcpTestAgent({
       agent: AGENT,
       cwd: workdir,
-      env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      env: {
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        ...DANGER_FULL_ACCESS_ENV,
+      },
     })
     const { client } = spawned
 
@@ -97,7 +104,7 @@ describe('acp-agent over real stdio (no key required)', () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over ACP', () => {
   it('runs a real turn and the agent writes the requested file (verified on disk)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir })
+    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir, env: DANGER_FULL_ACCESS_ENV })
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -138,7 +145,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
 
   it('with the terminal_output capability, a real bash call renders as a terminal card (content + _meta + exit)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir })
+    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir, env: DANGER_FULL_ACCESS_ENV })
     const { client, updates } = spawned
 
     // Advertise the Zed `_meta.terminal_output` capability so the bridge emits
