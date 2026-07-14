@@ -178,13 +178,14 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   // `closed` follows parser exhaustion. Capture both eagerly so a caller that
   // invokes close after process exit still joins the complete drain boundary.
   const stdioClosed = new Promise<void>(resolve => child.once('close', () => { resolve() }))
-  const drained = Promise.all([stdioClosed, client.closed]).then(async () => {
+  const drained = Promise.allSettled([stdioClosed, client.closed]).then(async ([, clientResult]) => {
     // The ACP SDK's readable loop dispatches client callbacks without awaiting
     // them. Once `closed` settles no new callbacks can start, but callbacks
     // already in flight still belong to this launch's teardown boundary.
     while (inFlightClientCallbacks.size > 0) {
       await Promise.allSettled([...inFlightClientCallbacks])
     }
+    if (clientResult.status === 'rejected') throw clientResult.reason
   })
   // A caller may await a pending update without calling close(). Make natural
   // stream exhaustion terminal for those waiters too, but only after the
@@ -206,6 +207,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       try {
         await spawned
       } catch (error: unknown) {
+        await drained.catch(() => undefined)
         closeUpdateStream()
         throw error
       }
