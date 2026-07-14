@@ -92,6 +92,50 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
+  it('waits for a draining exact-id lifecycle during an overlapping reload', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-overlap-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    const sessionId = SessionId('stdio-exact-overlap')
+    const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
+    const firstLoop = await ctx.plugin(AgentLoop, config)
+    await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
+    const first = ctx.agents.get(sessionId) as ReactLoopAgent
+
+    const flushGate = Promise.withResolvers<undefined>()
+    let flushStarted = false
+    ctx.on('session/flush', (session) => {
+      if (session !== first.session) return
+      flushStarted = true
+      return flushGate.promise
+    })
+    first.inject([{ type: 'text', text: 'persist before replacement' }], {
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    expect(flushStarted).toBe(true)
+
+    const firstDisposal = firstLoop.dispose()
+    await expect.poll(() => first.status).toBe('disposed')
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    const secondLoop = await ctx.plugin(AgentLoop, config)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.agents.get(sessionId)).toBe(first)
+    expect(failures).toEqual([])
+
+    flushGate.resolve(undefined)
+    await firstDisposal
+    await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
+    const second = ctx.agents.get(sessionId) as ReactLoopAgent
+    expect(second).not.toBe(first)
+    expect(JSON.stringify(second.session.deriveMessages())).toContain('persist before replacement')
+    expect(failures).toEqual([])
+
+    await secondLoop.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('contains an exact-id persistence lookup failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-failure-'))
     dirs.push(root)
