@@ -36,13 +36,13 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  /** Exact persisted session id the app configured for resume; absent selects the app's fresh `main-session-*` identity. */
-  resumeSessionId?: string
+  /** Exact shared agent/session identity this app instance created or resumed. */
+  sessionId?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
-  resumeSessionId: z.string(),
+  sessionId: z.string(),
 })
 
 /**
@@ -98,26 +98,18 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   const welcome = config.welcome ?? 'ready.'
   const { input, output, exit } = runtime
 
-  // Bind only to this app's configured top-level agent. Fresh runs own the
-  // `main-session-*` namespace; resumed runs own the exact persisted id. The
-  // registry's runtime-root relation excludes subagents without confusing it
-  // with durable parentSession lineage. Keeping the matching candidates also
-  // covers HMR's publish-new-before-dispose-old ordering without ever falling
-  // through to an unrelated root owned by another app or test fixture.
-  const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
-  const matchesConfiguredIdentity = (agent: Agent): boolean => resumeSessionId === undefined
-    ? agent.id.startsWith('main-session-')
-    : agent.id === resumeSessionId
-  const configuredRoots = new Set(ctx.agents.roots().filter(matchesConfiguredIdentity))
-  let target: Agent | undefined = [...configuredRoots].at(-1)
+  // Bind only to the exact identity this app passed to its config-created
+  // agent. Session ids are opaque: neither a prefix nor registry order can
+  // identify ownership. The root check rejects a child that somehow preempts
+  // the configured id; later recreation under the same id supports loop HMR.
+  const matchesConfiguredIdentity = (agent: Agent): boolean =>
+    agent.id === config.sessionId && ctx.agents.roots().includes(agent)
+  let target: Agent | undefined = ctx.agents.roots().find(agent => agent.id === config.sessionId)
   ctx.on('agent/created', (agent) => {
-    if (!matchesConfiguredIdentity(agent) || !ctx.agents.roots().includes(agent)) return
-    configuredRoots.add(agent)
-    target ??= agent
+    if (matchesConfiguredIdentity(agent)) target = agent
   })
   ctx.on('agent/disposed', (agent) => {
-    configuredRoots.delete(agent)
-    if (target === agent) target = [...configuredRoots].at(-1)
+    if (target === agent) target = undefined
   })
 
   // Transcript rendering off the durable `session/event` feed — the assistant

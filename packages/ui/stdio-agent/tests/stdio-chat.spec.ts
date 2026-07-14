@@ -74,7 +74,7 @@ function chunkEvent(chunk: StreamChunk): SessionEvent {
   return { type: 'assistant/chunk', seq: 0, time: 0, data: { turn: 1, step: 0, chunk } }
 }
 
-const CONFIG: Config = { welcome: 'hi there', resumeSessionId: 'main' }
+const CONFIG: Config = { welcome: 'hi there', sessionId: 'main' }
 
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
@@ -199,7 +199,7 @@ describe('createStdioChat rendering', () => {
   })
 
   it('accepts a lineage-bearing configured agent created after the UI installs', async () => {
-    const { ctx, input } = await setup({ welcome: 'hi there', resumeSessionId: 'resumed' })
+    const { ctx, input } = await setup({ welcome: 'hi there', sessionId: 'resumed' })
     const unrelated = makeAgent('unrelated')
     ctx.agents.register(unrelated)
     const resumed = makeAgent('resumed')
@@ -247,33 +247,21 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[main turn 1] ')
   })
 
-  it('retargets a surviving root when HMR publishes it before disposing the old root', async () => {
-    const { ctx, input } = await setup({ welcome: 'hi there' })
-    const oldRoot = makeAgent('main-session-old')
-    const child = makeAgent('child')
-    ;(child.session.header as { parentSession?: string }).parentSession = oldRoot.id
-    const replacement = makeAgent('main-session-replacement')
-    const lateChild = makeAgent('late-child')
+  it('retargets only the exact identity after loop HMR recreation', async () => {
+    const { ctx, input } = await setup({ welcome: 'hi there', sessionId: 'main-session-fixed' })
+    const oldRoot = makeAgent('main-session-fixed')
+    const prefixCollision = makeAgent('main-session-unrelated')
     const disposeOld = ctx.agents.register(oldRoot)
-    const disposeChild = ctx.agents.enter(child, oldRoot)
-    ctx.agents.announce(child)
-    ctx.agents.register(replacement)
-    const disposeLateChild = ctx.agents.enter(lateChild, replacement)
-    ctx.agents.announce(lateChild)
-
-    // The replacement's created edge arrived while oldRoot was still targeted.
-    // A replacement-owned child then arrived even later. Once oldRoot is
-    // removed, runtime ownership still identifies replacement as the only
-    // surviving root instead of selecting either newer child by insertion order.
+    ctx.agents.register(prefixCollision)
     disposeOld()
+    const replacement = makeAgent('main-session-fixed')
+    ctx.agents.register(replacement)
+
     input.feed('after hmr')
     await new Promise(resolve => setImmediate(resolve))
 
-    expect(child.sent).toEqual([])
-    expect(lateChild.sent).toEqual([])
+    expect(prefixCollision.sent).toEqual([])
     expect(replacement.sent).toEqual([[{ type: 'text', text: 'after hmr' }]])
-    disposeLateChild()
-    disposeChild()
   })
 
   it('does not retarget stdin to an unrelated root after the configured agent is disposed', async () => {
@@ -740,7 +728,7 @@ describe('createStdioChat input', () => {
   })
 
   it('drives the exact app-configured resumed session', async () => {
-    const { ctx, input } = await setup({ welcome: 'w', resumeSessionId: 'worker' })
+    const { ctx, input } = await setup({ welcome: 'w', sessionId: 'worker' })
     const agent = makeAgent('worker')
     ctx.agents.register(agent)
     input.feed('hi')
@@ -748,14 +736,6 @@ describe('createStdioChat input', () => {
     expect(agent.sent).toHaveLength(1)
   })
 
-  it('treats an empty resume session id as a fresh configured identity', async () => {
-    const { ctx, input } = await setup({ welcome: 'w', resumeSessionId: '' })
-    const agent = makeAgent('main-session-fresh')
-    ctx.agents.register(agent)
-    input.feed('hi')
-    await new Promise(r => setImmediate(r))
-    expect(agent.sent).toHaveLength(1)
-  })
 })
 
 describe('createStdioChat EOF exit', () => {
