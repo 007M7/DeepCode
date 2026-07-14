@@ -1,68 +1,10 @@
 /**
- * Generate (and verify) the plugin config catalog in docs/config-catalog.md.
- *
- * The page is the DEPLOYMENT-axis reference: for every harness package a
- * `cordis.yml` entry can load, the exact config surface its `apply` function or
- * service constructor receives — pasted VERBATIM from source (the `export
- * interface Config` declaration with its JSDoc), plus resolved links for every
- * type the declaration references. It complements the wiring-axis cordis
- * catalogs (events + services, what a plugin AUTHOR listens to and calls) the
- * same way the tool catalog complements them for the model-facing axis.
- *
- * The catalog is FULLY GENERATED from source — never hand-edit it. Like the
- * cordis catalog (and unlike the tool catalog, which must boot plugins), this
- * is a pure-AST pass: every config type is a static declaration and every
- * schemastery schema is a static `z.object`/`z.intersect` literal, so
- * generation cannot drift and a regenerate-and-diff freshness check (`--check`)
- * gates staleness. Because generation enumerates every package under
- * `packages/<group>/<pkg>`, a brand-new plugin cannot be silently
- * undocumented: it must classify as configurable, config-free, seam, or
- * library, and an unclassifiable entry hard-errors the generator.
- *
- *   `tsx scripts/gen-config-catalog.ts`          → write the catalog
- *   `tsx scripts/gen-config-catalog.ts --check`  → exit 1 if the committed
- *                                                  catalog is stale (CI /
- *                                                  pre-push gate)
- *
- * What the walk enforces (aggregated into one error, like the sibling
- * generators):
- *
- * - CLASSIFICATION is total. Every package entry resolves, mirroring the
- *   cordis Loader's `unwrapExports` (`exports.default ?? exports`), to a
- *   loadable plugin (default class / `apply` function), an abstract seam
- *   class, or a plain library. Anything else is an error, not a skip.
- * - The CONFIG TYPE is the declared type of the plugin's second parameter
- *   (`apply(ctx, config)` / `constructor(ctx, config)`) — the type cordis
- *   actually passes — and it must resolve to a declaration inside the owning
- *   package (entry file or a package-local relative import).
- * - Every property of a pasted declaration carries non-empty JSDoc prose: the
- *   paste IS the documentation, so an undocumented field is a gate failure,
- *   the same forcing function the events catalog applies via `@mode`.
- * - Every type NAME a pasted declaration references resolves: pasted
- *   transitively when package-local, linked when it is another plugin's
- *   config type / a core-data-structures entry / a workspace or external
- *   import. An unresolvable name is an error, and so is a NAME COLLISION —
- *   two distinct declarations, or a declaration and an import, sharing one
- *   name across the closure (a verbatim fence has a single flat namespace) —
- *   never a silent skip.
- * - The runtime schemastery schema (`Config` export or `static Config`),
- *   when present, is walked statically — `z.object` keys, nested object/array
- *   compositions as key PATHS (`agents[].id`), and `z.intersect` composition
- *   across packages — and every schema-validated key path must be locatable
- *   on the declared config type, resolving package-local and
- *   workspace-imported types, re-export chains, intersections, utility
- *   wrappers, and indexed access. The paste cannot hide a loader-accepted
- *   field, top-level or nested. A path that crosses a type the walk cannot
- *   enumerate (an external package's type) is skipped, never mis-reported,
- *   and nested keys under dynamic-key shapes (`z.dict`) or union alternatives
- *   contribute no paths. The reverse direction is deliberately NOT checked: a
- *   declared field may be a runtime-only seam the schema excludes (e.g. the
- *   ACP bridge's test-injected `stream`).
- *
- * Config fences use the ` ```ts config-catalog ` info string: doc-typecheck
- * recognizes it and skips compilation (a lone interface referencing imported
- * types is not standalone-compilable, like the ` ```ts cordis-catalog `
- * signature blocks).
+ * Generate `docs/config-catalog.md` from package entry points, config types,
+ * JSDoc, and static Schemastery schemas. Every package must classify, referenced
+ * types must resolve without collisions, and every enumerable schema path must
+ * exist on the declared config type. External and dynamic shapes stay unknown;
+ * declared runtime-only fields need not appear in the schema. `--check` verifies
+ * the committed artifact.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -353,7 +295,7 @@ function declForTypeName(world: World, ctx: FileCtx, name: string): { decl: Type
     entry = loadFile(resolve(world.scanRoot, entryRel), entryRel, world.cache)
   } catch {
     // A workspace package without a readable entry is reported by its own
-    // classification pass; for a lookup it is merely out of reach.
+    // classification pass; for a lookup it is out of reach.
     return 'unknown'
   }
   return findExportedTypeDecl(world, entry, imp.imported) ?? 'unknown'
@@ -372,9 +314,8 @@ const PASSTHROUGH_WRAPPERS = new Set(['Partial', 'Required', 'Readonly', 'NonNul
  */
 function lookupPath(world: World, ctx: FileCtx, node: ts.Node, steps: PathStep[], seen: Set<string>): PathLookup {
   if (steps.length === 0) return 'found'
-  // Guard recursion at NAMED declarations only — the sole way a walk can loop
-  // (a recursive interface/alias). Structural nodes must not be guarded: a
-  // first child shares `.pos` with its parent, so a span-keyed guard there
+  // Guard only named declarations, where recursive types can loop. Structural
+  // children can share a source position with their parent, so guarding them
   // would mistake ordinary descent for a cycle.
   if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
     const key = `${ctx.abs}:${node.pos}:${steps.length}`
@@ -775,10 +716,8 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     }
   }
 
-  // Second phase: fold composed schemas' key paths in, then walk every
-  // schema-validated path against the declared config type. Only a definite
-  // miss is a violation — a path through a shape the walk cannot enumerate
-  // stays silent rather than mis-reporting.
+  // Fold composed schemas' key paths in, then check each path against the type.
+  // Only a definite miss fails; shapes the walk cannot enumerate stay unknown.
   const byName = new Map(entries.map(e => [e.pkg, e]))
   for (const entry of entries) {
     if (entry.kind !== 'config' || entry.schemaKeys === null || entry.schemaKeys === undefined) continue

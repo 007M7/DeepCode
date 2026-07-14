@@ -1,13 +1,7 @@
 /**
- * Wire types for the Perplexity search API
- * (`POST https://api.perplexity.ai/chat/completions`, an OpenAI-compatible chat
- * shape). Types only — no runtime code. Perplexity returns a generated answer in
- * `choices[0].message.content` plus citation surfaces: a structured
- * `search_results[]` (preferred) and a URL-only `citations[]` fallback.
- *
- * The OpenAI-compatible wire shape is a provider-private detail; it does not make
- * this provider depend on `ctx.llm`.
- *
+ * Wire types for the Perplexity search API (`POST https://api.perplexity.ai/chat/completions`,
+ * an OpenAI-compatible chat shape). Results prefer structured `search_results` and fall back to
+ * URL-only `citations`; the provider-private wire shape does not depend on `ctx.llm`.
  * @module @deepseek-ai/dsh-web-search-perplexity/types
  */
 

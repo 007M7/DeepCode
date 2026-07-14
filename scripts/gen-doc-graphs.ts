@@ -1,43 +1,23 @@
 /**
- * Generate (and verify) the relationship-diagram docs.
- *
- * This is the relationship layer above the existing catalogs:
- * - module-graph.md answers "which packages depend on which packages?"
- * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog.md answers "which tools does the model see?"
- * - generated relationship diagrams answer "how do those pieces fit together?"
- *
- * Generated pages discover the enumerable facts from source. Hybrid pages use
- * discovered inventory plus small manifests for policy that source cannot infer
- * (for example, whether a package is an implementation or consumer in a seam).
- * Curated pages are still emitted here so the graph docs are one regenerated unit,
- * but their diagrams intentionally explain flow and ownership rather than
- * pretending to enumerate every source edge.
- *
- *   `tsx scripts/gen-doc-graphs.ts`          -> write generated diagram docs
- *   `tsx scripts/gen-doc-graphs.ts --check`  -> exit 1 if any file is stale
+ * Generate the relationship layer above the module, Cordis, and tool catalogs.
+ * Enumerable facts come from source; hybrid graphs add manifests for policy the
+ * source cannot infer, while curated graphs explain flow and ownership.
+ * `--check` verifies the generated set.
  */
 
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import {
+  collectPackageGraph,
+  escapeMermaidLabel as escLabel,
+  graphNodeId as nodeId,
+  type PackageGraphNode,
+} from './package-graph.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const SCOPE = '@deepseek-ai/dsh-'
-
-interface PkgJson {
-  name: string
-  peerDependencies?: Record<string, string>
-}
-
-interface Pkg {
-  short: string
-  name: string
-  group: string
-  rel: string
-  deps: string[]
-}
+type Pkg = PackageGraphNode
 
 interface GraphDoc {
   rel: string
@@ -80,6 +60,7 @@ const GROUP_ORDER = [
   'cordis',
   'hooks',
   'session-persistence',
+  'session-query',
   'support',
   'ui',
 ]
@@ -99,7 +80,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -108,8 +89,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp'],
+    consumers: ['agent-loop', 'acp', 'session-query'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'sessionQuery',
+    pkg: 'session-query',
+    title: 'Exact session-history reads',
+    mode: 'seam',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
   },
   {
     key: 'systemPrompt',
@@ -187,6 +175,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['acp'],
     consumers: ['tools', 'tool-bash'],
     note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
+  },
+  {
+    key: 'permission',
+    pkg: 'permission',
+    title: 'Permission presets',
+    mode: 'core',
+    implementations: [],
+    consumers: ['acp'],
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
     key: 'codeRuntime',
@@ -310,62 +307,6 @@ function graphIndexLink(rel: string): string {
 
 function linkFromDoc(docRel: string, targetRel: string): string {
   return relative(dirname(docRel), targetRel).replaceAll('\\', '/')
-}
-
-function collectPackages(): Pkg[] {
-  const pkgs: Pkg[] = []
-  for (const rel of globSync('packages/*/*/package.json', { cwd: root }).sort()) {
-    const json = JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as PkgJson
-    if (!json.name.startsWith(SCOPE)) continue
-    const [, group, leaf] = rel.split('/')
-    if (group === undefined || leaf === undefined) throw new Error(`gen-doc-graphs: unexpected package path ${rel}`)
-    const deps = Object.keys(json.peerDependencies ?? {})
-      .filter(dep => dep.startsWith(SCOPE))
-      .map(dep => dep.slice(SCOPE.length))
-      .sort()
-    pkgs.push({
-      short: json.name.slice(SCOPE.length),
-      name: json.name,
-      group,
-      rel: dirname(rel),
-      deps,
-    })
-  }
-  return topoSort(pkgs)
-}
-
-function topoSort(pkgs: Pkg[]): Pkg[] {
-  const remaining = new Map(pkgs.map(p => [p.short, p]))
-  const placed = new Set<string>()
-  const out: Pkg[] = []
-  while (remaining.size > 0) {
-    const ready = [...remaining.values()]
-      .filter(pkg => pkg.deps.every(dep => placed.has(dep)))
-      .sort(comparePackages)
-    if (ready.length === 0) throw new Error(`gen-doc-graphs: dependency cycle among ${[...remaining.keys()].join(', ')}`)
-    for (const pkg of ready) {
-      out.push(pkg)
-      placed.add(pkg.short)
-      remaining.delete(pkg.short)
-    }
-  }
-  return out
-}
-
-function comparePackages(a: Pkg, b: Pkg): number {
-  const groupA = GROUP_ORDER.indexOf(a.group)
-  const groupB = GROUP_ORDER.indexOf(b.group)
-  const normA = groupA === -1 ? Number.MAX_SAFE_INTEGER : groupA
-  const normB = groupB === -1 ? Number.MAX_SAFE_INTEGER : groupB
-  return normA - normB || a.group.localeCompare(b.group) || a.short.localeCompare(b.short)
-}
-
-function nodeId(prefix: string, value: string): string {
-  return `${prefix}_${value.replace(/[^a-zA-Z0-9_]/g, '_')}`
-}
-
-function escLabel(value: string): string {
-  return value.replace(/"/g, '\\"')
 }
 
 function mermaidCode(value: string): string {
@@ -622,13 +563,8 @@ function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.Sourc
   }
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
-  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
-  // dispatcher (`events` from `agentEvents(ctx, agent)`), an agent's setup
-  // context (`childCtx`), the agent's own context handle (`this.loopCtx`), and
-  // the session store's captured dispatch context (`emitCtx`). Conventional
-  // receiver names, pinned by the fused-dispatch convention; a rename here
-  // must update this list (the producer/consumer matrix silently losing a
-  // dispatcher or listener is the failure mode this list exists to prevent).
+  // Scoped-dispatch spellings are conventional names. Keep this list in sync
+  // with renames or the relationship matrix can silently lose an edge.
   return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
@@ -675,13 +611,8 @@ function renderEventRelations(pkgs: Pkg[]): string {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
-  // Completeness guard: every DECLARED event must have at least one dispatcher
-  // edge — a zero-dispatcher row is either dead vocabulary or (the observed
-  // failure mode) a dispatch spelling the AST scan does not recognize, silently
-  // dropping the producer from the matrix. Fail the generation loud instead:
-  // teach the scan the new spelling, add a DYNAMIC_EVENT_DISPATCHERS override,
-  // or remove the dead event. Zero LISTENERS is deliberately legal — an event
-  // dispatched for out-of-repo plugins is an ordinary extension point.
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized dispatch spelling. Listener-free extension points remain valid.
   const undispatched = [...events]
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
@@ -812,7 +743,7 @@ function renderToolPipeline(): string {
     '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and approval-triggering permission policy enter through the generic pre/post tool waterfalls, while `ctx.approval` resolves an `ask` before the monotonic guards; owner policy that must not be reordered uses registered guards; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. The synchronous `tools/result` notification observes the immutable final outcome after every transform, lossless-JSON validation, and outer error normalization. That split lets the same hooks observe bash, fs, web, todo, skill, and subagent calls without coupling those tools to one policy service. Code Mode rides the whole pipeline twice over: `run_code` is the reserved registry-owned transport whose body enters the pipeline, and each tool call its program makes re-enters `ctx.tools.execute()` — serialized one at a time, carrying the outer execution\'s opaque token for correlation, and logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -848,7 +779,7 @@ function renderSnapshotReplay(): string {
 }
 
 function renderDocs(): GraphDoc[] {
-  const pkgs = collectPackages()
+  const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
   const docs: GraphDoc[] = [
     { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),

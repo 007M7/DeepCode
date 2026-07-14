@@ -11,16 +11,12 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 /**
- * Which START-TIME features a provider supports. Checked by the service
- * BEFORE delegating to {@link SubagentProvider.start}: a request that needs a
- * capability the chosen provider lacks is rejected with a typed error rather
- * than accepted-then-ignored (the "fail loud, no silent degradation" rule).
- *
- * Start-time features live here (a static descriptor) because they must be
- * checked before a run exists. RUNTIME features (steering, resume) are instead
- * modeled as OPTIONAL METHODS on {@link SubagentRun}: the method's presence IS
- * the capability, and TS narrowing is the discovery mechanism — a consumer
- * cannot call an absent method without narrowing first.
+ * Which START-TIME features a provider supports. Checked by the service before delegating to
+ * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
+ * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
+ * degradation" rule). These static flags cover features needed before a run exists; runtime
+ * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
+ * is the capability.
  */
 export interface SubagentCapabilities {
   /** Honor {@link SubagentStartRequest.outputSchema} (structured final output). */
@@ -60,14 +56,9 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
-   * Optional structured-output schema — an object-rooted JSON Schema within the
-   * enforced subset (see `assertSupportedOutputSchema` in dsh-tools; a schema
-   * outside the subset is rejected loud at start). When set AND the provider's
-   * {@link SubagentCapabilities.outputSchema} is `true`, the child is driven to
-   * report a value matching this schema, surfaced as
-   * {@link SubagentResult.structured}. The schema must be plain host-realm JSON
-   * data — a caller holding foreign-realm data materializes it first.
-   * Requesting it against a provider that lacks the capability is rejected at start.
+   * Object-rooted JSON Schema within `assertSupportedOutputSchema`'s enforced subset. Start rejects
+   * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
+   * a successful child returns the matching value as {@link SubagentResult.structured}.
    */
   readonly outputSchema?: StructuredOutputSchema
   /**
@@ -136,14 +127,9 @@ export interface SubagentResult {
 }
 
 /**
- * A live subagent run: a handle the consumer holds while a child executes.
- * Returned by {@link SubagentProvider.start} (via the service) only after the
- * child is ready. The consumer awaits {@link result} and MUST {@link dispose}
- * on every path to cancel any remaining work and reach child quiescence.
- *
- * {@link sendMessage} and {@link resume} are OPTIONAL: a provider that supports
- * the runtime capability defines the method; one that doesn't omits it. The
- * presence of the method IS the capability — narrow before calling.
+ * Child handle returned only after readiness. Consumers await {@link result} and must always
+ * {@link dispose} to cancel remaining work and reach quiescence. Optional methods are runtime
+ * capability discovery; narrow their presence before calling.
  */
 export interface SubagentRun {
   /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
@@ -188,15 +174,9 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
-   * The provider's conversation-history descriptor: `true` when a child SEES the parent
-   * conversation (fork — the child is seeded with the parent's completed-turn
-   * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
-   * not a start-time capability: the service validates nothing against it —
-   * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
-   * wording from it, so a tool bound to a fork provider stops telling the
-   * model the child "does not see this conversation". This descriptor concerns
-   * conversation history only; it says nothing about tool registrations,
-   * injected services, or authority inheritance.
+   * Whether the child sees the parent's completed-turn prefix. This is descriptive, not a
+   * service-validated start capability: the model-facing tool derives truthful wording from it.
+   * It says nothing about tool registration, injected services, or authority inheritance.
    */
   readonly inheritsParentContext: boolean
   /**

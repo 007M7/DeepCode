@@ -1,16 +1,5 @@
 /**
  * Negative-path tests for the cordis catalog generator (`scripts/gen-cordis-catalog.ts`).
- *
- * The generated catalog is frozen by a regenerate-and-diff freshness gate, so
- * the freshness half is exercised by `pnpm run verify-cordis-catalog` in CI.
- * What a freshness diff CANNOT prove is that the generator REJECTS malformed
- * source the way it promises to — a missing `@mode` tag, a tag that
- * contradicts the signature shape, or a JSDoc-completeness violation (missing
- * prose, an undocumented parameter, a stale `@param`, a missing `@returns`, an
- * unannotated return type). These tests drive `collectEvents()` /
- * `collectServices()` against synthetic fixture packages to prove each guard
- * fires (and that well-formed declarations pass), mirroring the drift-guard
- * negative tests for verify-type-equiv.
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
