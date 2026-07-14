@@ -116,10 +116,10 @@ describe('hooks-codex bridge', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going: address the goal')
   })
 
-  it('only the five Codex events are honored — a SubagentStop entry is ignored', async () => {
+  it('only the five bridge-supported Codex events are honored — a SubagentStop entry is ignored', async () => {
     const dir = configDir()
     const s = script(dir, 'x.sh', '#!/usr/bin/env bash\nexit 2\n')
-    // SubagentStop is NOT a Codex event; it must be dropped (no crash, no effect).
+    // SubagentStop is a current Codex event that this bridge drops (no crash, no effect).
     writeHooks(dir, { SubagentStop: [{ hooks: [{ type: 'command', command: s }] }] })
 
     const adapter = new MockAdapter([textResponse('fine')])
