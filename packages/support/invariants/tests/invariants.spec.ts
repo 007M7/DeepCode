@@ -834,7 +834,7 @@ describe('scoped-dispatch invariants', () => {
 
   it('accepts a matching carrier and rejects a mismatched one for EVERY agent-subject event', async () => {
     const ctx = await scopedCtx()
-    // Real Session objects: the session-start tracker WeakSet-keys them.
+    // Real Session objects keep the synthetic Agent handles structurally valid.
     const agent = { id: 'a1', session: new Session(SessionId('a1-s')) } as unknown as Agent
     const other = { id: 'a2', session: new Session(SessionId('a2-s')) } as unknown as Agent
     // One dispatch per table row keeps every subject extractor covered: the
