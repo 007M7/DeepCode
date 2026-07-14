@@ -32,7 +32,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
 
-Fresh stdio sessions use the process launch directory as `session.header.cwd` and mint one combined `main-session-<uuid>` agent/session id, so durable restarts cannot collide. The app passes that exact opaque id to both its config-created agent and UI; the UI's `main` text is only a display label and never selects another registry root by prefix or insertion order. A resumed run binds both components to the exact `resumeSessionId` and keeps the cwd stored in the persisted session header.
+Fresh stdio sessions use the process launch directory as `session.header.cwd` and mint one combined `main-session-<uuid>` agent/session id, so durable restarts cannot collide. The app passes that exact opaque id to both its config-created agent and UI; an AgentLoop-only reload resumes materialized history under that id, while the UI's `main` text remains only a display label and never selects another registry root by prefix or insertion order. A resumed run binds both components to the exact `resumeSessionId` and keeps the cwd stored in the persisted session header.
 
 ## The bin
 
