@@ -50,6 +50,8 @@ Runtime features are optional methods on `SubagentRun`: `sendMessage?` steers a 
 
 `SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. `dispose()` is idempotent, cancels remaining work, and waits for the child resources to quiesce.
 
+A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, and records `request.parent.session.id` in the child's `parentSession` header. The child may be owned by the parent scope or by a provider/root scope; durable lineage is the transport-neutral local-child relation. Remote providers instead mint a parent-scoped lifecycle id without publishing a local child.
+
 The service emits `subagent/start` only after `start()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. In-process start observers can resolve the published child through `ctx.agents.get(info.id)`; remote providers need not publish a local agent.
 
 Run events are scoped to the delegating parent. Every listener is independently contained: a synchronous throw or rejected returned promise is logged without starving peer listeners or changing the run.

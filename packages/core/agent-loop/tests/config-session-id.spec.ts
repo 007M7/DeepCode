@@ -55,6 +55,43 @@ describe('config-driven session id', () => {
     await conflicting.fiber.dispose()
   })
 
+  it('restores a materialized exact id across an AgentLoop-only reload', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-reload-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first'), textResponse('second')]))
+    const config = { agents: [{ id: 'main', sessionId: SessionId('stdio-exact-reload'), model: 'mock' }] }
+
+    const firstLoop = await ctx.plugin(AgentLoop, config)
+    let first: Agent | undefined
+    for (let i = 0; i < 50 && first === undefined; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      first = ctx.agents.get(SessionId('stdio-exact-reload'))
+    }
+    expect(first).toBeDefined()
+    first!.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    await waitForIdle(ctx, first!)
+    await firstLoop.dispose()
+
+    const secondLoop = await ctx.plugin(AgentLoop, config)
+    let second: Agent | undefined
+    for (let i = 0; i < 50 && second === undefined; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      second = ctx.agents.get(SessionId('stdio-exact-reload'))
+    }
+    expect(second).toBeDefined()
+    expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
+    second!.send([{ type: 'text', text: 'continue' }], { source: { kind: 'user' } })
+    await waitForIdle(ctx, second!)
+    await ctx.sessions.flush(second!.session)
+    const loaded = await ctx.sessionPersistence.load(SessionId('stdio-exact-reload'))
+    expect(loaded.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+
+    await secondLoop.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

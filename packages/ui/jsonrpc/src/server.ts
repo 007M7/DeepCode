@@ -66,6 +66,15 @@ function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
   return carrierKeyOf(carrier) as Agent
 }
 
+/** Whether the live id names a local child related to this exact delegating parent. */
+function isLocalChild(ctx: Context, id: SessionId, parent: Agent): boolean {
+  const child = ctx.agents.get(id)
+  return child !== undefined && (
+    ctx.agents.isOwnedBy(id, parent)
+    || child.session.header.parentSession === parent.session.id
+  )
+}
+
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
  * session and subagent lifecycle events, forwarding durable session
@@ -104,13 +113,14 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // In-process providers publish the child before start. Count those starts by
-    // the exact delegating-parent carrier so later completions remain local after
-    // child disposal and reused ids need no settlement-order assumption.
+    // In-process providers publish the child before start. Count starts related
+    // by exact runtime ownership or durable parent lineage so provider-owned
+    // roots remain local, completions survive child disposal, and reused ids
+    // need no settlement-order assumption.
     const localRuns = this.localRuns
     this.disposers.push(ctx.on('subagent/start', function (this: Scoped<SubagentService>, info: SubagentRunInfo) {
       const parent = subagentParentOf(this)
-      if (!ctx.agents.isOwnedBy(info.id, parent)) return
+      if (!isLocalChild(ctx, info.id, parent)) return
       const providerRuns = localRuns.get(info.provider) ?? new Map<SessionId, Map<Agent, number>>()
       const parentRuns = providerRuns.get(info.id) ?? new Map<Agent, number>()
       parentRuns.set(parent, (parentRuns.get(parent) ?? 0) + 1)
@@ -130,9 +140,9 @@ export class HarnessSdkServer {
       }
       // This protocol reports LOCAL child sessions. A lineage-bearing child
       // has the session/created-driven start notification above. A remote run
-      // has neither a cached owned start nor a live child owned by this exact
+      // has neither a cached local start nor a live child related to this
       // parent; an unrelated local agent with the same id never makes it local.
-      if (pendingCount === undefined && !ctx.agents.isOwnedBy(info.id, parent)) return
+      if (pendingCount === undefined && !isLocalChild(ctx, info.id, parent)) return
       transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),

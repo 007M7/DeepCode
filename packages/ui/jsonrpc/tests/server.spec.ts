@@ -277,11 +277,14 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const handle = await parentHandle.agent.ctx.agents.create({
+      // A custom in-process provider may own its child at the provider/root
+      // scope while preserving durable parent lineage.
+      const handle = await ctx.agents.create({
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
         agentOptions: { model: 'deepseek' },
       })
+      expect(ctx.agents.roots()).toContain(handle.agent)
       const parentlessHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('parentless-child-session'),
         meta: { cwd: storageDir },
