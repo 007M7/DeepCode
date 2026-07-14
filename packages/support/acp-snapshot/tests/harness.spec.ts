@@ -131,6 +131,65 @@ describe('runScenario', () => {
     expect(launched.stderr()).toContain('late inherited stderr')
   })
 
+  it('rejects promptly when fallback termination is refused', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal refused'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockReturnValue(false)
+    const closed = new Promise<void>(resolve => launched.child.once('close', () => { resolve() }))
+    try {
+      launched.child.emit('error', childFailure)
+      const rejection = await launched.close('SIGTERM').catch((error: unknown): unknown => error)
+      expect(rejection).toBeInstanceOf(AggregateError)
+      expect(rejection).toMatchObject({
+        message: 'ACP test agent failed and fallback termination was refused',
+        errors: [
+          childFailure,
+          expect.objectContaining({ message: 'Fallback SIGKILL was not accepted by the child process' }),
+        ],
+      })
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      originalKill('SIGKILL')
+      await closed
+    }
+  })
+
+  it('rejects promptly when fallback termination emits an error', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal refused'), { code: 'EPERM' })
+    const fallbackFailure = Object.assign(new Error('fallback signal refused'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGKILL') queueMicrotask(() => launched.child.emit('error', fallbackFailure))
+      return signal === 'SIGKILL'
+    })
+    const closed = new Promise<void>(resolve => launched.child.once('close', () => { resolve() }))
+    try {
+      launched.child.emit('error', childFailure)
+      const rejection = await launched.close('SIGTERM').catch((error: unknown): unknown => error)
+      expect(rejection).toBeInstanceOf(AggregateError)
+      expect(rejection).toMatchObject({
+        message: 'ACP test agent failed and fallback termination was refused',
+        errors: [childFailure, fallbackFailure],
+      })
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      originalKill('SIGKILL')
+      await closed
+    }
+  })
+
   it('waits for in-flight client callbacks after the ACP stream closes', { timeout: 20_000 }, async () => {
     const { dir, fixtureFile } = await scenario({ permissionProbe: true })
     let releasePermission: (() => void) | undefined
