@@ -38,3 +38,14 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 ## Testing
 
 `tests/subagent-subprocess.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.
+
+## Model Experience
+
+Indirectly, through process-based subagent backends, whose child composition is constrained by credential scrubbing and isolated config directories.
+
+## Known Limitations and Deferred Work
+
+- **The credential scrub is name-based** — only variables matching `KEY` / `SECRET` / `TOKEN` are removed; differently named secrets such as `PASSWORD` pass through unless the backend supplies a stricter environment.
+- **Signals target the direct child only** — teardown relies on a cooperative CLI to reap its descendants before exit; a re-parented or independently detached grandchild can outlive the ladder.
+- **Fresh config-dir cleanup is best-effort** — an `rm` failure leaves private state under the OS temp root rather than failing disposal.
+- **Pinned config directories are wholly operator-owned** — the helper neither creates, validates, locks, nor removes them, so concurrent runs may share and race on that state.

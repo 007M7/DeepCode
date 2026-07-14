@@ -32,3 +32,16 @@ The derived signal only **notifies**; termination stays with the tool and the ca
 ### Composing with other `tools/execute` wrappers
 
 Multiple `tools/execute` listeners compose by cordis registration order. Combined with a future retry/sandbox/metrics wrapper, registration order chooses the semantics — "timeout covers the whole retry operation" (timeout registered outer) versus "timeout covers each attempt" (timeout registered inner).
+
+## Model Experience
+
+### Conditional tool result
+
+**What the model sees**: This plugin adds no prompt or schema. If a declared deadline wins, it replaces the provider's outcome with `Error: tool call timed out after <ms>ms` plus structured `TOOL_TIMEOUT`; otherwise the original result passes through unchanged.
+
+**Token effect**: Zero tokens on non-timeout calls. A timeout adds one small retained error result and can prevent a larger late provider result from entering context.
+
+## Known Limitations and Deferred Work
+
+- **Cooperative, never a hard kill** — the deadline only notifies via `exec.signal`; a tool that ignores the signal does not stop on timeout (see § Cooperative, not a hard kill).
+- **No blanket budget** — only tools that declare `timeoutMs` on their `ToolDefinition` get a deadline; there is no registry-wide default for undeclared tools (the shipped `bash`/`read`/`write`/`edit` deliberately declare none).
