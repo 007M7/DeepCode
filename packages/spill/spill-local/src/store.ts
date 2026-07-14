@@ -29,6 +29,9 @@ export function privateRoot(): string {
   return defaultRoot
 }
 
+// Deliberately mirrors the JSONL path encoder, but keeps spill's empty-name
+// policy (`""` -> `"~"`) local so storage backends stay decoupled.
+/* jscpd:ignore-start */
 /**
  * Encode an arbitrary string as one safe path segment, injectively over ALL JS
  * (UTF-16) strings. A session id / suggested name is untrusted input, so this
@@ -58,6 +61,7 @@ export function encodeSegment(raw: string): string {
   }
   return out
 }
+/* jscpd:ignore-end */
 
 /**
  * The session-scoped directory: `<root>/session-<hash(sessionId)>`, a short stable hash.
