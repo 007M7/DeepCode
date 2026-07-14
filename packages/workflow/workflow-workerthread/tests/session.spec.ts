@@ -437,10 +437,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     void runWorkerSession(host.port, init("return await agent('p')"))
     await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart).length).toBe(1) })
     const callId = host.ofType(WorkerToHostType.ChildStart)[0]!.callId
-    // Cancel FIRST, then the (stale) started reply: the worker processes them
-    // in order, so the agent() continuation resumes already-cancelled — the
-    // window the real host cannot produce (it refuses starts once cancelled)
-    // but a teardown race can.
+    // Simulate a teardown race by delivering cancellation before a stale start reply.
     host.send({ type: HostToWorkerType.Cancel, reason: 'raced the start' })
     host.send({ type: HostToWorkerType.ChildStarted, callId, childId: 'child-0' })
     const result = await host.result()
@@ -448,7 +445,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     await vi.waitFor(() => {
       expect(host.ofType(WorkerToHostType.ChildDispose).map(m => m.callId)).toContain(callId)
     })
-    // The child never became an agent-start: it was wound down pre-lifecycle.
+    // The unpublished child is disposed without a lifecycle announcement.
     expect(host.ofType(WorkerToHostType.AgentStart)).toEqual([])
     host.close()
   })

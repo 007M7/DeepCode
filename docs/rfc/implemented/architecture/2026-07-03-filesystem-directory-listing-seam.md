@@ -8,7 +8,7 @@ Status: implemented
 
 The immediate pressure came from skill loading: reading an individual `SKILL.md` can already go through `ctx.get('fs')`, but discovering which skill roots contain `<name>/SKILL.md` or `<name>.md` still needs directory enumeration. Adding directory listing only in `dsh-skill` would either keep a direct Node dependency there or invent a one-off local helper outside the filesystem provider stack.
 
-This branch deliberately lands the provider capability first and does not add a model-facing `ls`/`list` tool or change skill discovery. The follow-up consumer can validate UX and prompt shape separately, while this PR establishes the backend seam and local implementation.
+This decision adds the provider capability without a model-facing `ls`/`list` tool or skill-discovery change. Those consumers require separate UX, prompt, and policy decisions.
 
 ## Decision
 
@@ -36,7 +36,7 @@ Broken or disappeared children may be represented as `type: 'other'` without `ve
 
 ## Alternatives considered
 
-**Add a model-facing list tool now.** Rejected for this PR. The immediate request is the provider seam, and the user explicitly asked not to change skill loading or other upper layers in this branch. A model-facing tool needs prompt/schema/rendering decisions that should be reviewed separately.
+**Add a model-facing list tool with the seam.** Rejected because its prompt, schema, and rendering contracts are independent of the provider primitive.
 
 **Keep directory enumeration in each consumer.** Rejected. That would bind product packages such as `dsh-skill` to Node/local filesystem behavior and bypass policy/remote/sandboxed backends.
 

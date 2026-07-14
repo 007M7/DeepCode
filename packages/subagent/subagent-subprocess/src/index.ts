@@ -1,20 +1,8 @@
 /**
- * Shared machinery for OUT-OF-PROCESS subagent backends — providers that spawn
- * an external agent as a child process and must keep the parent deployment's
- * credentials out of it, tear it down to quiescence, and isolate it from the
- * host user's on-disk CLI state. The pieces: the credential env scrub
- * ({@link SENSITIVE_ENV_PATTERN} / {@link buildChildEnv}), the spawn-failure
- * capture ({@link spawnFailure}), the child-exit waits ({@link waitForExit} /
- * {@link exitsWithin}), the stdin-EOF → SIGTERM → SIGKILL dispose ladder
- * ({@link disposeChildProcess}), and the per-run isolated config dir
- * ({@link createIsolatedConfigDir}).
- *
- * This package owns no provider and registers nothing; it is a pure library
- * the out-of-process backend packages depend on (the `subagent-inprocess`
- * shape, for the process boundary). Every tunable — the ladder's grace
- * periods, a pinned config dir — is a PARAMETER here: defaults belong in each
- * consuming plugin's Config, per the no-hardcoded-tunables rule.
- *
+ * Shared machinery for OUT-OF-PROCESS subagent backends — providers that spawn an external
+ * agent as a child process and must keep the parent deployment's credentials out of it, tear
+ * it down to quiescence, and isolate it from the host user's on-disk CLI state. This package
+ * registers no provider; consuming plugins own and validate every timing or path default.
  * @module @deepseek-ai/dsh-subagent-subprocess
  */
 
@@ -52,11 +40,8 @@ export function buildChildEnv(extra: Record<string, string>): NodeJS.ProcessEnv 
 }
 
 /**
- * Capture the child's spawn-level failure as a promise the run's result path
- * can race. A spawn failure (e.g. `ENOENT` for a bad command) is emitted as an
- * `error` EVENT, not a thrown exception — and without a listener Node treats
- * it as an unhandled error and crashes the parent process. Call this in the
- * SAME TICK as `spawn()`, so no window exists for the event to fire unheard.
+ * Capture the child's spawn-level `error` event as a promise. Call in the same tick as
+ * `spawn()`; otherwise an early event can be unhandled and crash the parent.
  * @param child - the just-spawned child process.
  * @returns a promise that RESOLVES (never rejects) with the child's first
  * `error` event; for a child that spawns cleanly it never settles.
@@ -125,15 +110,8 @@ export interface DisposeLadderGraces {
 }
 
 /**
- * Tear a child process down to QUIESCENCE: resolves only once the child has
- * actually exited (or was already gone), never merely after requesting it.
- * Three-tier escalation —
- *
- * 1. stdin EOF (when stdin is piped), then wait `disposeEofGraceMs`: a
- *    cooperative child quiesces on its own, its teardown and flushes intact;
- * 2. `SIGTERM`, then wait `disposeGraceMs`;
- * 3. `SIGKILL`, then await the (now-certain) exit — a child that ignores EOF
- *    and traps `SIGTERM` must not wedge dispose forever.
+ * Tear a child process down to quiescence, resolving only after exit: close stdin and allow
+ * cooperative flush, then send `SIGTERM`, then `SIGKILL` and await the forced exit.
  *
  * @param child - the child process to tear down.
  * @param graces - the two grace periods, from the consuming plugin's Config.
@@ -141,10 +119,7 @@ export interface DisposeLadderGraces {
 export async function disposeChildProcess(child: ChildProcess, graces: DisposeLadderGraces): Promise<void> {
   // Already gone: nothing to reap.
   if (child.exitCode !== null || child.signalCode !== null) return
-  // 1. Graceful: end the request stream (stdin EOF) and let the child quiesce
-  //    on its own. Sending SIGTERM in the same tick (or too soon) would
-  //    default-terminate a cooperative child mid-flush, orphaning its nested
-  //    work. A child spawned without a stdin pipe skips straight to the wait.
+  // 1. Close stdin and allow cooperative teardown and durable-state flush.
   child.stdin?.end()
   if (await exitsWithin(child, graces.disposeEofGraceMs)) return
   // 2. SIGTERM, escalating if the child still does not exit within the grace.
@@ -173,16 +148,9 @@ export interface IsolatedConfigDir {
 }
 
 /**
- * An isolated config dir for one child run, so the child's behavior is a
- * function of deployment config alone — never of whatever `~/.claude` /
- * `~/.codex`-style state happens to exist on the host machine. Two modes:
- *
- * - no `pinnedPath` (the default): creates a FRESH private (0700) `mkdtemp`
- *   dir under the OS temp root; {@link IsolatedConfigDir.remove} deletes it
- *   best-effort;
- * - `pinnedPath` set (a deployment deliberately sharing state across runs):
- *   the pinned path is returned as-is — never created, never removed — the
- *   deployment owns that directory's lifecycle.
+ * An isolated config dir for one child run, independent of host CLI state. Without
+ * `pinnedPath`, creates a private temp directory and removes it best-effort; a pinned directory
+ * is returned unchanged and remains deployment-owned.
  *
  * @param prefix - the `mkdtemp` name prefix for a fresh dir (e.g.
  * `dsh-subagent-codex-`); ignored when `pinnedPath` is set.
@@ -209,10 +177,8 @@ export async function createIsolatedConfigDir(prefix: string, pinnedPath?: strin
       try {
         await rm(path, { recursive: true, force: true })
       } catch {
-        // Best-effort by contract: swallows rm failures (EACCES/EBUSY-style —
-        // e.g. the dead child left an unreadable entry behind). The dir lives
-        // under the OS temp root, which reclaims it; failing dispose over
-        // cleanup would be worse than a leftover temp dir.
+        // Best-effort by contract: swallows rm failures (EACCES/EBUSY-style — e.g. the dead
+        // child left an unreadable entry behind).
       }
     },
   }

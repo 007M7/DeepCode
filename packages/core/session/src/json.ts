@@ -1,17 +1,4 @@
-/**
- * Lossless-JSON validation and snapshot materialization for session data.
- *
- * The session event log is the durable source of truth (the event-sourcing / session-persistence RFCs): every
- * `event.data` must round-trip losslessly through JSON so any persistence
- * backend can store and reload it byte-identically. This invariant belongs to
- * the log itself — `Session.append` enforces it at the source, so a
- * non-serializable event never enters `session.events` and the live log can
- * never diverge from what a backend can persist. Other public boundaries use
- * {@link snapshotJsonValue} when they must validate and detach in one pass;
- * {@link isJsonValue} remains the non-copying structural predicate.
- *
- * @module @deepseek-ai/dsh-session/json
- */
+/** Lossless-JSON validation and detached snapshots for durable session data. @module @deepseek-ai/dsh-session/json */
 
 /**
  * A value that round-trips losslessly through JSON: `null`, a boolean, a finite
@@ -25,19 +12,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /**
- * Materialize one detached lossless-JSON snapshot in a SINGLE recursive pass.
- * Each array slot or own enumerable string-keyed object value is read exactly
- * once, validated, and copied immediately. This is intentionally not
- * `isJsonValue(value)` followed by `structuredClone(value)`: a stateful getter
- * could return plain JSON to the check and an exotic class instance to the
- * clone, whose prototype `structuredClone` would erase before a later check.
- *
- * Accepts the same scalar/object vocabulary as {@link isJsonValue}: arrays use
- * the ordinary `Array.prototype` (subclass instances are not plain JSON
- * containers), while null-prototype objects are accepted and normalized to
- * ordinary plain objects. Sparse arrays, cycles, negative zero, non-finite
- * numbers, unsupported scalar types, and exotic object or array shells return
- * `undefined`. A throwing getter is a caller failure and propagates unchanged.
+ * Validate and detach lossless JSON in one read per property, so a stateful
+ * getter cannot change between validation and copying. Accepts ordinary arrays,
+ * plain or null-prototype objects, and JSON scalars; rejects sparse, cyclic,
+ * exotic, negative-zero, and non-finite values. Getter throws propagate.
  *
  * @param value - the candidate value to validate and detach.
  * @returns the detached snapshot, or `undefined` when the value is not
@@ -104,28 +82,12 @@ export function snapshotJsonValue<T>(value: T): T | undefined {
 }
 
 /**
- * Whether `value` is losslessly JSON-serializable: only `null`, finite numbers
- * other than negative zero, booleans, strings, plain arrays, and plain objects
- * of such values. Rejects `BigInt`, function, symbol, `undefined`, `-0` (which
- * JSON rewrites to `0`), non-finite numbers (`NaN`/`Infinity`, which JSON turns
- * into `null`), and exotic objects (`Map`/`Set`/`Date`/class instances) —
- * anything `JSON.stringify` would drop, throw on, or convert lossily. Sparse
- * arrays are rejected too: a hole serializes to `null`, so `[1, , 3]` would not
- * round-trip. Detects circular references (which would throw) and reports them
- * as non-serializable rather than propagating the throw.
- *
- * Scope — this is a structural plain-data predicate, not an invocation of
- * `JSON.stringify`: only an object's OWN ENUMERABLE STRING-keyed properties are
- * inspected (`Object.values`). Symbol-keyed and non-enumerable properties are
- * omitted from the durable data surface. Custom `toJSON` behavior is not
- * executed; boundaries that persist a value first materialize a new plain-data
- * record with {@link snapshotJsonValue}. Getters are invoked during this check,
- * so callers that need a stable detached value use that one-pass materializer
- * instead of checking and then rereading a side-effecting record.
+ * Test the same lossless JSON boundary as {@link snapshotJsonValue} without
+ * detaching it. Only own enumerable string properties participate; `toJSON`
+ * is ignored and getters run, so persistence boundaries use the snapshotter.
  * @param value - the candidate event data to test.
- * @param seen - objects on the current descent path, for circular-reference
- *   detection; the recursion threads it — callers omit it.
- * @returns true when `value` survives a JSON round-trip losslessly.
+ * @param seen - current recursion path; callers omit it.
+ * @returns whether `value` survives JSON round-trip losslessly.
  */
 export function isJsonValue(value: unknown, seen: Set<object> = new Set()): boolean {
   if (value === null) return true
