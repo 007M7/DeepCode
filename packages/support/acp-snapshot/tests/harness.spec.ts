@@ -3,10 +3,28 @@ import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 import { launchAcpTestAgent } from '../src/launcher.ts'
+
+const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async rm(...args: Parameters<typeof actual.rm>): Promise<void> {
+      if (String(args[0]).includes('acp-snap-cwd-') && fsControl.cleanupFailure !== undefined) {
+        const failure = fsControl.cleanupFailure
+        fsControl.cleanupFailure = undefined
+        await actual.rm(...args)
+        throw failure
+      }
+      await actual.rm(...args)
+    },
+  }
+})
 
 /**
  * Unit tests for the subprocess harness, driven through the REAL spawn path
@@ -236,6 +254,24 @@ describe('runScenario', () => {
       { steps: [...boot, { op: 'promptExpectError', text: 'fine' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(/expected the prompt to fail/)
+  })
+
+  it('reports scenario and cleanup failures together', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ prompt: 'respond' })
+    const cleanupFailure = new Error('cleanup failed')
+    fsControl.cleanupFailure = cleanupFailure
+
+    const failure = await runScenario(
+      { steps: [...boot, { op: 'promptExpectError', text: 'fine' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    ).catch((error: unknown): unknown => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    const failures = (failure as AggregateError).errors as unknown[]
+    expect(failures).toHaveLength(2)
+    expect(failures[0]).toBeInstanceOf(Error)
+    expect((failures[0] as Error).message).toMatch(/expected the prompt to fail/)
+    expect(failures[1]).toBe(cleanupFailure)
   })
 
   it('newSessionExpectError swallows the rejection, with and without extra dirs', { timeout: 20_000 }, async () => {
