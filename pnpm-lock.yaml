@@ -1167,6 +1167,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../permission
       '@deepseek-ai/dsh-sandbox':
         specifier: workspace:^
         version: link:../../sandbox/sandbox
@@ -1257,6 +1260,28 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+
+  packages/ui/permission:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-bash':
+        specifier: workspace:^
+        version: link:../../bash/bash
+      '@deepseek-ai/dsh-sandbox':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:^
+        version: link:../user-approval
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
   packages/ui/jsonrpc:
     dependencies:
@@ -1709,6 +1734,9 @@ importers:
       '@deepseek-ai/dsh-llm-pi-ai':
         specifier: workspace:^
         version: link:../../packages/llm/llm-pi-ai
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../packages/ui/permission
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../packages/guard/repeat-tool-guard

@@ -135,6 +135,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'permission',
+    summary: 'The permission service (`ctx.permission`).',
+    methods: [
+      'current(events: readonly SessionEvent[]): string',
+      'resolve(name: string): PresetSpec',
+      'optionOf(name: string): PresetOption',
+      'set(session: Session, name: string): void',
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     methods: [
@@ -515,6 +525,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
   {
+    name: 'ApprovalPolicy',
+    declaration: 'export type ApprovalPolicy = \'ask\' | \'never\';',
+  },
+  {
     name: 'ApprovalRequest',
     declaration: 'export interface ApprovalRequest {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
   },
@@ -741,6 +755,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OwnerToken',
     declaration: 'export type OwnerToken = Branded<\'OwnerToken\'>;',
+  },
+  {
+    name: 'PresetOption',
+    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'PresetSpec',
+    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
   },
   {
     name: 'PromptAssembly',

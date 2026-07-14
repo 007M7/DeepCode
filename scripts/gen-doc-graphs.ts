@@ -182,6 +182,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
   },
   {
+    key: 'permission',
+    pkg: 'permission',
+    title: 'Permission presets',
+    mode: 'core',
+    implementations: [],
+    consumers: ['acp'],
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
+  },
+  {
     key: 'codeRuntime',
     pkg: 'code-runtime',
     title: 'Code-execution seam',
