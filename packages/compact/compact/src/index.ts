@@ -1,7 +1,9 @@
 /**
- * The compaction service seam (`ctx.compact`): an abstract service defining what compaction
- * does — decide when to compact, summarize a range of conversation history into a single
- * surface node — without saying how.
+ * Compaction service seam (`ctx.compact`): implementations decide when to
+ * compact and replace a history range with one summary node by subclassing
+ * {@link CompactService}. This interface necessarily depends on session and LLM
+ * vocabulary; the rationale is in the
+ * [compaction RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
  * @module @deepseek-ai/dsh-compact
  */
 

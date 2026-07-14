@@ -38,3 +38,24 @@ DeepSeek returns no provider-generated answer surface this provider trusts as `c
 Results are deduplicated by URL because one request may surface the same page across searches. DeepSeek exposes `maxUses`, not a result-count knob, so the seam enforces `maxResults` by truncating `sources[]` and setting `truncated`.
 
 Provider failures become `WEB_PROVIDER_ERROR`; caller cancellation becomes `WEB_ABORTED`.
+
+## Model Experience
+
+### Auxiliary DeepSeek search request
+
+**What the model sees**: A separate DeepSeek model receives exactly `Perform a web search for the query: <query>` as its user text and one native `web_search` server-tool definition. This request is not part of the conversation model's context.
+
+**Token effect**: Separate provider input and output tokens are incurred for each search; `maxTokens` caps generated output and `maxUses` caps native search uses.
+
+### Conversation tool result, indirectly
+
+**What the model sees**: Through [`dsh-tool-web`](../tool-web/README.md), the conversation model sees deduplicated URLs, titles, dates, and citation snippets from structured search blocks; provider prose is not trusted as an answer. This provider's exact failures are `DeepSeek search aborted`, `DeepSeek search request failed: <error>`, `DeepSeek returned no web_search_tool_result blocks; the request may not have triggered native web search`, and `DeepSeek returned an unprocessable response body: <error>`; HTTP failures preserve the provider message. The consumer owns the error wrapper.
+
+**Token effect**: Zero direct conversation tokens from registration. Result tokens scale with returned sources and snippets, then the seam enforces the requested source bound.
+
+## Known Limitations and Deferred Work
+
+- **One search costs a full Messages model turn** — latency plus generated tokens, with up to `maxUses` server-side searches; DeepSeek exposes no dedicated retrieval endpoint.
+- **Over-returned sources still cost tokens** — with no result-count knob on the wire, `maxResults` is enforced only post-hoc by seam truncation.
+- **Uncited results carry no `snippet`** — a source gains one only when a `text` block citation (`cited_text`) matches its URL.
+- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (e.g. `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.

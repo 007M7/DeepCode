@@ -47,3 +47,17 @@ Three backends run these suites: an in-memory reference (in `tests/`), `dsh-sess
 ## Metadata types
 
 Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`, `seedLength?`).
+
+## Model Experience
+
+### Resumed conversation history
+
+**What the model sees**: This seam adds no prompt or schema. Resume restores stored surface events as message history; stored request headers reconstruct earlier calls, while the new loop composes the current system prompt, tools, and session prefix for its next request. Crash repair inserts exactly `Tool call interrupted by a crash; no result was recorded.` as the error result for each unanswered tool call.
+
+**Token effect**: Zero tokens during ordinary persistence. Resume restores retained history cost and pays the current request envelope normally; each repaired call adds the quoted retained error text.
+
+## Known Limitations and Deferred Work
+
+- **No deletion or retention surface** — the seam is `create`/`append`/`load`/`list` only; pruning stored sessions is out-of-band backend maintenance.
+- **`list()` is unpaginated and unfiltered** — it returns every stored session's header; fine for local stores, unindexed at scale.
+- **Repair-time synthetic closers are the only crash story** — a backend must synthesize `tool/result`/`step/end`/`turn/end` closers on load; there is no partial-turn resume that continues an interrupted turn instead of closing it.

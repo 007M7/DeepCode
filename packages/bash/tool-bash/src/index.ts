@@ -27,14 +27,8 @@ export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
 /**
- * Validate the constraints the SchemaSpec can't express. `defineTool`
- * validates parsed args against the SchemaSpec before `execute` runs (the
- * arg-validation RFC), so type/required/enum checks are already done and `args`
- * is the validated `InferArgs` shape here. What remains are value constraints
- * the DSL has no vocabulary for: non-empty strings, a positive finite timeout,
- * and the escalation pairing (`sandbox_permissions` and `justification` travel
- * together — an approval prompt without a reason, or a reason driving nothing,
- * is a malformed ask).
+ * Validate value constraints absent from SchemaSpec: non-empty strings, a
+ * positive finite timeout, and paired escalation mode and justification.
  */
 function validateBashArgs(args: BashToolArgs): void {
   if (args.command.trim().length === 0) {
@@ -58,9 +52,7 @@ function validateBashArgs(args: BashToolArgs): void {
 }
 
 /**
- * Reject an empty `task_id`. Type and presence are guaranteed by the
- * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
- * DSL can't express, is left to check here.
+ * Reject an empty `task_id`; SchemaSpec already validates type and presence.
  */
 function validateTaskId(value: string): BashTaskId {
   if (value.length === 0) {
@@ -70,10 +62,8 @@ function validateTaskId(value: string): BashTaskId {
 }
 
 /**
- * The bash tool's validated argument shape — the base parameters plus the two
- * escalation fields, which are ADVERTISED only when the mounted executor
- * reports a confining default mode (absent from the schema otherwise, so the
- * SchemaSpec validator rejects them before `execute` ever sees one).
+ * Validated bash arguments. Escalation fields are advertised only when the
+ * mounted executor reports a confining mode.
  */
 interface BashToolArgs {
   command: string
@@ -86,10 +76,8 @@ interface BashToolArgs {
 }
 
 /**
- * The strictly-wider table: what a call whose effective mode is the key may
- * escalate TO. Checked at EXECUTION, never baked into the schema — the
- * schema's enum is {@link ESCALATION_TARGETS}, because schemas are
- * registry-global while the effective mode is per-call truth.
+ * Strictly wider modes for each effective mode. Execution checks this table
+ * because the schema is global while the effective mode is per call.
  */
 const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
   'read-only': ['workspace-write', 'danger-full-access'],
@@ -97,12 +85,9 @@ const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
 }
 
 /**
- * The closed escalation-target vocabulary — every mode a call could ever
- * escalate TO (`read-only` is the floor; nothing escalates to it). Advertised
- * whenever the mounted executor confines: cutting the enum down to the modes
- * wider than the executor's DEFAULT would strand a session whose effective
- * mode sits below it (a `danger-full-access` default would advertise nothing
- * while a narrower-switched session stays confined with no lever).
+ * All possible escalation targets. Advertise the global set because a session
+ * override may be narrower than the executor default; execution rejects a
+ * target that is not wider for that call.
  */
 const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
@@ -121,15 +106,15 @@ function bashDescription(escalationModes: readonly SandboxMode[]): string {
     + 'poll it with `bash_output` and stop it with `bash_kill`.'
   if (escalationModes.length === 0) return base
   return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the '
-    + 'marker rather than assuming the denial. When a command IS denied and a wider mode would let it '
-    + 'succeed, escalate immediately in the SAME turn — the ONE sanctioned exception to a denial: retry '
+    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
+    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
     + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
     + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
-    + 'approval prompt raised by that retry IS how the user consents. If the session states approval '
+    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
     + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
-    + 'Never escalate speculatively: ground the request in a real denial — normally the one THIS command '
+    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
     + 'just hit; escalating up front is fine only when this session already denied the same access. '
-    + 'A rejected escalation is final for THAT command — stop and explain, never work around '
+    + 'A rejected escalation is final for that command — stop and explain, never work around '
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
@@ -166,15 +151,12 @@ export function renderResult(
   if (body.length === 0) body = '(no output)'
 
   const markers: string[] = []
-  // The sandbox marker precedes the exit-status markers so `[exit code: N]`
-  // stays the LAST line (exitStatus() anchors its parse there). Denial is a
-  // reported fact like timeout: the model decides how to react.
+  // Keep `[exit code: N]` last so parseExitStatus() can recover it. A denial,
+  // like a timeout, remains a reported fact for the model to handle.
   if (result.sandbox?.denied) {
     markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
-    // The same-turn nudge lives at the decision point: only when this
-    // composition advertises the fields (a lever is never hinted that the
-    // schema does not offer), and inside the sandbox marker family so the
-    // exit-code marker stays the last line.
+    // Add the retry hint only when the schema advertises escalation, before
+    // the final exit marker.
     if (escalationModes.length > 0) {
       markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
     }
@@ -214,8 +196,7 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
       content: [{ type: 'text', text: args.description }],
     }
   }
-  // A foreground run IS a terminal: the command titles the card, the description
-  // renders above it, and the cwd (when the model gave a workdir) heads it.
+  // A foreground run is a terminal; an explicit workdir supplies its cwd.
   return {
     card: 'terminal',
     title: args.command,
@@ -238,7 +219,7 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  // A finished foreground run: RAW output + parsed exit for the terminal card.
+  // A finished foreground run supplies raw output and parsed exit status.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
@@ -283,9 +264,7 @@ function statusLine(task: BashTask): string {
 }
 
 export function apply(ctx: Context): void {
-  // The bash tools' cross-call HABIT, which the per-tool descriptions cannot
-  // carry (they describe one call each): the exit-code marker is only useful
-  // if the model actually checks it every time.
+  // Cross-call guidance belongs in the prompt rather than one tool description.
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
@@ -293,26 +272,15 @@ export function apply(ctx: Context): void {
   })
 
   /**
-   * The caller's owner TOKEN — the owning agent's `session.header.id`, or
-   * `undefined` for a non-agent caller. Read `session.header.id` (NOT
-   * `session.id`): every other subsystem keys off the header id (the ACP bridge,
-   * both persistence backends), and the sibling `resolveWorkdir` already reads
-   * `session.header.cwd`, so using `session.id` here would be the asymmetry smell
-   * the conventions flag. The two are equal in production, but the header is the
-   * canonical identity.
+   * Return the canonical session-header id used by ACP and persistence as the
+   * task owner, or undefined for a non-agent caller.
    */
   const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
     exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
 
   /**
-   * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
-   * token. Rejects when the task HAS an owner and it differs from the caller's
-   * token — using `!== undefined` semantics, NOT truthiness, so an empty-string
-   * token is still a real owner (never treated as unowned). An unowned task
-   * (`ownerOf` returns `undefined`) is allowed; a truly unknown id is also
-   * `undefined` here and then fails loudly at the subsequent
-   * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
-   * (`callerToken` undefined) cannot match an owned task and is rejected.
+   * Reject access when a task has a different session owner. Unowned tasks are
+   * allowed; unknown ids still fail in the subsequent read or kill.
    */
   const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
     const owner = ctx.bash.ownerOf(taskId)
@@ -348,32 +316,20 @@ export function apply(ctx: Context): void {
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
   /**
-   * The session's standing mode override for an ordinary (non-escalating)
-   * call: the `bash/sandbox-mode` fold of the calling agent's log, stamped
-   * onto the request so EXECUTION follows the same effective mode the prompt
-   * section states. Weakest precedence — an escalation grant (freshly
-   * approved for exactly this call) outranks it, and without either the
-   * executor's `resolve()` applies its configured default. Undefined for a
-   * non-sandboxing executor (nothing honors it) and for agent-less callers
-   * (no session to fold).
+   * Return the calling session's folded standing mode. Approval outranks this
+   * value and the executor default applies when it is absent; non-sandboxing
+   * and agent-less calls have no override.
    */
   const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
     defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
 
   /**
-   * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
-   * anything executes. Returns the granted mode to stamp onto the bash
-   * request; throws the distinct fail-closed text for every other path (no
-   * service composed, an agent-less execution, a rejection, a cancellation,
-   * an unanswerable ask) — the registry turns the throw into this call's
-   * isError result, and nothing has run. The seam is consumed
-   * opportunistically (`ctx.get`, the dsh-tools ask-routing pattern), so a
-   * deployment without it degrades per call, never at registration.
+   * Request one-shot escalation before execution. Missing approval context,
+   * rejection, cancellation, and unavailable answers throw without running the
+   * command; the optional seam is resolved per call through `ctx.get`.
    */
   const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
-    // Schema validation only checks ADVERTISED keys, so an unadvertised `sandbox_permissions`
-    // (no sandboxing executor) still reaches execute — reject it here so a human is never
-    // prompted to "escalate" a sandbox that is not there.
+    // Reject an unadvertised escalation before prompting for a nonexistent sandbox.
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
@@ -399,8 +355,7 @@ export function apply(ctx: Context): void {
       ...exec.signal ? { signal: exec.signal } : {},
     })
     switch (outcome) {
-      // The SchemaSpec enum already pinned `mode` to the closed target
-      // vocabulary; the per-call check above proved it is strictly wider.
+      // Schema validation pins the vocabulary; the per-call check proves widening.
       case 'allowed-once': return mode as SandboxMode
       case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
       case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
@@ -457,8 +412,7 @@ export function apply(ctx: Context): void {
         ...sandboxMode !== undefined ? { sandboxMode } : {},
       }
       if (args.run_in_background === true) {
-        // Stamp the owner token (the agent's session id) onto the spec so the executor stores
-        // it on the task — the isolation fence for bash_output/ bash_kill.
+        // Store the session owner on the task for bash_output/bash_kill isolation.
         const task = ctx.bash.start(ctx.bash.resolve({ ...request, owner: callerToken(exec) }))
         return [{ type: 'text', text: `started background task ${task.id}` }]
       }
@@ -492,9 +446,8 @@ export function apply(ctx: Context): void {
       }
       text += `\n${statusLine(read.task)}`
       if (read.task.sandbox?.runnerFailed) {
-        // The sandbox RUNNER itself failed — the command never ran. The
-        // foreground path surfaces this as the structured SANDBOX_UNAVAILABLE
-        // error; a settled task's read carries the marker instead.
+        // Background settlement carries the runner-failure fact that a
+        // foreground call exposes as SANDBOX_UNAVAILABLE.
         text += `\n[sandbox: the sandbox runner itself failed under ${read.task.sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`
       } else if (read.task.sandbox?.denied) {
         // Mirrors the foreground result marker (and its same-turn escalation hint).

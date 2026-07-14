@@ -1,9 +1,11 @@
 /**
  * Bridge for unmodified Claude Code command hooks on harness interception
  * seams. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
- * start/stop; owns Claude payloads, environment and plugin-root substitution;
- * and logs but does not honor `updatedInput`. Bespoke behavior should use typed
- * native plugins on the same seams.
+ * start/stop. It owns Claude payloads, environment, substitution, and decision
+ * mapping; shared execution and parsing live in `dsh-hook-protocol`.
+ * `updatedInput` is logged and warned but not honored. Bespoke behavior should
+ * use typed native plugins on the same seams; see the
+ * [hook-bridges RFC](../../../../docs/rfc/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-claude
  */
 
@@ -41,7 +43,7 @@ export const inject = ['bash']
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
-   * PROCESS-LEVEL: read once at load, a relative path resolves against the process
+   * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
    * `hooks.json` from each `session/new.cwd` is not yet implemented.
@@ -90,14 +92,11 @@ function assertPositiveInteger(name: string, value: number): void {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Validate the cap BEFORE the config-file parse: a bad value must fail the
-  // load loudly, not be skipped by the parse-failure early return.
+  // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
-  // --- Parse the config ONCE at load. A read/parse failure is contained: the
-  // bridge logs and registers nothing rather than crashing boot (a typo'd path
-  // must not take the agent down). ---
+  // Parse once at load. A read or parse failure logs and registers nothing.
   let parsed: ClaudeHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
@@ -114,10 +113,8 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
 
-  // --- The emit-shaped points (SessionStart, SubagentStart, SubagentStop) run detached — no
-  // seam awaits them — so every run chain is tracked and disposal aborts still-running hook
-  // processes, then drains the continuations (docs/defensive-patterns.md: dispose must reach
-  // quiescence).
+  // Emit-shaped points run detached, so track their chains; disposal aborts
+  // active hooks and drains continuations before resolving.
   const detached = createDetachedRuns()
   ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
@@ -138,11 +135,11 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
-    // Run the hook in the AGENT'S session workspace (the `session/new` cwd on the session
+    // Run the hook in the agent's session workspace (the `session/new` cwd on the session
     // header), not the executor default (the ACP server's launch dir).
     const workdir = opts.agent?.session.header.cwd
     // CLAUDE_PROJECT_DIR: an explicit config value wins; otherwise default it to the session
-    // workspace (the same dir the hook RUNS in).
+    // workspace (the same dir the hook runs in).
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
     for (const group of groups) {

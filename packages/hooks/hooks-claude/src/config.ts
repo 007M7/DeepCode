@@ -1,7 +1,8 @@
 /**
  * Parse Claude Code's event-to-matcher-group hook format into shared {@link MatcherGroup}s.
- * Command hooks run after `${CLAUDE_PLUGIN_ROOT}` substitution. Other supported hook types are
- * parsed but skipped with a warning, matching the bridge's faithful-but-degraded policy.
+ * Only command hooks run; other hook types are returned as skipped so the
+ * bridge can warn. Plugin-root and project-directory substitutions are applied
+ * to commands at parse time.
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 

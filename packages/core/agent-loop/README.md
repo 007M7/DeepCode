@@ -52,7 +52,7 @@ The driver owns one agent for its lifetime. It records turn, step, request, stre
 
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 
-### What is NOT here
+### What belongs to plugins
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
@@ -61,3 +61,24 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
 - UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)
+
+## Model Experience
+
+### Complete conversation request
+
+**What the model sees**: For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose.
+
+**Token effect**: System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence.
+
+### Retained message history
+
+**What the model sees**: Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+
+**Token effect**: Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
+
+## Known Limitations and Deferred Work
+
+- **Tool calls within a step execute sequentially** — parallel execution waits on concurrency-safety metadata in the tool contract (see `dsh-tools`).
+- **No resume-or-create policy on the config path** — config-driven `create()` starts a fresh `${id}-session-<uuid>` every run (`TODO(demo)`), and a config `resumeSessionId` whose resume fails logs a warning and creates no agent.
+- **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
+- **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.

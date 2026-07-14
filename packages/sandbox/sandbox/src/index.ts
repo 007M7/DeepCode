@@ -70,20 +70,17 @@ export interface ConfinedArgv {
 }
 
 /**
- * Error `code` carried by the infrastructure error a provider throws when a
- * confined policy is requested but no backend is available or usable on this
- * host: confinement FAILS CLOSED (refuses to run) rather than silently
- * executing unconfined. Thrown as a `HarnessError`, it reaches the model
- * through the structured `{ name, code }` error channel on `tool/result`, so
- * callers can distinguish "the sandbox is missing" from a failing command.
+ * Error code for a requested confined mode when no backend is usable. The
+ * provider fails closed, and `HarnessError` carries the code through
+ * `tool/result` so callers can distinguish missing confinement from command
+ * failure.
  */
 export const SANDBOX_UNAVAILABLE = 'SANDBOX_UNAVAILABLE'
 
 /**
- * Thrown by {@link SandboxProvider.confine} when a confined policy is
- * requested but no backend is usable on this host: confinement fails closed.
- * Carries the {@link SANDBOX_UNAVAILABLE} code through the structured
- * `{ name, code }` error channel.
+ * Thrown when {@link SandboxProvider.confine} cannot enforce the requested
+ * mode. Carries {@link SANDBOX_UNAVAILABLE} through the structured error
+ * channel.
  */
 export class SandboxUnavailableError extends HarnessError {
   constructor(mode: ConfinedSandboxMode, detail?: string) {

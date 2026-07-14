@@ -95,7 +95,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:34`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:36`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -154,7 +154,7 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:114`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

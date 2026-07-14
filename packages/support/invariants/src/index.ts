@@ -1,8 +1,9 @@
 /**
- * Dev-only listeners for relationships that event types and immutability cannot express: turn and
- * step nesting, scoped dispatch, status transitions, and request reconstruction. Enable in tests
- * and demos, not production. Sessions already snapshot and freeze individual events; this plugin
- * checks the cross-event contract and serves as its executable documentation.
+ * Runtime listeners that fail loudly when cross-event contracts are broken:
+ * turn and step nesting, scoped dispatch, status transitions, and request
+ * reconstruction. The plugin has no environment guard and is active wherever
+ * mounted, including the default `dsh-agent-core` bundle; custom compositions
+ * may omit it. Sessions still own event snapshots and freezing.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -329,7 +330,7 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
 }
 
 /**
- * Register the dev-mode invariants. Contributions are effect-scoped, so
+ * Register the runtime invariants. Contributions are effect-scoped, so
  * disposing the plugin fiber removes all listeners (HMR-safe). On (re-)apply
  * the trace state is rebuilt by replaying each existing session's log, so a
  * hot reload mid-turn does not falsely reject the next event.

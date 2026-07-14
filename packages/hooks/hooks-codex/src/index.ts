@@ -2,7 +2,10 @@
  * Bridge for unmodified Codex command hooks on harness interception seams. It
  * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
  * matchers, snake_case payloads without a trailing newline, no hook environment
- * or command substitution, and block-only decisions; allow/ask do not grant.
+ * or command substitution, and no pre-tool approval or rewrite path; only
+ * blocking decisions are honored. Shared execution and parsing live in
+ * `dsh-hook-protocol`; see the
+ * [hook-bridges RFC](../../../../docs/rfc/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-codex
  */
 
@@ -37,7 +40,7 @@ export const inject = ['bash']
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
   /**
-   * Path to a Codex `hooks.json`. PROCESS-LEVEL: read once at load, a relative
+   * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
    * `session/new.cwd` is not yet implemented.
@@ -73,8 +76,7 @@ function assertPositiveInteger(name: string, value: number): void {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Validate the cap BEFORE the config-file parse: a bad value must fail the
-  // load loudly, not be skipped by the parse-failure early return.
+  // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
@@ -107,12 +109,11 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
-    // Run the hook in the agent's session workspace (the `session/new` cwd), not the executor
-    // default (the server launch dir) — a hook reading a relative file or `pwd` must see the
-    // user's project tree.
+    // Run hooks in the agent's session workspace so relative paths address the
+    // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
     for (const group of groups) {
-      // Codex matches with PURE regex (no literal fast path).
+      // Codex always interprets matchers as regexes; it has no literal fast path.
       if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
@@ -128,7 +129,7 @@ export function apply(ctx: Context, config: Config): void {
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
+          trailingNewline: false, // Codex writes stdin without a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
         }, () => performance.now())
@@ -181,7 +182,7 @@ export function apply(ctx: Context, config: Config): void {
     /* jscpd:ignore-end */
   })
 
-  // UserPromptSubmit → PromptDecision. Codex can only BLOCK (no allow/ask).
+  // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
   ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
     const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true })
@@ -232,9 +233,9 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // Stop → ContinuationDecision. A blocking Stop hook forces continuation.
-  // TODO(stop-loop-guard): like CC, a Stop hook that unconditionally blocks would
-  // force-continue every step (`stop_hook_active` is always false here); the
-  // loop-guard (stop_hook_active + a max-consecutive cap) is deferred.
+  // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
+  // avoid continuing the same turn indefinitely. It is always false here, so an
+  // unconditionally blocking hook force-continues every step until it self-limits.
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
     const merged = await runPoint('Stop', '', { ...turnBase(agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn })
     /* jscpd:ignore-end */

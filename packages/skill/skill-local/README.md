@@ -35,3 +35,14 @@ When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, read
 ## Skill Format
 
 Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter is parsed as YAML with the `yaml` package; it requires `name` and `description`, while `whenToUse`, `disableModelInvocation`, and `metadata` are optional. Names must be kebab-case.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-skill`, which renders this provider's invocable names and capped descriptions into the session-prefix catalog and a selected instruction body plus resource-base guidance into retained tool history while paths, provider ranks, and disabled skills remain hidden.
+
+## Known Limitations and Deferred Work
+
+- **Discovery is one level deep** — only `<root>/<name>/SKILL.md` and `<root>/<name>.md` are recognized; nested skill trees and package manifests are ignored.
+- **Project scope is the nearest `.git` ancestor** — workspaces without that marker fall back to the supplied cwd, with no alternate project-root marker or monorepo subproject selection.
+- **Unreadable or malformed entries disappear with a warning** — the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from a skipped one.
+- **No filesystem watching** — edits rely on the registry cache being evicted or invalidated by provider reload before a previously collected cwd is rediscovered.

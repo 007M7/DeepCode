@@ -7,7 +7,7 @@
 
 import type { MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
-/** The five hook points Codex's engine supports. */
+/** The five Codex hook points this bridge supports. */
 export const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 
 /** A parsed Codex config: event name → its matcher groups (command hooks only). */

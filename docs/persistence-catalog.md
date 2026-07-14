@@ -75,13 +75,13 @@ Source: [`packages/core/session/src/types.ts:249`](../packages/core/session/src/
 
 #### `bash/sandbox-mode` — log-only
 
-The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
+Durable log-only sandbox-mode override; never a surface event or model message. Execution and ACP option reporting fold the latest event through effectiveSandboxMode without adding a prompt notice.
 
 ```ts persistence-catalog
 'bash/sandbox-mode': { mode: SandboxMode }
 ```
 
-Source: [`packages/bash/bash/src/session-mode.ts:22`](../packages/bash/bash/src/session-mode.ts)
+Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 

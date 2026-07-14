@@ -15,11 +15,8 @@ import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
- * Full-loop bridge tests: a scripted mock MODEL drives the REAL agent loop + REAL
- * bash executor, and the REAL `dsh-hooks-claude` bridge runs REAL shell hook
- * scripts written to a temp dir — only the model is mocked (the "prefer the real
- * implementation" rule). Each test writes a `hooks.json` + executable scripts,
- * loads the bridge pointed at them, and asserts the hook's effect on the loop.
+ * Full-loop Claude bridge tests with a mock model, the real loop and bash
+ * executor, and shell hooks from a temporary config.
  */
 
 const dirs: string[] = []
@@ -193,7 +190,6 @@ describe('hooks-claude bridge — PostToolUse', () => {
     await waitForIdle(ctx, agent)
 
     const result = events(agent).find(e => e.type === 'tool/result')
-    // PostToolUse blocks AFTER the tool ran: the result is rewritten to isError + feedback.
     expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
     expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('output rejected, retry'))).toBe(true)
   })
@@ -331,8 +327,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     // Disposal reaches quiescence: it returns only after the aborted run settles and the process
     // is reaped, so `kill(pid, 0)` must report ESRCH. Untracked fire-and-forget work would remain.
     expect(() => process.kill(pid, 0)).toThrow()
-    // The aborted run resolves as a non-blocking error (runHook never rejects),
-    // so the drained continuation must NOT have logged a failure.
+    // runHook resolves an aborted run as a non-blocking error, so draining must
+    // not log a rejected continuation.
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
   })
 })

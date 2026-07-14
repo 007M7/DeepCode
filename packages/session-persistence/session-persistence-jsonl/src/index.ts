@@ -29,13 +29,7 @@ export interface Config {
   root: string
 }
 
-/**
- * Whether `error` is a "no such file/directory" (`ENOENT`) failure — the ONLY
- * filesystem error that legitimately means "this session/root is absent" for a
- * durable backend. Any OTHER error (`EACCES`, `ENOTDIR`, transient I/O) must
- * surface rather than be silently reported as absence. (A NodeJS filesystem
- * rejection carries a string `code`.)
- */
+/** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
@@ -53,13 +47,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   })
 
   /**
-   * Backend label for the coordinator's dispose-failure AggregateError and
-   * effect name. NOTE: this intentionally shadows cordis `Service.name` (which
-   * the base sets to `'sessionPersistence'`). The service is registered under the
-   * fixed key the Service constructor captured (`reflect.provide('sessionPersistence', …)`),
-   * not via `this.name`, so overwriting the instance field with the backend label
-   * does not affect `ctx.sessionPersistence` resolution — it only relabels the
-   * dispose diagnostics, which is exactly what {@link PersistenceBackend.name} is for.
+   * Backend label for coordinator diagnostics and effects. It shadows
+   * `Service.name` without changing the service key captured by the base
+   * constructor.
    */
   override readonly name = 'session-persistence-jsonl'
 
@@ -104,7 +94,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 
-  /** Read a stored prefix by id across ALL cwd buckets (cwd unknown). */
+  /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
   async loadStored(id: SessionId): Promise<StoredPrefix<number> | undefined> {
     const file = await this.findLog(id)
     if (file === undefined) return undefined
@@ -112,11 +102,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Read a stored prefix SCOPED to `cwd` (HMR live-adoption must not cross cwd).
-   * `undefined` is the DEFINITE "no-cwd" bucket, NOT "unknown" — a live session
-   * with no cwd may only adopt a persisted no-cwd log, never a same-id log that
-   * lives in some other cwd bucket. So this looks at exactly `logPath(cwd)`
-   * (which maps `undefined` → the `_no-cwd` bucket), never the all-buckets scan.
+   * Read a stored prefix within one cwd for HMR adoption. `undefined` names the
+   * no-cwd bucket rather than an unknown cwd, so this never scans other buckets.
    */
   async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
     const path = logPath(this.root, cwd, id)
@@ -125,10 +112,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Read and scan a session's log file into a {@link StoredPrefix}. Folds the
-   * torn-tail comparison HERE so the `tornMarker` is the byte offset to truncate
-   * to (or `undefined` when nothing is torn) — the coordinator never sees the
-   * raw byteLength.
+   * Read a stored prefix and convert torn-tail state to the byte offset the
+   * coordinator can round-trip without knowing the file format.
    */
   private async readPrefix(path: string): Promise<StoredPrefix<number>> {
     const buffer = await readFile(path)
@@ -164,9 +149,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     const metas: SessionHeader[] = []
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listJsonl(dir)) {
-        // Read ONLY the header line, not the whole log: a session picker must
-        // scale with the number of sessions, not the total size of every
-        // conversation (the log persists every assistant/chunk verbatim).
+        // Read only headers so listing scales with session count, not log size.
         const first = await this.readFirstLine(`${dir}/${name}`)
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
@@ -179,7 +162,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   // --- materialization / append / repair (file mechanics) ---
 
-  /** Atomically write the header line + first batch (temp-write, fsync, rename). */
+  /** Atomically write the header line + first batch (temp-write, fsync, collision-safe hard-link publish). */
   private async materialize(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const dir = sessionDir(this.root, meta.cwd)
     await mkdir(this.root, { recursive: true, mode: 0o700 })
@@ -204,9 +187,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     } finally {
       await handle.close()
     }
-    // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
-    // final path already exists, so two processes materializing the same id
-    // concurrently cannot clobber each other. rename() would silently overwrite.
+    // Publish with link()+unlink(): unlike rename(), link fails if another
+    // process materialized the same id first.
     let linked = false
     try {
       await link(tmp, finalPath)
@@ -217,9 +199,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
       if (!linked) await rm(tmp, { force: true })
     }
-    // link() succeeded — the log is published. fsync the directory so the new
-    // entry survives a power loss: the new link is not crash-durable until the
-    // parent directory's metadata is synced.
+    // The published link becomes crash-durable only after its directory fsync.
     await this.syncDir(dir)
     // Best-effort temp cleanup: the log is already published and durable, so a failure to
     // remove the (now-redundant) temp hard link must not reject the append.
@@ -230,7 +210,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** fsync a directory so a just-created/renamed entry inside it is crash-durable. */
+  /** fsync a directory so a just-created or published entry inside it is crash-durable. */
   private async syncDir(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {
@@ -241,11 +221,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Append event lines at EOF and fsync. On a write/sync failure AFTER the kernel
-   * accepted some bytes (ENOSPC, an fsync error), truncate the file back to its
-   * pre-append size before rethrowing: the cursor is unchanged, so the batch will
-   * be retried, and without this rollback the retry would append AFTER the partial
-   * bytes — producing duplicate seqs that make `scanLog` see a gap.
+   * Append and fsync event lines. On a partial write or sync failure, restore the
+   * previous size before rethrowing because the unchanged cursor will retry the
+   * batch; leaving partial bytes would create duplicate sequence numbers.
    */
   private async appendLines(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const path = logPath(this.root, meta.cwd, meta.id)
@@ -307,10 +285,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
-   * Find a session's log file by id across ALL cwd buckets — the any-cwd scan
-   * for `loadStored` (resume identifies a session by id alone). The cwd-scoped
-   * lookup (`loadLive`) does NOT use this; it goes straight to `logPath(cwd)` so
-   * a no-cwd session can't match a real-cwd bucket.
+   * Find a session by id across cwd buckets for resume. Cwd-scoped HMR adoption
+   * bypasses this scan so a no-cwd session cannot claim another bucket.
    */
   private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
     const target = encodeSegment(id) + '.jsonl'

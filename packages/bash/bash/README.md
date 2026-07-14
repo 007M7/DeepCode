@@ -11,7 +11,7 @@ This package is the interface quarter of the bash capability, split so each conc
 | `@deepseek-ai/dsh-bash-sandbox` | an implementation: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
 | `@deepseek-ai/dsh-tool-bash` | the model-facing tool schemas over `ctx.bash` |
 
-The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface, tool schemas untouched; a containerized or remote executor slots in the same way.
+The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface; the consumer detects its `sandboxMode` capability and adds escalation fields without importing the implementation. A containerized or remote executor slots in the same way.
 
 ## Service API (`ctx.bash`)
 
@@ -35,3 +35,12 @@ Implementations subclass `BashExecutor`, implement the abstract methods, and cal
 The seam owns per-session sandbox overrides through the log-only `bash/sandbox-mode` event, `effectiveSandboxMode`, and `setSandboxMode`; writers preserve turn enclosure, and replay restores the last override. `BashTaskId` and `OwnerToken` are distinct brands. Foreground `run` returns exit, timeout, cancellation, output, and optional sandbox facts; background `start` and `readOutput` use task records. A sandboxing executor reports the executed mode, conservative denial classification, and enforcement completeness. See [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md) for full shapes.
 
 `stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so they would be redundant tool params. This is not a security boundary: the implementation's credential scrub (not these fields) is what keeps the harness's ambient secrets out of a spawned command. They are plain optionals on the resolved spec (unlike `owner`'s required-but-nullable): a missing one means "none", the safe default. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+
+## Model Experience
+
+Indirectly, through `dsh-tool-bash`, which turns executor output and sandbox facts into guidance and retained tool-result tokens.
+
+## Known Limitations and Deferred Work
+
+- **No interactive-input vocabulary** — `stdin` is written once at spawn and closed; the seam has no channel to feed a running task and no PTY session concept.
+- **Foreground timeouts are always executor-owned** — a caller-owned-deadline mode on the seam is explicitly deferred by [the tool-call timeout-policy RFC](../../../docs/rfc/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).

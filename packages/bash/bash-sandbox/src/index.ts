@@ -82,9 +82,11 @@ function matchesSignature(exitCode: number | null, stderr: string, signatures: r
 }
 
 /**
- * Registers as `ctx.bash` in place of the local executor and consumes a
- * `ctx.sandbox` provider. Its configured mode is the fallback; each resolved
- * call may carry a session override or approved one-shot escalation.
+ * Registers as `ctx.bash` in place of the local executor and requires a
+ * `ctx.sandbox` provider; the tool layer is unchanged. The configured mode is
+ * the fallback, while a session override or approved one-shot escalation may
+ * select each call's mode. The prompt does not state the standing mode;
+ * `result.sandbox` reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox']
@@ -148,9 +150,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     }
     const confined = this.confine(spec.command, mode)
     const result = await super.run({ ...spec, command: confined.command })
-    // Runner failure outranks denial: the sandbox itself failed and the command never RAN —
-    // surface the same structured fail-closed error a confine-time discovery throws (late
-    // detection, same outcome), with the runner's own first stderr line as the cause.
+    // Runner failure outranks denial because the command did not run. Throw the
+    // same fail-closed error as confine-time discovery with the first stderr line.
     if (classifyRunnerFailure(result, confined.runnerFailureSignatures)) {
       throw new SandboxUnavailableError(mode, result.stderr.text.trim().split('\n')[0])
     }

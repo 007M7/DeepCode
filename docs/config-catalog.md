@@ -267,7 +267,7 @@ Requires: `bash`
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
-   * PROCESS-LEVEL: read once at load, a relative path resolves against the process
+   * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
    * `hooks.json` from each `session/new.cwd` is not yet implemented.
@@ -292,7 +292,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:41`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:43`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -302,7 +302,7 @@ Requires: `bash`
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
   /**
-   * Path to a Codex `hooks.json`. PROCESS-LEVEL: read once at load, a relative
+   * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
    * `session/new.cwd` is not yet implemented.
@@ -317,7 +317,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:38`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:41`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-jsonrpc`
 

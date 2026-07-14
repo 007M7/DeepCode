@@ -15,12 +15,12 @@ Each fact has one home: the tier whose job it is. Elsewhere, link to that home; 
 | [rfc/](rfc/README.md) | Decision records: the why, what-was-given-up, and concise verification contract; `implemented/` RFCs describe shipped reality in present tense | Migration plans, acceptance-task checklists, fixture walkthroughs, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
-| Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
+| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](cookbook/adding-a-package.md#4-write-the-package-readme) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
 | [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 
-Placement test: bug story → postmortem; design rationale → RFC; procedure → cookbook; type shape → core-data-structures; package contract → README; universal rule → root AGENTS.md with a link to its rationale.
+Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; type shapes → core data; package contracts → READMEs; standing orders → root `AGENTS.md` with a rationale link.
 
 ## Writing rules
 
@@ -28,7 +28,6 @@ Placement test: bug story → postmortem; design rationale → RFC; procedure �
 - **Write an RFC in the same PR for decisions a maintainer may reasonably revisit.** Mechanical or self-evident changes need none ([when to write one](rfc/README.md)).
 - **One physical line per paragraph** (`verify-md-wrap`): use editor soft-wrap. Code blocks, tables, and list structure keep their formatting; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
-- **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, conditions, timing, modality, exceptions, consequences, and non-obvious orientation; delete implementation narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link to its owning rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for required coverage, decision rules, and examples.

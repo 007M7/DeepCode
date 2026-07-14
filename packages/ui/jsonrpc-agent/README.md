@@ -15,3 +15,13 @@ stdin EOF and `SIGTERM` dispose the root to quiescence and exit 0; `SIGINT` exit
 ## stdout is the protocol
 
 stdout carries only JSON-RPC frames. The bin and boot guards diagnose on stderr, and the config must omit stdout loggers.
+
+## Model Experience
+
+Indirectly, through the plugins loaded from the external `cordis.yml`, which own every model-bound prompt, schema, message, and result; this bin adds none of its own.
+
+## Known Limitations and Deferred Work
+
+- **The bin cannot prove that the config serves JSON-RPC** — a valid config with no `dsh-jsonrpc` entry boots successfully and serves nothing.
+- **No built-in or default config exists** — every launch must provide `DSH_CORDIS_CONFIG` or a positional path, and deployment owns the complete plugin tree and stdout discipline.
+- **stdin EOF cuts off in-flight work** — client disappearance disposes the root immediately; callers that need orderly completion use the protocol-level `shutdown` request.

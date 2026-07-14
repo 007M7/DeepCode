@@ -39,4 +39,13 @@ A scenario booting a differently-composed tree sets its own `configPath` (an ove
 
 Examples use a `cordis.snapshot.yml` overlay with [`dsh-llm-replay`](../llm-replay/README.md). Recording calls the live model and updates model fixtures; keyless refresh replays those fixtures and updates derived stdout, session-log, and prompt snapshots. See the [snapshot RFC](../../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md).
 
-`suite.ts` imports Vitest, so use this package only inside a Vitest run. The ACP-specific script can queue permission answers by stable option kind and can set session config options or assert their rejection in the transcript. Missing permission answers cancel; selecting an unavailable kind fails the scenario.
+`suite.ts` imports Vitest, so use this package only inside a Vitest run. The ACP-specific script queues permission answers by stable option kind and maps them to current option ids; a missing answer cancels, while an unavailable kind fails the scenario after cancelling the agent request. It can also set session config options or assert that unknown ids and values are rejected in the transcript.
+
+## Model Experience
+
+None, as this test-only harness records, normalizes, and compares ACP transcripts without changing the agent's assembled model request.
+
+## Known Limitations and Deferred Work
+
+- **Session harvest is JSONL-only** — `runScenario` collects persisted `.jsonl` logs, so an example composed over the SQLite persistence backend has no snapshot path.
+- **The subprocess boots the unbuilt tsx/Loader path only** — the built-bin artifact is guarded by the separate `built-bin` e2e smokes, never by this tier.
