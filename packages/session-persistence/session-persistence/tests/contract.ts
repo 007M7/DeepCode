@@ -43,15 +43,9 @@ export function oneTurnLog(): SessionEvent[] {
 }
 
 /**
- * Append a whole event log to a LIVE session, event by event, forwarding the
- * surface metadata each event already carries. A bare `append(e.type, e.data)`
- * over a `SessionEvent[]` widens the type argument to the union, where the
- * typed overload's mandatory-marker rule collapses to optional — and `append`'s
- * runtime guard then rejects a surface-eligible event with no marker. This
- * helper forwards the `surfaceOp`/`sourceEventSeqs` VERBATIM from the source
- * event (it does not synthesize a default), so a well-formed recorded log
- * round-trips through a live session intact and a fixture that forgot a marker
- * still trips the guard.
+ * Append recorded events to a live session while forwarding surface metadata verbatim. The broad
+ * `SessionEvent` union makes the typed marker optional, but the runtime guard must still reject a
+ * surface event whose fixture omitted it; this helper never synthesizes a default.
  */
 export function appendLog(session: Session, events: readonly SessionEvent[]): void {
   for (const e of events) {
@@ -222,10 +216,10 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
     it('append rejects non-JSON-serializable event data, naming the event type', async () => {
       const { persistence, dispose } = await make()
       try {
-        // Every value `isJsonValue` rejects must be rejected by the backend, not
-        // just BigInt — otherwise a backend could pass this contract while still
-        // accepting values that corrupt the durable round-trip. Each is a
-        // plugin-added `extra` field on a single user/message (seq 0).
+        // Every value `isJsonValue` rejects must be rejected by the backend, not just BigInt —
+        // otherwise a backend could pass this contract while still accepting values that
+        // corrupt the durable round-trip. Each value is carried in a plugin-added field on one
+        // user message so the contract covers the complete JSON-value boundary.
         const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
         cyclic['self'] = cyclic
         const badValues: unknown[] = [

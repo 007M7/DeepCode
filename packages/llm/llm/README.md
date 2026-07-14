@@ -35,7 +35,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 ### App attribution (`attribution.ts`)
 
-Every product adapter must identify the application on every provider HTTP request - attribution is part of the adapter contract, not an adapter-local nicety. `attributionHeaders(identity?)` builds the standard `User-Agent` header (`product/version (+url)`, from `userAgent()`) for every request. The default `APP_IDENTITY` carries only static public product facts (its version is read from this package's manifest); a white-label deployment passes its own `AppIdentity`, and omission falls back to the default - nothing can suppress attribution. OpenRouter-specific app attribution headers are intentionally not supported by this contract. An adapter proves compliance with a wire-level test: a mock server asserting the received header (or, for a library-backed adapter, that the library's header hook delivers the same value). Policy and rationale: [Mandatory `User-Agent` attribution](../../../docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+Every product adapter sends application identity on provider HTTP requests. `attributionHeaders(identity?)` builds the standard `User-Agent`, defaulting to public `APP_IDENTITY`; white-label deployments may replace but not suppress it. Adapters verify the wire header directly or through their library hook. See [the attribution RFC](../../../docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
 
 ### Classes
 
@@ -46,4 +46,17 @@ Every product adapter must identify the application on every provider HTTP reque
 
 ### Real adapters
 
-Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) is a hand-rolled DeepSeek fetch/SSE adapter, while [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) dynamically resolves any configured provider/model in pi-ai's installed catalog. The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).
+Two adapters implement `LlmAdapter` on different internals: [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) uses hand-rolled fetch/SSE for the `deepseek` route, while [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) dynamically resolves configured provider/model pairs through `@earendil-works/pi-ai`. Both follow the `StreamChunk` conventions in `types.ts`: usage precedes finish, tool arguments remain raw strings, and errors take one of two sanctioned paths. See [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md) for the design rationale.
+
+## Model Experience
+
+None, as this adapter registry forwards an already assembled request without adding or changing any model-bound text, schema, or message.
+
+## Known Limitations and Deferred Work
+
+- **No retry/caching/rate-limit layer ships** — `llm/stream` is the intended wrap seam and has no production listener, so provider 429/5xx failures surface immediately.
+- **`GenerateOptions` sampling is `temperature`/`maxTokens`/`stop` only** — no `tool_choice`, `top_p`, or penalty fields; the vocabulary grows when a producer lands ([dropped inert knobs](../../../docs/rfc/implemented/simplification/2026-07-04-drop-inert-request-knobs.md)).
+- **Producer-gated variants stay out until produced** — `prefill`, per-tool `strict`, block `cache` hints, and the `agent` message-source variant were pruned as producerless ([RFC](../../../docs/rfc/implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)).
+- **`BlockAssembler` handles core block kinds only** — a plugin-added block type whose stream is never closed by `block-end` makes `blocks()` throw.
+- **`APP_IDENTITY.url` names a repository that does not exist yet** — `FIXME`: creating the public `deepseek-ai/deepseek-harness-sdk` repo gates the first release.
+- **`GenerateOptions.sessionId` is a locally-declared brand** — importing dsh-session's `SessionId` would cycle; a future ids-owning package would dissolve the workaround.

@@ -101,9 +101,8 @@ describe('config-driven session id', () => {
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
-    // Run 2: a CONFIG agent with resumeSessionId continues that session. The
-    // resume is deferred until sessionPersistence loads (ctx.inject), so wait
-    // for the agent to appear, then assert it is on the resumed id with history.
+    // Resume waits for the injected persistence service, so poll until the
+    // config-created agent appears with its stored history.
     const ctx2 = new Context()
     await ctx2.plugin(LlmService)
     await ctx2.plugin(SessionStore)

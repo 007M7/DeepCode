@@ -1,12 +1,7 @@
-"""Smoke tests against the bundled dsh-jsonrpc-agent artifacts.
+"""Keyless boot tests for the production exe and development node carrier.
 
-These boot the runtime the way an installed SDK does, once per bundled
-carrier: the platform single-file exe (production) and the dev-only node
-closure under ``runtime/node`` driven by system ``node``. Each carrier skips
-independently when its artifact is absent on this machine — build or fetch it
-per the FileNotFoundError guidance quoted in the skip reason. Keyless: the
-dummy DEEPSEEK_API_KEY only satisfies the adapter's load-time check;
-initialize/shutdown never call a model.
+Each carrier skips independently when absent. The dummy API key only satisfies
+adapter loading; initialize and shutdown do not call a model.
 """
 
 from __future__ import annotations
@@ -21,8 +16,7 @@ from deepseek_harness_runtime import resolve_bundled_launch_args
 
 _MODES = ("exe", "node")
 
-# The serving surface is itself a plugin: without the dsh-jsonrpc entry the
-# runtime boots an agent nobody can talk to and exits 0 on stdin EOF.
+# The config must include the JSON-RPC serving plugin.
 _CORDIS_YML = """\
 - id: jsonrpc
   name: '@deepseek-ai/dsh-jsonrpc'
@@ -57,9 +51,7 @@ def _client(tmp_path: Path, launch_args: tuple[str, ...]) -> HarnessClient:
                 "DSH_CORDIS_CONFIG": "./cordis.yml",
                 "DSH_SESSION_ROOT": str(tmp_path / "sessions"),
                 "DSH_CWD": str(tmp_path),
-                # initialize() lazily mounts the llm-deepseek adapter for the
-                # requested model; a dummy key keeps the keyless boot green
-                # (initialize/shutdown never call the model).
+                # The lazily mounted adapter requires a key even without a model call.
                 "DEEPSEEK_API_KEY": "sk-dummy-for-boot",
                 "DEEPSEEK_BASE_URL": "http://127.0.0.1:9",
             },
@@ -119,7 +111,4 @@ def test_zero_config_run_injects_bundled_default_cordis_config(
         request_timeout_seconds=120,
     )
     with harness:
-        # __enter__ boots the runtime, which exits with a usage error unless
-        # HarnessClient.start() injected the bundled default config over the
-        # unset/empty DSH_CORDIS_CONFIG; __exit__ shuts it down.
         pass

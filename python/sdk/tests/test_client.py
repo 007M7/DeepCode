@@ -682,11 +682,9 @@ with open(os.environ["SEEN"], "w") as seen:
 def _install_fake_bundled_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
-    """Fake the deepseek-harness-runtime-bin package on sys.path.
+    """Install a fake runtime package that records config and serves lifecycle calls.
 
-    A stub exe that dumps DSH_CORDIS_CONFIG to $ENV_DUMP before serving
-    initialize/shutdown, plus a module exposing the resolution surface the
-    client consumes. Returns the fake bundled default config path.
+    Returns the fake bundled default config path.
     """
     runtime = tmp_path / "dsh-jsonrpc-agent"
     runtime.write_text(

@@ -13,10 +13,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap, SessionEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 
-// An appendable event: its type/data plus, for surface-eligible types, the
-// explicit surface intent the generator declares (mirroring how a real caller
-// passes it). The intent is part of the generated fixture, NOT synthesized by
-// `build`, so each arbitrary states the marker it produces.
+// Each arbitrary supplies its own surface intent; `build` must not synthesize
+// one or the property would fail to exercise malformed fixture choices.
 type Appendable = {
   [T in SessionEventType]: { type: T; data: SessionEventMap[T]; intent?: SurfaceIntent }
 }[SessionEventType]

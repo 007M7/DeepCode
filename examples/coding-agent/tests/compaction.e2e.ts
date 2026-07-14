@@ -7,25 +7,11 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
- * The compaction smoke test: a real model runs a multi-step bash task with a
- * deliberately tiny context window, so the auto-compaction listener fires
- * MID-SESSION and summarizes the older history into a checkpoint. This is the
- * first end-to-end exercise of the compaction seam (it is wired nowhere else),
- * and the runaway-survival regression net — it proves a session that grows past
- * the window keeps running rather than overflowing. Key-gated.
- *
- * Verifies the WORLD, not the agent's self-report: a compact/start…end pair
- * landed in the real session log, the surface actually shrank (a replace node
- * exists and shadowed older nodes), and the agent still produced a final answer
- * after compaction (so the summarized history did not break the conversation).
- *
- * FIXME(compaction-snapshot): this key-gated e2e is the ONLY coverage of runaway
- * compaction — there is no keyless full-transcript snapshot of it. dsh-llm-replay
- * reconstructs one model call per (turn, step) from `assistant/chunk` events, but
- * `summarize()` assembles its stream into a local BlockAssembler and appends no
- * `assistant/chunk`, so the interleaved summarization call is unreplayable. A
- * snapshot needs replay-harness work to serve that call; deferred as a follow-up.
+ * Key-gated smoke for mid-session compaction. It verifies the compact event
+ * pair, replacement of older surface nodes, and a final answer after compaction.
  */
+// FIXME(compaction-snapshot): this is the only full compaction coverage because
+// replay cannot serve the summarizer's unlogged model call.
 
 let workdir: string | undefined
 let ctx: Context | undefined
@@ -40,18 +26,11 @@ afterEach(async () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compacts mid-flight and keeps running', () => {
   it('summarizes older history into a checkpoint without breaking the task', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-compaction-'))
-    // A handful of files for the model to read, so multiple bash steps
-    // accumulate surface nodes (tool calls + results) and grow the history past
-    // the (deliberately tiny) window.
     for (let i = 1; i <= 4; i++) {
       await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(50))
     }
 
-    // Tiny window so a couple of steps crosses the threshold. The generation
-    // cap is deliberately larger than the final checkpoint because
-    // reasoning-capable APIs count reasoning tokens against the provider output
-    // budget even though those blocks are stripped before the checkpoint is
-    // stored.
+    // Reasoning tokens require a larger generation cap than the retained checkpoint.
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
       compact: {

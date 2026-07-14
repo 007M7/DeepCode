@@ -78,10 +78,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     }])
     await waitForIdle(ctx, agent)
 
-    // World checks: the tool exists in the registry, was invoked as a real
-    // tool call, and its RESULT (the self-made execute actually running) is the
-    // reversed string. The model's prose is not asserted — the tool result is
-    // the world; the summary sentence is just the self-report.
+    // World checks: the tool exists in the registry, was invoked as a real tool call, and its
+    // RESULT (the self-made execute actually running) is the reversed string. Model prose is only
+    // self-report and is deliberately not asserted.
     expect(ctx.tools.get('reverse_text')).toBeDefined()
     const events = [...agent.session.events]
     const calls = events.filter(event => event.type === 'tool/call')

@@ -187,15 +187,8 @@ describe('dsh-agent-core bundle', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // Postmortem 0001 guard: a stray `export default apply` makes the Loader's
-    // `unwrapExports` (`exports.default ?? exports`) collapse the module to the
-    // bare `apply` function, DROPPING the named `name`/`Config`. This package has
-    // no `inject` export (it mounts children that carry their own), so that
-    // collapse would NOT crash at load — the plugin would boot but silently lose
-    // its config schema. This bundle is also never Loader-unwrapped by any smoke
-    // (the apps import it directly; the mount test namespace-mounts it), so this
-    // is its ONLY export-shape guard. Assert directly AND through the real
-    // `unwrapExports` so adding `export default` to src/index.ts fails here.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config`. Apps import the bundle directly, so this is its Loader-shape guard.
     expect('default' in agentCore).toBe(false)
     expect(typeof agentCore.apply).toBe('function')
 

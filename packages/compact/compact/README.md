@@ -7,7 +7,7 @@ This package is the interface tier of the compaction capability, split so each c
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
-| `@deepseek-ai/dsh-compact-basic` (deferred) | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compact-basic` | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
 Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
@@ -48,3 +48,24 @@ The `compact/*` events extend `SessionEventMap` (merge-extensible) via declarati
 ## Implementing a backend
 
 Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A tokenizer-, template-, or model-backed implementation can live as a sibling package without changing callers.
+
+## Model Experience
+
+### Conversation history, when a backend is invoked
+
+**What the model sees**: A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+
+**Token effect**: Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+
+### Transcript supplied to a compaction consumer
+
+**What the model sees**: `renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
+
+**Token effect**: Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
+
+## Known Limitations and Deferred Work
+
+- **No model-facing consumer tier yet** — `@deepseek-ai/dsh-tool-compact` (the `/compact` tool) is deferred; compaction is reachable only via direct `ctx.compact` calls or a backend's auto listener.
+- **Single-unit overflow is out of contract** — one retained unit (a closed step or a large pasted `user/message`) alone exceeding the budget cannot be compacted; the call may go out over-budget.
+- **A session prefix that alone approaches the window is a configuration error no backend fixes** — compaction shrinks derived history, never the prefix.
+- **Request context injected by downstream `agent/request` listeners sits outside pressure accounting** — `compactIfNeeded` counts prefix, derived history, and system prompt only.

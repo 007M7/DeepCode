@@ -75,8 +75,8 @@ export class PiAiAdapter extends LlmAdapter {
     }
     const model = resolveModel(profile, options.model)
 
-    // pi-ai's event stream has no iterator-return cancellation hook: abort its
-    // provider stream when our consumer exits early as well as on caller abort.
+    // Pi-ai has no iterator-return cancellation hook. Chain an internal signal
+    // and abort it when this generator exits so early consumers stop the HTTP stream.
     const controller = new AbortController()
     const onCallerAbort = (): void => { controller.abort(options.signal?.reason) }
     if (options.signal?.aborted) controller.abort(options.signal.reason)

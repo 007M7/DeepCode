@@ -183,9 +183,8 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
   })
 
   it('a Stop hook that blocks with EMPTY stderr still forces continuation (no reason required)', async () => {
-    // Regression: a blocking Stop hook (exit 2) with no stderr yields decision
-    // 'deny' + reason undefined; the turn must STILL force-continue (the block is
-    // what matters), not silently stop. Self-limit to one block so it can't loop.
+    // A blocking Stop hook with no stderr yields `deny` without a reason. The block still forces
+    // continuation; the script self-limits to one block to avoid a loop.
     const d = dir()
     const marker = join(d, 'fired')
     const s = sh(d, 'stop.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\nexit 2\n`)
@@ -382,10 +381,8 @@ describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () 
 
 describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => {
   it('a {"continue":false} hook is RECORDED as decision "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // Honoring `continue:false` (hard-halt the whole run) is deferred — there is
-    // no such primitive on the interception seams yet. So this asserts the LOG
-    // faithfully records the halt request (decision "stop"), AND that the run is
-    // NOT actually halted: the tool still runs and the turn completes normally.
+    // The seams cannot yet honor `continue:false` as a hard halt. The log must still record the
+    // stop decision while execution and the turn continue normally.
     const d = dir()
     const s = sh(d, 'stop.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n')
     const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
@@ -457,9 +454,8 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
   })
 
   it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
-    // A hook that only adds context must NOT short-circuit the waterfall: a
-    // downstream agent/prompt-submit listener (a policy plugin) must still get to
-    // block the prompt. The bridge delegates via next() and folds its context.
+    // A context-only hook delegates with `next()` and folds its context, so a downstream policy
+    // listener can still veto the prompt.
     const d = dir()
     const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n')
     const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
@@ -589,10 +585,8 @@ describe('hooks-claude coverage — detached-listener catch handlers', () => {
 
 describe('hooks-claude coverage — hook runs in the session cwd, not the server cwd', () => {
   it('runs an agent-scoped hook in the session workspace even when the executor default differs', async () => {
-    // The bug: the bridge passed no workdir, so hooks ran in the executor default
-    // (the server launch dir), not session/new.cwd. Here the executor default and
-    // the session cwd are DIFFERENT temp dirs; a PreToolUse hook writes `pwd` to a
-    // marker and we assert it ran in the SESSION cwd.
+    // The server launch directory and session cwd deliberately differ. The marker proves the
+    // bridge passes `session/new.cwd` instead of falling back to the executor default.
     const serverDir = dir()
     const sessionDir = dir()
     const marker = join(sessionDir, 'where')
@@ -626,11 +620,8 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
   })
 
   it('runs a SubagentStop hook in the CHILD session workspace, not the server cwd', async () => {
-    // SubagentStop looks the child up (recoverable at subagent/end) and runs the
-    // hook in the CHILD's session cwd, not the executor default. Here the executor
-    // default and the child session cwd are DIFFERENT dirs; a SubagentStop hook
-    // writes `pwd` to a relative marker and we assert it landed in the CHILD dir —
-    // which only holds if the listener threaded the child agent into runPoint.
+    // `SubagentStop` recovers the child at `subagent/end`; a relative marker proves `runPoint`
+    // receives that agent and runs in the child's cwd rather than the executor default.
     const serverDir = dir()
     const childDir = dir()
     const marker = join(childDir, 'stopwhere')
@@ -681,11 +672,8 @@ describe('hooks-claude coverage — systemMessage is warned, not surfaced', () =
 
 describe('hooks-claude coverage — SessionStart timing is best-effort (no-wait)', () => {
   it('does NOT crash or block when the prompt is sent immediately (context is best-effort, may miss the first request)', async () => {
-    // Regression for the documented downgrade: session-start injection is
-    // detached, so a prompt sent immediately need not observe it. This asserts
-    // the SAFE properties (no crash, the turn still runs) WITHOUT waiting for the
-    // inject first — it documents the best-effort timing rather than masking it
-    // by pre-waiting for context/message (which the guaranteed-timing tests do).
+    // Session-start injection is detached, so an immediate prompt need not observe it. Assert only
+    // the guaranteed behavior—no crash and a completed turn—without pre-waiting away the race.
     const d = dir()
     const s = sh(d, 'start.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"late ctx"}}\'\n')
     const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })

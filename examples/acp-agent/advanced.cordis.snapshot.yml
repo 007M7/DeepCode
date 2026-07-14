@@ -1,6 +1,4 @@
-# Keyless replay counterpart to advanced.cordis.yml. It composes the same
-# Code Mode + Cordis + subagent + workflow tree while replacing only the live
-# model adapter with the committed multi-session replay script.
+# Replay counterpart to advanced.cordis.yml; only the live model is replaced.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

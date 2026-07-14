@@ -155,11 +155,8 @@ describe('interruptedTurnClosers', () => {
   })
 
   it('handles tool/call without a matching assistant/message entry gracefully', () => {
-    // A tool/call event exists in the log but no assistant/message registered
-    // the callId in pendingCalls (e.g., a plugin appended it directly, or the
-    // assistant/message from a prior step didn't have this call). The repair
-    // should still close the turn — it just won't synthesize a result for this
-    // call (there's nothing to answer).
+    // A raw tool/call with no assistant-registered pending call has nothing to
+    // answer; repair still closes the step and turn without synthesizing a result.
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },

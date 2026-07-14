@@ -1,11 +1,7 @@
 /**
- * Non-protocol wire vocabulary for the worker-thread engine: the `workerData` init
- * payload and the child-port interfaces the worker-side runtime consumes.
- * The host⇄worker MESSAGE protocol lives in ./protocol.ts; everything here
- * that a message transports (`ChildStartRequest`, `ChildResult`) is plain
- * JSON data by construction, so the structured-clone hop never meets a value
- * it cannot carry. Types only, per the package convention.
- *
+ * Non-protocol wire vocabulary for the worker-thread engine: the `workerData` init payload and
+ * the child-port interfaces the worker-side runtime consumes. Host/worker messages are defined in
+ * `./protocol.ts`; transported child requests and results are plain JSON for structured clone.
  * @module @deepseek-ai/dsh-workflow-workerthread/types
  */
 

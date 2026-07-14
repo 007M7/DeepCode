@@ -16,27 +16,13 @@ function fakeParent(): Agent {
   return { id: AgentId('workflow-parent'), options: {} } as unknown as Agent
 }
 
-// Worker-thread startup is CPU-bound (a fresh thread compiles the runtime on
-// every start): on a contended CI runner it regularly blows past vitest's 5s
-// default test timeout, observed repeatedly on the coverage lane.
+// Allow cold worker startup on contended CI runners.
 vi.setConfig({ testTimeout: 30_000 })
 
 /**
- * `vi.waitFor` with a contention-proof default timeout: the 1s default
- * flaked repeatedly on the CI coverage lane, where worker-thread cold start
- * (CPU-bound — a fresh thread compiles the runtime) competes with three
- * sibling vitest workers for CPU. The 10s default is for exactly those
- * races — waiting for a worker to start, run its first script line, or
- * deliver an async child-registration message to the host. It is NOT for a
- * wait that asserts the HOST reacted PROMPTLY to something that already
- * happened (a settled result, an observed worker death): those keep an
- * explicit tight override below, or the generous default would silently
- * accept a multi-second regression in host-side reap latency as passing
- * (proven by injecting a 6s delay into one such reap and watching the
- * un-overridden version of this helper still pass in ~6s).
- * @param assertion - retried until it stops throwing or the timeout elapses.
- * @param timeout - override for a wait that must stay deliberately tight.
- * @returns resolves when the assertion passes.
+ * Wait up to 10 seconds for CPU-bound worker startup or cross-thread delivery on contended CI.
+ * Host reactions after an observed event use explicit tight overrides, so this generous startup
+ * allowance cannot hide multi-second reap regressions.
  */
 function waitFor(assertion: () => void, timeout = 10_000): Promise<void> {
   return vi.waitFor(assertion, { timeout, interval: 50 })

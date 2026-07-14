@@ -54,3 +54,24 @@ pi-ai installs several provider SDKs and lazy-loads the one selected by the cata
 ## Testing
 
 Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. Real-API coverage remains key-gated under `pnpm run test:e2e`.
+
+## Model Experience
+
+### Provider request through pi-ai
+
+**What the model sees**: The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. This package adds no prompt prose. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
+
+**Token effect**: Provider tokenization governs exact input. Conversion adds no model-visible text; replay metadata may let a native API reuse provider-side state.
+
+### Provider response
+
+**What the model sees**: pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. Parsed tool arguments cross the harness boundary as raw JSON strings.
+
+**Token effect**: Generated content affects later inputs only after the loop records it. pi-ai folds reasoning tokens into output usage when the provider does not report them separately.
+
+## Known Limitations and Deferred Work
+
+- **Catalog membership is required** — custom model ids that are absent from the installed pi-ai catalog fail with `UNKNOWN_MODEL`, even when a provider profile supplies a custom endpoint.
+- **`GenerateOptions.stop` is unsupported** — pi-ai's common stream options cannot guarantee stop-sequence behavior across providers, so the adapter rejects the field.
+- **In-history `system` messages use pi-ai's common context conversion** — provider-specific placement follows pi-ai rather than a harness-owned wire override.
+- **`LlmError.status` is unavailable for in-stream failures** — pi-ai error events do not expose a stable HTTP status across providers.

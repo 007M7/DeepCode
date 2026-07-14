@@ -1,12 +1,6 @@
 /**
- * The worker-thread entrypoint: self-executing glue over
- * `bootstrap.ts`'s {@link runWorkerMain}, kept to the spawn wiring alone.
- * Like `bin.ts` CLI entrypoints, this file executes only inside a spawned
- * worker isolate — a place the coverage provider cannot observe — so it is
- * excluded from the coverage gate while every line of actual logic lives in
- * `bootstrap.ts`, unit-tested in-process; the real spawn path is pinned by
- * the integration tests that run genuine workers.
- *
+ * Spawn-only worker entrypoint over {@link runWorkerMain}. Executable logic stays in
+ * `bootstrap.ts` for in-process coverage; real-worker tests cover this glue.
  * @module @deepseek-ai/dsh-code-runtime-worker/src/worker
  */
 
