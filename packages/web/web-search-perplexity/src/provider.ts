@@ -1,15 +1,8 @@
 /**
- * `PerplexitySearchProvider`: a `WebSearchProvider` backed by the Perplexity
- * search API (an OpenAI-compatible `POST /chat/completions`). Maps the generated
- * answer (`choices[0].message.content`) into `content`, and prefers the
- * structured `search_results[]` for `sources[]`, falling back to the URL-only
- * `citations[]` when `search_results` is absent.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter. The OpenAI-compatible request shape
- * is a provider-private detail and does NOT make this provider depend on
+ * Perplexity search over its OpenAI-compatible chat-completions endpoint. The generated answer
+ * becomes `content`; sources prefer structured `search_results[]` and fall back to URL-only
+ * `citations[]`. The wire format and native `fetch` client are provider-private and do not use
  * `ctx.llm`.
- *
  * @module @deepseek-ai/dsh-web-search-perplexity/provider
  */
 
@@ -99,12 +92,16 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 
   constructor(private readonly options: PerplexitySearchProviderOptions) {}
 
+  // Availability checks stay beside each provider's distinct config contract;
+  // a shared base class would obscure which fields make this backend usable.
+  /* jscpd:ignore-start */
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
     if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
     if (!isPositiveInteger(this.options.maxTokens)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
+  /* jscpd:ignore-end */
 
   async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
     let response: Response
@@ -159,6 +156,9 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   }
 }
 
+// These two predicates are intentionally local: exporting generic internals
+// from the public web seam would cost more API surface than these pure checks.
+/* jscpd:ignore-start */
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -168,3 +168,4 @@ function isAbortError(error: unknown): boolean {
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
+/* jscpd:ignore-end */

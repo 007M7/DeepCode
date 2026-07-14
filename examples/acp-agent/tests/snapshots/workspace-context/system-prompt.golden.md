@@ -13,4 +13,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
+Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
+<!-- dsh-user-approval-policy:never -->
+
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.

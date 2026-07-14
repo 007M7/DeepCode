@@ -74,6 +74,67 @@ Rendering preserves the most specific instruction files first. It drops whole br
 
 Instruction content is read through `streamText()` under `maxSourceBytes`, even when provider metadata omits size or a file grows after its metadata probe. An oversized file is ignored without falling through to a lower-priority same-directory candidate; during dynamic reconciliation it is temporarily unavailable rather than removed. The plugin keeps no process-wide cache and never caches instruction prose. Its session-local scope cache uses provider versions only as a fast invalidation signal; after invalidation, SHA-1 over the bounded read remains the cross-provider content identity stored in structured session metadata.
 
-## Non-goals
+## Model Experience
 
-This implementation does not parse shell commands, recursively scan the repository, load lowercase names by default, interpret `.claude/rules/` or `@path` imports, watch files continuously, or summarize instruction content with a model. Same-directory names such as `CLAUDE.local.md` can be opted into through `instructionFileCandidates`; rule directories and import semantics need separate designs.
+### Baseline session prefix
+
+**What the model sees**: At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
+
+**Token effect**: The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+
+#### Baseline instruction template
+
+```markdown
+<system-reminder>
+The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
+
+Instructions from: ~/.dsh/AGENTS.md
+
+<user-global-instructions>
+
+Instructions from: AGENTS.md
+
+<project-instructions>
+</system-reminder>
+```
+
+### Newly discovered scope context
+
+**What the model sees**: After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
+
+**Token effect**: Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
+
+#### Additional instruction template
+
+```markdown
+<system-reminder>
+Additional instructions from: packages/app/AGENTS.md
+
+These instructions apply to work under `packages/app`. Use them as guidance when relevant; more specific instructions take precedence. They do not override system, developer, or direct user instructions.
+
+<nested-instructions>
+</system-reminder>
+```
+
+### Changed or removed instruction context
+
+**What the model sees**: A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
+
+**Token effect**: Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+
+#### Removal notice
+
+```markdown
+<system-reminder>
+Instructions removed: packages/app/AGENTS.md
+
+The previously loaded instructions from this file no longer apply.
+</system-reminder>
+```
+
+## Known Limitations and Deferred Work
+
+- **Discovery follows structured fs tools, not shell navigation** — a `bash` command that changes directories does not trigger nested instruction discovery because shell syntax and per-call shell state are not a reliable filesystem seam.
+- **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, or when a resumed loop recomposes its prefix.
+- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; same-directory names such as `CLAUDE.local.md` require explicit `instructionFileCandidates` configuration.
+- **Instruction content is bounded, not summarized** — over-budget broad files are omitted and the most-specific file may be truncated; the plugin never asks a model to compress instruction prose.

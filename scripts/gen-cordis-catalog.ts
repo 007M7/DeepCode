@@ -1,55 +1,8 @@
 /**
- * Generate (and verify) the cordis events and services catalogs in
- * docs/cordis-catalog/events.md and docs/cordis-catalog/services.md.
- *
- * The two pages are the WIRING-axis reference, one axis each: every cordis
- * event a plugin can listen to (exact signature + dispatch mode) and every
- * `ctx.<key>` service it can call (exact public interface). They complement the
- * core-data-structures catalog (the VOCABULARY axis — the types these
- * signatures move around).
- *
- * The catalogs are FULLY GENERATED from source — never hand-edit them. The
- * codebase is disciplined enough that a pure-AST pass captures the whole
- * truthful surface: every event/service is a string literal that round-trips
- * to a static `interface Events` / `interface Context` declaration (no
- * dynamically-named events, no runtime-only services). So the committed files
- * are build artifacts and a regenerate-and-diff freshness check (`--check`)
- * makes drift structurally impossible. Because generation enumerates source
- * rather than checking a hand-written subset, a brand-new event cannot be
- * silently undocumented — it appears in the next regenerate, and an
- * un-regenerated file fails `--check`.
- *
- *   `tsx scripts/gen-cordis-catalog.ts`          → write both catalogs
- *   `tsx scripts/gen-cordis-catalog.ts --check`  → exit 1 if a committed
- *                                                  catalog is stale (CI /
- *                                                  pre-push gate)
- *
- * The HARNESS tier (the `@deepseek-ai/dsh-*` events + services) is rendered in
- * full from source: signature, the `@mode` badge, and the declaration's JSDoc.
- * Every harness event MUST carry an `@mode emit|waterfall|parallel|serial` tag
- * — the generator hard-errors on a missing tag, and where the signature shape is
- * conclusive (a trailing `next: () => …` parameter is structurally a waterfall)
- * it asserts the tag agrees and hard-errors on a contradiction. Beyond the tag,
- * the walk enforces JSDoc COMPLETENESS on the whole harness surface (the
- * jsdoc-completeness-gate RFC): every event and public service method carries
- * description prose; every payload parameter has a non-empty `@param` (`this`
- * receivers and the trailing waterfall `next` are exempt — next's semantics are
- * documented once by the mode); a service method with a non-`void`/
- * `Promise<void>` return carries a non-empty `@returns` and needs an EXPLICIT
- * return type annotation (a pure-AST walk cannot classify an inferred return);
- * a stale `@param` naming no real parameter errors. Violations aggregate into
- * ONE error listing every offender. The tags are enforcement-only: parseJsDoc
- * stops prose at the first block tag, so they never change the rendered
- * catalog. The parsing + check helpers live in `scripts/jsdoc.ts`, shared with
- * the whole-export-surface gate (`scripts/verify-export-jsdoc.ts`) so
- * "documented" means the same thing on both surfaces. The INHERITED
- * tier (cordis core + loader/hmr/timer) is pinned vendor source a plugin author
- * also sees; it is rendered tersely (name + one-line + source pointer) from a
- * curated table in this script, NOT elevated to the harness tier's prominence.
- *
- * Signature fences use the ` ```ts cordis-catalog ` info string: doc-typecheck
- * recognizes it and skips compilation (the signatures are fragments, not
- * standalone-compilable, like the ` ```ts type-equiv ` blocks).
+ * Generate the Cordis event and service catalogs from static declarations.
+ * The walk enforces event modes plus JSDoc parameter/return completeness;
+ * inherited Cordis services come from the curated table below. `--check`
+ * verifies both committed artifacts.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -66,19 +19,11 @@ const OUT_SERVICES = 'docs/cordis-catalog/services.md'
 const FENCE = 'ts cordis-catalog'
 
 /**
- * Cross-link map: a type name that appears in a signature → the
- * core-data-structures page that documents it (path relative to the catalogs'
- * folder).
- * Hand-curated and catalog-owned, NOT derived from type-equiv.manifest.json —
- * that manifest documents the `…Map` symbols (`ContentBlockMap`) while
- * signatures reference the derived UNION names (`ContentBlock`), and it lists a
- * few symbols on two pages. Here each name resolves to exactly one PRIMARY page.
- * Shared with `gen-config-catalog.ts` (each caller prefixes its own relative
- * path to `core-data-structures/`), so both catalogs cross-link identically.
- * TODO(catalog-type-links): add a verifier or generator for link-map coverage
- * so new hook-era decision types like `PromptDecision` / `PreToolDecision` do
- * not silently appear in signatures without a "Types:" link.
+ * One primary core-data-structures page per signature type, shared by the
+ * Cordis and config catalogs; union names intentionally do not reuse the
+ * type-equivalence manifest's map-symbol entries.
  */
+// TODO(catalog-type-links): verify or generate link-map coverage.
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
   ContentBlock: 'core.md',
@@ -216,10 +161,8 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
           violations.push(`${where} is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
         }
         if (!doc) violations.push(`${where} has no description prose. Say what happened / what a listener may do, above the block tags.`)
-        // Payload parameters need a non-empty @param each. Exempt the `this`
-        // receiver annotation (not payload) and the trailing waterfall `next`
-        // (mode machinery, documented once by @mode semantics). Documenting an
-        // exempt parameter anyway is allowed — only absence is checked.
+        // Payload parameters need a non-empty @param. The `this` receiver is not
+        // payload, and a waterfall's trailing `next` is covered by its mode.
         const { params } = parseTags(raw)
         checkParams(where, 'event', member.parameters, params, sf,
           p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
@@ -270,10 +213,8 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       const methods: string[] = []
       for (const member of cls.members) {
         if (!ts.isMethodDeclaration(member)) continue
-        // Only the PUBLIC callable surface a `ctx.<key>` consumer sees. Drop
-        // private/protected (a protected method like `notifyTaskDone` is a
-        // subclass hook, not something a plugin calls through `ctx.bash`) and
-        // static (not reachable through the instance).
+        // Only instance methods callable through `ctx.<key>` are surface;
+        // private, protected, and static methods are not.
         const nonPublic = member.modifiers?.some(m =>
           m.kind === ts.SyntaxKind.PrivateKeyword
           || m.kind === ts.SyntaxKind.ProtectedKeyword

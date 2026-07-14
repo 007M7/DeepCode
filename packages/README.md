@@ -4,12 +4,12 @@ Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis plugin: a 
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json`); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. **Each group README is the canonical per-package map** — package roles, ctx keys, and the product-vs-support split live there, next to the code.
+Packages are grouped by role at `packages/<group>/<pkg>/`. Group directories have no `package.json`; package names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package map** for roles, ctx keys, and the product-vs-support split.
 
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
-| [`prompt/`](prompt/README.md) | Prompt and request-context extensions | Product — stable surface |
+| [`prompt/`](prompt/README.md) | Workspace instruction loading | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
 | [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
@@ -26,7 +26,8 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, app packages, user-approval and user-interaction seams, ask-user tool | Product — stable surface |
+| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, surface records, and bounded exact reads | Product — stable surface |
+| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, app packages, user-approval and user-interaction seams, ask-user tool | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, path helpers) | Support — small, stable, harness-dep-free |
 
@@ -38,4 +39,4 @@ The inter-package dependency graph is generated: [docs/module-graph.md](../docs/
 
 The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
 
-Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
+Package READMEs cover purpose, APIs, extension points, and [Model Experience](../docs/cookbook/adding-a-package.md#4-write-the-package-readme) unless on the model-agnostic [omission allowlist](../scripts/verify-package-readme-model-experience.ts). They also carry `## Known Limitations and Deferred Work` or use its [allowlist](../scripts/verify-package-readme-limitations.ts).

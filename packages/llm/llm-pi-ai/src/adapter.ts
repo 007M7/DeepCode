@@ -1,13 +1,6 @@
 /**
- * `PiAiAdapter`: the `@earendil-works/pi-ai`-backed implementation of the
- * harness LLM seam, pointed at a DeepSeek (OpenAI-compatible) endpoint.
- *
- * This adapter exists as a design-verification twin of
- * `@deepseek-ai/dsh-llm-deepseek`: same models, same wire protocol,
- * completely different internals (a unified LLM library with its own event
- * vocabulary vs hand-rolled fetch/SSE). Anything the StreamChunk protocol
- * cannot express for BOTH implementations is a core-vocabulary bug.
- *
+ * Pi-ai-backed DeepSeek adapter and design twin of the hand-rolled adapter.
+ * Both implementations must fit the same provider-neutral stream vocabulary.
  * @module dsh-llm-pi-ai/adapter
  */
 
@@ -44,11 +37,8 @@ export function buildModel(modelId: string, options: PiAiAdapterOptions): Model<
     api: 'openai-completions',
     provider: 'deepseek',
     baseUrl: options.baseURL,
-    // Always true: pi-ai only emits the DeepSeek `thinking` field for
-    // reasoning-capable models, deriving enabled/disabled from whether a
-    // reasoningEffort option is passed. DeepSeek's provider default is
-    // ENABLED, so 'off' must send an explicit {type: 'disabled'} — which
-    // requires this flag to stay on.
+    // Keep reasoning support enabled so `off` can send DeepSeek's explicit
+    // disabled marker rather than falling back to the provider's enabled default.
     reasoning: true,
     // DeepSeek's official effort levels: high|max (xhigh maps to max).
     thinkingLevelMap: { minimal: null, low: null, medium: null, high: 'high', xhigh: 'max' },
@@ -153,10 +143,8 @@ export class PiAiAdapter extends LlmAdapter {
     // `reasoning_effort` so the provider chooses its default effort.
     const reasoning = this.options.reasoning ?? 'high'
 
-    // pi-ai's event stream has no iterator-return cancellation hook: if our
-    // consumer stops early (break / loop abort), the underlying HTTP stream
-    // would keep draining. Chain an internal controller onto the caller's
-    // signal and abort it when this generator exits for any reason.
+    // Pi-ai has no iterator-return cancellation hook. Chain an internal signal
+    // and abort it when this generator exits so early consumers stop the HTTP stream.
     const controller = new AbortController()
     const onCallerAbort = (): void => { controller.abort(options.signal?.reason) }
     if (options.signal?.aborted) controller.abort(options.signal.reason)

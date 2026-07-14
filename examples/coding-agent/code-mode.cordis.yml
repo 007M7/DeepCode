@@ -1,13 +1,8 @@
-# Code Mode overlay: the live coding-agent tree (./cordis.yml) with two
-# load-time patches — the app entry's config gains `tools: { mode: code }`
-# (the registry offers exactly one wire tool, run_code, plus the generated
-# TypeScript SDK prompt section declaring bash/read/write/edit/subagent/
-# todo_write) and the worker-thread code runtime joins the tree as
-# `ctx.codeRuntime`. The dsh-stdio-agent bin boots this file for
-# `pnpm run demo:code-mode` (the acp-agent example carries the same-shaped
-# overlay for the `acp` UI). A config patch REPLACES the entry's whole
-# config, so the base entry's fields are restated verbatim; only `tools`,
-# the welcome, and the persona's second paragraph are Code Mode deltas.
+# Code Mode adds `ctx.codeRuntime` and changes the registry to one wire tool,
+# `run_code`, plus a generated SDK for bash/read/write/edit/subagent/todo_write.
+# `demo:code-mode` selects this overlay; the ACP example has the same UI-specific
+# shape. A config patch replaces the whole app config, so unchanged base fields
+# are restated; only `tools`, `welcome`, and the persona's second paragraph differ.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

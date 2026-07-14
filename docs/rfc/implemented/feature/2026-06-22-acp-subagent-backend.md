@@ -32,17 +32,15 @@ The child is a separate process, so it inherits an environment. Credential-shape
 
 ## Testing
 
-Designed at every tier the backend touches, per the root AGENTS.md rule that a new capability shape names its coverage at every tier at plan time:
-
-- **Keyless unit/integration** (`subagent-acp.spec.ts`): spawns a scripted mock ACP server subprocess (`tests/mock-acp-server.ts`) and drives it through the real backend over real ACP stdio. Coverage includes the prompt round-trip and output accumulation; every StopReason mapping; cancellation through the required request signal and through disposal; already-aborted and cancel-races-ahead-of-newSession starts; a torn pipe after cancellation settling `aborted`; permission auto-answer under both policies; non-message updates; nonexistent-command startup failure with process reaping; provider HMR; and the namespace export shape.
-- **With-key e2e** (`subagent-acp.e2e.ts`): the harness drives ITSELF — the backend spawns the real `acp-agent` example process and a real model in that child answers a prompt (PONG) and does real file work (writes `proof.txt`, verified on disk). Self-skips without `DEEPSEEK_API_KEY`. This is the "talk to our own process" smoke and the out-of-process analogue of the in-process spawn e2e.
-- **Snapshot**: deferred as `TODO(acp-subagent-replay)`. An ACP child is a distinct replay shape — each child is its own PROCESS with its own single-agent replay (booted under `DSH_SNAPSHOT=replay` with its own sessions-root + fixture), unlike the in-process per-session keying that [the per-session replay RFC](../testing/2026-06-22-subagent-snapshot-replay.md) added. The keyless mock-server tests give deterministic coverage of the backend in the meantime; the snapshot follow-up would record the parent driving a real-but-replayed ACP child.
+- **Keyless unit/integration:** A scripted ACP subprocess exercises real stdio for prompt/output flow, every stop-reason mapping, signal and disposal cancellation (including pre-abort, pre-session race, and torn-pipe cases), both permission policies, ignored non-message updates, missing-command cleanup, provider reload, and namespace exports.
+- **With-key e2e:** The backend spawns the real ACP example; its model answers `PONG`, writes `proof.txt`, and the parent verifies the file.
+- **Snapshot gap:** Each ACP child is a separate process with its own replay session, unlike in-process per-session replay. Deterministic mock-server coverage exists, while `TODO(acp-subagent-replay)` tracks parent replay against a replaying child.
 
 ## Alternatives considered
 
-### Why not the 0.28.x SDK bump?
+### Why stay on SDK 0.25.1?
 
-The plan proposed bumping `@agentclientprotocol/sdk` 0.25.1 → 0.28.x for the new fluent `acp.client()` / `ActiveSession.nextUpdate()` API. Validating that against the code (the AGENTS.md "RFC is a proposal, not golden truth" discipline) reversed the decision: the backend only needs `ClientSideConnection` + `ndJsonStream` + `PROTOCOL_VERSION` + the `Client`/`Agent`/`StopReason` types, **all present and non-deprecated in 0.25.1**. The fluent API and `unstable_forkSession` that motivated the bump are never used here, so the "cleaner client code" benefit did not materialize. Worse, 0.28.x **deprecates both** `ClientSideConnection` AND `AgentSideConnection` (it wants all callers on the fluent builders), which turns the `no-deprecated` lint red across the entire existing ACP layer — 33 usages including the server bridge this backend has no business rewriting. That cross-cutting connection-API migration is its own change, not baggage for "add an ACP subagent backend". So the bump was reverted and the backend is written against 0.25.1 (the plan's own fallback clause: "if the bump proves disruptive, fall back to `ClientSideConnection` (0.25.1), which is sufficient"). Migrating the whole ACP layer to the fluent API on a later 0.28.x bump is a worthwhile standalone follow-up.
+The backend needs only `ClientSideConnection`, `ndJsonStream`, `PROTOCOL_VERSION`, and the client protocol types, all supported in 0.25.1. The 0.28 fluent API would require migrating both client and server connection classes across the ACP layer without improving this backend, so that upgrade remains a separate change.
 
 ### Why not a persistent child process?
 

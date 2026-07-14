@@ -2,7 +2,7 @@
 
 The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs, including the local skill provider, and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
-This is the package to read to see **the whole plugin tree at once** and the canonical teaching map for the shared spine.
+Read this package for the whole plugin tree and its composition order.
 
 ## The tree it loads
 
@@ -17,7 +17,7 @@ This is the package to read to see **the whole plugin tree at once** and the can
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
-@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-invariants       runtime event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
 @deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
@@ -48,4 +48,13 @@ The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loo
 
 ## Why a code bundle, not a shared YAML include
 
-A YAML include can dedupe config, but it cannot own a `bin` or enforce front-door coupling. The app packages own that cluster, so the default ACP shape contains no stdout logger entry for a leaf to reproduce; a deployment can still add a sibling logger explicitly. Services register in the root store keyed by their isolate symbol, so a child loaded here is visible to the bundle's siblings (the leaf's adapter and executor); Cordis gates every read on `inject`, never on load order.
+A YAML include can deduplicate config but cannot own a bin or provide front-door defaults. App packages make stdout-safe ACP wiring the default, though a leaf can still add an unsafe logger. Bundle children register services in the root isolate-keyed store, so injected leaf siblings see them without load-order coupling.
+
+## Model Experience
+
+Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
+
+## Known Limitations and Deferred Work
+
+- **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
+- **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.

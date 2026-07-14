@@ -23,6 +23,15 @@
             You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
             Verify your work by running the code or tests. Keep answers brief and factual.
+      - id: fs-local
+        name: '@deepseek-ai/dsh-fs-local'
+        disabled: false
+      - id: fs-policy
+        name: '@deepseek-ai/dsh-fs-policy'
+        disabled: false
+      - id: tool-fs
+        name: '@deepseek-ai/dsh-tool-fs'
+        disabled: false
       - insert:
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'

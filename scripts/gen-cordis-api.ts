@@ -1,27 +1,8 @@
 /**
- * Generate (and verify) the runtime cordis API catalog the `cordis_inspect`
- * tool serves to the model: packages/cordis/tool-cordis/src/api-catalog.ts.
- *
- * The artifact is the machine-readable sibling of docs/cordis-catalog: it
- * reuses `collectServices` / `collectEvents` from `gen-cordis-catalog.ts` (the
- * same JSDoc-completeness-enforcing AST walk), so the API the model reads at
- * runtime and the API the docs render cannot diverge. Emitted as a typed
- * TypeScript data module (not JSON): it compiles under the package tsconfig,
- * passes lint and the export-JSDoc gate, and is trivially covered by import.
- *
- * The data is trimmed for a model-facing text surface: per service the
- * `ctx.<key>` name, the first sentence of the class doc, and the raw method
- * signatures; per event the name, `@mode`, signature, and first sentence of
- * doc; the SHAPES of every exported interface/type-alias the service
- * signatures reference (transitively — so a model can see that e.g. a
- * `BashRunResult.stdout` is `{ text, truncated }`, not a string); plus the
- * curated inherited `ctx` surface shared with the docs catalog. Source
- * pointers are dropped (a `file:line` means nothing to the model) and entries
- * are sorted deterministically.
- *
- *   `tsx scripts/gen-cordis-api.ts`          → write the artifact
- *   `tsx scripts/gen-cordis-api.ts --check`  → exit 1 if the committed file is
- *                                              stale (CI / pre-push gate)
+ * Generate the model-facing Cordis API data module from the same event/service
+ * collector as the documentation catalogs. It emits first-sentence docs, raw
+ * signatures, transitive public type shapes, and inherited context entries,
+ * without source pointers; output is deterministic and `--check` verifies it.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -48,10 +29,8 @@ function quote(value: string): string {
 }
 
 /**
- * Every exported `interface` / `type` declaration under `packages/<group>/<pkg>/src`,
- * printed without comments, keyed by name. A name declared in more than one
- * package (e.g. each plugin's `Config`) is ambiguous and dropped entirely —
- * serving the wrong package's shape is worse than serving none.
+ * Collect exported interface and type shapes; omit names declared in multiple
+ * packages rather than risk serving the wrong package's shape.
  */
 function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   const printer = ts.createPrinter({ removeComments: true })
@@ -78,11 +57,7 @@ function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   return decls
 }
 
-/**
- * The transitive closure of type names referenced by the seed texts: every
- * collected declaration whose name appears (word-bounded) in a seed or in an
- * already-included declaration, sorted by name.
- */
+/** Resolve and sort the word-bounded transitive type closure referenced by seed text. */
 function referencedTypes(seeds: string[], decls: Map<string, string>): { name: string; declaration: string }[] {
   const included = new Map<string, string>()
   let frontier = seeds

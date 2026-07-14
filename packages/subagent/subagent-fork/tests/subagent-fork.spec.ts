@@ -135,10 +135,9 @@ describe('dsh-subagent-fork', () => {
   })
 
   it('produces an invariant-CLEAN seed: forking mid-turn excludes the open turn', async () => {
-    // Drive the parent so it has ONE completed turn, then start a SECOND turn
-    // that is still open (a hanging model call), and fork while it's in flight.
-    // The fork must seed only the completed first turn — an unbalanced seed
-    // would make the invariants replay throw inside ctx.subagents.start.
+    // Drive the parent so it has one completed turn, then start a SECOND turn that is still
+    // open (a hanging model call), and fork while it's in flight. The seed must stop after the
+    // balanced first turn; including the open turn would fail invariant replay during start.
     const { ctx, parent } = await setup([textResponse('done'), 'hang', textResponse('child')])
     parent.send([{ type: 'text', text: 'q1' }])
     await parent.whenIdle()
@@ -183,12 +182,8 @@ describe('dsh-subagent-fork', () => {
   })
 
   it('does NOT return the seeded parent output when the child produces no message of its own', async () => {
-    // Regression: readResult must scope to the child's OWN events (after the
-    // seed). The parent completes a turn with a distinctive assistant message,
-    // then the fork child's own turn finishes with a bare `stop` and NO
-    // assistant/message. Scanning the whole (seeded) log would return the
-    // parent's "parent stale" message with stopReason 'completed'; scoped to the
-    // child's own events the output is empty.
+    // `readResult` must scan only child-owned events after the seed. The child emits no assistant
+    // message, so scanning the whole log would incorrectly return the parent's distinctive text.
     const { ctx, parent } = await setup([textResponse('parent stale'), emptyStop])
     parent.send([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()

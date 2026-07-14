@@ -13,14 +13,14 @@
     },
     "./worker": {
       "types": "./lib/types/worker.d.ts",
-      "default": "./lib/worker.js"
+      "default": "./lib/worker.cjs"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
-    "lib/worker.js",
+    "lib/worker.cjs",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"

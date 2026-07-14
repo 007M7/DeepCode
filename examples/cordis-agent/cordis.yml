@@ -1,17 +1,11 @@
-# The cordis-agent plugin tree: the SELF-REFERENTIAL harness demo. Same spine
-# as coding-agent (DeepSeek V4 + local bash on @deepseek-ai/dsh-stdio-agent),
-# plus @deepseek-ai/dsh-tool-cordis, which gives the model three tools over the
-# live cordis runtime it is running inside: cordis_inspect (services / plugin
-# tree / tools / dynamic mounts / api / events), cordis_mount (evaluate
-# model-written code in a vm sandbox and mount the returned plugin under the
-# `cordis-dynamic` group), and cordis_unmount (dispose one mount by id).
-# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) — the
-# dsh-stdio-agent bin loads the gitignored repo-root .env first.
-#
-# Trust stance (docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md):
-# the mounted code gets the REAL ctx — the
-# vm sandbox only prevents accidental global pollution. Load the toolset as
-# deliberately as you would grant a bash tool.
+# Self-referential stdio demo: the coding spine plus tools to inspect the live
+# service/plugin/tool/mount/API/event state, mount a model-written plugin under
+# `cordis-dynamic`, and quiescently unmount it. The app bin loads the gitignored
+# root `.env` before reading the required DeepSeek key and optional base URL.
+# Trust stance: the vm and context façade limit accidental global/framework
+# access but are not a security boundary; mounted code can reach live capabilities
+# such as `ctx.bash`. Grant this toolset like bash access. See
+# ../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
 
 # Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
@@ -53,8 +47,7 @@
 - id: web-fetch-local
   name: '@deepseek-ai/dsh-web-fetch-local'
 
-# The stdio chat app: the whole spine + front-door cluster, configured for the
-# self-referential demo driving a pre-created `main` agent.
+# The app bundle pre-creates the self-referential demo's `main` agent.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-agent'
   config:

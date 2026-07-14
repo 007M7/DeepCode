@@ -1,9 +1,6 @@
-# Code Mode REPLAY overlay: the same patched tree as code-mode.cordis.yml
-# (registry in `mode: code` + the worker code runtime) with the keyless model
-# swap from cordis.snapshot.yml (llm-deepseek disabled, llm-replay serving
-# the recorded fixture). Patches do not compose across nested includes —
-# an outer include's patch can only target entries in the file IT loads — so
-# this file patches ./cordis.yml directly with the union of both overlays.
+# Keyless Code Mode combines the runtime/registry patch with the DeepSeek-to-replay
+# swap. Include patches cannot target entries behind a nested include, so this file
+# applies both overlays directly to `cordis.yml`.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

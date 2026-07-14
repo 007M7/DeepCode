@@ -105,10 +105,7 @@ describe('dsh-subagent-mock', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/Config/apply', () => {
-    // Postmortem 0001 guard: this plugin HAS `inject = ['subagents']`, so a stray
-    // `export default apply` would collapse the module via `unwrapExports`
-    // (`exports.default ?? exports`), DROP `inject`, and crash at load with
-    // "cannot get property … without inject". Guard the shape directly.
+    // A default export would make Loader unwrap only that value and drop `inject`.
     expect('default' in mock).toBe(false)
     expect(mock.name).toBe('subagent-mock')
     expect(mock.inject).toEqual(['subagents'])

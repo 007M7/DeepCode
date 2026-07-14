@@ -6,7 +6,7 @@ Status: implemented
 
 The ACP bridge gives every session its own workspace: `session/new` records the editor's project directory as `SessionHeader.cwd`, and `dsh-tool-bash` defaults each bash call's `workdir` to the calling agent's `session.header.cwd` (see [the per-session cwd RFC work in `packages/ui/acp`](../../../../packages/ui/acp) and `resolveWorkdir` in `dsh-tool-bash`). So a bash command in session A runs in A's project, and in session B runs in B's — one server process, N workspaces.
 
-The filesystem tools did NOT honor this. `ctx.fs.resolve(path)` took no caller context, and `dsh-fs-local` resolved every relative path against a single `config.cwd` fixed at plugin load (`process.cwd()`). In the ACP demo that means `write foo.txt` and `bash cat foo.txt` resolve `foo.txt` against **different** directories — the fs tools against the server's launch dir, bash against the session's project dir. The two tools disagree about what "the current directory" is, which is a correctness bug the moment an editor opens any project other than the server's launch dir. It only appeared to work in the snapshot harness because that harness launches the child process in the same temp dir it passes as the session cwd, so the two coincide.
+Filesystem resolution used one plugin-load cwd while bash used the session project directory. Relative paths therefore disagreed whenever the editor project differed from the server launch directory; snapshots hid the bug by making those paths identical.
 
 ## Decision
 
