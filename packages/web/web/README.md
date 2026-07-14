@@ -42,3 +42,14 @@ The failure branches throw `WebError`, whose structured code (plus message detai
 ## Vocabulary
 
 `WebSearchRequest` (`query`, `maxResults?`) → `WebSearchResult` (`providerId`, `query`, `content?`, `sources[]`, `truncated`); each `WebSearchSource` has a required `url` and optional `title`/`snippet`/`publishedAt` (Perplexity citations may be URL-only). `WebFetchRequest` (`url`, `timeoutMs?`) → `WebFetchResult` (`providerId`, final `url`, `statusCode`, `body`, `truncated`); `WebFetchBody` is a CLOSED discriminated union (`html` | `text`) owned here — consumers `switch` to exhaustiveness so a new kind breaks their compilation until handled. See `src/types.ts` for the full contracts and the `WebError` code taxonomy.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-web`, which retains bounded normalized provider data or the exact configured-provider, unavailable-provider, no-provider, multiple-provider, and `Error: <message>` failures while this registry contributes no prompt or schema itself.
+
+## Known Limitations and Deferred Work
+
+- **No observation surface** — no provider-change event and no capability-status query; availability is observed only by executing `search()`/`fetch()` and routing the thrown `WebError` codes, and the no-provider failure is the generic `WEB_PROVIDER_UNAVAILABLE` with no per-provider reason enumeration ([RFC](../../../docs/rfc/implemented/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md)).
+- **`WebSearchRequest` carries only `query` + `maxResults`** — provider-neutral controls (recency, domain filters, regional hints, search depth) are deferred until Exa and Perplexity can both honor them honestly ([seam RFC](../../../docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md)).
+- **`WebFetchBody` has no `pdf` arm** — text-extractable PDF support is named deferred work; the closed union makes adding it a compile-enforced change across the three web packages.
+- **Provider-backed page extraction is out of scope of `fetch()`** — a Firecrawl/Tavily-style `web_extract` capability is deferred rather than widening the fetch seam.

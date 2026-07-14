@@ -34,3 +34,14 @@ Parsed candidate and loaded-definition fields are validated at the provider boun
 ## Consumer boundary
 
 The registry does not render model guidance or register model-facing tools. [`@deepseek-ai/dsh-tool-skill`](../tool-skill) consumes `ctx.skills` to provide the session-prefix catalog and `skill` tool, so providers remain independent of the model surface.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-skill`, which renders provider summaries into the session prefix and loaded instructions into retained tool results.
+
+## Known Limitations and Deferred Work
+
+- **Completed catalogs have no TTL or watcher invalidation** — a provider's underlying files or remote data can change without a registration revision, so a cached cwd stays stale until eviction or provider/runtime reload.
+- **Providers are queried sequentially** — one slow cooperative provider delays every provider registered after it; cancellation stops the caller's wait but cannot terminate work an uncooperative provider keeps running.
+- **A provider-list failure removes that whole source for the request** — the registry logs and skips it, with no model-visible diagnostic or partial-catalog recovery contract.
+- **Duplicate resolution is first-wins** — later lower-priority candidates are logged and hidden; there is no API to inspect all shadowed definitions.
