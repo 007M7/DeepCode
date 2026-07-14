@@ -85,6 +85,7 @@ describe('dsh-stdio-agent app', () => {
     expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
     // The sole pre-created agent the UI drives. `main` is its stable config
     // label; each fresh process mints a durable combined agent/session id.
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
     const agent = ctx.get('agents')?.list()[0]
     expect(agent).toBeDefined()
     expect(agent?.id).toBe(agent?.session.id)
@@ -100,6 +101,7 @@ describe('dsh-stdio-agent app', () => {
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-empty-resume',
       skills: await isolatedSkillsConfig(),
     })
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
     const agent = ctx.get('agents')?.list()[0]
     expect(agent?.id).toMatch(/^main-session-[0-9a-f-]{36}$/)
     expect(agent?.id).toBe(agent?.session.id)
