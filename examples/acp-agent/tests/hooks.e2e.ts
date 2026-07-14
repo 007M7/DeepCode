@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, access } from 'node:fs/promises'
+import { mkdtemp, writeFile, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import {
   type AgentUnderTest,
   type LaunchedAcpTestAgent,
 } from '@deepseek-ai/dsh-acp-snapshot'
+import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
  * With-key e2e: the Claude Code hook bridge running against the REAL acp-agent
@@ -38,16 +39,11 @@ let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  try {
-    await spawned?.close('SIGKILL')
-  } finally {
-    spawned = undefined
-    try {
-      if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-    } finally {
-      workdir = undefined
-    }
-  }
+  const ownedSpawned = spawned
+  const ownedWorkdir = workdir
+  spawned = undefined
+  workdir = undefined
+  await cleanupAcpExampleTest(ownedSpawned, ownedWorkdir)
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook blocks bash (real model)', () => {

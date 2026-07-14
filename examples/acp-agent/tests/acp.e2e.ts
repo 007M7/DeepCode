@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import {
   type AgentUnderTest,
   type LaunchedAcpTestAgent,
 } from '@deepseek-ai/dsh-acp-snapshot'
+import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
  * End-to-end: boot examples/acp-agent as a real subprocess speaking ACP over
@@ -31,16 +32,11 @@ let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  try {
-    await spawned?.close('SIGKILL')
-  } finally {
-    spawned = undefined
-    try {
-      if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-    } finally {
-      workdir = undefined
-    }
-  }
+  const ownedSpawned = spawned
+  const ownedWorkdir = workdir
+  spawned = undefined
+  workdir = undefined
+  await cleanupAcpExampleTest(ownedSpawned, ownedWorkdir)
 })
 
 describe('acp-agent over real stdio (no key required)', () => {

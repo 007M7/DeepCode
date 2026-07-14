@@ -185,7 +185,7 @@ describe('SessionPersistence service registration', () => {
     await fiber.dispose()
   })
 
-  it('rejects a legacy header delta buffered by a pre-change live producer', async () => {
+  it('rejects a legacy header delta from a pre-change live producer', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(MemoryPersistence)
@@ -193,10 +193,9 @@ describe('SessionPersistence service registration', () => {
     // Model the runtime shape available to JavaScript or a hot-loaded plugin
     // compiled against the obsolete event vocabulary.
     const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
-    appendLegacy('request/header-delta', { config: { model: 'legacy' } })
-
-    await expect(ctx.sessions.flush(session))
-      .rejects.toThrow(/unsupported legacy request\/header-delta event at seq 0/)
+    expect(() => appendLegacy('request/header-delta', { config: { model: 'legacy' } }))
+      .toThrow(/unsupported legacy request\/header-delta format/)
+    expect(session.events).toHaveLength(0)
     await fiber.dispose()
   })
 
