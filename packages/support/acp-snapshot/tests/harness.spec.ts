@@ -274,6 +274,21 @@ describe('runScenario', () => {
     expect(failures[1]).toBe(cleanupFailure)
   })
 
+  it('reports cleanup failure after an otherwise successful scenario', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const cleanupFailure = new Error('cleanup failed')
+    fsControl.cleanupFailure = cleanupFailure
+
+    const failure = await runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    ).catch((error: unknown): unknown => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).message).toBe('snapshot cleanup failed')
+    expect((failure as AggregateError).errors as unknown[]).toEqual([cleanupFailure])
+  })
+
   it('newSessionExpectError swallows the rejection, with and without extra dirs', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ rejectExtraDirs: true })
     const result = await runScenario(
