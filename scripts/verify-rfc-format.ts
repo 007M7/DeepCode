@@ -1,31 +1,8 @@
 /**
- * Doc-sync gate: enforce the RFC in-file format
- * ([README.md § The file format](../docs/rfc/README.md), the contract; rationale in
- * [the uniform-format RFC](../docs/rfc/implemented/process/2026-07-05-uniform-rfc-format.md)).
- * The classification gate owns WHERE a file sits and how it is named; this gate
- * owns what is INSIDE: the header block, the per-lifecycle body skeleton, and
- * the Alternatives-considered mandate.
- *
- * Per English RFC (`.zh.md` counterparts are the pairing gate's concern):
- *
- * 1. HEADER — line 1 is `# RFC: <title>`, line 2 blank, line 3 the one
- *    `Status:` line in the file, line 4 blank. The status is the dateless enum
- *    matching the lifecycle folder: `Status: proposed`, `Status: implemented`,
- *    or `Status: rejected — <reason>`.
- * 2. SKELETON — the first `##` section is `## Problem`; the lifecycle's
- *    required sections are present under their canonical names (`proposed/`:
- *    Proposal, Acceptance criteria, Risks; `implemented/`: Decision,
- *    Consequences; `rejected/`: Proposal); `implemented/` must not carry the
- *    proposal-era headings (Proposal, Plan, Migration plan, Acceptance
- *    criteria) that the docs standard's slop checklist outlaws there.
- * 3. ALTERNATIVES — `## Alternatives considered` is present, or the file is a
- *    pre-format RFC (dated before the format landed) carrying the exact
- *    grandfather comment instead. Carrying both, or grandfathering a
- *    post-format RFC, fails.
- * 4. DEBT MARKER — the retired legacy-format debt comment may not reappear.
- *
- * Checker, not fixer: it reports and never rewrites.
- * Run: `tsx scripts/verify-rfc-format.ts`.
+ * Enforce RFC headers, lifecycle-specific sections, alternatives, and retired
+ * marker rules. Classification and filenames belong to the sibling tree gate;
+ * translation structure belongs to the pairing gate. Exact format and
+ * grandfathering rules live in `docs/rfc/README.md`.
  */
 
 import { readFileSync } from 'node:fs'
@@ -65,9 +42,7 @@ for (const rfc of rfcs) {
     errors.push(`format: ${rfc.rel} — ${msg}`)
   }
   const lines = readFileSync(resolve(rfcRoot, rfc.rel), 'utf8').split('\n')
-  // Content scans ignore fenced code blocks: an RFC may legitimately QUOTE a
-  // status line, a banned heading, or the grandfather comment inside a fence
-  // (the README's own format section does), and only real prose counts.
+  // Format tokens inside fenced examples are not document structure.
   let inFence = false
   const prose = lines.filter((l) => {
     if (l.startsWith('```')) {

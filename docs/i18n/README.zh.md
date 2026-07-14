@@ -39,12 +39,12 @@
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
-- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/module-graph.md`——生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
+- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md` 与 `docs/module-graph.md`——生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
 - `docs/AGENTS.md`——agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)——二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)——自动翻译流水线的 prompt 模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**推进**：新增文档不再等待批量翻译。以日期命名的文档（`yyyy-mm-dd-*.md`，即 RFC），只要标注日期等于或晚于 manifest 里的 `requiredSince` 分界日期，合入时就必须配齐双语配对——所有新文档从创建起就要求双语齐备。日期早于分界的文件按定义属于豁免的存量（包括分界前夜创建的文件）；文件名日期按 RFC 惯例即首次提出日期，倒填日期绕过分界属于评审可见的违规，构不成漏洞。对于存量文档，manifest 中的 `required` 列表只是当下的执行红线，并非最终目标；目标是范围内的全量双语覆盖。配对按可评审的批次落地（核心入口文档、实操手册（cookbook）、RFC、事故复盘（postmortem）等）；每个批次合入后把对应文件加进 `required`，门禁只向前收紧、不倒退放宽。尚未进入 `required` 的文档是待翻清单（backlog），可通过 `--list` 查看；但任何已存在的配对，无论是否在清单内，都按完整契约检查。为一篇文档建立配对等同于一份长期承诺：此后修改任一侧，都必须同步更新另一侧。因此执行红线的推进节奏要匹配翻译评审的实际投入，切勿超前铺开。
+**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 RFC），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合入时就必须配齐双语文件。更早日期的文件属于待翻清单（backlog），包括分界前夜创建的文件。RFC 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
 
 ## 分工
 

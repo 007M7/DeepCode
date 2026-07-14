@@ -1,18 +1,8 @@
 /**
- * Shared subprocess harness for ACP snapshot suites. A library module driven by
- * the suite factory in ./suite.ts (and directly by harness-level specs); each
- * example's `*.snapshot.ts` names its own agent-under-test paths.
- *
- * It boots the REAL agent bin subprocess via the cordis Loader (so the
- * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
- * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
- * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
- * and — in record mode — harvests the persisted session JSONL after a graceful
- * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
- * stdout frames and the session-log events into stable, snapshot-able text.
- *
- * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
- *
+ * Shared ACP snapshot subprocess harness. It boots the real agent bin through the Cordis
+ * loader, drives deterministic ACP JSON-RPC over stdio, captures protocol-pure stdout, and
+ * harvests persisted session logs after graceful shutdown. Normalization stays in
+ * `normalize.ts`; suite registration stays in `suite.ts`.
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
@@ -66,16 +56,10 @@ export interface AgentUnderTest {
 }
 
 /**
- * One step of a scenario's deterministic input script (`input.json`). The
- * harness interprets these in order. `newSession` captures the server-issued
- * (random) session id into a `{{sessionId}}` variable that later steps
- * reference, since a committed file cannot know the id in advance.
- *
- * `promptAndCancel` sends a prompt WITHOUT awaiting its response, waits until
- * the client observes the first streamed `agent_message_chunk` (so the emitted
- * frames deterministically precede the cancellation), then cancels the turn —
- * the only way to exercise a cancel deterministically (a plain `prompt` step
- * awaits the response, which a cancel/hang scenario would block on forever).
+ * One step of a scenario's deterministic input script (`input.json`). The harness interprets
+ * these in order. `newSession` captures the server-issued (random) session id into a
+ * `{{sessionId}}` variable that later steps reference. `promptAndCancel` sends without awaiting,
+ * waits for the first streamed message, then cancels, making transcript order deterministic.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -92,16 +76,9 @@ export type InputStep =
 export interface InputScript {
   steps: InputStep[]
   /**
-   * Ordered answers for the agent's `session/request_permission` round-trips,
-   * consumed FIFO — the Nth request gets the Nth answer. Each answer selects
-   * by option KIND: option ids are agent-issued randoms a committed script
-   * cannot know, while kinds are the ACP-stable vocabulary, so the client maps
-   * kind → the offered `optionId` at answer time. A request beyond the queue
-   * (or with no queue at all) is answered `cancelled` — the stub behavior a
-   * scenario without approvals relies on. A scripted kind the request does
-   * not offer REJECTS the run: the scenario scripted an impossible click,
-   * and {@link runScenario} throws once the in-flight step settles (the
-   * agent itself just sees `cancelled`, so it cannot absorb the bug).
+   * FIFO permission answers selected by stable option kind; the harness maps each kind to the
+   * agent-issued option id. Exhaustion cancels, while a kind the agent did not offer fails the
+   * scenario.
    */
   permissionAnswers?: PermissionAnswer[]
 }
@@ -201,8 +178,6 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const stderrChunks: string[] = []
   try {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the goldens
-    // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
@@ -229,10 +204,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (c: string) => stderrChunks.push(c))
 
-    // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO
-    // feed the same bytes to the SDK client through a passthrough. Buffer the raw
-    // bytes (not per-chunk utf8 strings) and decode once at the end, so a
-    // multibyte sequence split across two 'data' events can't corrupt the golden.
+    // Tee the same raw bytes to the golden and SDK client. Decode once at the end so a UTF-8
+    // sequence split across stream chunks cannot corrupt the transcript.
     const passthrough = new Readable({ read() {} })
     child.stdout.on('data', (buf: Buffer) => {
       rawBuffers.push(buf)
@@ -255,13 +228,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
-    // A scenario bug detected inside a client callback (a scripted permission
-    // kind the agent never offered). It cannot fail the run from in there: a
-    // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
-    // a tolerant agent treats that as a denial and carries on — the run (or
-    // worse, a record) would absorb the impossible click silently. So the
-    // callback answers `cancelled` (a well-defined path for the agent),
-    // captures the error here, and the step loop fails the run on it.
+    // A callback throw would become only an RPC error the agent could absorb. Record an
+    // impossible permission choice here, answer cancelled, and fail the outer scenario.
     let scriptError: Error | undefined
     const makeClient = (_agent: AcpAgent): Client => ({
       sessionUpdate(params: SessionNotification): Promise<void> {
@@ -356,10 +324,8 @@ async function runStep(
       return
     }
     case 'newSessionExpectError': {
-      // The bridge rejects a session/new that widens the workspace scope
-      // (non-empty additionalDirectories / mcpServers — unimplemented). The SDK
-      // surfaces that as a rejected RPC; swallow it so the run completes and the
-      // error frame is captured in the transcript.
+      // The bridge rejects a session/new that widens the workspace scope (non-empty
+      // additionalDirectories / mcpServers — unimplemented).
       await client.newSession({
         cwd,
         mcpServers: [],
@@ -379,10 +345,8 @@ async function runStep(
     case 'promptExpectError': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptExpectError before newSession')
-      // The model fails this turn (a recorded provider error), so the bridge
-      // answers the prompt with a JSON-RPC error and the SDK rejects. That
-      // rejection IS the expected editor experience — swallow it so the run
-      // completes and the stdout transcript (the error frame) is captured.
+      // The model fails this turn (a recorded provider error), so the bridge answers the prompt
+      // with a JSON-RPC error and the SDK rejects.
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
         .then(() => { throw new Error('snapshot-harness: expected the prompt to fail but it succeeded') },
           () => { /* expected: the turn failed and the bridge returned an error */ })
@@ -391,13 +355,8 @@ async function runStep(
     case 'promptAndCancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
-      // Dispatch the prompt WITHOUT awaiting (a hang fixture never resolves on
-      // its own). To pin frame order deterministically, wait until the client
-      // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
-      // so those update frames always precede the cancelled prompt response in
-      // the transcript (without this, the late chunk and the response race).
-      // Then cancel and await the prompt, which the bridge settles as
-      // `cancelled` once the abort propagates.
+      // A hang fixture never resolves alone. Wait for its streamed chunk before cancellation
+      // so updates deterministically precede the cancelled prompt response.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
       await client.cancel({ sessionId })
@@ -483,14 +442,8 @@ async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
       })
     }
   }
-  // Primary (no parentSession) first, then children by ascending createdAt. A
-  // scenario has exactly one top-level session. In the synchronous cut sibling
-  // children are created strictly sequentially, so their createdAt values are
-  // strictly ordered; the recordedId tiebreak only keeps a degenerate
-  // same-millisecond collision (unreachable here) deterministic. This harvest
-  // order must match the replay load order in dsh-llm-replay's loadSessionScripts
-  // so session.<n>.jsonl maps to the same child on record and replay — replay
-  // re-sorts childFiles by the same key, so the two stay consistent.
+  // Match replay fixture assignment: primary first, then children by creation time, with id as
+  // a deterministic collision tiebreaker.
   logs.sort((a, b) => {
     const ap = a.parentSession === undefined ? 0 : 1
     const bp = b.parentSession === undefined ? 0 : 1

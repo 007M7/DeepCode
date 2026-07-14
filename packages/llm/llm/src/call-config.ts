@@ -1,14 +1,8 @@
 /**
- * The call configuration of a conversation and its comparison/freeze
- * utilities. `LlmCallConfig` is the non-content third of the request header
- * (see `EpochHeader` in dsh-session): everything about a request besides its
- * message content that can undermine provider KV-cache reuse — `model`
- * selects the cache namespace outright, and the sampling scalars are treated
- * the same way out of caution. It is per-conversation state recorded in the
- * session log (the reconstructability RFC), never a silently-drifting
- * per-call knob: the `agent/request` waterfall proposes a replacement, and
- * the loop logs a real change as a `request/header-delta` event.
- *
+ * Conversation call configuration and freeze utilities. Model and sampling
+ * values are request-header state that can affect cache reuse; request
+ * waterfalls replace them and the loop logs changes instead of allowing
+ * silent per-call drift.
  * @module dsh-llm/call-config
  */
 
@@ -39,16 +33,9 @@ export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
 }
 
 /**
- * Deep-freeze a value in place so any later mutation throws (ESM code runs in
- * strict mode), and return it. The loop freezes every request it builds
- * before dispatch — `llm/stream` listeners and adapters read the request,
- * never rewrite it, so the wire bytes cannot silently desync from what the
- * session log reconstructs. Guards against cycles with a WeakSet: loop-built
- * requests hold `structuredClone`d JSON-validated session data, but the
- * helper accepts arbitrarily constructed values. One exemption: an
- * `AbortSignal` is never entered or frozen — it is the request's live
- * cancellation channel, and freezing one breaks `AbortController.abort()`
- * outright (Node stores the aborted flag as an own property of the signal).
+ * Deep-freeze a value in place, guarding cycles, so later mutation throws.
+ * {@link AbortSignal} objects are deliberately skipped because they are the
+ * request's live cancellation channel and freezing them breaks abort.
  * @param value - the value to freeze in place.
  * @returns the same value, frozen.
  */
