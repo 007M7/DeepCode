@@ -4,7 +4,7 @@ Dev-mode event-contract assertions. This pure-listener plugin checks relationshi
 
 **Off in production.** Enable it in tests and the demos, where a contract violation should fail loudly. It costs nothing when not registered, and doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
 
-Session itself owns immutable log storage in every composition: it takes one lossless JSON snapshot of each accepted event, deep-freezes that record, and exposes the log through immutable array snapshots. The invariants plugin checks the cross-record and cross-seam rules that storage immutability cannot express.
+Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates the complete surface transition, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The invariants plugin checks the remaining cross-record and cross-seam rules that Session does not own.
 
 Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
 
@@ -28,7 +28,6 @@ await ctx.plugin(Invariants)
 Session log (per session):
 
 - **`seq` strictly increases** — the spine of replay equivalence.
-- **surface metadata is valid** — `surfaceOp` and `sourceEventSeqs` use the shared `dsh-session` checker for type eligibility, structural shape, nonempty unique earlier references, and complete replacement coverage.
 - **turns pair and nest** — `turn/start` opens a turn, `turn/end` closes the matching one; no overlapping turns.
 - **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
 - **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.

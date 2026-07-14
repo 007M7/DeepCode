@@ -1,7 +1,7 @@
 /** One-shot session-lineage and event-relationship tracing helpers. */
 
-import { foldSurface, validateSurfaceMetadata } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { foldSurface } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from './config.ts'
 import type {
   SessionEventRecord,
@@ -51,21 +51,6 @@ export function traceEventLog(
   }
 
   const analysis = analyzeEventLog(sessionId, events)
-  const knownSeqs = new Set<number>()
-  for (const event of events) {
-    const violation = validateSurfaceMetadata(
-      event,
-      knownSeqs,
-      analysis.replacedEventSeqs.get(event.seq),
-    )
-    if (violation !== undefined) {
-      throw new SessionQueryError(
-        `invalid session provenance: ${violation.message}`,
-        'SESSION_QUERY_INVALID_PROVENANCE',
-      )
-    }
-    knownSeqs.add(event.seq)
-  }
 
   const replacementChain: number[] = []
   let replacement = analysis.replacedBy.get(seq)
@@ -143,7 +128,9 @@ export function traceLineage(
     children.push(record)
     childrenByParent.set(parent, children)
   }
-  for (const children of childrenByParent.values()) children.sort(compareSessionsAscending)
+  for (const children of childrenByParent.values()) {
+    children.sort((a, b) => a.header.createdAt - b.header.createdAt || a.header.id.localeCompare(b.header.id))
+  }
 
   const descendants = buildDescendants(childrenByParent, sessionId)
   const common = {
@@ -203,13 +190,8 @@ function analyzeEventLog(
   }
 }
 
-function rawEventSources(event: SessionEvent): unknown {
-  return (event as SessionEvent & { sourceEventSeqs?: unknown }).sourceEventSeqs
-}
-
 function eventSources(event: SessionEvent): number[] {
-  const sources = rawEventSources(event)
-  return Array.isArray(sources) ? sources as number[] : []
+  return (event as SessionEvent<SurfaceEventType>).sourceEventSeqs ?? []
 }
 
 function buildDescendants(
@@ -236,10 +218,6 @@ function buildDescendants(
     }
   }
   return descendants
-}
-
-function compareSessionsAscending(a: SessionRecord, b: SessionRecord): number {
-  return a.header.createdAt - b.header.createdAt || a.header.id.localeCompare(b.header.id)
 }
 
 function cloneRecord(record: SessionRecord): SessionRecord {

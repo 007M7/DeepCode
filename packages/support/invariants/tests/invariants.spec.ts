@@ -466,7 +466,7 @@ describe('HMR safety', () => {
   })
 })
 
-describe('surface invariants', () => {
+describe('surface contract under the invariants composition', () => {
   it('accepts well-formed surface metadata', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -495,7 +495,7 @@ describe('surface invariants', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    }).toThrow(InvariantError)
+    }).toThrow(/must not be empty/)
   })
 
   it('rejects duplicate sourceEventSeqs', async () => {
@@ -542,15 +542,15 @@ describe('surface invariants', () => {
 
   it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
     // The unknown-seq check fires when a ref passes the "earlier" test but is
-    // not in knownSeqs — only possible with a gap in seqs. We create a gap by
+    // not in the folded log — only possible with a gap in seqs. We create a gap by
     // directly manipulating the private log array to skip a seq.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     // Push a fake event at seq 3 into the internal log, creating a gap at seq 2.
-    // The invariants plugin replays session.events on every append, so it sees
-    // this gap during trace reconstruction.
+    // The canonical surface validator folds the committed delta before checking
+    // the next append, so it sees this gap.
     ;(session as unknown as { log: unknown[] }).log.push({
       type: 'assistant/chunk',
       seq: 3,
@@ -575,7 +575,7 @@ describe('surface invariants', () => {
     // Reversed range: start seq 3 is at a later surface position than end seq 2.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 2 }, sourceEventSeqs: [2, 3] })
-    }).toThrow(/is after end seq 2 .* on the surface/)
+    }).toThrow(/is after end seq 2/)
   })
 
   it('rejects a replace whose sourceEventSeqs omits a shadowed surface node', async () => {
@@ -612,7 +612,7 @@ describe('surface invariants', () => {
     // seq 1 (step/start) is a real earlier event but never entered the surface.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
-    }).toThrow(/start seq 1 is not on the surface/)
+    }).toThrow(/start seq 1 not found in surface/)
   })
 
   it('rejects a replace naming an end seq that is not on the surface', async () => {
@@ -624,7 +624,7 @@ describe('surface invariants', () => {
     // start (2) is on the surface but end (99) never entered it.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 99 }, sourceEventSeqs: [2] })
-    }).toThrow(/end seq 99 is not on the surface/)
+    }).toThrow(/end seq 99 not found in surface/)
   })
 
   it('rejects a replace whose range is reversed in surface position after a prior replace reordered it', async () => {
@@ -641,7 +641,7 @@ describe('surface invariants', () => {
     // reversed positionally (3 is at pos 1, 4 is at pos 0).
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 4 }, sourceEventSeqs: [3, 4] }) // seq 5
-    }).toThrow(/is after end seq 4 .* on the surface/)
+    }).toThrow(/is after end seq 4/)
   })
 
   it('accepts a replace whose start seq exceeds its end seq when the surface position order is valid', async () => {
@@ -685,25 +685,6 @@ describe('surface invariants', () => {
     expect(() => ctx.sessions.create(undefined, { seed: badSeed })).toThrow(/must include every shadowed surface node; missing 3/)
   })
 
-  it('rejects sourceEventSeqs on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // Session rejects this at its own acceptance boundary. Emit a hand-built
-    // record to cover the listener's defensive check for alternate producers.
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, sourceEventSeqs: [0] }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry sourceEventSeqs/)
-  })
-
-  it('rejects surfaceOp on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, surfaceOp: 'append' }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry surfaceOp/)
-  })
 })
 
 describe('request-reconstruction cross-check (llm/stream)', () => {

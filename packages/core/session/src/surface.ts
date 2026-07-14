@@ -81,165 +81,118 @@ export interface SurfaceFoldResult {
   replacements: SurfaceFoldReplacement[]
 }
 
-/**
- * Validate one event's surface metadata through the canonical structural and
- * provenance contract. Structural validation always runs; when `knownSeqs` is
- * supplied, provenance must additionally name unique known earlier events and
- * cover every shadowed surface node. The tagged result lets callers retain
- * their own surface-versus-provenance error taxonomy.
- * @param event - event whose `surfaceOp` and `sourceEventSeqs` are being checked.
- * @param knownSeqs - seqs preceding `event`, or `undefined` for local shape validation only.
- * @param shadowedSeqs - surface nodes directly removed by this event.
- * @returns the first tagged contract violation, or `undefined` when valid.
- */
-export function validateSurfaceMetadata(
-  event: Pick<SessionEvent, 'type' | 'seq'> & {
-    surfaceOp?: unknown
-    sourceEventSeqs?: unknown
-  },
-  knownSeqs?: ReadonlySet<number>,
-  shadowedSeqs: readonly number[] = [],
-): { kind: 'surface' | 'provenance'; message: string } | undefined {
-  const eligible = isSurfaceEligibleType(event.type)
-  const surfaceOp = event.surfaceOp
-  const sources = event.sourceEventSeqs
-
-  if (!eligible && surfaceOp !== undefined) {
-    return {
-      kind: 'surface',
-      message: `session event "${event.type}" is not surface-eligible and cannot carry surfaceOp`,
-    }
-  }
-  if (eligible && surfaceOp === undefined) {
-    return {
-      kind: 'surface',
-      message: `session event "${event.type}" is surface-eligible and requires a surfaceOp marker`,
-    }
-  }
-  if (surfaceOp !== undefined && surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      return {
-        kind: 'surface',
-        message: `session event "${event.type}" carries an invalid surfaceOp`,
-      }
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      return {
-        kind: 'surface',
-        message: `session event "${event.type}" carries an invalid replace surfaceOp`,
-      }
-    }
-  }
-
-  if (sources !== undefined && !eligible) {
-    return {
-      kind: 'provenance',
-      message: `${event.type} cannot carry sourceEventSeqs (non-surface event)`,
-    }
-  }
-  if (sources !== undefined && !Array.isArray(sources)) {
-    return {
-      kind: 'provenance',
-      message: `sourceEventSeqs on event at seq ${event.seq} must be an array when present`,
-    }
-  }
-  if (Array.isArray(sources)
-    && sources.some(source => typeof source !== 'number' || !Number.isSafeInteger(source) || source < 0)) {
-    return {
-      kind: 'provenance',
-      message: `session event "${event.type}" sourceEventSeqs must contain non-negative safe integers`,
-    }
-  }
-  if (knownSeqs === undefined) return
-
-  const sourceSeqs = sources as number[] | undefined
-  if (sourceSeqs !== undefined && sourceSeqs.length === 0) {
-    return { kind: 'provenance', message: 'sourceEventSeqs must not be empty when present' }
-  }
-
-  const unique = new Set<number>()
-  for (const source of sourceSeqs ?? []) {
-    if (unique.has(source)) {
-      return { kind: 'provenance', message: 'sourceEventSeqs must not contain duplicates' }
-    }
-    unique.add(source)
-    if (source >= event.seq) {
-      return {
-        kind: 'provenance',
-        message: `sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`,
-      }
-    }
-    if (!knownSeqs.has(source)) {
-      return { kind: 'provenance', message: `sourceEventSeqs references unknown seq ${source}` }
-    }
-  }
-
-  const sourceSet = new Set(sourceSeqs ?? [])
-  const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
-  if (missing.length > 0) {
-    return {
-      kind: 'provenance',
-      message: `surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`,
-    }
-  }
-  return undefined
-}
-
 /** Mutable state shared by the incremental manager and the full-log fold. */
 interface SurfaceFoldState {
   nodes: SurfaceNode[]
   nodeBySeq: Map<number, SurfaceNode>
+  knownSeqs: Set<number>
   replaceGeneration: number
 }
+
+/** A validated replacement transition that has not mutated fold state yet. */
+interface SurfaceReplacePlan extends SurfaceFoldReplacement {
+  kind: 'replace'
+  startIdx: number
+  endIdx: number
+}
+
+/** One validated surface transition that has not mutated fold state yet. */
+type SurfacePlan =
+  | { kind: 'append'; seq: number }
+  | SurfaceReplacePlan
 
 /** Create an empty surface fold state. */
 function createFoldState(replaceGeneration = 0): SurfaceFoldState {
   return {
     nodes: [],
     nodeBySeq: new Map(),
+    knownSeqs: new Set(),
     replaceGeneration,
   }
 }
 
-/** Apply one event and return replacement metadata only when one occurred. */
-function applySurfaceEvent(
-  state: SurfaceFoldState,
-  event: SessionEvent,
-): SurfaceFoldReplacement | undefined {
-  const violation = validateSurfaceMetadata(event)
-  if (violation?.kind === 'surface') throw new Error(violation.message)
-  if (!isSurfaceEligibleType(event.type)) return
-  // The canonical metadata validation above proves this runtime shape.
-  const surfaceEvent = event as SurfaceEvent
+/** Whether a runtime value is a non-negative safe event sequence. */
+function isEventSeq(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
 
-  if (surfaceEvent.surfaceOp === 'append') {
-    const tail = state.nodes.length > 0 ? state.nodes[state.nodes.length - 1] : undefined
-    const node: SurfaceNode = { seq: surfaceEvent.seq, prev: tail?.seq ?? null, next: null }
-    if (tail) tail.next = surfaceEvent.seq
-    state.nodes.push(node)
-    state.nodeBySeq.set(surfaceEvent.seq, node)
+/** Whether a runtime value is the exact positional-replacement shape. */
+function isReplaceOp(value: object): value is Extract<SurfaceOp, { op: 'replace' }> {
+  const op = value as Record<string, unknown>
+  return Object.keys(op).length === 3
+    && Object.hasOwn(op, 'op')
+    && Object.hasOwn(op, 'start')
+    && Object.hasOwn(op, 'end')
+    && op['op'] === 'replace'
+    && isEventSeq(op['start'])
+    && isEventSeq(op['end'])
+}
+
+/** Validate event-local metadata and narrow a surface-eligible event. */
+function surfaceEventOf(event: SessionEvent): SurfaceEvent | undefined {
+  const raw = event as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+  if (!isSurfaceEligibleType(event.type)) {
+    if (raw.surfaceOp !== undefined) {
+      throw new Error(`session event "${event.type}" is not surface-eligible and cannot carry surfaceOp`)
+    }
+    if (raw.sourceEventSeqs !== undefined) {
+      throw new Error(`session event "${event.type}" is not surface-eligible and cannot carry sourceEventSeqs`)
+    }
     return
   }
+  if (raw.surfaceOp === undefined) {
+    throw new Error(`session event "${event.type}" is surface-eligible and requires a surfaceOp marker`)
+  }
+  if (raw.surfaceOp !== 'append') {
+    if (raw.surfaceOp === null || typeof raw.surfaceOp !== 'object' || Array.isArray(raw.surfaceOp)) {
+      throw new Error(`session event "${event.type}" carries an invalid surfaceOp`)
+    }
+    if (!isReplaceOp(raw.surfaceOp)) {
+      throw new Error(`session event "${event.type}" carries an invalid replace surfaceOp`)
+    }
+  }
+  if (raw.sourceEventSeqs !== undefined && !Array.isArray(raw.sourceEventSeqs)) {
+    throw new Error(`sourceEventSeqs on event at seq ${event.seq} must be an array when present`)
+  }
+  if (Array.isArray(raw.sourceEventSeqs) && !raw.sourceEventSeqs.every(isEventSeq)) {
+    throw new Error(`session event "${event.type}" sourceEventSeqs must contain non-negative safe integers`)
+  }
+  return event as SurfaceEvent
+}
 
-  return {
-    seq: surfaceEvent.seq,
-    start: surfaceEvent.surfaceOp.start,
-    end: surfaceEvent.surfaceOp.end,
-    shadowedSeqs: replaceSurface(state, surfaceEvent.seq, surfaceEvent.surfaceOp),
+/** Validate provenance against prior log entries and the replacement range. */
+function assertProvenance(
+  event: SurfaceEvent,
+  knownSeqs: ReadonlySet<number>,
+  shadowedSeqs: readonly number[],
+): void {
+  const sources = event.sourceEventSeqs
+  if (sources !== undefined && sources.length === 0) {
+    throw new Error('sourceEventSeqs must not be empty when present')
+  }
+  const sourceSet = new Set(sources ?? [])
+  if (sources !== undefined && sourceSet.size !== sources.length) {
+    throw new Error('sourceEventSeqs must not contain duplicates')
+  }
+  for (const source of sources ?? []) {
+    if (source >= event.seq) {
+      throw new Error(`sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`)
+    }
+    if (!knownSeqs.has(source)) {
+      throw new Error(`sourceEventSeqs references unknown seq ${source}`)
+    }
+  }
+  const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
+  if (missing.length > 0) {
+    throw new Error(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
   }
 }
 
-/** Apply one positional replacement and return the nodes it removed. */
-function replaceSurface(
+/** Locate one replacement range without mutating the current fold state. */
+function replacementRange(
   state: SurfaceFoldState,
-  newSeq: number,
   op: Extract<SurfaceOp, { op: 'replace' }>,
-): number[] {
+): Pick<SurfaceReplacePlan, 'startIdx' | 'endIdx' | 'shadowedSeqs'> {
   const startNode = state.nodeBySeq.get(op.start)
   if (!startNode) {
     throw new Error(`surface replace: start seq ${op.start} not found in surface`)
@@ -253,6 +206,35 @@ function replaceSurface(
   if (startIdx > endIdx) {
     throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
   }
+  return {
+    startIdx,
+    endIdx,
+    shadowedSeqs: state.nodes.slice(startIdx, endIdx + 1).map(node => node.seq),
+  }
+}
+
+/** Validate one event and prepare its atomic fold transition. */
+function planSurfaceEvent(state: SurfaceFoldState, event: SessionEvent): SurfacePlan | undefined {
+  const surfaceEvent = surfaceEventOf(event)
+  if (surfaceEvent === undefined) return
+  if (surfaceEvent.surfaceOp === 'append') {
+    assertProvenance(surfaceEvent, state.knownSeqs, [])
+    return { kind: 'append', seq: event.seq }
+  }
+  const range = replacementRange(state, surfaceEvent.surfaceOp)
+  assertProvenance(surfaceEvent, state.knownSeqs, range.shadowedSeqs)
+  return {
+    kind: 'replace',
+    seq: event.seq,
+    start: surfaceEvent.surfaceOp.start,
+    end: surfaceEvent.surfaceOp.end,
+    ...range,
+  }
+}
+
+/** Apply one already-validated positional replacement. */
+function replaceSurface(state: SurfaceFoldState, plan: SurfaceReplacePlan): void {
+  const { startIdx, endIdx } = plan
 
   const removed = state.nodes.splice(startIdx, endIdx - startIdx + 1)
   for (const node of removed) state.nodeBySeq.delete(node.seq)
@@ -260,16 +242,40 @@ function replaceSurface(
   const prevNode = startIdx > 0 ? state.nodes[startIdx - 1] : undefined
   const nextNode = startIdx < state.nodes.length ? state.nodes[startIdx] : undefined
   const newNode: SurfaceNode = {
-    seq: newSeq,
+    seq: plan.seq,
     prev: prevNode?.seq ?? null,
     next: nextNode?.seq ?? null,
   }
-  if (prevNode) prevNode.next = newSeq
-  if (nextNode) nextNode.prev = newSeq
+  if (prevNode) prevNode.next = plan.seq
+  if (nextNode) nextNode.prev = plan.seq
   state.nodes.splice(startIdx, 0, newNode)
-  state.nodeBySeq.set(newSeq, newNode)
+  state.nodeBySeq.set(plan.seq, newNode)
   state.replaceGeneration += 1
-  return removed.map(node => node.seq)
+}
+
+/** Apply one event and return replacement metadata only when one occurred. */
+function applySurfaceEvent(
+  state: SurfaceFoldState,
+  event: SessionEvent,
+): SurfaceFoldReplacement | undefined {
+  const plan = planSurfaceEvent(state, event)
+  if (plan?.kind === 'append') {
+    const tail = state.nodes.at(-1)
+    const node: SurfaceNode = { seq: plan.seq, prev: tail?.seq ?? null, next: null }
+    if (tail) tail.next = plan.seq
+    state.nodes.push(node)
+    state.nodeBySeq.set(plan.seq, node)
+  } else if (plan?.kind === 'replace') {
+    replaceSurface(state, plan)
+  }
+  state.knownSeqs.add(event.seq)
+  if (plan?.kind !== 'replace') return
+  return {
+    seq: plan.seq,
+    start: plan.start,
+    end: plan.end,
+    shadowedSeqs: plan.shadowedSeqs,
+  }
 }
 
 /**
@@ -280,8 +286,9 @@ function replaceSurface(
  * models cannot disagree with `deriveMessages()` about replacement ranges.
  * @param events - session events in contiguous seq order.
  * @returns the current surface and every positional replacement.
- * @throws when an event violates the `surfaceOp` type/marker contract, or a
- * replacement names nodes that are absent or reversed on the current surface.
+ * @throws when any event violates the unified surface contract: metadata must
+ * be well shaped and type-eligible, provenance must name unique known earlier
+ * events, and a positional replacement must name and cite its complete range.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
@@ -297,11 +304,10 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 }
 
 /**
- * Maintains a cached linked list of surface nodes, rebuilt lazily from
- * `surfaceOp` markers in the event log. Because the log is append-only, it
- * processes only the delta since the last rebuild — new events are folded
- * into the existing surface in O(new events) rather than rescanning the
- * whole log.
+ * Maintains a cached linked list of surface nodes and validates each candidate
+ * before it enters the event log. Because the log is append-only, it processes
+ * only committed deltas and plans the candidate without mutation rather than
+ * rescanning the whole log.
  */
 export class SurfaceManager {
   /** Incremental state shared with the complete surface fold. */
@@ -310,6 +316,18 @@ export class SurfaceManager {
   private _lastProcessedSeq = -1
 
   constructor(private log: readonly SessionEvent[]) {}
+
+  /**
+   * Validate one candidate as the next log event without applying it. The
+   * committed log is folded first, then the candidate's complete surface and
+   * provenance transition is planned atomically; a failure leaves the current
+   * surface unchanged.
+   * @param event - candidate event that has not entered `log` yet.
+   */
+  validateNext(event: SessionEvent): void {
+    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    planSurfaceEvent(this._state, event)
+  }
 
   /**
    * Reset to unprocessed state. Call after the log has been replaced
@@ -353,7 +371,7 @@ export class SurfaceManager {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const event = this.log[i]!
       applySurfaceEvent(this._state, event)
+      this._lastProcessedSeq = i
     }
-    this._lastProcessedSeq = this.log.length - 1
   }
 }

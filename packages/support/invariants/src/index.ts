@@ -6,13 +6,12 @@
  * `session/event`, `agent/status`, and the scoped dispatch and request seams.
  * It is **off in production**: enable it in tests and demos, where a contract
  * violation should be a loud failure rather than a subtle one. It doubles as
- * executable documentation of the event taxonomy: these assertions and the
- * shared session validators they invoke are the contract.
+ * executable documentation of the relational event taxonomy.
  *
- * Session owns immutable log storage: it snapshots and deep-freezes every
- * accepted event at the source. This plugin checks relationships that one
- * event's types and immutability cannot express, including turn/step nesting,
- * scoped dispatch, status transitions, and request reconstructability.
+ * Session owns immutable, surface-valid log storage: it validates, snapshots,
+ * and deep-freezes every accepted event at the source. This plugin checks the
+ * remaining relationships that acceptance cannot express, including turn/step
+ * nesting, scoped dispatch, status transitions, and request reconstructability.
  *
  * @module @deepseek-ai/dsh-invariants
  */
@@ -26,9 +25,8 @@ import {
   Session,
   SessionId,
   foldRequestHeader,
-  validateSurfaceMetadata,
 } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 export const name = 'invariants'
 export const inject = ['sessions']
@@ -62,15 +60,6 @@ interface SessionTrace {
    * `step/end` — a result must arrive in the same step as its call.
    */
   pendingCalls: Set<CallId>
-  /** Every seq seen so far — validates `sourceEventSeqs` references. */
-  knownSeqs: Set<number>
-  /**
-   * The seqs currently on the surface linked list, in linked-list order
-   * (head to tail). A replace reorders this relative to seq order (the new
-   * node takes the replaced range's position), so range validation is
-   * positional, not by seq comparison.
-   */
-  surface: number[]
 }
 
 /** One accepted event's deferred mutation of a live session trace. */
@@ -82,12 +71,6 @@ interface SessionTraceTransition {
     | { kind: 'none' }
     | { kind: 'add' | 'delete'; callId: CallId }
     | { kind: 'clear' }
-  /** The event's mutation of the derived surface order. */
-  surface:
-    | { kind: 'none' | 'append' }
-    | { kind: 'replace'; start: number; count: number }
-  /** The committed event sequence to add to the known-sequence set. */
-  seq: number
 }
 
 /** Event payload prefix for scoped seams whose first argument names its agent. */
@@ -122,50 +105,6 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   let nextTurn = trace.nextTurn
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
-  let surface: SessionTraceTransition['surface'] = { kind: 'none' }
-
-  // --- Surface invariants ---
-  // Cast to surface-eligible event type so we can access surfaceOp and
-  // sourceEventSeqs (optional on SessionEvent, mandatory on SurfaceEvent).
-  // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
-  // CHECK whether surface metadata is present, not assume it.
-  const se = event as SessionEvent<SurfaceEventType>
-  const metadataViolation = validateSurfaceMetadata(event)
-  if (metadataViolation !== undefined) throw new InvariantError(metadataViolation.message)
-
-  // Fold this event into the tracked surface linked list, validating the
-  // replace contract as we go. `append` adds a tail node; `replace` shadows a
-  // positional range — every shadowed node must appear in sourceEventSeqs.
-  let shadowed: number[] | undefined
-  if (se.surfaceOp !== undefined) {
-    if (se.surfaceOp === 'append') {
-      surface = { kind: 'append' }
-    } else {
-      const { start, end } = se.surfaceOp
-      const startIdx = trace.surface.indexOf(start)
-      if (startIdx === -1) {
-        throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)
-      }
-      const endIdx = trace.surface.indexOf(end)
-      if (endIdx === -1) {
-        throw new InvariantError(`surface replace: end seq ${end} is not on the surface`)
-      }
-      if (startIdx > endIdx) {
-        throw new InvariantError(`surface replace: start seq ${start} (pos ${startIdx}) is after end seq ${end} (pos ${endIdx}) on the surface`)
-      }
-      shadowed = trace.surface.slice(startIdx, endIdx + 1)
-      surface = { kind: 'replace', start: startIdx, count: shadowed.length }
-    }
-  }
-
-  const provenanceViolation = validateSurfaceMetadata(
-    event,
-    trace.knownSeqs,
-    shadowed,
-  )
-  if (provenanceViolation !== undefined) {
-    throw new InvariantError(provenanceViolation.message)
-  }
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
@@ -265,8 +204,6 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   return {
     scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },
     pendingCalls,
-    surface,
-    seq: event.seq,
   }
 }
 
@@ -289,20 +226,6 @@ function applyTransition(trace: SessionTrace, transition: SessionTraceTransition
     default:
       assertNever(transition.pendingCalls, 'session trace pending-call transition')
   }
-  switch (transition.surface.kind) {
-    case 'none':
-      break
-    case 'append':
-      trace.surface.push(transition.seq)
-      break
-    case 'replace':
-      trace.surface.splice(transition.surface.start, transition.surface.count, transition.seq)
-      break
-    /* v8 ignore next -- validateEvent produces this closed transition union */
-    default:
-      assertNever(transition.surface, 'session trace surface transition')
-  }
-  trace.knownSeqs.add(transition.seq)
 }
 
 /** Validate and apply one event while rebuilding an already-committed log. */
@@ -351,8 +274,6 @@ export function apply(ctx: Context): void {
     nextTurn: 1,
     nextStep: 1,
     pendingCalls: new Set(),
-    knownSeqs: new Set(),
-    surface: [],
   })
 
   /** Build (or rebuild) a session's trace by replaying its whole log. */

@@ -379,7 +379,7 @@ describe('session event tracing', () => {
       appendEvent(1),
       { ...appendEvent(2, [0]), surfaceOp: { op: 'replace', start: 1, end: 1 } },
     ]],
-  ] as const)('rejects invalid whole-log provenance: %s', async (_name, rawEvents) => {
+  ] as const)('rejects an invalid surface log: %s', async (_name, rawEvents) => {
     const durable = header('invalid-provenance')
     const events = structuredClone(rawEvents) as unknown as SessionEvent[]
     TracePersistence.reset([{ meta: durable, events }])
@@ -387,7 +387,7 @@ describe('session event tracing', () => {
     await ctx.plugin(TracePersistence)
 
     await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
-      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_PROVENANCE'))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
   })
 
   it('rejects surfaceOp on a non-surface event as an invalid surface', async () => {
@@ -407,15 +407,13 @@ describe('session event tracing', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
   })
 
-  it('keeps listEvents tolerant of malformed provenance alone', async () => {
+  it('applies the same surface contract to listEvents', async () => {
     const durable = header('list-regression')
     TracePersistence.reset([{ meta: durable, events: [appendEvent(0), appendEvent(1, [0, 0])] }])
     const ctx = await queryContext()
     await ctx.plugin(TracePersistence)
 
-    await expect(ctx.sessionQuery.listEvents(durable.id)).resolves.toMatchObject([
-      { seq: 0, surface: 'current' },
-      { seq: 1, surface: 'current' },
-    ])
+    await expect(ctx.sessionQuery.listEvents(durable.id))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
   })
 })

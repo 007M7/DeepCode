@@ -301,12 +301,19 @@ describe('Session', () => {
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp,
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     const session = new Session(SessionId('seed-unstable-metadata'), seed)
-    const event = session.events[0]!
+    const event = session.events[1]!
     if (event.type !== 'user/message') throw new Error('test fixture must remain a user/message')
 
     expect(reads).toBe(1)
@@ -326,13 +333,20 @@ describe('Session', () => {
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     try {
       expect(() => new Session(SessionId('seed-non-error-metadata-failure'), seed))
-        .toThrow(`invalid seed event at index 0: ${expected}`)
+        .toThrow(`invalid seed event at index 1: ${expected}`)
     } finally {
       hasOwn.mockRestore()
     }
@@ -418,6 +432,11 @@ describe('Session', () => {
 
   it('reads a nested append-metadata getter once and stores its first JSON value', () => {
     const session = new Session(SessionId('append-unstable-metadata'))
+    const source = session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
     let reads = 0
     const surfaceOp = Object.defineProperty({ op: 'replace', end: 0 }, 'start', {
       enumerable: true,
@@ -430,12 +449,12 @@ describe('Session', () => {
     const event = session.append(
       'user/message',
       { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
-      { surfaceOp } as never,
+      { surfaceOp, sourceEventSeqs: [0] } as never,
     )
 
     expect(reads).toBe(1)
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
-    expect(session.events).toEqual([event])
+    expect(session.events).toEqual([source, event])
   })
 
   it('rejects invalid plain surface metadata shapes at append', () => {

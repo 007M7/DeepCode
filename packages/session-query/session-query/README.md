@@ -14,9 +14,9 @@ This is trusted context-wide infrastructure. It performs no caller authorization
 
 Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. An event read or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory history unreadable. Persisted event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations.
 
-`traceEvent()` validates the whole loaded log with `dsh-session`'s shared surface-metadata checker before returning relationships: surface markers obey event-type eligibility, provenance arrays are nonempty and duplicate-free, references name known earlier events, and each positional replacement names every surface node it removed. Surface-marker and positional-fold violations fail with `SESSION_QUERY_INVALID_SURFACE`; provenance violations use `SESSION_QUERY_INVALID_PROVENANCE`. `listEvents()` only needs surface classification and deliberately does not enforce the trace-specific provenance contract.
+`listEvents()` and `traceEvent()` run the same one-pass `dsh-session` surface fold. A loaded log is valid only when surface markers obey event-type eligibility, provenance arrays are nonempty and duplicate-free, references name known earlier events, and each positional replacement names and cites every surface node it removes; every violation fails with `SESSION_QUERY_INVALID_SURFACE`.
 
-`SessionQueryError.code` is a closed union: `SESSION_QUERY_EVENT_NOT_FOUND`, `SESSION_QUERY_INVALID_CONFIG`, `SESSION_QUERY_INVALID_LINEAGE`, `SESSION_QUERY_INVALID_PROVENANCE`, `SESSION_QUERY_INVALID_SURFACE`, `SESSION_QUERY_INVALID_WINDOW`, `SESSION_QUERY_PERSISTENCE_FAILED`, `SESSION_QUERY_SESSION_NOT_FOUND`, and `SESSION_QUERY_SOURCE_CONFLICT`.
+`SessionQueryError.code` is a closed union: `SESSION_QUERY_EVENT_NOT_FOUND`, `SESSION_QUERY_INVALID_CONFIG`, `SESSION_QUERY_INVALID_LINEAGE`, `SESSION_QUERY_INVALID_SURFACE`, `SESSION_QUERY_INVALID_WINDOW`, `SESSION_QUERY_PERSISTENCE_FAILED`, `SESSION_QUERY_SESSION_NOT_FOUND`, and `SESSION_QUERY_SOURCE_CONFLICT`.
 
 ## Configuration
 
