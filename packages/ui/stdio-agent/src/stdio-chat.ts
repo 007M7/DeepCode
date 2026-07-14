@@ -104,9 +104,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // with durable parentSession lineage. Keeping the matching candidates also
   // covers HMR's publish-new-before-dispose-old ordering without ever falling
   // through to an unrelated root owned by another app or test fixture.
-  const matchesConfiguredIdentity = (agent: Agent): boolean => config.resumeSessionId === undefined
+  const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
+  const matchesConfiguredIdentity = (agent: Agent): boolean => resumeSessionId === undefined
     ? agent.id.startsWith('main-session-')
-    : agent.id === config.resumeSessionId
+    : agent.id === resumeSessionId
   const configuredRoots = new Set(ctx.agents.roots().filter(matchesConfiguredIdentity))
   let target: Agent | undefined = [...configuredRoots].at(-1)
   ctx.on('agent/created', (agent) => {
