@@ -318,7 +318,7 @@ describe('configuration and lifecycle', () => {
 })
 
 describe('real agent-loop request logging', () => {
-  it('refreshes a long turn in the system prompt and records the header delta without context history', async () => {
+  it('refreshes a long turn in the system prompt and records full headers without context history', async () => {
     const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done'), textResponse('next turn')])
     const ctx = await loopHarness(adapter, { refreshIntervalMs: 60_000 })
     ctx.tools.register(defineTool({
@@ -338,7 +338,7 @@ describe('real agent-loop request logging', () => {
     expect(adapter.requests[0]!.system).toContain('2026-07-14T00:00:00+00:00[UTC]')
     expect(adapter.requests[1]!.system).toContain('2026-07-14T00:01:01+00:00[UTC]')
     expect(agent.session.events.some(event => event.type === 'context/message')).toBe(false)
-    expect(agent.session.events.filter(event => event.type === 'request/header-delta')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(2)
     expect(foldRequestHeader(agent.session.events)?.system).toBe(adapter.requests[1]!.system)
 
     vi.setSystemTime(BASE + 361_000)
