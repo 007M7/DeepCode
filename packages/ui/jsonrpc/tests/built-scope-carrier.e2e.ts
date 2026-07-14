@@ -58,7 +58,7 @@ try {
     meta: { cwd: storageRoot },
     agentOptions: { model: "test" },
   });
-  const child = await ctx.agents.create({
+  const child = await parent.agent.ctx.agents.create({
     sessionId: SessionId("built-child"),
     meta: { cwd: storageRoot, parentSession: SessionId("built-parent") },
     agentOptions: { model: "test" },
