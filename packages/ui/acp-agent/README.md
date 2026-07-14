@@ -32,11 +32,11 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-core` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 
-The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor (`bash-local`).
+The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor.
 
 ## The bin
 
-`dsh-acp-agent [path-to-cordis.yml]` (default `./cordis.yml`):
+`dsh-acp-agent [--config path-to-cordis.yml]` (short form `-c`; default `./cordis.yml`):
 
 - loads a gitignored `.env` from the cwd — **skipped** in snapshot REPLAY so a stray key can never trigger a live call;
 - honors `DSH_SNAPSHOT=replay` by booting the sibling `cordis.snapshot.yml` (the keyless replay tree, `llm-replay` in place of `llm-deepseek`);

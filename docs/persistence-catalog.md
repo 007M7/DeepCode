@@ -153,6 +153,18 @@ A hook command's outcome — log-only, paired with a prior `hook/invoked` (same 
 
 Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../packages/hooks/hook-protocol/src/types.ts)
 
+### `permission/*`
+
+#### `permission/preset` — log-only
+
+The session's permission preset was switched — log-only (the `bash/sandbox-mode` precedent): durable and replayable, never in the model transcript. The LAST such event is the session's preset (effectivePermissionPreset); the knob events the switch wrote through follow it in the same turn, and they — not this record of the user's choice — are what execution reads.
+
+```ts persistence-catalog
+'permission/preset': { preset: string }
+```
+
+Source: [`packages/ui/permission/src/index.ts:42`](../packages/ui/permission/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only
