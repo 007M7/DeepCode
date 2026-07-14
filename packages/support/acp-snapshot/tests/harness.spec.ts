@@ -62,8 +62,17 @@ describe('runScenario', () => {
   it('surfaces an asynchronous child spawn failure through startup and close', async () => {
     const { dir } = await scenario({})
     const launched = launchAcpTestAgent({ agent: AGENT, cwd: join(dir, 'missing') })
+    let stdioClosed = false
+    let clientClosed = false
+    launched.child.once('close', () => { stdioClosed = true })
+    void launched.client.closed.then(
+      () => { clientClosed = true },
+      () => { clientClosed = true },
+    )
     await expect(launched.spawned).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(launched.close()).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(stdioClosed).toBe(true)
+    expect(clientClosed).toBe(true)
   })
 
   it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
