@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import {
   type AgentUnderTest,
   type LaunchedAcpTestAgent,
 } from '@deepseek-ai/dsh-acp-snapshot'
+import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
  * The default ACP composition (`cordis.yml`) end to end.
@@ -81,16 +82,11 @@ let spawned: Spawned | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  try {
-    await spawned?.close('SIGKILL')
-  } finally {
-    spawned = undefined
-    try {
-      if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-    } finally {
-      workdir = undefined
-    }
-  }
+  const ownedSpawned = spawned
+  const ownedWorkdir = workdir
+  spawned = undefined
+  workdir = undefined
+  await cleanupAcpExampleTest(ownedSpawned, ownedWorkdir)
 })
 
 describe('default sandbox composition keyless smoke (real cordis.yml via the Loader)', () => {
