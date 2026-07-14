@@ -1,5 +1,7 @@
 # Cookbook: extension plugin shapes
 
+English | [中文](extension-cookbook.zh.md)
+
 The three plugin shapes you write against the harness extension surface, as illustrative snippets (elided imports and helper stubs — not copy-paste-complete). For the full step-by-step guides see [adding a package](./adding-a-package.md), [adding a tool](./adding-a-tool.md), and [adding an LLM adapter](./adding-an-llm-adapter.md); for the seams these hook into see [docs/architecture.md](../architecture.md).
 
 ## A tool plugin
