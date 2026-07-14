@@ -2,7 +2,7 @@
 
 English | [中文](adding-a-package.zh.md)
 
-The file-by-file checklist for a new `@deepseek-ai/dsh-<name>` package. (Verified by the bash and adapter packages; if it drifts, fix it here.)
+The file-by-file checklist for a new `@deepseek-ai/dsh-<name>` package. This checklist is validated against the bash and adapter packages as templates; if it drifts from them, fix it here.
 
 ## 1. Create the package
 

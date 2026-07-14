@@ -2,7 +2,7 @@
 
 [English](adding-a-tool.md) | 中文
 
-如何为模型赋予一项新能力。参考实现：`examples/echo-agent/src/echo-tool.ts`（最小化）和 `packages/bash/tool-bash`（生产级，由三个 package 构成的 seam）。
+如何为模型赋予一项新能力。参考实现：`examples/echo-agent/src/echo-tool.ts`（最小化）和 `packages/bash/tool-bash`（生产级，由三个包（package）构成的 seam）。
 
 ## 最小形态
 
@@ -31,7 +31,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-注册基于副作用：dispose（资源释放）插件 fiber（插件运行时）即注销该工具（请编写 HMR（热模块替换）测试）。schema 会自动流入系统提示词的组装过程。
+注册基于副作用：dispose（资源释放）插件 fiber 即注销该工具（请编写 HMR（热模块替换）测试）。schema 会自动流入系统提示词的组装过程。
 
 ## execute() 契约的规则
 
@@ -51,7 +51,7 @@ export function apply(ctx: Context) {
 
 ## 执行策略与观测
 
-尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许/拒绝/询问策略（见[权限门禁示例](./extension-cookbook.md#a-hook-plugin-permission-gate)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝（后续监听器无法撤销）；使用 `tools/execute` 为核心分发包装截止时间/重试/指标作用域；使用 `tools/post-execute` 转换或附加模型可见的上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。沙箱实现也可以位于工具执行器的能力 seam 之后；确切契约见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
+尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许/拒绝/询问策略（见[权限门禁示例](./extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝（后续监听器无法撤销）；使用 `tools/execute` 为核心分发包装截止时间/重试/指标作用域；使用 `tools/post-execute` 转换或附加模型可见的上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。沙箱实现也可以位于工具执行器的能力 seam 之后；确切契约见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
 
 ## Code Mode 自动触达你的工具
 
