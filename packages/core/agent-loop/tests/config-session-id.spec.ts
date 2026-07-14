@@ -128,6 +128,42 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
+  it('contains startup and observer failures whose string coercion throws', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-unrenderable-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    const unrenderable = {
+      [Symbol.toPrimitive](): never {
+        throw new Error('coercion escaped')
+      },
+    }
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', () => { throw unrenderable })
+    // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
+    ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+    vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-unrenderable'), model: 'mock' }],
+    })
+
+    await expect.poll(() => failures).toEqual([unrenderable])
+    expect(warn).toHaveBeenCalledWith(
+      'agent "main": config-driven restore of "stdio-exact-unrenderable" failed: <unrenderable thrown value>',
+    )
+    expect(warn).toHaveBeenCalledWith(
+      'agent "main": config-start-failed listener threw: <unrenderable thrown value>',
+    )
+    await expect.poll(() => warn).toHaveBeenCalledWith(
+      'agent "main": config-start-failed listener rejected: <unrenderable thrown value>',
+    )
+    await ctx.fiber.dispose()
+  })
+
   it('joins an exact-id persistence lookup before AgentLoop disposal completes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
     dirs.push(root)
