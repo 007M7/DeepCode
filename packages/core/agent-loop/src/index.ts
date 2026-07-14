@@ -325,6 +325,8 @@ export interface Config {
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
     id: string
+    /** Optional exact identity for a fresh session; absent lets the loop mint one from the label. */
+    sessionId?: SessionId
     /** Optional workspace for a fresh session. */
     cwd?: string
     /** Persisted session to resume instead of creating a fresh session. */
@@ -340,6 +342,7 @@ export class AgentLoop extends Service implements AgentFactory {
   static Config = z.object({
     agents: z.array(z.object({
       id: z.string().required(),
+      sessionId: z.string(),
       model: z.string(),
       cwd: z.string(),
       resumeSessionId: z.string(),
@@ -359,11 +362,13 @@ export class AgentLoop extends Service implements AgentFactory {
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
 
-    for (const { id, cwd, resumeSessionId, ...options } of config.agents) {
+    for (const { id, sessionId, cwd, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId === undefined || resumeSessionId === '') {
-        const sessionId = SessionId(`${id}-session-${randomUUID()}`)
-        this.create(sessionId, options, cwd === undefined ? {} : { cwd })
+        this.create(sessionId ?? SessionId(`${id}-session-${randomUUID()}`), options, cwd === undefined ? {} : { cwd })
         continue
+      }
+      if (sessionId !== undefined) {
+        throw new Error(`agent "${id}": sessionId and resumeSessionId are mutually exclusive`)
       }
       ctx.effect(() => {
         const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
