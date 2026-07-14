@@ -40,3 +40,13 @@ Pass your own `code` to `timeoutOf` so classification composes under nesting: wh
 ## What does NOT get a timeout
 
 Local file `read`/`write`/`edit` take no `timeoutMs`: a syscall is best-effort-abortable at most, a timeout could not force `fsync`/`rename` to stop, and adding one would be an implicit default that violates explicit-over-implicit. See [`fs/`](../../fs/README.md).
+
+## Model Experience
+
+Indirectly, through consumers such as `dsh-timeout-policy`, which may replace a provider result with a retained timeout error or suppress a late result.
+
+## Known Limitations and Deferred Work
+
+- **Notification only** — a deadline cannot stop work that ignores its signal; every capability still needs its own socket/process/task termination path.
+- **`timeoutMs <= 0` is internal vocabulary** — it disables the local timer only after an owning backend has resolved policy, never as a public model/plugin knob.
+- **The first abort reason wins classification** — when an upstream cancellation beats the local timer, this layer cannot later report that its own timeout would also have elapsed.

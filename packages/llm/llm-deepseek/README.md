@@ -34,10 +34,6 @@ Every request carries the shared attribution header from dsh-llm's `attributionH
 - **Reasoning passback rule**: on assistant turns that carried tool calls, `reasoning_content` is serialized back in history (required by the API in thinking mode); on tool-call-free turns it is dropped (ignored anyway — saves tokens).
 - Cache accounting: `cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`; DeepSeek reports no cache-write metric.
 
-## Limitations (MVP, documented deliberately)
-
-- `tool_choice` is not mapped (not part of the core vocabulary).
-
 ## Errors
 
 Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), `HTTP_<status>` otherwise. Protocol violations throw `STREAM_CLOSED` (no `[DONE]`) or `MALFORMED_RESPONSE` (bad JSON payload). Unknown wire `finish_reason`s (e.g. `content_filter`, `insufficient_system_resource`) become `finish {kind: 'error', code: <REASON>}` chunks.
@@ -45,3 +41,23 @@ Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LI
 ## Testing
 
 Unit suites run against a local `node:http` mock SSE server (no network). Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.
+
+## Model Experience
+
+### DeepSeek request
+
+**What the model sees**: The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted.
+
+**Token effect**: Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available.
+
+### DeepSeek response
+
+**What the model sees**: Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+
+**Token effect**: Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+
+## Known Limitations and Deferred Work
+
+- **`tool_choice` is not mapped** — not part of the core vocabulary (MVP cut, shared with the pi-ai twin).
+- **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy/interception configuration; adoption is deferred until a second adapter wants it (`TODO(http)`).
+- **Serialization flattens user and tool-result content to text blocks** — plugin-added block types are skipped, and empty tool output crosses the wire as the literal `(no output)`.
