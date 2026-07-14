@@ -316,6 +316,7 @@ describe('HarnessSdkServer', () => {
         params: {
           provider: 'spawn',
           agentId: 'parentless-child-session',
+          parentSessionId: 'main',
           childSessionId: 'parentless-child-session',
           status: 'error',
           stopReason: 'error',
@@ -373,7 +374,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('omits ambiguous lineage when one local id is reused and runs settle out of order', async () => {
+  it('correlates reused local ids by parent scope when runs settle out of order', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-reuse-'))
     const ctx = await makeHarness(storageDir)
     try {
@@ -450,8 +451,11 @@ describe('HarnessSdkServer', () => {
         [{ type: 'text', text: 'new lifetime' }],
         [{ type: 'text', text: 'old lifetime' }],
       ])
-      expect(finished[0]?.params?.parentSessionId).toBe('old-parent')
-      expect(finished.slice(1).every(notification => !Object.hasOwn(notification.params ?? {}, 'parentSessionId'))).toBe(true)
+      expect(finished.map(notification => notification.params?.parentSessionId)).toEqual([
+        'old-parent',
+        'new-parent',
+        'old-parent',
+      ])
 
       await firstRun.dispose()
       await sameLifetimeRun.dispose()
@@ -551,6 +555,7 @@ describe('HarnessSdkServer', () => {
         params: {
           provider: 'fork',
           agentId: 'failed-child-session',
+          parentSessionId: 'fallback-parent',
           childSessionId: 'failed-child-session',
           status: 'error',
           stopReason: 'error',
@@ -753,6 +758,6 @@ describe('HarnessSdkServer', () => {
     const server = new HarnessSdkServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(6)
+    expect(on).toHaveBeenCalledTimes(4)
   })
 })

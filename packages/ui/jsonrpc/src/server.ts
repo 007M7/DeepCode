@@ -15,8 +15,10 @@
 import type { Context } from 'cordis'
 import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo, SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { JsonRpcTransportPeer } from './transport.ts'
@@ -58,21 +60,14 @@ interface SessionRecord {
   activePrompt: boolean
 }
 
-/** Runtime-local agent identity plus optional durable fork lineage. */
-interface LocalAgentRecord {
-  parentSessionId?: SessionId
-}
-
-/** Pending local runs that share one provider/id correlation key. */
-interface PendingLocalRuns {
-  count: number
-  parentSessionId?: SessionId
-  parentAmbiguous: boolean
+/** Recover the delegating parent carried by every service-owned subagent lifecycle event. */
+function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
+  return carrierKeyOf(carrier) as Agent
 }
 
 /**
  * The SDK server over a booted harness context. Constructing it subscribes to
- * session, agent, and subagent lifecycle events, forwarding durable session
+ * session and subagent lifecycle events, forwarding durable session
  * events and SDK-facing completion notifications while retaining local-run
  * identity across child disposal. The subscriptions live until
  * {@link shutdown}. One instance serves one transport peer for the process
@@ -84,8 +79,7 @@ export class HarnessSdkServer {
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
-  private readonly localAgents = new Map<SessionId, LocalAgentRecord>()
-  private readonly localRuns = new Map<string, Map<SessionId, PendingLocalRuns>>()
+  private readonly localRuns = new Map<string, Map<SessionId, Map<Agent, number>>>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -109,64 +103,40 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // Cache runtime-local identity and optional lineage for each agent lifetime.
-    // Parent lineage is not required by the provider contract, so an empty
-    // record remains a load-bearing locality marker.
-    this.disposers.push(ctx.on('agent/created', (agent) => {
-      const parentSessionId = agent.session.header.parentSession
-      this.localAgents.set(agent.id, parentSessionId === undefined ? {} : { parentSessionId })
+    // In-process providers publish the child before start. Count those starts by
+    // the exact delegating-parent carrier so later completions remain local after
+    // child disposal and reused ids need no settlement-order assumption.
+    const localRuns = this.localRuns
+    this.disposers.push(ctx.on('subagent/start', function (this: Scoped<SubagentService>, info: SubagentRunInfo) {
+      if (ctx.agents.get(info.id) === undefined) return
+      const parent = subagentParentOf(this)
+      const providerRuns = localRuns.get(info.provider) ?? new Map<SessionId, Map<Agent, number>>()
+      const parentRuns = providerRuns.get(info.id) ?? new Map<Agent, number>()
+      parentRuns.set(parent, (parentRuns.get(parent) ?? 0) + 1)
+      providerRuns.set(info.id, parentRuns)
+      localRuns.set(info.provider, providerRuns)
     }))
-    this.disposers.push(ctx.on('agent/disposed', (agent) => {
-      this.localAgents.delete(agent.id)
-    }))
-    // Snapshot locality per provider/id run key. A provider may settle one run,
-    // continue the same live child in another run, and dispose that child before
-    // the later result settles. Counts preserve every completion without
-    // assuming settlement order. If id reuse produces disagreeing lineage, the
-    // optional parent is omitted until that pending group drains rather than
-    // attributed to the wrong completion.
-    this.disposers.push(ctx.on('subagent/start', (info: SubagentRunInfo) => {
-      const agent = this.ctx.agents.get(info.id)
-      const cachedLocalAgent = this.localAgents.get(info.id)
-      const localAgent = cachedLocalAgent ?? (agent === undefined
-        ? undefined
-        : agent.session.header.parentSession === undefined
-          ? {}
-          : { parentSessionId: agent.session.header.parentSession })
-      if (localAgent === undefined) return
-      const providerRuns = this.localRuns.get(info.provider) ?? new Map<SessionId, PendingLocalRuns>()
-      const pending = providerRuns.get(info.id)
-      if (pending === undefined) {
-        providerRuns.set(info.id, localAgent.parentSessionId === undefined
-          ? { count: 1, parentAmbiguous: false }
-          : { count: 1, parentSessionId: localAgent.parentSessionId, parentAmbiguous: false })
-      } else {
-        pending.count += 1
-        if (pending.parentSessionId !== localAgent.parentSessionId) pending.parentAmbiguous = true
-      }
-      this.localRuns.set(info.provider, providerRuns)
-    }))
-    this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
-      const agent = this.ctx.agents.get(info.id)
-      const providerRuns = this.localRuns.get(info.provider)
-      const pending = providerRuns?.get(info.id)
-      if (pending !== undefined) {
-        pending.count -= 1
-        if (pending.count === 0) providerRuns?.delete(info.id)
-        if (providerRuns?.size === 0) this.localRuns.delete(info.provider)
+    this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
+      const agent = ctx.agents.get(info.id)
+      const parent = subagentParentOf(this)
+      const providerRuns = localRuns.get(info.provider)
+      const parentRuns = providerRuns?.get(info.id)
+      const pendingCount = parentRuns?.get(parent)
+      if (pendingCount !== undefined) {
+        if (pendingCount === 1) parentRuns?.delete(parent)
+        else parentRuns?.set(parent, pendingCount - 1)
+        if (parentRuns?.size === 0) providerRuns?.delete(info.id)
+        if (providerRuns?.size === 0) localRuns.delete(info.provider)
       }
       // This protocol reports LOCAL child sessions. A lineage-bearing child
       // has the session/created-driven start notification above; a parentless
       // local provider still gets its terminal notification. A remote provider
-      // has neither a cached creation nor a live local agent and is ignored.
-      if (pending === undefined && agent === undefined) return
-      const parentSessionId = pending === undefined
-        ? agent?.session.header.parentSession
-        : pending.parentAmbiguous ? undefined : pending.parentSessionId
-      this.transport.notify('subagent.finished', {
+      // has neither a pending local start nor a live local agent and is ignored.
+      if (pendingCount === undefined && agent === undefined) return
+      transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
-        ...(parentSessionId === undefined ? {} : { parentSessionId: String(parentSessionId) }),
+        parentSessionId: String(parent.session.id),
         childSessionId: String(info.id),
         status: info.stopReason === 'completed' ? 'ok' : 'error',
         stopReason: info.stopReason,
@@ -240,7 +210,6 @@ export class HarnessSdkServer {
     this.sessionCreations.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
-    this.localAgents.clear()
     this.localRuns.clear()
     const failures: unknown[] = []
     while (this.disposers.length > 0) {

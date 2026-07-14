@@ -7,8 +7,8 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:304`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`jsonrpc`](../packages/ui/jsonrpc), [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:319`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`jsonrpc`](../packages/ui/jsonrpc), [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:304`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:319`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`stdio-agent`](../packages/ui/stdio-agent) |
 | `agent/error` | `emit` | [`packages/core/agent/src/types.ts:593`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
 | `agent/pre-step` | `serial` | [`packages/core/agent/src/types.ts:426`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic), [`user-approval`](../packages/ui/user-approval) |
 | `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:444`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`acp`](../packages/ui/acp), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) |
