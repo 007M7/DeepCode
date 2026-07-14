@@ -14,7 +14,7 @@ The caller fiber and the AgentLoop provider are co-owners. `AgentFactory.createA
 
 Each agent and its session share one caller-chosen `SessionId`, assumed globally unique; accidental UUID collisions are outside the supported model. Two concurrent operations with the same id may both prepare, but the final `enter()` calls arbitrate publication and every loser rolls its private resources back. Each detach is bound to the exact entered object, so a stale disposer cannot remove a later same-id replacement. A detach requested during a synchronous creation notification waits for that dispatch to unwind, preserving created/disposed pairing. Teardown runs stop and drain (including outstanding idle-injection flushes) → detach agent → detach session → unwind scope; the id becomes reusable at detach even if private scope cleanup is still finishing. Ordinary non-vetoing `agent/*` notifications go through `agentEvents(ctx, agent)`, per-step assembly goes through `assembleContextFor(agent)`, and turn-end durability checkpoints go through `ctx.sessions.flush(session)`.
 
-- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — synchronous no-setup create under the exact shared agent/session id, disposed with the calling fiber. Declarative config treats `agents[].id` as a stable label and mints `${label}-session-<uuid>` before calling this boundary; `resumeSessionId` instead loads and registers the exact persisted id. This keeps fresh restarts collision-free without retaining a second live routing identity.
+- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — synchronous no-setup create under the exact shared agent/session id, disposed with the calling fiber. Declarative config treats `agents[].id` as a stable label and normally mints `${label}-session-<uuid>` before calling this boundary; an app may instead supply an exact fresh `sessionId` when another coupled component must bind to it. `resumeSessionId` loads and registers the exact persisted id and is mutually exclusive with `sessionId`. This keeps default fresh restarts collision-free without retaining a second live routing identity.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -33,6 +33,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 interface Config {
   agents: Array<{
     id: string                 // required stable label; prefixes fresh combined ids
+    sessionId?: string         // optional exact identity for a fresh session
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -40,7 +41,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. `cwd` and optional `sessionId` apply only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 
