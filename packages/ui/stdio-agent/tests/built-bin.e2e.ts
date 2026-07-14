@@ -7,31 +7,17 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * BUILT-ARTIFACT smoke for the published `dsh-stdio-agent` bin. The other smokes
- * boot `src/bin.ts` under tsx — but the package's `bin` field points at
- * `lib/bin.js`, run under plain `node` by a real consumer. tsx masks two failure
- * modes the built bin had: (1) `boot()` returned before the loader tree settled,
- * so the process exited 0 with no output and load errors surfaced as unhandled
- * rejections AFTER boot; (2) config-path resolution could fall back to the cwd.
- * This test runs the REAL `lib/bin.js` under `node` (NOT tsx) and asserts the
- * banner + echo round-trip, so a regression in the published entry fails here.
- *
- * It build-gates: if `lib/bin.js` is absent (suite run without `pnpm run build`)
- * the test SKIPS with a note. CI runs it after the build step. Setup mirrors a
- * real install: a temp dir whose `node_modules/@deepseek-ai/*` (and the vendored
- * `cordis`/`@cordisjs/*`) are symlinked to the built packages, a `cordis.yml`
- * that loads the app + the example's mock backend, and `node --expose-internals`
- * (the cordis Loader resolves bare plugin specifiers via its internal module
- * loader, active only under that flag — the same flag `demo:echo` passes).
+ * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
+ * require the banner plus echo round-trip. This catches built-only early-exit and config-resolution
+ * failures masked by tsx source smokes. It skips before build; `--expose-internals` enables Cordis
+ * bare-plugin loading, matching the demo command.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const stdioBin = join(repoRoot, 'packages/ui/stdio-agent/lib/bin.js')
 
-// Workspace packages the stdio app's tree needs, by repo-relative path. Each is
-// symlinked into the temp consumer's node_modules under its package name, so
-// plain `node` resolves the bare `@deepseek-ai/dsh-*` specifiers in cordis.yml
-// to the built `lib/` (package.json `main`), exactly as an installed dep would.
+// Symlink each required workspace package by package name so plain Node resolves its built `main`,
+// matching an installed dependency rather than tsconfig paths.
 const dshPackages = [
   'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
@@ -50,14 +36,9 @@ async function pkgName(absDir: string): Promise<string> {
 }
 
 /**
- * Build a temp consumer dir: `node_modules` with the workspace + vendor packages
- * symlinked in, a `src/` carrying the example mock backend, and a `cordis.yml`
- * that wires them onto the stdio app. Returns the dir (caller removes it).
- *
- * `disabledBrokenEntry` appends an entry that points at a non-existent plugin but
- * is marked `disabled: true`. The Loader leaves a disabled entry fiber-less by
- * design, so it exercises that the fail-loud entry-load guard does NOT mistake a
- * valid disabled entry for a failed import.
+ * Build a temporary external consumer with built workspace/vendor links and a mock-backed config.
+ * The optional missing-but-disabled plugin verifies load guards accept intentionally fiber-less
+ * entries rather than treating them as import failures.
  */
 async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stdio-built-bin-'))
@@ -153,9 +134,9 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
   }, 30_000)
 
   it('boots cleanly when the config disables an (otherwise unresolvable) entry', async () => {
-    // A `disabled: true` entry settles without a fiber by design; the fail-loud
-    // entry-load guard must NOT mistake it for a failed import. Even though its
-    // plugin path does not exist, the app boots and the round-trip works.
+    // A `disabled: true` entry settles without a fiber by design; the fail-loud entry-load
+    // guard must not mistake it for a failed import. The nonexistent path makes that distinction
+    // observable while the successful round-trip proves boot continued.
     consumer = await makeConsumer('DISABLED-OK ready.', true)
     const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', 'echo hi')
     expect(stderr).not.toContain('failed to load')
@@ -165,10 +146,8 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
-    // A consumer who typos the config path must get a clear failure, not silent
-    // success. This dir does not exist, so the include PLUGIN itself fails to
-    // import; the cordis Loader logs that and leaves the entry with no fiber (no
-    // rejection), which `boot()`'s entry-load check turns into a thrown error.
+    // A nonexistent directory prevents even the include plugin import. Loader leaves no fiber, and
+    // boot's settled-entry guard must turn that state into a clear non-zero failure.
     consumer = await makeConsumer('unused')
     const { code, stderr } = await runBuiltBin(consumer, '/nonexistent/dir/cordis.yml', '')
     expect(code).not.toBe(0)
@@ -176,9 +155,7 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a missing config file in a real directory', async () => {
-    // The config DIRECTORY exists (the include plugin imports), but the file does
-    // not — the include's init throws "config file not found", which surfaces as
-    // an unhandled rejection the fail-loud guard turns into a non-zero exit.
+    // Existing directory plus missing config exercises the include plugin's fail-loud path.
     consumer = await makeConsumer('unused')
     const { code, stderr } = await runBuiltBin(consumer, './does-not-exist.yml', '')
     expect(code).not.toBe(0)

@@ -17,36 +17,18 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * End-to-end: boot examples/acp-agent as a real subprocess speaking ACP over
- * its stdio, drive it with a real ClientSideConnection, send a real prompt, and
- * verify the WORLD (a file the agent wrote), not the agent's self-report. Owns
- * and disposes the subprocess in afterEach. Key-gated.
- *
- * Also asserts stdout purity (only framed JSON-RPC on stdout) — that one runs
- * WITHOUT a key, since it only needs the server to boot and answer initialize.
+ * Boots examples/acp-agent as an ACP subprocess. The key-gated prompt leg
+ * verifies its filesystem effect; a keyless initialize leg verifies that stdout
+ * contains only framed JSON-RPC. Each subprocess is disposed in `afterEach`.
  */
 
-// The dsh-acp-agent bin (the demo:acp entry) and this example's cordis.yml. The
-// bin resolves its config-path arg from CWD; the subprocess runs from a temp
-// workdir, so pass the example config's ABSOLUTE path.
+// The child runs from a temp cwd, so its bin and config path are absolute.
 const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-// Resolve tsx's loader to an ABSOLUTE path: the subprocess runs with cwd set to
-// a temp workdir (this test launches there and uses it as the session cwd; the
-// bridge no longer requires cwd === the launch dir, but a temp dir keeps the
-// test hermetic), where a bare `--import tsx` would not resolve from
-// node_modules. import.meta.resolve gives the worktree's tsx regardless of cwd.
+// Resolve tsx absolutely because the subprocess runs outside the repo.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// Absolute path to the repo-root tsconfig. Dev/test/demo run UNBUILT: the
-// `@deepseek-ai/dsh-*` workspace imports resolve through the `paths` map in the
-// root tsconfig (tsx reads it), NOT through built `lib/` output. But tsx finds
-// that tsconfig by searching UP from the child's cwd — and the child's cwd is a
-// temp workdir OUTSIDE the repo, so the search misses and the dsh-* imports fail
-// (the child dies before writing a byte). Point tsx at the repo tsconfig
-// explicitly via TSX_TSCONFIG_PATH so resolution is cwd-independent. (Without
-// this the suite only passed by accident when a stale built `lib/` happened to
-// exist — exactly the contamination that masked the inject bug this suite now
-// guards.) The repo root is four levels up from this file (examples/acp-agent/tests).
+// The root tsconfig supplies unbuilt workspace `paths`; making it explicit
+// avoids accidental resolution through stale built output.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 interface Spawned {
@@ -155,9 +137,7 @@ describe('acp-agent over real stdio (no key required)', () => {
   it('emits only framed JSON-RPC on stdout', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // Collect raw stdout bytes directly (bypass the SDK framing) to inspect.
-    // A dummy key lets the deepseek adapter APPLY (it only checks the key is
-    // present at boot, not valid — the key is used only on a real model call,
-    // which this purity test never triggers). So this runs WITHOUT real creds.
+    // A dummy key boots the adapter; this purity test sends no prompt and makes no model call.
     const child = spawn(process.execPath, ['--import', tsxLoader, binScript, '--config', configPath], {
       cwd: workdir,
       env: {
@@ -197,17 +177,10 @@ describe('acp-agent over real stdio (no key required)', () => {
   }, 30_000)
 
   it('session/new succeeds over real stdio (no model call)', async () => {
-    // REGRESSION GUARD (this exact RPC crashed a real Zed session with
-    // "cannot get property \"agents\" without inject"): `session/new` drives the
-    // full bridge → `ctx.agents.create({sessionId, meta:{cwd}})` → AgentLoop →
-    // registry/persistence path, ALL of which run from the JSON-RPC read loop
-    // OUTSIDE the bridge plugin's injection scope. A lazy `ctx.<service>` read
-    // on that path throws and the RPC fails with an Internal error — yet the
-    // call never touches the model, so this reproduces WITHOUT a key. The
-    // key-gated prompt test below never caught it (it needs real creds); the
-    // initialize-only purity test never caught it (initialize does not reach
-    // the factory). This closes that gap: boot the real subprocess and create a
-    // session, asserting the RPC RESOLVES (not rejects with an inject error).
+    // Regression guard (this exact RPC crashed a real Zed session with "cannot get property
+    // \"agents\" without inject"): `session/new` drives the full bridge →
+    // `ctx.agents.create({sessionId, meta:{cwd}})` → AgentLoop → registry/persistence path, ALL
+    // of which run from the JSON-RPC read loop outside the bridge plugin's injection scope.
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // A dummy key lets the deepseek adapter boot (it only checks presence, not
     // validity, at apply time); no model call is made, so the key is never used.
@@ -238,28 +211,23 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // Verify the WORLD, not the agent's self-report: read the file from disk.
+    // Verify the filesystem effect rather than the agent's report.
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('ACP_OK')
 
-    // And the client saw tool-call activity stream through.
     const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call')
     expect(toolCalls.length).toBeGreaterThan(0)
 
-    // Tool-call UI quality (the tool owns its presentation): the bash tool's
-    // `presentCall` sets the title to the exact command (an execute card hides
-    // rawInput, so the command IS the title) — NOT the bare tool name "bash".
-    // A `bash` call must therefore carry an execute kind, a non-"bash" title,
-    // and a string rawInput (the command). `toolCalls` is already narrowed to
-    // the `tool_call` shape by the filter above, so these fields are reachable.
+    // Bash execute cards hide rawInput, so `presentCall` uses the exact command
+    // as the title rather than the bare tool name "bash".
     const bashCall = toolCalls.find(u => u.kind === 'execute')
     expect(bashCall).toBeDefined()
     if (bashCall === undefined) throw new Error('expected an execute tool_call')
     expect(typeof bashCall.title).toBe('string')
     expect(bashCall.title.length).toBeGreaterThan(0)
-    expect(bashCall.title).not.toBe('bash') // the old, unhelpful title
-    expect(typeof bashCall.rawInput).toBe('string') // the exact command
-    // Capability OFF: no terminal _meta — the ```console text path renders.
+    expect(bashCall.title).not.toBe('bash')
+    expect(typeof bashCall.rawInput).toBe('string')
+    // Without the terminal capability, output uses the console-text path.
     expect((bashCall as { _meta?: unknown })._meta).toBeUndefined()
   }, 180_000)
 

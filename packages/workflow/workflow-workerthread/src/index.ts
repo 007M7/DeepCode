@@ -1,41 +1,8 @@
 /**
- * The `node:worker_threads` workflow engine: the {@link WorkflowService}
- * implementation. Runs each script in its OWN worker thread (one run = one
- * worker, no pooling — a run is heavyweight, so thread spin-up is noise): the
- * body executes in a vm context INSIDE the worker with the workflow hooks
- * injected, and `agent()` calls bridge back to `ctx.subagents` over the
- * message port — child agents are I/O-bound LLM loops and stay on the host
- * event loop; the thread isolates the SCRIPT, the only part that can spin
- * synchronously.
- *
- * TRUST PREMISE: scripts are MODEL-WRITTEN — the same trust level as the
- * model's existing bash access — so this engine defends against BUGGY
- * scripts, never hostile ones. A worker thread is NOT a security boundary:
- * the vm context inside it is escapable by construction, and an escapee
- * holds the same process privileges as the host (Node's permission model is
- * process-wide); genuine sandboxing (isolated-vm, a separate process) is an
- * engine swap behind the seam. What the thread buys, concretely:
- *
- * - `start()` never blocks the host: the script's initial synchronous slice
- *   (and any later synchronous spin) occupies the WORKER's event loop, not
- *   the harness's.
- * - Termination is REAL: a script that outlives its post-cancel grace is
- *   `worker.terminate()`d — nothing of the script survives `dispose()`,
- *   where an in-process engine could only abandon the spin on its own loop.
- * - The value boundary is serialization by construction: everything crossing
- *   the thread is structured-clone data (and plain JSON before that, by the
- *   materialization walk in ./realm.ts).
- *
- * Engine-specific limitations: worker startup (~tens of ms) is paid per run;
- * on a termination path `agentsStarted` reports the host-observed child
- * count (calls still queued worker-side for a slot are unknowable — see
- * ./host.ts); and a worker that dies unexpectedly (an OOM, a script reaching
- * `process.exit` through the documented vm escape) settles the run
- * `stopReason: 'error'` with the exit diagnostics.
- *
- * Plugin export shape: a default-exported {@link WorkflowService} subclass
- * (the class-based service form, like `dsh-bash-local`).
- *
+ * Worker-thread workflow engine. Each run executes its model-written script in
+ * an escapable vm context on a fresh worker and bridges `agent()` calls to host
+ * subagents. The thread prevents synchronous script work from blocking the host
+ * and permits forced termination, but it is containment rather than a security boundary.
  * @module @deepseek-ai/dsh-workflow-workerthread
  */
 

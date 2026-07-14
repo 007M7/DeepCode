@@ -71,14 +71,8 @@ export interface BashSandboxInfo {
    */
   enforcement?: SandboxEnforcement
   /**
-   * True when the executor classifies this failure as the SANDBOX RUNNER
-   * itself failing (missing binary, refused profile, fail-closed refusal
-   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
-   * task failure, and it outranks `denied` (a runner's own error text can
-   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
-   * foreground run surfaces the same condition as the thrown
-   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
-   * channel; a settled task's facts are its only channel).
+   * The sandbox runner failed before executing the command. Set only on settled
+   * background tasks; foreground runs throw `SANDBOX_UNAVAILABLE` instead.
    */
   runnerFailed?: boolean
 }
@@ -125,17 +119,9 @@ export interface BashExecRequest {
    */
   owner?: OwnerToken | undefined
   /**
-   * Explicit per-call sandbox-policy input, overriding the executor's
-   * configured default mode for THIS call. Never a silent default: a
-   * consumer sets it only from an explicit policy source — an
-   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
-   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
-   * session's standing override folded from its own `bash/sandbox-mode`
-   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
-   * choice). A sandboxing executor confines THIS call under the given mode;
-   * a non-sandboxing executor carries the field and confines nothing (the
-   * tool layer stamps neither escalation nor overrides without a sandboxing
-   * executor — see {@link BashExecutor.sandboxMode}).
+   * Explicit per-call sandbox policy. The tool stamps a session override or a
+   * one-shot approved escalation, with the grant taking precedence. Sandboxing
+   * executors honor it for this call; non-sandboxing executors do not confine.
    */
   sandboxMode?: SandboxMode | undefined
 }
