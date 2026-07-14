@@ -17,13 +17,9 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * End-to-end: boot examples/acp-agent as a real subprocess speaking ACP over
- * its stdio, drive it with a real ClientSideConnection, send a real prompt, and
- * verify the WORLD (a file the agent wrote), not the agent's self-report. Owns
- * and disposes the subprocess in afterEach. Key-gated.
- *
- * Also asserts stdout purity (only framed JSON-RPC on stdout) — that one runs
- * WITHOUT a key, since it only needs the server to boot and answer initialize.
+ * Boots examples/acp-agent as an ACP subprocess. The key-gated prompt leg
+ * verifies its filesystem effect; a keyless initialize leg verifies that stdout
+ * contains only framed JSON-RPC. Each subprocess is disposed in `afterEach`.
  */
 
 // The child runs from a temp cwd, so its bin and config path are absolute.
@@ -48,12 +44,13 @@ interface Spawned {
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
+    ['--import', tsxLoader, binScript, '--config', configPath],
     {
       cwd,
       env: {
         ...env,
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_HOME: join(cwd, '.dsh'),
         DSH_AGENTS_HOME: join(cwd, '.agents'),
       },
@@ -75,9 +72,8 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // This example composes no ask-producing policy (no hooks), so the
-      // bridge never prompts here; answer cancelled (fail closed) if it ever
-      // does — an unexpected prompt must not grant anything.
+      // This suite selects danger-full-access (approval never), so the bridge
+      // never prompts here; answer cancelled if an unexpected ask arrives.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })
@@ -141,12 +137,14 @@ describe('acp-agent over real stdio (no key required)', () => {
   it('emits only framed JSON-RPC on stdout', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // Collect raw stdout bytes directly (bypass the SDK framing) to inspect.
-    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, configPath], {
+    // A dummy key boots the adapter; this purity test sends no prompt and makes no model call.
+    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, '--config', configPath], {
       cwd: workdir,
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_HOME: join(workdir, '.dsh'),
         DSH_AGENTS_HOME: join(workdir, '.agents'),
       },
@@ -213,25 +211,23 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // Verify the WORLD, not the agent's self-report: read the file from disk.
+    // Verify the filesystem effect rather than the agent's report.
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('ACP_OK')
 
-    // And the client saw tool-call activity stream through.
     const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call')
     expect(toolCalls.length).toBeGreaterThan(0)
 
-    // Tool-call UI quality (the tool owns its presentation): the bash tool's `presentCall` sets
-    // the title to the exact command (an execute card hides rawInput, so the command IS the
-    // title) — not the bare tool name "bash".
+    // Bash execute cards hide rawInput, so `presentCall` uses the exact command
+    // as the title rather than the bare tool name "bash".
     const bashCall = toolCalls.find(u => u.kind === 'execute')
     expect(bashCall).toBeDefined()
     if (bashCall === undefined) throw new Error('expected an execute tool_call')
     expect(typeof bashCall.title).toBe('string')
     expect(bashCall.title.length).toBeGreaterThan(0)
-    expect(bashCall.title).not.toBe('bash') // the old, unhelpful title
-    expect(typeof bashCall.rawInput).toBe('string') // the exact command
-    // Capability OFF: no terminal _meta — the ```console text path renders.
+    expect(bashCall.title).not.toBe('bash')
+    expect(typeof bashCall.rawInput).toBe('string')
+    // Without the terminal capability, output uses the console-text path.
     expect((bashCall as { _meta?: unknown })._meta).toBeUndefined()
   }, 180_000)
 

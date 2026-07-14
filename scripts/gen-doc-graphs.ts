@@ -60,6 +60,7 @@ const GROUP_ORDER = [
   'cordis',
   'hooks',
   'session-persistence',
+  'session-query',
   'support',
   'ui',
 ]
@@ -79,7 +80,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -88,8 +89,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp'],
+    consumers: ['agent-loop', 'acp', 'session-query'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'sessionQuery',
+    pkg: 'session-query',
+    title: 'Exact session-history reads',
+    mode: 'seam',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
   },
   {
     key: 'systemPrompt',
@@ -167,6 +175,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['acp'],
     consumers: ['tools', 'tool-bash'],
     note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
+  },
+  {
+    key: 'permission',
+    pkg: 'permission',
+    title: 'Permission presets',
+    mode: 'core',
+    implementations: [],
+    consumers: ['acp'],
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
     key: 'codeRuntime',

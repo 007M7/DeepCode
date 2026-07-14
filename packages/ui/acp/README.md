@@ -31,8 +31,8 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 | `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
 | `session/update` | `session/event` | streams user replay, assistant text/reasoning, and tool render intents |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
-| `session/request_permission` | `approval/request` listener | answers one-shot requests for bridge-owned calls and delegates others |
-| `session/set_config_option` | `setSandboxMode` / `setApprovalPolicy` | per-session knob switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
+| `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
+| `session/set_config_option` | `ctx.permission.set()` | per-session permission-preset switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
 
 ## Multi-session
 
@@ -40,7 +40,7 @@ Forward and reverse indexes route every event, prompt, cancel, and approval to o
 
 ## Session config options
 
-The bridge advertises `sandbox-mode` and `approval-policy` only when their services are composed. Current values fold from each session's log over the composition default, so load restores overrides directly. `session/set_config_option` validates against the closed vocabulary, calls the domain writer, and returns refreshed state. Changes inside an open turn append immediately; idle changes are coalesced in memory and anchored at the next `agent/prompt-submit`, preserving turn enclosure and event order. A crash before anchoring discards the pending change, and load reports durable log truth. See the [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
+When `ctx.permission` is composed, the bridge advertises one `permission` select in `session/new` and `session/load`. Options come from the deployment's preset table; the current value comes from the session fold, with switch-away-only `custom` for unmatched knobs. `session/set_config_option` accepts advertised presets and writes both sandbox-mode and approval-policy events through `PermissionService.set()`. Open-turn switches append immediately; idle switches overlay responses and anchor at the next `agent/prompt-submit`, before request assembly. A crash before anchoring restores the durable fold. See the [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md), [`dsh-permission`](../permission/README.md), and [protocol matrix](acp-feature-support.md#6-session-config-options).
 
 Background bash tasks use the session id as an opaque owner token, so one session cannot inspect or stop another's task. That contract belongs to [`dsh-tool-bash`](../../bash/tool-bash/).
 

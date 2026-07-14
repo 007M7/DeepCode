@@ -45,10 +45,8 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
-import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+// Side-effect type import: resolves `ctx.get('permission')` to the service.
+import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
@@ -231,9 +229,9 @@ interface SessionRecord {
   } | undefined
   /**
    * Idle config changes awaiting a turn-enclosed log anchor; last write wins.
-   * Responses overlay them, but a restart before the next turn restores the logged fold.
+   * Responses overlay them, but a restart before anchoring restores the logged fold.
    */
-  pendingSwitches: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicy }
+  pendingSwitches: { preset?: string }
 }
 
 /**
@@ -436,52 +434,33 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // --- The ACP Agent method surface -----------------------------------------
 
   /**
-   * The session config options this composition can honor, with current
-   * values folded from the AGENT'S OWN session log (`effectiveSandboxMode` /
-   * `effectiveApprovalPolicy` — the log is the per-session store, so a
-   * `session/load` reports a resumed session's overrides with no catch-up
-   * machinery), overlaid with the record's not-yet-anchored pending switches
-   * (see {@link SessionRecord.pendingSwitches}). Capability-gated like every
-   * advertised lever: the sandbox option exists only when the mounted
-   * executor confines (`ctx.get('bash')?.sandboxMode` defined), the approval
-   * option only when the approval seam is composed — both read
-   * opportunistically so this bridge keeps working in compositions without
-   * them.
+   * Build the single Permissions option when `ctx.permission` is composed.
+   * Its value comes from the session log, overlaid by an unanchored idle
+   * switch, so `session/load` needs no catch-up state.
    */
   const configOptionsFor = (agent: Agent, pending: SessionRecord['pendingSwitches'] = {}): SessionConfigOption[] => {
-    const options: SessionConfigOption[] = []
-    const defaultMode = ctx.get('bash')?.sandboxMode
-    if (defaultMode !== undefined) {
-      options.push({
-        id: 'sandbox-mode',
-        name: 'Sandbox',
-        description: 'The file sandbox mode bash commands in this session run under.',
-        category: 'mode',
-        type: 'select',
-        currentValue: pending.sandboxMode ?? effectiveSandboxMode(agent.session.events) ?? defaultMode,
-        options: SANDBOX_MODES.map(mode => ({ value: mode, name: mode })),
-      })
-    }
-    const approval = ctx.get('approval')
-    if (approval !== undefined) {
-      options.push({
-        id: 'approval-policy',
-        name: 'Approvals',
-        description: 'ask: permission prompts reach you; never: they are rejected automatically.',
-        type: 'select',
-        // `?? 'ask'` also shields against a provided stand-in whose config
-        // never went through the plugin schema (tests do this).
-        currentValue: pending.approvalPolicy ?? effectiveApprovalPolicy(agent.session.events) ?? approval.config.policy ?? 'ask',
-        options: APPROVAL_POLICIES.map(policy => ({ value: policy, name: policy })),
-      })
-    }
-    return options
+    const presets = ctx.get('permission')
+    if (presets === undefined) return []
+    const currentValue = pending.preset ?? presets.current(agent.session.events)
+    return [{
+      id: 'permission',
+      name: 'Permissions',
+      description: 'Sets this session\'s sandbox and approval behavior.',
+      category: 'mode',
+      type: 'select',
+      currentValue,
+      options: [
+        ...presets.names.map((name: string) => presets.optionOf(name)),
+        // `custom` is offered only as the current-value echo, never as a target.
+        ...currentValue === 'custom' ? [presets.optionOf('custom')] : [],
+      ],
+    }]
   }
 
   /**
    * Whether the session's log currently has an open turn — the last boundary
    * event is a `turn/start`. Decides whether a config switch may append NOW
-   * (enclosed) or must wait for the next turn (see
+   * (enclosed) or must wait for the next prompt submission (see
    * {@link SessionRecord.pendingSwitches}). Read from the LOG, not
    * `agent.status`: status stays `running` across the gap between two queued
    * turns, where a bare append would still land outside any turn.
@@ -497,34 +476,25 @@ export function apply(ctx: Context, config: AcpConfig): void {
   }
 
   /**
-   * Anchor a record's pending switches into its (just-opened) turn, last
-   * write per knob — skipping a value the session already effectively has,
-   * so a net-zero idle flip-flop anchors NOTHING (the log records switches,
-   * not select clicks).
+   * Anchor a pending preset in the open turn. `PermissionService.set()` skips
+   * net-zero changes, so the log records switches rather than select clicks.
    */
   const flushPendingSwitches = (rec: SessionRecord): void => {
     const pending = rec.pendingSwitches
     rec.pendingSwitches = {}
-    const events = rec.agent.session.events
-    if (pending.sandboxMode !== undefined
-      && pending.sandboxMode !== (effectiveSandboxMode(events) ?? ctx.get('bash')?.sandboxMode)) {
-      setSandboxMode(rec.agent.session, pending.sandboxMode)
-    }
-    if (pending.approvalPolicy !== undefined
-      && pending.approvalPolicy !== (effectiveApprovalPolicy(events) ?? ctx.get('approval')?.config.policy ?? 'ask')) {
-      setApprovalPolicy(rec.agent.session, pending.approvalPolicy)
-    }
+    if (pending.preset === undefined) return
+    const presets = ctx.get('permission')
+    /* v8 ignore next -- a pending preset exists only if the service answered the
+       switch; a valid composition cannot unmount it before anchoring. */
+    if (presets === undefined) return
+    presets.set(rec.agent.session, pending.preset)
   }
 
-  // Idle-accepted switches anchor at the next turn's prompt-submit: the turn
-  // is open (the seam fires inside it, per drained message — the first flush
-  // empties the slot, later ones no-op), the loop has not yet assembled
-  // anything for it, and — unlike appending from inside a `session/event`
-  // listener — this seam fires OUTSIDE any log emit, so peer listeners
-  // (the dev invariants, persistence) observe the anchored events in strict
-  // log order. A turn with no prompt (an idle inject's one-shot injection
-  // turn) leaves the switch pending — it runs no step, so nothing executes
-  // or assembles under a stale value.
+  // Anchor idle switches on the next prompt submission: its turn is open, but
+  // request assembly has not begun. This handler runs outside log emission, so
+  // invariants and persistence observe the events in log order; the first flush
+  // clears pending state. Promptless injection turns leave the switch pending,
+  // with no request or execution under stale settings.
   ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
     const sessionId = bySession.get(agent)
     const rec = sessionId === undefined ? undefined : sessions.get(sessionId)
@@ -755,49 +725,29 @@ export function apply(ctx: Context, config: AcpConfig): void {
       setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        // Both advertised options are selects, so the boolean-shaped variant of
+        // The advertised option is a select, so the boolean-shaped variant of
         // the request is a protocol misuse regardless of configId.
         if (typeof params.value !== 'string') {
           throw invalidParams(`config option ${params.configId} is a select; boolean values are not accepted`)
         }
-        // The setters append ONE log-only event on this session's own log —
-        // the log is the store (the sandbox RFC § Per-session mode switching): execution, the
-        // prompt section, and the narrator all fold it from there, and a
-        // resumed session reports the override back through
-        // configOptionsFor. A switch while a turn is OPEN anchors
-        // immediately (the next step sees it); an IDLE switch waits in
-        // pendingSwitches for the next `turn/start` (turn-enclosure: a bare
-        // between-turns append would be dropped as crash tail on reload).
-        // Values are validated against the same closed lists the options
-        // advertised; an id this composition never advertised (or an unknown
-        // one) rejects.
+        // Open-turn switches append immediately; idle switches wait for the
+        // next prompt-submit. Only values advertised by this composition are
+        // accepted, and the session log remains the durable store.
         switch (params.configId) {
-          case 'sandbox-mode': {
-            const defaultMode = ctx.get('bash')?.sandboxMode
-            if (defaultMode === undefined || !SANDBOX_MODES.includes(params.value as SandboxMode)) {
-              throw invalidParams(`unknown sandbox-mode value ${JSON.stringify(params.value)}`)
+          case 'permission': {
+            const presets = ctx.get('permission')
+            if (presets === undefined) {
+              throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
             }
-            const value = params.value as SandboxMode
-            // A no-op switch (the value the session already shows — pending,
-            // else fold, else default) is acknowledged without recording
-            // anything: clients that re-push current selections on session
-            // start must not mint override events out of thin air.
-            const current = rec.pendingSwitches.sandboxMode ?? effectiveSandboxMode(rec.agent.session.events) ?? defaultMode
-            if (value === current) break
-            if (isTurnOpen(rec.agent)) setSandboxMode(rec.agent.session, value)
-            else rec.pendingSwitches.sandboxMode = value
-            break
-          }
-          case 'approval-policy': {
-            const approval = ctx.get('approval')
-            if (approval === undefined || !APPROVAL_POLICIES.includes(params.value as ApprovalPolicy)) {
-              throw invalidParams(`unknown approval-policy value ${JSON.stringify(params.value)}`)
+            // Clients may re-send the current selection on session start. Accept
+            // that echo without logging; this is the only valid `custom` request.
+            const current = rec.pendingSwitches.preset ?? presets.current(rec.agent.session.events)
+            if (params.value === current) break
+            if (!presets.names.includes(params.value)) {
+              throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
             }
-            const value = params.value as ApprovalPolicy
-            const current = rec.pendingSwitches.approvalPolicy ?? effectiveApprovalPolicy(rec.agent.session.events) ?? approval.config.policy ?? 'ask'
-            if (value === current) break
-            if (isTurnOpen(rec.agent)) setApprovalPolicy(rec.agent.session, value)
-            else rec.pendingSwitches.approvalPolicy = value
+            if (isTurnOpen(rec.agent)) presets.set(rec.agent.session, params.value)
+            else rec.pendingSwitches.preset = params.value
             break
           }
           default:

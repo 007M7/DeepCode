@@ -129,6 +129,21 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts)
 
+## `ctx.permission` — `PermissionService`
+
+Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
+
+```ts cordis-catalog
+current(events: readonly SessionEvent[]): string
+resolve(name: string): PresetSpec
+optionOf(name: string): PresetOption
+set(session: Session, name: string): void
+```
+
+Types: [SessionEvent](../core-data-structures/core.md)
+
+Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/src/index.ts)
+
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
 Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
@@ -155,6 +170,18 @@ abstract list(): Promise<SessionHeader[]>
 Types: [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
+
+## `ctx.sessionQuery` — `SessionQueryService`
+
+Live-preferred logical-corpus and exact-event read service.
+
+```ts cordis-catalog
+listSessions(): Promise<SessionRecord[]>
+async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
+```
+
+Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 

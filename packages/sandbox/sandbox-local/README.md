@@ -17,4 +17,4 @@ Each rung has a self-skipping keyless world-effect test; CI runs platform legs a
   name: '@deepseek-ai/dsh-sandbox-local'
 ```
 
-Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [`examples/sandbox-acp-agent`](../../../examples/sandbox-acp-agent/) for the runnable composition.
+Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the acp-agent example](../../../examples/acp-agent/) for the runnable default composition.

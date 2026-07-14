@@ -153,6 +153,18 @@ Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the parsed
 
 Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
 
+### `permission/*`
+
+#### `permission/preset` — log-only
+
+Records the selected preset as durable, log-only user intent. The knob events follow in the same turn and control execution; this event stays out of the model transcript and lets effectivePermissionPreset preserve a selection when bundles match.
+
+```ts persistence-catalog
+'permission/preset': { preset: string }
+```
+
+Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only

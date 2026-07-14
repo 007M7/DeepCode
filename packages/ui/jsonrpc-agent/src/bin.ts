@@ -3,6 +3,7 @@
  * Boots an external `cordis.yml`; its `@deepseek-ai/dsh-jsonrpc` entry serves
  * newline-delimited JSON-RPC on stdio. `$DSH_CORDIS_CONFIG` wins over `argv[2]`;
  * empty or missing paths exit 1, with no default config or `DSH_SNAPSHOT` mode.
+ * App-boot owns env loading, Loader guards, and settled-tree startup.
  * stdin EOF and SIGTERM dispose the root context and exit 0; SIGINT exits 130.
  * Protocol `shutdown` belongs to the server plugin. Stdout is reserved for frames.
  *

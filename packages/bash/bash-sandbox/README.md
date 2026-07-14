@@ -30,4 +30,4 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
     workspaceRoot: !!js process.cwd()
 ```
 
-The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [`examples/sandbox-acp-agent`](../../../examples/sandbox-acp-agent/) for the runnable demo.
+The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.

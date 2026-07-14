@@ -1,8 +1,7 @@
 # ACP server and snapshot-record composition. With `DSH_SNAPSHOT=record`, the
-# app bin runs the real DeepSeek adapter and the harness harvests its persisted log.
-# `dsh-acp-agent` loads no stdout logger or HMR because stdout carries ACP JSON-RPC.
-# It loads the gitignored root `.env` on stderr before reading `DEEPSEEK_API_KEY`
-# and optional `DEEPSEEK_BASE_URL` here.
+# app bin runs the real DeepSeek adapter and the harness harvests its persisted
+# log. The bin loads the gitignored root `.env` before this config. This tree has
+# no stdout logger or HMR because stdout carries ACP JSON-RPC.
 
 # The DeepSeek adapter.
 - id: llm-deepseek
@@ -14,11 +13,25 @@
       - deepseek-v4-flash
       - deepseek-v4-pro
 
-# Local executor for the app bundle's bash tool.
+# The default composition confines bash to the workspace and asks before a
+# wider retry. Snapshots use danger-full-access; DSH_PERMISSION_MODE overrides
+# both mode and approval policy for deployments and tests.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
 - id: bash
-  name: '@deepseek-ai/dsh-bash-local'
+  name: '@deepseek-ai/dsh-bash-sandbox'
   config:
     timeoutMs: 60000
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) === 'danger-full-access' ? 'never' : 'ask'"
+
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
 
 # The ACP server app: the agent-core spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
@@ -31,7 +44,7 @@
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} and each ACP session's client-supplied {{cwd}}.
     persona: |
-      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
@@ -82,19 +95,22 @@
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
 
-# Policy loads before the model-facing filesystem tools so writes and edits require
-# an observed file. Relative paths use the server launch cwd; the Zed setup launches
-# this demo from the harness checkout with `pnpm --dir`.
+# Filesystem tools do not ride the bash sandbox, so the confined default omits
+# them. Snapshots and explicit danger-full-access launches enable the local
+# provider, policy, and model-facing tools together.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
   config:
     cwd: !!js process.cwd()
 
 - id: fs-policy
   name: '@deepseek-ai/dsh-fs-policy'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
 # `configPath` is read once at load and resolves from the server launch cwd, not
 # `session/new.cwd`; one `hooks.json` therefore applies to every session and a

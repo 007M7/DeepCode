@@ -1,7 +1,7 @@
 /**
- * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-core}) plus the
- * coupled front-door cluster an ACP server needs — JSONL session persistence and the {@link
- * @deepseek-ai/dsh-acp} bridge, and deliberately NOTHING that writes to stdout.
+ * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-core}),
+ * JSONL session persistence, and the {@link @deepseek-ai/dsh-acp} bridge. It
+ * writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
  * required so Loader retains this plugin's `Config` schema (see

@@ -24,7 +24,7 @@ Tool-call presentation remains tool-owned. A tool's `presentCall` and `presentRe
 
 Permission handling is an answerer on the [user-approval seam](2026-07-06-approval-seam.md), not an ask-every-tool policy in ACP. An `approval/request` for a bridge-owned agent with a call id becomes `session/request_permission` on that agent's editor session, with one-shot allow/reject choices. Foreign or call-less requests delegate; a missing or failed answerer remains fail-closed. The plugin that asks—such as a pre-execute policy or bash escalation—owns the decision to ask.
 
-The bridge exposes independent ACP config options for sandbox mode and approval policy only when their services exist. Changes validate against the owning vocabulary and enter the session fold immediately during a turn. While idle, a change is overlaid in responses but remains memory-only until the next turn anchors it; a crash therefore reverts to the durable fold. Session modes are not used because they cannot represent orthogonal controls; model selection remains connection-wide.
+When `ctx.permission` is composed, the bridge exposes one `permission` select from the deployment's preset table. The shipped `workspace-write` and `danger-full-access` presets each bundle a sandbox mode with an approval policy; unmatched effective knobs produce the switch-away-only `custom` state. `session/set_config_option` validates through `PermissionService.set()` and writes both owning knob events. A switch during an open turn appends immediately; an idle switch is overlaid in responses and anchored at the next `agent/prompt-submit`, before request assembly. Until then it is memory-only, so a crash restores the durable fold. ACP session modes are not modeled because config options are the forward protocol surface; `AcpConfig.model` remains connection-wide.
 
 The bridge also provides the ACP-backed `UserInteractionProvider`: `ask_user_question` requests become form elicitations on the owning session. Select, multi-select, option descriptions, and custom-answer override semantics are preserved.
 
@@ -40,7 +40,7 @@ The precise supported and deferred protocol rows live in [`packages/ui/acp/acp-f
 
 **Execute bash through ACP `terminal/*`** — rejected. That would move execution outside the harness and bypass its sandbox, credential scrub, task ownership, cwd resolution, and session log. Terminal metadata is presentation only.
 
-**Represent sandbox and approval as ACP session modes** — rejected. They are independent composable settings, while a single current mode is mutually exclusive. ACP config options represent both without a cross-product and match the protocol's forward direction.
+**Represent permission presets as ACP session modes** — rejected. The deployment-defined preset is already one config-option select, while session modes are the legacy surface slated for removal in ACP v2.
 
 **Hijack stdout defensively** — rejected. Process-wide monkey-patching is outside Cordis effect ownership and races the protocol transport. The app composition owns stdout purity.
 
@@ -50,7 +50,7 @@ Editors can create, load, prompt, cancel, render, ask, and reconfigure multiple 
 
 The bridge deliberately does not implement session list/delete/resume/close capabilities, MCP passthrough, additional directories, image/audio/embedded-resource prompts, runtime model selection, plans, slash commands, usage updates, editor filesystem delegation, or the ACP terminal execution sub-protocol. The feature checklist records these as unsupported rather than silently accepting them.
 
-An idle config selection is truthful in the live response but not durable until the next turn anchors it. Crashing before that boundary loses the pending selection; this is the cost of keeping session events turn-enclosed and replay-safe.
+An idle config selection is truthful in the live response but not durable until the next `agent/prompt-submit` anchors it inside the open turn. Crashing before that boundary loses the pending selection; this is the cost of keeping session events turn-enclosed and replay-safe.
 
 ## Verification
 

@@ -38,8 +38,8 @@ interface Spawned {
 function spawnAcpAgent(cwd: string): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
-    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+    ['--import', tsxLoader, binScript, '--config', configPath],
+    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig, DSH_PERMISSION_MODE: 'danger-full-access' }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -98,12 +98,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     // the model, not a turn failure).
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // Verify the WORLD: the hook denied execution, so the file must NOT exist —
-    // a keyword probe a "cheating" agent could fake in prose cannot pass this.
+    // Verify that the denied hook left no filesystem effect.
     await expect(access(join(workdir, 'proof.txt'))).rejects.toThrow()
 
-    // The client still saw a tool_call stream (the model TRIED), and its result
-    // carried the hook's block reason back as an error.
+    // A blocked call is still streamed with the hook's reason as an error.
     const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update')
     expect(toolCalls.length).toBeGreaterThan(0)
   }, 180_000)

@@ -1,10 +1,10 @@
 /**
  * Enforce complete English/Chinese pairs, matching structure, and recorded git
- * blob hashes under the bilingual manifest. `--list` reports state; `--write`
- * records both sides after human review. Translation quality remains a review
- * responsibility. A complete pair includes both documents and its sidecar;
- * headings, fences, tables, lists, and link targets must align, while excluded
- * documents may have neither counterpart nor sidecar. See `docs/i18n/README.md`.
+ * blob hashes under the bilingual manifest. Required files and date-named docs
+ * at or after `requiredSince` must be paired; excluded docs may have neither a
+ * counterpart nor sidecar. `--list` reports state and `--write` records both
+ * sides after human review. Translation quality remains a review responsibility.
+ * See `docs/i18n/README.md` for the owning contract.
  */
 
 import { createHash } from 'node:crypto'
@@ -26,6 +26,8 @@ const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/*
 interface Manifest {
   required: string[]
   excluded: string[]
+  /** Date-named documents (yyyy-mm-dd-*.md, i.e. RFCs) dated on/after this day must merge bilingual. */
+  requiredSince: string
 }
 const manifest = JSON.parse(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8')) as Manifest
 
@@ -213,7 +215,22 @@ for (const req of manifest.required) {
   }
 }
 
-// 2. Every pair that exists at all is complete and consistent. Anchor on the
+// 2. Date-named documents (RFCs) dated on/after the requiredSince cutoff merge
+// bilingual: a new RFC lands with its pair or not at all. Deterministic from
+// the filename alone — no git history, so it holds on shallow CI checkouts.
+const DATED = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
+for (const source of sources) {
+  if (isExcluded(source)) continue
+  const dated = DATED.exec(source)
+  if (!dated?.[1] || dated[1] < manifest.requiredSince) continue
+  const { zh } = pairPaths(source)
+  if (!existsSync(join(root, zh))) {
+    errors.push(`${source}: dated ${dated[1]} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
+    state.set(source, 'missing')
+  }
+}
+
+// 3. Every pair that exists at all is complete and consistent. Anchor on the
 // union of .zh.md files and .i18n.yaml records so a half-deleted pair is
 // caught from either remnant.
 const pairAnchors = new Set<string>()
@@ -280,7 +297,9 @@ if (listMode) {
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
     const required = manifest.required.includes(file)
-    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? (required ? '  (required)' : '  (backlog)') : ''}`)
+    const date = DATED.exec(file)?.[1]
+    const tag = required ? '  (required)' : date && date >= manifest.requiredSince ? '  (required by date)' : '  (backlog)'
+    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
   for (const status of state.values()) counts[status]++
