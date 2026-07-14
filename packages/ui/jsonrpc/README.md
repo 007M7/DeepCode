@@ -21,3 +21,17 @@ The plugin owns the PROTOCOL-level exit: a `shutdown` request is answered first 
 ## Wire notes
 
 `initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). A session accepts at most one in-flight `session/prompt`; an overlapping prompt for the same `sessionId` fails immediately through the standard handler-error response, while other sessions remain independent and the same session can be reused after the active prompt settles. Persistence roots and the deployment persona come from `cordis.yml`; the wire exposes only parameters the server applies.
+
+## Model Experience
+
+### SDK user message
+
+**What the model sees**: For each accepted `session/prompt`, the conversation model receives the caller-supplied `contentBlocks` verbatim as one user message in that SDK session. This package adds no system-prompt prose or tool schema; those come from the plugins in the surrounding `cordis.yml`.
+
+**Token effect**: Data-dependent user-message tokens enter retained session history and are resent on later turns until another package compacts them. The JSON-RPC frames, session notifications, and server bookkeeping add zero model-context tokens.
+
+## Known Limitations and Deferred Work
+
+- **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown, and one accepted prompt runs to agent idle before that session accepts another.
+- **stdout purity is deployment-enforced** — a surrounding config can still load a stdout logger and corrupt the JSON-RPC channel; this plugin does not inspect or veto sibling loggers.
+- **Automatic adapter mounting is DeepSeek-specific** — `initialize` can reuse any pre-registered model adapter, but its only fallback mounts `dsh-llm-deepseek`.
