@@ -245,6 +245,9 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // Registry disposal reuses the stable carrier captured before entry commit
   // and contains each listener directly rather than rebuilding via agentEvents.
   { event: 'agent/disposed', pkg: 'agent', method: 'events.dispatch' },
+  // Config startup failures have no live Agent carrier; AgentLoop resolves the
+  // callbacks directly to contain each synchronous throw and async rejection.
+  { event: 'agent-loop/config-start-failed', pkg: 'agent-loop', method: 'events.dispatch' },
   { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
   // Session event callbacks are likewise resolved before the log push, then
   // invoked individually after commit so observer failures are contained.
