@@ -26,6 +26,7 @@ const AGENT = {
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -76,6 +77,21 @@ const SCENARIOS: Scenario[] = [
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
   { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
+  // ACP-facing counterpart to the packaged Python SDK snapshot: Cordis mounts
+  // a live marker, Code Mode inspects it through the worker bridge, then a
+  // direct child and a workflow child run before the mount is disposed. This
+  // class adds both Code Mode and the opt-in Cordis tools to the base tree, so
+  // it owns a distinct request-header pin. The scripted fixture is authored:
+  // the value is deterministic cross-boundary composition, not live-model prose.
+  {
+    name: 'advanced-toolchain',
+    hasModelTurn: true,
+    recorded: false,
+    childSessions: 2,
+    pinsHeader: true,
+    headerClass: 'advanced',
+    configPath: ADVANCED_CONFIG,
+  },
   // Hook matrix — one scenario per hook point × its headline Decision outcome,
   // across BOTH bridges (Claude `hooks.json`, Codex `codex-hooks.json`, seeded in
   // workspace/). The block scenarios need no model call: a UserPromptSubmit hook
@@ -122,6 +138,15 @@ const SCENARIOS: Scenario[] = [
   // therefore pins its own class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
+  // The default tree owns the single Permissions select. Snapshot mode starts
+  // in danger-full-access so established fixtures stay runner-independent;
+  // these policy scenarios switch to workspace-write in their input scripts.
+  // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
+  // packages' e2e suites.
+  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({

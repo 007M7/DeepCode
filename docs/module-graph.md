@@ -99,6 +99,9 @@ flowchart TD
     pkg_acp["acp"]
     pkg_acp_agent["acp-agent"]
     pkg_app_boot["app-boot"]
+    pkg_jsonrpc["jsonrpc"]
+    pkg_jsonrpc_agent["jsonrpc-agent"]
+    pkg_permission["permission"]
     pkg_stdio_agent["stdio-agent"]
     pkg_tool_ask_user["tool-ask-user"]
     pkg_user_approval["user-approval"]
@@ -198,6 +201,10 @@ flowchart TD
   pkg_bash_sandbox --> pkg_bash
   pkg_bash_sandbox --> pkg_bash_local
   pkg_bash_sandbox --> pkg_sandbox
+  pkg_permission --> pkg_bash
+  pkg_permission --> pkg_sandbox
+  pkg_permission --> pkg_session
+  pkg_permission --> pkg_user_approval
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_llm
   pkg_agent_loop --> pkg_scope
@@ -257,6 +264,7 @@ flowchart TD
   pkg_acp --> pkg_agent
   pkg_acp --> pkg_bash
   pkg_acp --> pkg_llm
+  pkg_acp --> pkg_permission
   pkg_acp --> pkg_sandbox
   pkg_acp --> pkg_session
   pkg_acp --> pkg_session_persistence
@@ -307,6 +315,11 @@ flowchart TD
   pkg_subagent_mock --> pkg_agent
   pkg_subagent_mock --> pkg_llm
   pkg_subagent_mock --> pkg_subagent
+  pkg_jsonrpc --> pkg_agent
+  pkg_jsonrpc --> pkg_llm
+  pkg_jsonrpc --> pkg_llm_deepseek
+  pkg_jsonrpc --> pkg_session
+  pkg_jsonrpc --> pkg_subagent
   pkg_workflow_workerthread --> pkg_agent
   pkg_workflow_workerthread --> pkg_brand
   pkg_workflow_workerthread --> pkg_llm
@@ -347,6 +360,7 @@ flowchart TD
 | [`subagent-subprocess`](../packages/subagent/subagent-subprocess) | `subagent` | — |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
+| [`jsonrpc-agent`](../packages/ui/jsonrpc-agent) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime) |
@@ -383,6 +397,7 @@ flowchart TD
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`user-approval`](../packages/ui/user-approval) |
 | [`bash-sandbox`](../packages/bash/bash-sandbox) | `bash` | [`bash`](../packages/bash/bash), [`bash-local`](../packages/bash/bash-local), [`sandbox`](../packages/sandbox/sandbox) |
+| [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -395,7 +410,7 @@ flowchart TD
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/cordis/tool-cordis) | `cordis` | [`scope`](../packages/core/scope), [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
-| [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`user-interaction`](../packages/ui/user-interaction) |
+| [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`permission`](../packages/ui/permission), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
@@ -405,6 +420,7 @@ flowchart TD
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
+| [`jsonrpc`](../packages/ui/jsonrpc) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |

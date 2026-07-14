@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -212,7 +212,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:29`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:30`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -326,7 +326,43 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:47`](../packages/hooks/hooks-codex/src/index.ts)
+
+## `@deepseek-ai/dsh-jsonrpc`
+
+Requires: `agents`
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a runtime-only test seam — none is part of the
+ * schemastery {@link Config}, so nothing here is settable from a `cordis.yml`
+ * (production always serves the process stdio and exits via `process.exit`).
+ */
+export interface JsonRpcConfig {
+  /**
+   * Transport input override. Production omits this (the plugin reads
+   * `process.stdin`); tests inject an in-memory `Readable` to drive the server
+   * without a subprocess.
+   */
+  input?: Readable
+  /**
+   * Transport output override. Production omits this (the plugin writes
+   * `process.stdout` — the protocol channel); tests inject an in-memory
+   * `Writable` to capture frames.
+   */
+  output?: Writable
+  /**
+   * Process-exit override for the `shutdown` request path. Production omits
+   * this (`process.exit`); tests inject a recorder so a driven shutdown does
+   * not kill the test process.
+   */
+  exit?: (code: number) => void
+}
+```
+
+Depends on: `Readable` (`node:stream`) · `Writable` (`node:stream`)
+
+Source: [`packages/ui/jsonrpc/src/index.ts:55`](../packages/ui/jsonrpc/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -407,6 +443,41 @@ export interface Config {
 ```
 
 Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
+
+## `@deepseek-ai/dsh-permission`
+
+Requires: `bash` · `approval`
+
+```ts config-catalog
+/** The {@link PermissionService} config: the deployment's preset table. */
+export interface Config {
+  /**
+   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
+   * never). The name `custom` is reserved for the derived not-a-preset state.
+   */
+  presets?: Record<string, PresetSpec>
+}
+
+/**
+ * One preset's knob bundle — the sandbox mode and approval policy a session
+ * runs under while the preset is active — plus its presentation.
+ */
+export interface PresetSpec {
+  /** The `bash/sandbox-mode` value the preset writes through. */
+  sandbox: SandboxMode
+  /** The `approval/policy` value the preset writes through. */
+  approval: ApprovalPolicy
+  /** The display label a client shows for this preset; the raw table key when omitted. */
+  name?: string
+  /** One user-facing sentence on what the preset means; omitted when not configured. */
+  description?: string
+}
+```
+
+Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/ui/permission/src/index.ts:97`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -1225,6 +1296,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
+- `@deepseek-ai/dsh-jsonrpc-agent` ([`packages/ui/jsonrpc-agent/src/index.ts`](../packages/ui/jsonrpc-agent/src/index.ts))
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))

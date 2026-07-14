@@ -64,6 +64,9 @@ export interface Config {
   skills?: agentCore.SkillConfig
 }
 
+// Each front door owns a complete, directly readable config schema; extracting
+// the common fields would make two small app contracts depend on a new facade.
+/* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
   model: z.string().required(),
   persona: z.string(),
@@ -77,6 +80,7 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   skills: agentCore.SkillConfigSchema,
 })
+/* jscpd:ignore-end */
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
