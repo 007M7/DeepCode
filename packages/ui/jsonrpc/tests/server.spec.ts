@@ -11,7 +11,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import SubagentService, { type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import { HarnessSdkServer, type JsonRpcTransportPeer } from '../src/index.ts'
 
 class FakeTransport implements JsonRpcTransportPeer {
@@ -67,7 +67,13 @@ async function makeHarness(storageDir: string) {
 }
 
 /** Drive the owning service so test lifecycle events carry the real parent scope. */
-async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndInfo): Promise<void> {
+async function settleSubagent(
+  ctx: Context,
+  parent: Agent,
+  info: SubagentRunEndInfo,
+  beforeSettle?: () => Promise<void>,
+): Promise<void> {
+  const result = Promise.withResolvers<SubagentResult>()
   const disposeProvider = ctx.subagents.registerProvider({
     name: info.provider,
     capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -75,9 +81,7 @@ async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndI
     async start() {
       return {
         id: info.id,
-        result: info.lastAssistantMessage === undefined
-          ? Promise.reject(new Error('synthetic infrastructure failure'))
-          : Promise.resolve({ output: info.lastAssistantMessage, stopReason: info.stopReason }),
+        result: result.promise,
         dispose: () => Promise.resolve(),
       }
     },
@@ -88,6 +92,12 @@ async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndI
       prompt: [],
       signal: new AbortController().signal,
     })
+    await beforeSettle?.()
+    if (info.lastAssistantMessage === undefined) {
+      result.reject(new Error('synthetic infrastructure failure'))
+    } else {
+      result.resolve({ output: info.lastAssistantMessage, stopReason: info.stopReason })
+    }
     await run.result.then(() => undefined, () => undefined)
     await run.dispose()
   } finally {
@@ -277,21 +287,17 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      // The backend may dispose the child before publishing its run outcome;
-      // cached locality must survive with or without optional parent lineage.
-      await handle.dispose()
-      await parentlessHandle.dispose()
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('child-session'),
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'child done' }],
-      })
+      }, () => handle.dispose())
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('parentless-child-session'),
         stopReason: 'error',
-      })
+      }, () => parentlessHandle.dispose())
 
       expect(transport.notifications).toContainEqual({
         method: 'subagent.finished',
@@ -315,6 +321,49 @@ describe('HarnessSdkServer', () => {
           stopReason: 'error',
         },
       })
+
+      await parentHandle.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('retains locality across continuation runs on one live child', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-continuation-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parentHandle = await ctx.agents.create({
+        sessionId: SessionId('continuation-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const childHandle = await ctx.agents.create({
+        sessionId: SessionId('continuation-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('continuation-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'continuation',
+        id: SessionId('continuation-child'),
+        stopReason: 'completed',
+        lastAssistantMessage: [{ type: 'text', text: 'first' }],
+      })
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'continuation',
+        id: SessionId('continuation-child'),
+        stopReason: 'completed',
+        lastAssistantMessage: [{ type: 'text', text: 'second' }],
+      }, () => childHandle.dispose())
+
+      expect(transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'continuation-child',
+      )).toHaveLength(2)
 
       await parentHandle.dispose()
       await server.shutdown()
@@ -585,6 +634,6 @@ describe('HarnessSdkServer', () => {
     const server = new HarnessSdkServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(4)
+    expect(on).toHaveBeenCalledTimes(6)
   })
 })
