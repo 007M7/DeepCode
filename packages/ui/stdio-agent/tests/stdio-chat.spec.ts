@@ -74,7 +74,7 @@ function chunkEvent(chunk: StreamChunk): SessionEvent {
   return { type: 'assistant/chunk', seq: 0, time: 0, data: { turn: 1, step: 0, chunk } }
 }
 
-const CONFIG: Config = { welcome: 'hi there' }
+const CONFIG: Config = { welcome: 'hi there', resumeSessionId: 'main' }
 
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
@@ -199,7 +199,9 @@ describe('createStdioChat rendering', () => {
   })
 
   it('accepts a lineage-bearing configured agent created after the UI installs', async () => {
-    const { ctx, input } = await setup()
+    const { ctx, input } = await setup({ welcome: 'hi there', resumeSessionId: 'resumed' })
+    const unrelated = makeAgent('unrelated')
+    ctx.agents.register(unrelated)
     const resumed = makeAgent('resumed')
     ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
     ctx.agents.register(resumed)
@@ -207,6 +209,7 @@ describe('createStdioChat rendering', () => {
     input.feed('continue')
     await new Promise(resolve => setImmediate(resolve))
 
+    expect(unrelated.sent).toEqual([])
     expect(resumed.sent).toEqual([[{ type: 'text', text: 'continue' }]])
   })
 
@@ -235,7 +238,7 @@ describe('createStdioChat rendering', () => {
 
   it('keeps the target when a different agent is disposed', async () => {
     const { ctx, out } = await setup()
-    const target = makeAgent('target')
+    const target = makeAgent('main')
     ctx.agents.register(target)
     ctx.emit('agent/disposed', makeAgent('other'))
     ctx.emit('session/event', target.session, {
@@ -245,11 +248,11 @@ describe('createStdioChat rendering', () => {
   })
 
   it('retargets a surviving root when HMR publishes it before disposing the old root', async () => {
-    const { ctx, input } = await setup()
-    const oldRoot = makeAgent('old-root')
+    const { ctx, input } = await setup({ welcome: 'hi there' })
+    const oldRoot = makeAgent('main-session-old')
     const child = makeAgent('child')
     ;(child.session.header as { parentSession?: string }).parentSession = oldRoot.id
-    const replacement = makeAgent('replacement')
+    const replacement = makeAgent('main-session-replacement')
     const lateChild = makeAgent('late-child')
     const disposeOld = ctx.agents.register(oldRoot)
     const disposeChild = ctx.agents.enter(child, oldRoot)
@@ -271,6 +274,22 @@ describe('createStdioChat rendering', () => {
     expect(replacement.sent).toEqual([[{ type: 'text', text: 'after hmr' }]])
     disposeLateChild()
     disposeChild()
+  })
+
+  it('does not retarget stdin to an unrelated root after the configured agent is disposed', async () => {
+    const { ctx, input } = await setup()
+    const unrelated = makeAgent('unrelated')
+    ctx.agents.register(unrelated)
+    const configured = makeAgent('main')
+    const disposeConfigured = ctx.agents.register(configured)
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+
+    disposeConfigured()
+    input.feed('must not leak')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(unrelated.sent).toEqual([])
+    expect(error).toHaveBeenCalledWith('ui-stdio: main agent is not running')
   })
 
   it('renders tool/call and tool/result session events', async () => {
@@ -720,8 +739,8 @@ describe('createStdioChat input', () => {
     expect(spy).toHaveBeenCalledWith('ui-stdio: main agent is not running')
   })
 
-  it('drives the app-owned agent without a duplicate id config', async () => {
-    const { ctx, input } = await setup({ welcome: 'w' })
+  it('drives the exact app-configured resumed session', async () => {
+    const { ctx, input } = await setup({ welcome: 'w', resumeSessionId: 'worker' })
     const agent = makeAgent('worker')
     ctx.agents.register(agent)
     input.feed('hi')

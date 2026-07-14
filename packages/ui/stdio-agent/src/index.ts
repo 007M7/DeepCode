@@ -124,5 +124,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
-  ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.' })
+  ctx.plugin(uiStdio, {
+    welcome: config.welcome ?? 'ready.',
+    ...config.resumeSessionId !== undefined ? { resumeSessionId: config.resumeSessionId } : {},
+  })
 }
