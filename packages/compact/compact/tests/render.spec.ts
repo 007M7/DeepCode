@@ -54,7 +54,7 @@ describe('renderTranscript', () => {
       content: [{ type: 'text', text: 'fix the bug' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    const assistant = s.append('assistant/message', {
+    const assistant = s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 0, step: 0,
       content: [{ type: 'text', text: 'looking' }],
     }, { surfaceOp: 'append' })
@@ -111,7 +111,7 @@ describe('renderTranscript', () => {
       content: [{ type: 'text', text: '' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    const emptyAssistant = s.append('assistant/message', {
+    const emptyAssistant = s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 0, step: 0,
       content: [{ type: 'text', text: '' }],
     }, { surfaceOp: 'append' })

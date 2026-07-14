@@ -102,8 +102,9 @@ export const Config: z<Config> = z.object({
   // present — the request would carry `agentOptions: {}` and the presence
   // check in execute() could never be false through config.
   agentOptions: z.object({
+    provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { model: string }),
+  }).default(undefined as unknown as { provider: string; model: string }),
   persona: z.string(),
   // A schemastery object materializes {} (with [] for nested arrays) when the
   // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.

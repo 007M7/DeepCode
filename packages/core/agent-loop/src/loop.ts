@@ -9,6 +9,7 @@
 
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
@@ -757,7 +758,7 @@ async function runStep(
   const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
     ? session.requestHeader()!.config
-    : { model: options.model ?? '' }))
+    : { provider: options.provider ?? '', model: options.model ?? '' }))
 
   // Shape the call config: listeners return a replacement to switch model or
   // sampling (the seed is frozen — content shaping is not expressible here;
@@ -765,8 +766,8 @@ async function runStep(
   // below records whatever the request ACTUALLY uses, so a listener's switch
   // is a logged, reconstructable fact, never silent drift.
   const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
-  if (!config.model) {
-    throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
+  if (!config.provider || !config.model) {
+    throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
 
   // The session prefix was composed (once per instance) before this step's
@@ -791,6 +792,7 @@ async function runStep(
   // keys on. Message order: header.messagePrefix, then the boundary
   // snapshot — the reconstruction equation the invariant recomputes.
   const request: GenerateOptions = deepFreeze({
+    provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
@@ -822,7 +824,8 @@ async function runStep(
   if (stepError) throw stepError
 
   if (assembler.finish.kind === 'max-tokens') {
-    let message: Message = withoutToolCalls(assembler.message())
+    const assembled = assembler.message()
+    let message: Message = withoutToolCalls(assembled)
     message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
     // Fire the assistant/message when there is content OR usage: a max-tokens
     // step can be cut off with empty content but still carry token accounting,
@@ -830,22 +833,15 @@ async function runStep(
     // usage event). An empty-content assistant/message is skipped by
     // deriveMessages(), so hosting usage on it never injects a spurious assistant
     // turn into derived history.
-    if (message.content.length > 0 || assembler.usage) {
-      // A max-tokens finish is itself a streamed `finish` chunk, so chunkSeqs is
-      // never empty here — pass the provenance unconditionally.
-      session.append(
-        'assistant/message',
-        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-      )
-    }
+    recordAssistantMessage(session, turn, step, header.config, assembled, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // The step-result waterfall runs BEFORE the session append so the log (the
   // source of truth for derived history and replay) records the message that
   // tool dispatch actually uses.
-  let message: Message = assembler.message()
+  const assembled = assembler.message()
+  let message: Message = assembled
   message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
 
   // Same content-or-usage guard as the max-tokens branch: a step that finishes
@@ -856,13 +852,7 @@ async function runStep(
   //
   // sourceEventSeqs records the assistant/chunk provenance, but is omitted when
   // no chunks streamed (the surface invariant rejects an empty sourceEventSeqs).
-  if (message.content.length > 0 || assembler.usage) {
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
-    )
-  }
+  recordAssistantMessage(session, turn, step, header.config, assembled, message, assembler, chunkSeqs)
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
   // ToolRegistry.execute converts tool failures (including aborts) into
@@ -931,6 +921,44 @@ async function runStep(
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+}
+
+/** Record one content-or-usage assistant message with replay-safe provenance. */
+function recordAssistantMessage(
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembled: Message,
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+): void {
+  if (message.content.length === 0 && assembler.usage === undefined) return
+  session.append(
+    'assistant/message',
+    {
+      turn,
+      step,
+      content: message.content,
+      provenance: assistantProvenance(
+        config,
+        assembler.replayState,
+        isDeepStrictEqual(message.content, assembled.content),
+      ),
+      ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+    },
+    { surfaceOp: 'append', ...chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {} },
+  )
+}
+
+/** Build durable assistant provenance, dropping replay state after any content rewrite. */
+function assistantProvenance(config: LlmCallConfig, replayState: unknown, contentUnchanged: boolean): NonNullable<Message['provenance']> {
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...contentUnchanged && replayState !== undefined ? { replayState } : {},
+  }
 }
 
 function withoutToolCalls(message: Message): Message {

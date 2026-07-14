@@ -14,6 +14,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 | Key | Default | Meaning |
 |---|---|---|
+| `provider` | — | Provider route for created agents (must have a registered adapter). |
 | `model` | — | Model name for created agents (must have a registered adapter). |
 
 (No persona key: `dsh-system-prompt`'s own `persona` config supplies the global default section, so ACP-created agents render it without the bridge carrying prompt text. An agent-scoped same-name section may still shadow that default.)

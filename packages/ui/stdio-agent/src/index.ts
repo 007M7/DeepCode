@@ -9,7 +9,7 @@
  * console (stdout is just the terminal) and always pre-creates the `main` agent
  * the readline UI sends to. The leaf supplies the swappable backends (the LLM
  * adapter, the bash executor), optional product tools, the optional `hmr`
- * dev-reload plugin, and this app's {@link Config} (model, prompt, persistence
+ * dev-reload plugin, and this app's {@link Config} (provider/model, prompt, persistence
  * root, welcome banner).
  *
  * `hmr` is deliberately a LEAF entry, not baked in here: it is a Loader-only,
@@ -54,7 +54,7 @@ export const name = 'stdio-agent'
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * it. `provider`/`model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -63,6 +63,8 @@ export const name = 'stdio-agent'
  * `welcome` is the UI banner.
  */
 export interface Config {
+  /** Provider route for the `main` agent. */
+  provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
@@ -86,6 +88,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
@@ -116,6 +119,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.tools !== undefined ? { tools: config.tools } : {},
     agents: [{
       id: AgentId('main'),
+      provider: config.provider,
       model: config.model,
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},

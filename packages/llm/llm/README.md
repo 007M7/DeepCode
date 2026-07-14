@@ -8,8 +8,8 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 
 ### Public API
 
-- `ctx.llm.registerAdapter(models: string[], adapter: LlmAdapter): () => void` Register an adapter for the given model names. Disposed with the calling fiber.
-- `ctx.llm.models(): string[]` — model names with a registered adapter.
+- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` Register one adapter instance for the given provider routes. Registration is all-or-nothing, and is disposed with the calling fiber.
+- `ctx.llm.providers(): string[]` — provider routes with a registered adapter.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
 ### Events
@@ -20,18 +20,18 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 
 ### Extension points
 
-- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(models, adapter)` to add a new model provider.
+- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically.
 - Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, retry, logging, rate-limiting, etc.
 
 ### Content-block vocabulary (`types.ts`)
 
-Messages are arrays of typed content blocks: `text`, `reasoning`, `tool-call`, `tool-result`. The union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the map together with the adapter/UI/compaction support that honors it.
+Messages are arrays of typed content blocks: `text`, `reasoning`, `tool-call`, `tool-result`. The union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. Assistant messages produced by the loop also carry provider/model provenance and optional adapter-private replay state. Before dispatch, `LlmService` retains that state only when the historical provider route and target provider route are currently owned by the exact same adapter instance; the adapter then decides whether it can restore or convert the state across models/providers. The core block set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the map together with the adapter/UI/compaction support that honors it.
 
 Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages.
 
 ### Call configuration (`call-config.ts`)
 
-`LlmCallConfig` is the model + sampling scalars of one conversation's requests (`model`, `temperature`, `maxTokens`, `stop` — each mapping 1:1 onto the same-named `GenerateOptions` field). It is per-conversation state recorded in the session log as part of the request header (see the dsh-session `request/header` events), never a silently-adjustable per-call knob: the `agent/request` waterfall proposes a replacement and the loop logs a real change. `callConfigEquals(a, b)` is the field-wise real-change detector; `deepFreeze(value)` is the ownership helper the loop applies to every built request before dispatch (`llm/stream` listeners and adapters read, never rewrite).
+`LlmCallConfig` is the provider + model + sampling scalars of one conversation's requests (`provider`, `model`, `temperature`, `maxTokens`, `stop` — each mapping 1:1 onto the same-named `GenerateOptions` field). It is per-conversation state recorded in the session log as part of the request header (see the dsh-session `request/header` events), never a silently-adjustable per-call knob: the `agent/request` waterfall proposes a replacement and the loop logs a real change. `callConfigEquals(a, b)` is the field-wise real-change detector; `deepFreeze(value)` is the ownership helper the loop applies to every built request before dispatch (`llm/stream` listeners and adapters read, never rewrite).
 
 ### App attribution (`attribution.ts`)
 
@@ -46,4 +46,4 @@ Every product adapter must identify the application on every provider HTTP reque
 
 ### Real adapters
 
-Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).
+Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../../docs/rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) is a hand-rolled DeepSeek fetch/SSE adapter, while [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) dynamically resolves any configured provider/model in pi-ai's installed catalog. The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).

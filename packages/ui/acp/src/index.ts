@@ -248,6 +248,8 @@ function stringArrayContent(
 
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
+  /** Provider route for created agents. */
+  provider?: string
   /** Model name for created agents (must have a registered adapter). */
   model?: string
   /**
@@ -261,6 +263,7 @@ export interface AcpConfig {
 }
 
 export const Config: Schema<AcpConfig> = Schema.object({
+  provider: Schema.string(),
   model: Schema.string(),
 })
 
@@ -1015,11 +1018,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
- * @param config - the plugin config carrying the optional model name.
- * @returns the per-agent options, with `model` present only when configured.
+ * @param config - the plugin config carrying the optional provider/model target.
+ * @returns the per-agent options, with each configured target field present.
  */
-export function agentOptions(config: AcpConfig): { model?: string } {
+export function agentOptions(config: AcpConfig): { provider?: string; model?: string } {
   return {
+    ...config.provider !== undefined ? { provider: config.provider } : {},
     ...config.model !== undefined ? { model: config.model } : {},
   }
 }

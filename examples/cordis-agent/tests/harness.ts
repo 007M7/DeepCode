@@ -29,7 +29,7 @@ export async function cordisHarness(): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await ctx.plugin(LlmDeepSeek)
   await ctx.plugin(ToolCordis)
   return ctx
 }

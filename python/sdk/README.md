@@ -25,11 +25,14 @@ By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executa
 from deepseek_harness import DeepSeekHarness
 
 with DeepSeekHarness(
+    provider="deepseek",
     model="deepseek-v4-flash",
     cordis="examples/dsbench-coding-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
+
+`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
 `TurnResult.final_response` is the text content from the last
 `assistant/message` event in the turn. Use `TurnResult.events` for the complete

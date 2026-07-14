@@ -57,7 +57,7 @@ describe('agent/prompt-submit', () => {
   it('allow (default via next) records the user/message unchanged', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     const seen: string[] = []
     ctx.on('agent/prompt-submit', async (_agent, content, _source, next) => {
@@ -76,7 +76,7 @@ describe('agent/prompt-submit', () => {
   it('allow with content REWRITES the prompt before it is recorded', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({ kind: 'allow', content: [{ type: 'text', text: 'REWRITTEN' }] }))
@@ -94,7 +94,7 @@ describe('agent/prompt-submit', () => {
   it('allow with additionalContext injects a separate context/message into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
@@ -127,7 +127,7 @@ describe('agent/prompt-submit', () => {
     // elsewhere; this asserts they see each other's effects on the same turn).
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
@@ -157,7 +157,7 @@ describe('agent/prompt-submit', () => {
   it('block drops the (only) prompt → zero-step turn ends rejected, model never called', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({ kind: 'block', reason: 'blocked by policy' }))
@@ -194,7 +194,7 @@ describe('agent/prompt-submit', () => {
     // vetoed prompt and its reason would vanish from the log entirely.
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
       const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
@@ -230,7 +230,7 @@ describe('agent/prompt-submit', () => {
   it('a throwing prompt-submit listener ends the turn balanced (error), loop survives', async () => {
     const adapter = new MockAdapter([textResponse('after')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('agent/prompt-submit', async () => {
@@ -263,7 +263,7 @@ describe('agent/session-start', () => {
     const sources: SessionStartSource[] = []
     ctx.on('agent/session-start', (_agent, source) => void sources.push(source))
 
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     // fires synchronously at create, before any turn
     expect(sources).toEqual(['startup'])
     expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
@@ -282,7 +282,7 @@ describe('agent/session-start', () => {
       agent.inject([{ type: 'text', text: 'session preamble' }], { source: { kind: 'plugin', plugin: 'test' } })
     })
 
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
@@ -300,7 +300,7 @@ describe('agent/session-start', () => {
     ctx.on('agent/session-start', () => { throw new Error('session-start hook broke') })
 
     // create must not throw — the listener error is contained/logged
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     expect(agent.id).toBe(AgentId('a1'))
 
     // and the agent still runs
@@ -314,8 +314,8 @@ describe('agent/session-prefix', () => {
   it('dispatches to global and matching agent-scope listeners only', async () => {
     const adapter = new MockAdapter([textResponse('a done'), textResponse('b done')])
     const ctx = await harness(adapter)
-    const agentA = ctx.agentLoop.create(AgentId('prefix-a'), { model: 'mock' })
-    const agentB = ctx.agentLoop.create(AgentId('prefix-b'), { model: 'mock' })
+    const agentA = ctx.agentLoop.create(AgentId('prefix-a'), { provider: 'mock', model: 'mock' })
+    const agentB = ctx.agentLoop.create(AgentId('prefix-b'), { provider: 'mock', model: 'mock' })
     const seen: string[] = []
     ctx.on('agent/session-prefix', async (agent, _prefix, _signal, next) => {
       seen.push(`global:${agent.id}`)
@@ -352,7 +352,7 @@ describe('agent/session-prefix', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     const reminder: Message = { role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }] }
     let composed = 0
@@ -385,7 +385,7 @@ describe('agent/session-prefix', () => {
   it('composes before the first pre-step and hands the prefix to the seam (pressure gates see the real value)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     const reminder: Message = { role: 'user', content: [{ type: 'text', text: 'opener' }] }
     const order: string[] = []
@@ -412,7 +412,7 @@ describe('agent/session-prefix', () => {
   it('the canonical prepend pattern composes contributions in registration order', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     // Both listeners use the canonical `[mine, ...await next()]` prepend: the
     // waterfall unwinds innermost-first (the second listener's array is built
@@ -434,7 +434,7 @@ describe('agent/session-prefix', () => {
   it('with no contributions the header omits messagePrefix and the request is the bare derivation', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     // A listener that delegates without contributing — the canonical no-op.
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => next())
@@ -450,7 +450,7 @@ describe('agent/session-prefix', () => {
   it('the frozen seed rejects in-place mutation — a contribution is a returned extension', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let mutationError: unknown
     ctx.on('agent/session-prefix', async (_agent, prefix, _signal, next): Promise<Message[]> => {
@@ -479,7 +479,7 @@ describe('agent/session-prefix', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     const held: Message = { role: 'user', content: [{ type: 'text', text: 'v1' }] }
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => [...await next(), held])
@@ -500,7 +500,7 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   it('a continue decision with a reason records next-step steering in the same turn', async () => {
     const adapter = new MockAdapter([textResponse('step 1 no tools'), textResponse('step 2')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let forced = false
     ctx.on('agent/turn-continuation', async (_agent, _turn, _default, next): Promise<ContinuationDecision> => {
@@ -533,7 +533,7 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/turn-continuation', async (): Promise<ContinuationDecision> => ({ action: 'stop' }))
 
@@ -563,7 +563,7 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     // Each call attaches additionalContext naming itself.
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
@@ -599,7 +599,7 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
       name: 'danger', description: 'danger', parameters: {},
       async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
       if (exec.name === 'danger') return { kind: 'deny', reason: 'blocked dangerous tool' }
@@ -663,7 +663,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'please echo hi')
     await waitForIdle(ctx, agent)
@@ -686,7 +686,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
     await ctx.plugin(NativeGuard)
-    const agent = ctx.agentLoop.create(AgentId('a2'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a2'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -705,7 +705,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     await fiber.dispose()
 
     // After disposal, a destructive prompt is NOT blocked (the listener is gone).
-    const agent = ctx.agentLoop.create(AgentId('a3'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a3'), { provider: 'mock', model: 'mock' })
     send(agent, 'run rm -rf /')
     await waitForIdle(ctx, agent)
     // the prompt ran (not rejected) — proving the prompt-submit listener was disposed

@@ -72,7 +72,7 @@ describe('hooks-claude coverage — config option arms + substitution + skip war
     const ctx = await harness(path, adapter, { pluginRoot: d, projectDir: d })
     ctx.logger.warn = warn as never
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(existsSync(marker)).toBe(true) // substituted command ran
@@ -88,7 +88,7 @@ describe('hooks-claude coverage — config option arms + substitution + skip war
     ctx.logger.warn = warn as never
     let sawArgs: unknown
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: { command: { type: 'string' } }, async execute(args) { sawArgs = args; return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // updatedInput is NOT honored — the tool ran with the ORIGINAL args.
@@ -104,7 +104,7 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('ran')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // The prompt proceeded unchanged; no context/message injected.
@@ -134,7 +134,7 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
@@ -159,7 +159,7 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter, { stderrSummaryMaxChars: 40 })
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
@@ -175,7 +175,7 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(2)
@@ -192,7 +192,7 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // A second model request ran → the empty-reason block forced continuation.
@@ -240,7 +240,7 @@ describe('hooks-claude coverage — default reasons + sparse payloads', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'x' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -254,7 +254,7 @@ describe('hooks-claude coverage — default reasons + sparse payloads', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -283,7 +283,7 @@ describe('hooks-claude coverage — more default/sparse arms', () => {
     const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('no')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
@@ -298,7 +298,7 @@ describe('hooks-claude coverage — more default/sparse arms', () => {
     const ctx = await harness(path, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // ask (no reason) → degrades to deny with the registry's generic message.
@@ -313,7 +313,7 @@ describe('hooks-claude coverage — more default/sparse arms', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
@@ -342,7 +342,7 @@ describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () 
     // the protocol lib's reference default, not a config knob).
     HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(existsSync(marker)).toBe(true)
@@ -357,7 +357,7 @@ describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () 
     const ctx = await harness(path, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(ran).toBe(true)
@@ -372,7 +372,7 @@ describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () 
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -393,7 +393,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
@@ -410,7 +410,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -430,7 +430,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(ran).toBe(true) // the mismatched deny was discarded → the tool ran
@@ -448,7 +448,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter) // NB: no projectDir
     // The factory create() path honors meta.cwd (the plain agentLoop.create() does not).
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { model: 'mock' } })
+    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { provider: 'mock', model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
     expect(events(handle.agent as ReactLoopAgent).some(e => e.type === 'context/message'
@@ -468,7 +468,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     // A later listener that blocks every prompt (registered AFTER the bridge).
     const { AgentId: AId } = await import('@deepseek-ai/dsh-agent')
     ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
-    const agent = ctx.agentLoop.create(AId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // the downstream block won: the model was never called, no user/message was
@@ -492,7 +492,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
       content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
       additionalContext: { content: [{ type: 'text' as const, text: 'from-downstream' }], source: { kind: 'plugin' as const, plugin: 'policy' } },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const req = JSON.stringify(adapter.requests[0]!.messages)
@@ -514,7 +514,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
     ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, content: [{ type: 'text' as const, text: 'rewritten-result' }] }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -533,7 +533,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     const ctx = await harness(path, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
     ctx.on('tools/post-execute', async () => ({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'downstream-block' }] }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -557,7 +557,7 @@ describe('hooks-claude coverage — executor reject + no-open-turn', () => {
     const bash = ctx.bash
     bash.run = (() => Promise.reject(new Error('executor down')))
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
@@ -573,7 +573,7 @@ describe('hooks-claude coverage — detached-listener catch handlers', () => {
     const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     // Make inject throw, forcing the SessionStart .catch path.
     const original = agent.inject.bind(agent)
     let threw = false
@@ -613,7 +613,7 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
 
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
+    const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
 
@@ -649,7 +649,7 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
 
     // Register a live child on its own session cwd; emit subagent/end with its id.
     const { SessionId } = await import('@deepseek-ai/dsh-session')
-    const childHandle = await ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { model: 'mock' } })
+    const childHandle = await ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
     ctx.emit('subagent/end', { provider: 'inproc', id: childHandle.agent.id, stopReason: 'completed' })
 
     await waitFor(() => existsSync(marker))
@@ -670,7 +670,7 @@ describe('hooks-claude coverage — systemMessage is warned, not surfaced', () =
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(path, adapter)
     const warn = vi.fn(); ctx.logger.warn = warn as never
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('systemMessage'))
@@ -691,7 +691,7 @@ describe('hooks-claude coverage — SessionStart timing is best-effort (no-wait)
     const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(path, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     // Send immediately — do NOT wait for the session-start inject.
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)

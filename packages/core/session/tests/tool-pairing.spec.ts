@@ -56,7 +56,7 @@ function toolStepSession(): Session {
   s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
   s.append('user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }, SURFACE)
   s.append('step/start', { turn: 1, step: 1 })
-  s.append('assistant/message', {
+  s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
     turn: 1, step: 1,
     content: [
       { type: 'text', text: 'calling' },
@@ -122,7 +122,7 @@ describe('isToolPairingBalanced — region END (cut after a node)', () => {
     const s = new Session(SessionId('open-step'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, SURFACE)
@@ -135,7 +135,7 @@ describe('isToolPairingBalanced — region END (cut after a node)', () => {
     const s = new Session(SessionId('trailing-steer'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, SURFACE)
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, SURFACE)
     s.append('step/end', { turn: 1, step: 1 })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: 's' }], source: { kind: 'user' } }, SURFACE)
     expect(endBalanced(s, seqOf(s, 'steering/message'))).toBe(true)
@@ -156,7 +156,7 @@ describe('isToolPairingBalanced — multiple tool calls in one assistant message
     const s = new Session(SessionId('two-call'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [
         { type: 'tool-call', id: CallId('c1'), name: 'a', arguments: '{}' },
@@ -190,7 +190,7 @@ describe('isToolPairingBalanced — a mid-step injection context/message', () =>
     const s = new Session(SessionId('mid-inject'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, SURFACE)
@@ -247,7 +247,7 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'u1' }], source: { kind: 'user' } }, SURFACE)
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, SURFACE)
@@ -267,7 +267,7 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
     }, { surfaceOp: { op: 'replace', start: u1, end: result } })
     // The step's own assistant/message lands AFTER the checkpoint in the log,
     // still inside the open step.
-    s.append('assistant/message', { turn: 2, step: 1, content: [{ type: 'text', text: 'a2' }] }, SURFACE)
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 2, step: 1, content: [{ type: 'text', text: 'a2' }] }, SURFACE)
     return s
   }
 

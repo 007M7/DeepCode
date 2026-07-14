@@ -12,7 +12,7 @@ import { Session, SessionId, applyHeaderDelta, canonicalHeader, diffHeader, fold
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 
-const CONFIG = { model: 'm' }
+const CONFIG = { provider: 'mock', model: 'm' }
 
 function tool(name: string, description = 'd'): ToolSchema {
   return { name, description, parameters: { type: 'object' } }
@@ -100,10 +100,10 @@ describe('diffHeader / applyHeaderDelta', () => {
   })
 
   it('replaces the config whole and leaves untouched parts alone', () => {
-    const prev = canonicalHeader({ config: { model: 'm' }, system: 's', tools: [tool('t')] })
-    const next = canonicalHeader({ config: { model: 'm2', temperature: 0.1 }, system: 's', tools: [tool('t')] })
+    const prev = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 's', tools: [tool('t')] })
+    const next = canonicalHeader({ config: { provider: 'mock', model: 'm2', temperature: 0.1 }, system: 's', tools: [tool('t')] })
     const delta = roundTrip(prev, next)
-    expect(delta).toEqual({ config: { model: 'm2', temperature: 0.1 } })
+    expect(delta).toEqual({ config: { provider: 'mock', model: 'm2', temperature: 0.1 } })
   })
 })
 
@@ -163,16 +163,16 @@ describe('foldRequestHeader', () => {
   it('folds snapshot then deltas into the header in force, skipping unrelated events', () => {
     const session = new Session(SessionId('fold'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const first = canonicalHeader({ config: { model: 'm' }, system: 'a\nb', tools: [tool('t')] })
+    const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nb', tools: [tool('t')] })
     session.append('request/header', { header: first, reason: 'initial' })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
 
-    const second = canonicalHeader({ config: { model: 'm' }, system: 'a\nc', tools: [tool('t')] })
+    const second = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nc', tools: [tool('t')] })
     session.append('request/header-delta', diffHeader(first, second)!)
     expect(foldRequestHeader(headerEvents(session))).toEqual(second)
 
     // A later snapshot replaces the state wholesale (the 'resume'/'fallback' anchor).
-    const third = canonicalHeader({ config: { model: 'other' } })
+    const third = canonicalHeader({ config: { provider: 'mock', model: 'other' } })
     session.append('request/header', { header: third, reason: 'resume' })
     expect(foldRequestHeader(headerEvents(session))).toEqual(third)
   })
@@ -180,7 +180,7 @@ describe('foldRequestHeader', () => {
   it('throws on a delta before any snapshot (corrupt log)', () => {
     const session = new Session(SessionId('fold-corrupt'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('request/header-delta', { config: { model: 'x' } })
+    session.append('request/header-delta', { config: { provider: 'mock', model: 'x' } })
     expect(() => foldRequestHeader(headerEvents(session))).toThrow(/before any request\/header snapshot/)
   })
 })

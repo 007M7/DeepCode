@@ -88,7 +88,9 @@ declare module '@deepseek-ai/dsh-system-prompt' {
  * Merge-extensible: plugins declare extra fields via declaration merging.
  */
 export interface AgentOptions {
-  /** Model name (must have a registered adapter at call time). */
+  /** Provider route (must have a registered adapter at call time). */
+  provider?: string
+  /** Model id interpreted by the selected provider adapter. */
   model?: string
 }
 

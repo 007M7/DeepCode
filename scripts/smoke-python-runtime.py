@@ -379,6 +379,7 @@ def smoke_sdk_default(base_url: str) -> None:
         root = Path(temporary).resolve()
         sessions = root / "sessions"
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -401,6 +402,7 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -432,6 +434,7 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -481,7 +484,7 @@ def smoke_direct(base_url: str, executable: Path) -> None:
         }
         peer = RuntimePeer([str(executable)], root, environment)
         try:
-            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "model": "smoke-model"}})
+            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "provider": "deepseek", "model": "smoke-model"}})
             peer.read_until(lambda message: message.get("id") == "initialize")
             peer.send({
                 "jsonrpc": "2.0",

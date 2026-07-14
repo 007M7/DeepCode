@@ -25,9 +25,6 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-pro
-      - deepseek-v4-flash
 
 # Local bash executor for agent-core's tool-bash schema — gives the agent an
 # ordinary tool whose calls make the mounted listeners observably fire.
@@ -58,6 +55,7 @@
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'

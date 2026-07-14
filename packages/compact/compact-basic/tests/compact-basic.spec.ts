@@ -21,6 +21,7 @@ const TEST_CONFIG: BasicCompactConfig = {
   contextWindow: 128000,
   thresholdRatio: 0.8,
   retainTokens: 20480,
+  summarizationProvider: '',
   summarizationModel: '',
   maxTokens: 8192,
   compactionRetries: 1,
@@ -58,13 +59,17 @@ class TestCompactService extends BasicCompactService {
     return blocks.length * 10
   }
 
-  override async summarize(text: string, agent: Agent): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+  override async summarize(
+    text: string,
+    agent: Agent,
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+    const provider = this.config.summarizationProvider || agent.options.provider || ''
     const model = this.config.summarizationModel || agent.options.model || ''
     this.summarizeCalls.push({ text, model })
     if (this.summarizeError) throw this.summarizeError
     const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
     this.summaryOutputs.add(summary)
-    return { summary, model }
+    return { summary, provider, model }
   }
 }
 
@@ -102,7 +107,7 @@ function multiTurnSession(turns: number, messagesPerTurn: number = 2, opts: { le
         content: [{ type: 'text', text: `turn ${t} user message ${m + 1}.${LONG_FIXTURE_TEXT}` }],
         source: { kind: 'user' },
       }, { surfaceOp: 'append' })
-      s.append('assistant/message', {
+      s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
         turn: t, step: 1,
         content: [{ type: 'text', text: `turn ${t} assistant response ${m + 1}.${LONG_FIXTURE_TEXT}` }],
       }, { surfaceOp: 'append' })
@@ -127,7 +132,7 @@ function sessionWithTools(): Session {
     content: [{ type: 'text', text: 'read file x' }],
     source: { kind: 'user' },
   }, { surfaceOp: 'append' })
-  s.append('assistant/message', {
+  s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
     turn: 1, step: 1,
     content: [
       { type: 'text', text: 'Let me read that file.' },
@@ -140,7 +145,7 @@ function sessionWithTools(): Session {
     content: [{ type: 'text', text: 'hello world' }],
     isError: false,
   }, { surfaceOp: 'append' })
-  s.append('assistant/message', {
+  s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
     turn: 1, step: 1,
     content: [{ type: 'text', text: 'The file contains: hello world' }],
   }, { surfaceOp: 'append' })
@@ -169,7 +174,7 @@ function toolTurnSession(turns: number): Session {
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     s.append('step/start', { turn: t, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: t, step: 1,
       content: [
         { type: 'text', text: `turn ${t} calling tool` },
@@ -240,7 +245,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const s = new Session(SessionId('one-step'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'text', text: 'calling' }, { type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
@@ -286,7 +291,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/start', { turn: 1, step: 1 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
@@ -348,7 +353,7 @@ describe('BasicCompactService.estimateEventTokens', () => {
     const userEvent: SessionEvent = { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } } }
     expect(svc.estimateEventTokens(userEvent)).toBe(10)
 
-    const asstEvent: SessionEvent = { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] } }
+    const asstEvent: SessionEvent = { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }], provenance: { provider: 'mock', model: 'mock' } } }
     expect(svc.estimateEventTokens(asstEvent)).toBe(20)
 
     const toolEvent: SessionEvent = { type: 'tool/result', seq: 2, time: 3, data: { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'output' }], isError: false } }
@@ -633,7 +638,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'do a big multi-step task' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     for (let step = 1; step <= 5; step++) {
       s.append('step/start', { turn: 1, step })
-      s.append('assistant/message', {
+      s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
         turn: 1, step,
         content: [{ type: 'text', text: `step ${step}` }, { type: 'tool-call', id: CallId(`c${step}`), name: 'bash', arguments: '{}' }],
       }, { surfaceOp: 'append' })
@@ -686,7 +691,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     // the fresh nodes are retained.
     s.append('step/start', { turn: 5, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'turn 5 work' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 5, step: 1, content: [{ type: 'text', text: 'reply 5' }] }, { surfaceOp: 'append' })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 5, step: 1, content: [{ type: 'text', text: 'reply 5' }] }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 5, step: 1 })
 
     const second = await compactIfNeeded(svc, s, '', 'm', SIGNAL)
@@ -785,7 +790,7 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'turn 1' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'reply 1' }] }, { surfaceOp: 'append' })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'reply 1' }] }, { surfaceOp: 'append' })
     s.append('compact/start', { turn: 1 }) // ← orphaned: no matching compact/end
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } }) // repair closed the turn
@@ -991,7 +996,7 @@ async function ctxWithFinish(reason: (StreamChunk & { type: 'finish' })['reason'
 
 /** A minimal Agent stub carrying just session + options (enough for the listeners). */
 function stubAgent(session: Session, model?: string): Agent {
-  return { session, options: { model } } as unknown as Agent
+  return { session, options: { provider: model, model } } as unknown as Agent
 }
 
 function compactIfNeeded(
@@ -1076,7 +1081,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
   it('throws when no model is provided', async () => {
     const { ctx } = await ctxWithModel('x')
     const svc = new BasicCompactService(ctx, cfg({ auto: false }))
-    await expect(summarize(svc, 'text', '')).rejects.toThrow(/no model available/)
+    await expect(summarize(svc, 'text', '')).rejects.toThrow(/no provider\/model available/)
   })
 
   it('rethrows when the stream ends with a finish-error chunk', async () => {
@@ -1153,7 +1158,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'tiny user' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'tiny assistant' }] }, { surfaceOp: 'append' })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'tiny assistant' }] }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -1262,9 +1267,10 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     // The summarize call is a direct one-shot model call, not a loop step: it
     // does not run agent/request (that seam shapes the loop's conversation
     // requests). llm/stream is its interception surface, and a hand-built
-    // request is not frozen, so mutate-then-next model routing works — the
-    // adapter resolves AFTER the waterfall, so the rewrite picks the adapter.
+    // request is not frozen, so mutate-then-next provider/model routing works —
+    // the adapter resolves AFTER the waterfall, so the rewrite picks it.
     ctx.on('llm/stream', (options, next) => {
+      options.provider = 'routed-model'
       options.model = 'routed-model'
       return next()
     })
@@ -1307,7 +1313,7 @@ describe('BasicCompactService transcript rendering (delegated to dsh-compact)', 
       content: [{ type: 'text', text: 'project context here' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'reasoning', text: 'thinking hard' }, { type: 'text', text: 'answer' }],
     }, { surfaceOp: 'append' })
@@ -1335,7 +1341,7 @@ describe('BasicCompactService transcript rendering (delegated to dsh-compact)', 
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'run it' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [{ type: 'tool-call', id: CallId('c9'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
@@ -1364,7 +1370,7 @@ describe('BasicCompactService edge cases', () => {
     // assistant/message carrying a nested tool-result block, an unknown block,
     // and the tool-call that the following tool/result answers (so the surface
     // is tool-pairing balanced).
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [
         { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'chart', data: 'x' } as unknown as ContentBlock] },
@@ -1427,7 +1433,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'orphan' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'reply' }] }, { surfaceOp: 'append' })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'reply' }] }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const nodes = s.surface.nodes
@@ -1522,7 +1528,7 @@ describe('BasicCompactService edge cases', () => {
     // nothing and are skipped.
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'reasoning', text: '' }] }, { surfaceOp: 'append' })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'reasoning', text: '' }] }, { surfaceOp: 'append' })
     s.append('context/message', { content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
@@ -1531,7 +1537,7 @@ describe('BasicCompactService edge cases', () => {
     // surface stays tool-pairing balanced; its text extracts to the tool-call
     // placeholder (the one surviving line).
     s.append('step/start', { turn: 1, step: 2 })
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 2,
       content: [{ type: 'tool-call', id: CallId('z1'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
@@ -1562,7 +1568,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('user/message', { content: [chart('y')], source: { kind: 'user' } }, { surfaceOp: 'append' })
     // assistant/message with a plugin-added block AND the tool-call its
     // tool/result answers (so the surface is tool-pairing balanced).
-    s.append('assistant/message', {
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [
         chart('z'),
@@ -1713,7 +1719,7 @@ describe('BasicCompactService under the real invariants plugin', () => {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: `turn ${turn} user.${LONG_FIXTURE_TEXT}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn, step: 1, content: [{ type: 'text', text: `turn ${turn} assistant.${LONG_FIXTURE_TEXT}` }] }, { surfaceOp: 'append' })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn, step: 1, content: [{ type: 'text', text: `turn ${turn} assistant.${LONG_FIXTURE_TEXT}` }] }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }

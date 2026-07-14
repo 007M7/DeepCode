@@ -2,9 +2,9 @@
  * The call configuration of a conversation and its comparison/freeze
  * utilities. `LlmCallConfig` is the non-content third of the request header
  * (see `EpochHeader` in dsh-session): everything about a request besides its
- * message content that can undermine provider KV-cache reuse — `model`
- * selects the cache namespace outright, and the sampling scalars are treated
- * the same way out of caution. It is per-conversation state recorded in the
+ * message content that can undermine provider KV-cache reuse — `provider` and
+ * `model` select the adapter and cache namespace outright, and the sampling
+ * scalars are treated the same way out of caution. It is per-conversation state recorded in the
  * session log (the reconstructability RFC), never a silently-drifting
  * per-call knob: the `agent/request` waterfall proposes a replacement, and
  * the loop logs a real change as a `request/header-delta` event.
@@ -13,11 +13,12 @@
  */
 
 /**
- * Model + sampling scalars of one conversation's requests. Every field maps
+ * Provider + model + sampling scalars of one conversation's requests. Every field maps
  * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
  * from the logged header rather than accepting these per call.
  */
 export interface LlmCallConfig {
+  provider: string
   model: string
   temperature?: number
   maxTokens?: number
@@ -33,7 +34,7 @@ export interface LlmCallConfig {
  * @returns whether every field (including the `stop` list, element-wise) matches.
  */
 export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
-  if (a.model !== b.model || a.temperature !== b.temperature || a.maxTokens !== b.maxTokens) return false
+  if (a.provider !== b.provider || a.model !== b.model || a.temperature !== b.temperature || a.maxTokens !== b.maxTokens) return false
   if (a.stop === undefined || b.stop === undefined) return a.stop === b.stop
   return a.stop.length === b.stop.length && a.stop.every((s, i) => s === b.stop?.[i])
 }

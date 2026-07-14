@@ -1,6 +1,6 @@
 /**
  * DeepSeek LLM adapter plugin: registers a {@link DeepSeekAdapter} for the
- * configured model names on `ctx.llm`.
+ * `deepseek` provider route on `ctx.llm`.
  *
  * Config is cordis-native (schemastery). Secrets flow per the repo policy:
  * `apiKey` from cordis.yml via the `!!js` tag (`!!js process.env.DEEPSEEK_API_KEY`)
@@ -12,7 +12,6 @@
  *   config:
  *     apiKey: !!js process.env.DEEPSEEK_API_KEY
  *     baseURL: !!js process.env.DEEPSEEK_BASE_URL
- *     models: [deepseek-v4-flash, deepseek-v4-pro]
  * ```
  *
  * @module @deepseek-ai/dsh-llm-deepseek
@@ -45,8 +44,6 @@ export interface Config {
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Model names to register (sent verbatim on the wire). */
-  models?: string[]
   /** Thinking-mode default for every request (provider default: enabled). */
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
@@ -56,7 +53,6 @@ export interface Config {
 export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
-  models: z.array(z.string()).default(['deepseek-v4-flash', 'deepseek-v4-pro']),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
 })
@@ -70,10 +66,7 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('llm-deepseek: an API key is required (Config.apiKey or $DEEPSEEK_API_KEY)')
   }
   const baseURL = config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL
-  // schemastery's .default() guarantees models is set after validation.
-  const models = config.models as string[]
-
-  ctx.llm.registerAdapter(models, new DeepSeekAdapter({
+  ctx.llm.registerAdapter(['deepseek'], new DeepSeekAdapter({
     apiKey,
     baseURL,
     defaults: {

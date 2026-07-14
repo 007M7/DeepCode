@@ -7,8 +7,9 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, StreamChunk } from './types.ts'
+import type { GenerateOptions, Message, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
+import { deepFreeze } from './call-config.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -58,7 +59,7 @@ export class LlmError extends HarnessError {
  *
  * An adapter translates between the harness vocabulary (Message/ContentBlock/
  * StreamChunk) and one provider's wire format. Adapters register themselves
- * via `ctx.llm.registerAdapter(models, adapter)`.
+ * via `ctx.llm.registerAdapter(providers, adapter)`.
  *
  * Real implementations: `@deepseek-ai/dsh-llm-deepseek` (hand-rolled
  * fetch/SSE) and `@deepseek-ai/dsh-llm-pi-ai` (pi-ai-backed) — two
@@ -93,23 +94,27 @@ export class LlmService extends Service {
   }
 
   /**
-   * Register an adapter for the given model names. Throws `LlmError` with code
-   * `DUPLICATE_ADAPTER` if any model already has an adapter (all-or-nothing).
+   * Register an adapter for the given provider routes. Throws `LlmError` with code
+   * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
    * Disposed with the fiber.
-   * @param models - every model name this adapter should serve.
-   * @param adapter - the adapter that streams calls for those models.
+   * @param providers - every provider route this adapter should serve.
+   * @param adapter - the adapter that streams calls for those providers.
    * @returns the disposer that unregisters all of them.
    */
-  registerAdapter(models: string[], adapter: LlmAdapter): () => void {
+  registerAdapter(providers: string[], adapter: LlmAdapter): () => void {
     const dispose = this.ctx.effect(function* (this: LlmService) {
-      for (const model of models) {
-        if (this.adapters.has(model)) {
-          throw new LlmError(`an adapter for model "${model}" is already registered`, 'DUPLICATE_ADAPTER')
+      if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
+      const unique = new Set<string>()
+      for (const provider of providers) {
+        if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
+        if (unique.has(provider) || this.adapters.has(provider)) {
+          throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
         }
+        unique.add(provider)
       }
-      for (const model of models) this.adapters.set(model, adapter)
+      for (const provider of providers) this.adapters.set(provider, adapter)
       yield () => {
-        for (const model of models) this.adapters.delete(model)
+        for (const provider of providers) this.adapters.delete(provider)
       }
     }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
@@ -118,29 +123,48 @@ export class LlmService extends Service {
   }
 
   /**
-   * Model names with a registered adapter.
-   * @returns the registered names, in registration order.
+   * Provider routes with a registered adapter.
+   * @returns the registered provider names, in registration order.
    */
-  models(): string[] {
+  providers(): string[] {
     return [...this.adapters.keys()]
   }
 
-  private adapter(model: string): LlmAdapter {
-    const adapter = this.adapters.get(model)
-    if (!adapter) throw new LlmError(`no adapter registered for model "${model}"`, 'NO_ADAPTER')
+  private adapter(provider: string): LlmAdapter {
+    const adapter = this.adapters.get(provider)
+    if (!adapter) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
     return adapter
+  }
+
+  /** Remove replay state whose historical route is owned by another adapter. */
+  private forAdapter(options: GenerateOptions, adapter: LlmAdapter): GenerateOptions {
+    const messages: Message[] = options.messages.map((message) => {
+      const provenance = message.provenance
+      if (message.role !== 'assistant' || provenance?.replayState === undefined) return message
+      if (this.adapters.get(provenance.provider) === adapter) return message
+      return {
+        ...message,
+        provenance: { provider: provenance.provider, model: provenance.model },
+      }
+    })
+    if (messages.every((message, index) => message === options.messages[index])) return options
+    const filtered = { ...options, messages }
+    return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
   }
 
   /**
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
-   * `options.model`. Dispatches through the `llm/stream` waterfall.
-   * @param options - the full request; `options.model` selects the adapter.
+   * `options.provider`. Replay state is retained only when the same adapter
+   * instance owns its historical provider and the target provider. Dispatches
+   * through the `llm/stream` waterfall.
+   * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     return this.ctx.waterfall(this, 'llm/stream', options, () => {
-      return this.adapter(options.model).stream(options)
+      const adapter = this.adapter(options.provider)
+      return adapter.stream(this.forAdapter(options, adapter))
     })
   }
 }

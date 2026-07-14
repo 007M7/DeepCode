@@ -91,6 +91,7 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     '- id: stdio-agent',
     '  name: \'@deepseek-ai/dsh-stdio-agent\'',
     '  config:',
+    '    provider: mock',
     '    model: mock-echo',
     '    persona: \'demo\'',
     `    welcome: '${welcome}'`,

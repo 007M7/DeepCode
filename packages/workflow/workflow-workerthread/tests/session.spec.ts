@@ -35,7 +35,7 @@ interface FakeHost {
 
 interface FakeHostOptions {
   /** Auto-respond to child-start: reply started + settled per child index. Omit a reply to leave the child pending. */
-  reply?: (request: { prompt: string; schema?: unknown; model?: string }, index: number) => ChildResult | undefined
+  reply?: (request: { prompt: string; schema?: unknown; provider?: string; model?: string }, index: number) => ChildResult | undefined
   /** Reject the start instead (child-start-error) when returning a string. */
   refuse?: (index: number) => string | undefined
   /** Auto-send `go` on `ready` (default true). */
@@ -140,6 +140,17 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const start = host.ofType(WorkerToHostType.ChildStart)[0]!
     expect(start.request.schema).toEqual({ type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } } })
     expect(start.request.model).toBe('deepseek-v4-pro')
+    host.close()
+  })
+
+  it('agent({provider}) forwards a provider without inventing a model', async () => {
+    const host = fakeHost({ reply: () => text('ok') })
+    void runWorkerSession(host.port, init("return await agent('route me', { provider: 'openai' })"))
+    const result = await host.result()
+    expect(result.value).toBe('ok')
+    const start = host.ofType(WorkerToHostType.ChildStart)[0]!
+    expect(start.request.provider).toBe('openai')
+    expect(start.request.model).toBeUndefined()
     host.close()
   })
 

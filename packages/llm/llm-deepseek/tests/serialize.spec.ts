@@ -4,7 +4,7 @@ import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-ll
 import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
-  return { model: 'deepseek-v4-flash', messages: [], ...overrides }
+  return { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [], ...overrides }
 }
 
 describe('serializeMessages', () => {

@@ -30,6 +30,8 @@ export interface WorkflowPhase {
   title: string
   /** Optional one-line description of what the phase does. */
   detail?: string
+  /** Optional provider override this phase is expected to use (informational). */
+  provider?: string
   /** Optional model override this phase is expected to use (informational). */
   model?: string
 }

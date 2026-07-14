@@ -86,7 +86,7 @@ const textEvents = [
 async function harness(baseURL: string, config: object = {}) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, models: ['deepseek-v4-flash'], ...config })
+  await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, ...config })
   return ctx
 }
 
@@ -123,6 +123,7 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
+      provider: 'deepseek',
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     })) {
@@ -198,7 +199,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     )
     try {
       const iterate = async (): Promise<void> => {
-        for await (const _chunk of adapter.stream({ model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(iterate()).rejects.toThrow(/no response body/)
     } finally {
@@ -224,6 +225,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const pending = (async () => {
       const chunks = []
       for await (const chunk of ctx.llm.stream({
+        provider: 'deepseek',
         model: 'deepseek-v4-flash',
         messages: [],
         signal: controller.signal,
@@ -239,25 +241,24 @@ describe('DeepSeekAdapter against a mock server', () => {
 })
 
 describe('plugin registration and config', () => {
-  it('registers the configured models and unregisters on dispose (HMR safety)', async () => {
+  it('registers the deepseek provider and unregisters on dispose (HMR safety)', async () => {
     const server = await mockServer([])
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmDeepSeek, {
       apiKey: 'k',
       baseURL: server.url,
-      models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     })
-    expect(ctx.llm.models().sort()).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(ctx.llm.providers()).toEqual(['deepseek'])
     await fiber.dispose()
-    expect(ctx.llm.models()).toEqual([])
+    expect(ctx.llm.providers()).toEqual([])
   })
 
-  it('defaults the model list', async () => {
+  it('always owns the deepseek provider', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
-    expect(ctx.llm.models().sort()).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(ctx.llm.providers()).toEqual(['deepseek'])
   })
 
   it('falls back to DEEPSEEK_API_KEY and DEEPSEEK_BASE_URL env vars', async () => {
@@ -266,7 +267,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.models().length).toBeGreaterThan(0)
+    expect(ctx.llm.providers()).toEqual(['deepseek'])
   })
 
   it('throws a clear error when no API key is available', async () => {
@@ -275,7 +276,7 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     await expect(ctx.plugin(LlmDeepSeek, {}))
       .rejects.toThrow(/an API key is required/)
-    expect(ctx.llm.models()).toEqual([])
+    expect(ctx.llm.providers()).toEqual([])
   })
 
   it('prefers explicit config over env for key and base URL', async () => {
@@ -292,7 +293,7 @@ describe('plugin registration and config', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', server.url)
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(LlmDeepSeek, { apiKey: 'k', models: ['deepseek-v4-flash'] })
+    await ctx.plugin(LlmDeepSeek, { apiKey: 'k' })
     await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests).toHaveLength(1)
   })
@@ -304,7 +305,7 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     // Registration succeeds; no call is made (would hit api.deepseek.com).
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.models().length).toBeGreaterThan(0)
+    expect(ctx.llm.providers()).toEqual(['deepseek'])
   })
 
   it('adapter is constructible directly for embedding', () => {

@@ -31,7 +31,7 @@ export async function spawnHarness(workdir: string): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await ctx.plugin(LlmDeepSeek)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(SubagentService)

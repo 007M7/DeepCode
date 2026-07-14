@@ -95,7 +95,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
 
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'do something' }])
     await waitForIdle(ctx, agent)
 
@@ -118,7 +118,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
 
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -143,7 +143,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use danger' }])
     await waitForIdle(ctx, agent)
 
@@ -166,7 +166,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'safe', description: 's', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use safe' }])
     await waitForIdle(ctx, agent)
 
@@ -188,7 +188,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'raw output' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -209,7 +209,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -233,7 +233,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -257,7 +257,7 @@ describe('hooks-claude bridge — SessionStart', () => {
 
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     // session-start fires async (detached .then → agent.inject); wait for the
     // injected context/message to actually land before sending, rather than a
     // fixed sleep that flakes under load.
@@ -359,7 +359,7 @@ describe('hooks-claude bridge — load resilience', () => {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     await ctx.plugin(HooksClaude, { configPath: '/nonexistent/hooks.json' })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // The turn ran normally — no hooks, no crash.
@@ -385,7 +385,7 @@ describe('hooks-claude bridge — load resilience', () => {
     const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone

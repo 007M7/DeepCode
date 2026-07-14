@@ -33,6 +33,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 interface Config {
   agents: Array<{
     id: string                 // required
+    provider?: string
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -40,7 +41,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Agents listed in config are auto-created at startup. A model call requires both `provider` and `model`; a request-waterfall listener may supply the pair before dispatch when they are absent from creation options. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `provider`/`model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Exported concrete class
 

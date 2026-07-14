@@ -30,9 +30,6 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-flash
-      - deepseek-v4-pro
 
 # JSONL session persistence. $DSH_SESSION_ROOT (set by the SDK whenever
 # `session_root` is configured) wins; otherwise ./.sessions relative to the

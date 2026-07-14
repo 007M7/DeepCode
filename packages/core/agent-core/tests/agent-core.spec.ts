@@ -108,7 +108,7 @@ describe('dsh-agent-core bundle', () => {
 
   it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), model: 'mock' }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock' }],
       persona: 'You are main.',
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()

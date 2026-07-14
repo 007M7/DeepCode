@@ -155,7 +155,7 @@ export interface BridgeHarness {
  * The bridge's `apply` receives the agent-side `Stream` via `config.stream`;
  * the test holds the `ClientSideConnection`.
  *
- * Pass `config: { model: undefined }` to override the default `model: 'mock'`
+ * Pass `config: { model: undefined }` to override the default mock target
  * (the model key is dropped entirely when explicitly undefined).
  */
 export async function makeBridgeHarness(options: {
@@ -282,10 +282,11 @@ export async function makeBridgeHarness(options: {
   })
 
   // Wire the bridge (agent side) and the client (test side). The test config
-  // can override `model` (including to undefined): default to 'mock' unless the
-  // caller explicitly set the key (even to undefined), so a `{ model: undefined }`
-  // override means "no model at all".
+  // can override either route field (including to undefined). Default both to
+  // `mock` unless the caller explicitly set that key, so `{ model: undefined }`
+  // still means "no model at all".
   const cfg: AcpConfig = { stream: agentStream, ...options.config }
+  if (!(options.config && 'provider' in options.config)) cfg.provider = 'mock'
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
   // Mount the bridge the way production does: as a cordis PLUGIN (via
   // `ctx.plugin` with the real `inject`), NOT `AcpPlugin.apply(ctx, cfg)`

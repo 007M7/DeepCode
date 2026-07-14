@@ -29,7 +29,7 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
-3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count,
+3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
 4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**,
 5. appends `compact/end` (log-only) — releases the lock.
 

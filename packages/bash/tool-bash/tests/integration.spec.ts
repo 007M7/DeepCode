@@ -74,7 +74,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-fg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-fg'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
@@ -106,7 +106,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-exit'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-exit'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
@@ -128,7 +128,7 @@ describe('bash tool through the agent loop', () => {
     let taskId = ''
 
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-bg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-bg'), { provider: 'mock', model: 'mock' })
 
     // Capture the generated id so the deterministic fixture is checked against
     // the real executor instead of silently assuming it.

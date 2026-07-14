@@ -26,6 +26,8 @@ import type { JsonRpcTransportPeer } from './transport.ts'
 export interface InitializeParams {
   /** Working directory recorded on every SDK-created session's header. */
   cwd: string
+  /** Provider route every SDK-created agent runs on. */
+  provider: string
   /** Model name every SDK-created agent runs on (see {@link HarnessSdkServer.initialize} for adapter fallback). */
   model: string
 }
@@ -73,6 +75,7 @@ interface SubagentRecord {
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
+  private provider = 'deepseek'
   private model = 'deepseek'
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -132,18 +135,20 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Handle `initialize`: record the SDK deployment facts (cwd, model) and, when
-   * no registered adapter serves `params.model`, mount the DeepSeek adapter for
-   * it (credentials from `$DEEPSEEK_API_KEY`/`$DEEPSEEK_BASE_URL`) — a config
-   * that already registered an adapter for the model wins.
+   * Handle `initialize`: record the SDK deployment facts and, when provider
+   * `deepseek` has no registered owner, mount the native DeepSeek adapter
+   * (credentials from `$DEEPSEEK_API_KEY`/`$DEEPSEEK_BASE_URL`). Other missing
+   * providers fail without guessing an implementation.
    * @param params - the SDK handshake parameters.
    * @returns the server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
     this.cwd = resolve(params.cwd)
+    this.provider = params.provider
     this.model = params.model
-    if (!this.llmFiber && !this.hasAdapterFor(this.model)) {
-      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, { models: [this.model] })
+    if (!this.hasAdapterFor(this.provider)) {
+      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
   }
@@ -258,7 +263,7 @@ export class HarnessSdkServer {
       agentId: AgentId(sessionId),
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
-      agentOptions: { model: this.model },
+      agentOptions: { provider: this.provider, model: this.model },
     })
     const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
     this.sessions.set(sessionId, rec)
@@ -270,7 +275,7 @@ export class HarnessSdkServer {
     return reason.kind === 'completed' ? 'ok' : 'error'
   }
 
-  private hasAdapterFor(model: string): boolean {
-    return this.ctx.get('llm')?.models().includes(model) ?? false
+  private hasAdapterFor(provider: string): boolean {
+    return this.ctx.get('llm')?.providers().includes(provider) ?? false
   }
 }

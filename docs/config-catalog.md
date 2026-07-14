@@ -16,6 +16,8 @@ Requires: `agents` · `sessions` · `sessionPersistence` · `tools` · `userInte
 ```ts config-catalog
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
+  /** Provider route for created agents. */
+  provider?: string
   /** Model name for created agents (must have a registered adapter). */
   model?: string
   /**
@@ -37,7 +39,7 @@ Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
 
 ```ts config-catalog
 /**
- * App config: the swappable per-deployment values. `model` configures the
+ * App config: the swappable per-deployment values. `provider` and `model` configure the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
@@ -46,6 +48,8 @@ Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
  * through agent-core); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
+  /** Provider route for ACP-created agents. */
+  provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
@@ -234,7 +238,9 @@ export interface BasicCompactConfig {
   thresholdRatio: number
   /** Number of tokens of recent context to retain during compaction. */
   retainTokens: number
-  /** Model to use for summarization (`''` — uses the agent's model). */
+  /** Provider to use for summarization (`''` with an empty model inherits the conversation target). */
+  summarizationProvider: string
+  /** Model to use for summarization (`''` with an empty provider inherits the conversation target). */
   summarizationModel: string
   /** Provider generation cap for the summarization call. */
   maxTokens: number
@@ -380,8 +386,6 @@ export interface Config {
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Model names to register (sent verbatim on the wire). */
-  models?: string[]
   /** Thinking-mode default for every request (provider default: enabled). */
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
@@ -389,38 +393,51 @@ export interface Config {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:43`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:42`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
 Requires: `llm`
 
 ```ts config-catalog
-/**
- * Plugin config, validated by the same-named schemastery schema. Every field
- * is optional in yml: credentials/endpoint fall back to the environment (a
- * missing API key fails plugin load, not the first call).
- */
+/** Plugin configuration: the non-empty provider profiles this instance owns. */
 export interface Config {
-  /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
-  apiKey?: string
-  /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
-  baseURL?: string
-  /** Model names to register (sent verbatim on the wire). */
-  models?: string[]
-  /**
-   * Thinking level for every request: 'off' disables thinking mode; 'high'
-   * and 'xhigh' (wire 'max') set the effort. Omitted = provider default
-   * (thinking enabled), matching llm-deepseek's omission semantics.
-   */
-  reasoning?: PiAiReasoning
+  /** Non-empty set of pi-ai provider routes this adapter instance owns. */
+  providers: PiAiProviderProfile[]
 }
 
-/** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
-export type PiAiReasoning = 'off' | 'high' | 'xhigh'
+/** Configuration for one pi-ai provider route. */
+export interface PiAiProviderProfile {
+  /** pi-ai provider catalog name and Harness route key. */
+  provider: string
+  /** Provider credential; when absent pi-ai uses its provider-native ambient discovery. */
+  apiKey?: string
+  /** Override the selected catalog model's endpoint without changing its protocol metadata. */
+  baseURL?: string
+  /** Provider request headers; Harness attribution wins reserved names. */
+  headers?: Record<string, string>
+  /** Provider-neutral pi-ai reasoning level. */
+  reasoning?: ThinkingLevel
+  /** Token budgets used by reasoning providers that support them. */
+  thinkingBudgets?: ThinkingBudgets
+  /** Prompt-cache retention preference. */
+  cacheRetention?: CacheRetention
+  /** Streaming transport preference. */
+  transport?: Transport
+  /** HTTP/provider SDK timeout in milliseconds. */
+  timeoutMs?: number
+  /** WebSocket connection timeout in milliseconds. */
+  websocketConnectTimeoutMs?: number
+  /** Provider SDK retry count. */
+  maxRetries?: number
+  /** Maximum provider-requested retry delay in milliseconds. */
+  maxRetryDelayMs?: number
+}
 ```
 
-Source: [`packages/llm/llm-pi-ai/src/index.ts:37`](../packages/llm/llm-pi-ai/src/index.ts)
+Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `ThinkingLevel` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+
+Source: [`packages/llm/llm-pi-ai/src/config.ts:40`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -611,7 +628,7 @@ Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-l
 ```ts config-catalog
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * it. `provider`/`model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -620,6 +637,8 @@ Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-l
  * `welcome` is the UI banner.
  */
 export interface Config {
+  /** Provider route for the `main` agent. */
+  provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */

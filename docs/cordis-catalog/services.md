@@ -152,14 +152,14 @@ Source: [`packages/fs/fs/src/index.ts:172`](../../packages/fs/fs/src/index.ts)
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
-registerAdapter(models: string[], adapter: LlmAdapter): () => void
-models(): string[]
+registerAdapter(providers: string[], adapter: LlmAdapter): () => void
+providers(): string[]
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:89`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -218,7 +218,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:590`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:617`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

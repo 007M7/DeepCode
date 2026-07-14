@@ -167,7 +167,7 @@ describe('dsh-jsonrpc plugin apply', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     const harness = await mountPlugin(storageDir)
     try {
-      harness.send({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { cwd: storageDir, model: 'apply-model' } })
+      harness.send({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'apply-model' } })
 
       const response = await harness.waitForFrame(frame => frame.id === 'init-1', 'initialize response')
       expect(response).toEqual({
@@ -189,7 +189,7 @@ describe('dsh-jsonrpc plugin apply', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
     const harness = await mountPlugin(storageDir)
     try {
-      harness.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { cwd: storageDir, model: 'dsagent-model' } })
+      harness.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'dsagent-model' } })
       await harness.waitForFrame(frame => frame.id === 1, 'initialize response')
 
       harness.send({
@@ -256,7 +256,7 @@ describe('dsh-jsonrpc plugin apply', () => {
 
       // The plugin fiber is disposed: the transport reads no further frames.
       const before = harness.frames().length
-      harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'x' } })
       await settle()
       expect(harness.frames().length).toBe(before)
     } finally {
@@ -277,7 +277,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       expect(harness.outputErrors.map(error => error.message)).toEqual(['flush callback failed'])
 
       const before = harness.frames().length
-      harness.send({ jsonrpc: '2.0', id: 'after-flush-failure', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      harness.send({ jsonrpc: '2.0', id: 'after-flush-failure', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'x' } })
       await settle()
       expect(harness.frames().length).toBe(before)
     } finally {
@@ -304,7 +304,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       // The effect disposer shut the server and closed the transport — later
       // frames are never read — and the exit seam was never touched.
       const before = harness.frames().length
-      harness.send({ jsonrpc: '2.0', id: 'probe-2', method: 'initialize', params: { cwd: storageDir, model: 'x' } })
+      harness.send({ jsonrpc: '2.0', id: 'probe-2', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'x' } })
       await settle()
       expect(harness.frames().length).toBe(before)
       expect(harness.exits()).toEqual([])
