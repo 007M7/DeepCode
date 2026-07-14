@@ -535,7 +535,7 @@ class EventRelationCollector {
           }
         } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
           const eventNames = this.eventNamesFromCall(node, receiverKind)
-          if (method === 'on') {
+          if (method === 'on' || method === 'once') {
             for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
           } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
             for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
