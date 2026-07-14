@@ -175,6 +175,18 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:576`](../../packages/core/agent/src/types.ts)
 
+## `agent-loop/*`
+
+### `agent-loop/config-start-failed` — emit
+
+A declarative agent entry failed before it could publish a live agent. Consumers that buffer work for the configured identity use this transient signal to reject that work instead of waiting forever.
+
+```ts cordis-catalog
+'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+```
+
+Source: [`packages/core/agent-loop/src/index.ts:339`](../../packages/core/agent-loop/src/index.ts)
+
 ## `approval/*`
 
 ### `approval/request` — waterfall

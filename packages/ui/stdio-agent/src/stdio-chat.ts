@@ -21,6 +21,7 @@ import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-loop'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -173,6 +174,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     const queuedInput: string[] = []
     let targetReady = target !== undefined
     let hadReadyTarget = targetReady
+    let failedStartup: { error: unknown } | undefined
 
     const submit = (agent: Agent, text: string): void => {
       submittedWork = true
@@ -187,6 +189,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       if (!matchesConfiguredIdentity(agent)) return
       target = agent
       targetReady = false
+      failedStartup = undefined
     })
     const disposeSessionStartListener = ctx.on('agent/session-start', (agent) => {
       if (agent !== target) return
@@ -219,6 +222,18 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       }
       exitTimer = setTimeout(() => { exit(0) }, 200)
     }
+
+    const disposeStartupFailedListener = ctx.on('agent-loop/config-start-failed', (sessionId, error) => {
+      if (sessionId !== config.sessionId || targetReady) return
+      failedStartup = { error }
+      const dropped = queuedInput.length
+      queuedInput.length = 0
+      submittedWork = sawRunning
+      if (dropped > 0) {
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${String(error)}`)
+      }
+      maybeExit()
+    })
 
     const disposeStatusListener = ctx.on('agent/status', (subject, status) => {
       if (subject !== target) return
@@ -374,6 +389,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       }
       const text = line.trim()
       if (!text) return
+      if (failedStartup !== undefined) {
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${String(failedStartup.error)}`)
+        return
+      }
       const agent = target
       if (agent === undefined || !targetReady) {
         // Initial exact-id restoration is asynchronous. Preserve input until
@@ -407,6 +426,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       disposeCreatedListener()
       disposeSessionStartListener()
       disposeDisposedListener()
+      disposeStartupFailedListener()
       reader.close()
     }
   }, 'ui-stdio')

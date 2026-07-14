@@ -327,6 +327,17 @@ declare module 'cordis' {
   interface Context {
     agentLoop: AgentLoop
   }
+  interface Events {
+    /**
+     * A declarative agent entry failed before it could publish a live agent.
+     * Consumers that buffer work for the configured identity use this
+     * transient signal to reject that work instead of waiting forever.
+     * @param sessionId - exact shared agent/session identity that failed startup.
+     * @param error - persistence, setup, or publication failure.
+     * @mode emit
+     */
+    'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+  }
 }
 
 /** Plugin configuration for declarative startup agents. */
@@ -381,7 +392,7 @@ export class AgentLoop extends Service implements AgentFactory {
           this.create(configuredId, options, meta)
         } else {
           const startup = this.restoreOrCreateConfigured(ctx, persistence, configuredId, options, meta).catch((error: unknown) => {
-            ctx.logger.warn(`agent "${id}": config-driven restore of "${configuredId}" failed: ${String(error)}`)
+            this.reportConfiguredStartupFailure(id, 'restore', configuredId, error)
           })
           this.ownership.trackStartup(startup)
         }
@@ -396,11 +407,26 @@ export class AgentLoop extends Service implements AgentFactory {
             resumeSessionId,
             agentOptions: options,
           }).catch((error: unknown) => {
-            ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
+            this.reportConfiguredStartupFailure(id, 'resume', resumeSessionId, error)
           })
         })
         return fiber.dispose
       }, `agentLoop.resume(${id})`)
+    }
+  }
+
+  /** Report a contained declarative-start failure to identity-bound consumers. */
+  private reportConfiguredStartupFailure(
+    configId: string,
+    action: 'restore' | 'resume',
+    sessionId: SessionId,
+    error: unknown,
+  ): void {
+    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${String(error)}`)
+    try {
+      this.ctx.emit('agent-loop/config-start-failed', sessionId, error)
+    } catch (listenerError) {
+      this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${String(listenerError)}`)
     }
   }
 
