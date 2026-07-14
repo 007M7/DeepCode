@@ -107,6 +107,9 @@ flowchart TD
     pkg_code_runtime["code-runtime"]
     pkg_code_runtime_worker["code-runtime-worker"]
   end
+  subgraph group_context["packages/context"]
+    pkg_time_context["time-context"]
+  end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
@@ -186,6 +189,8 @@ flowchart TD
   pkg_user_approval --> pkg_system_prompt
   pkg_user_interaction --> pkg_agent
   pkg_user_interaction --> pkg_llm
+  pkg_time_context --> pkg_agent
+  pkg_time_context --> pkg_system_prompt
   pkg_tasks --> pkg_agent
   pkg_tasks --> pkg_brand
   pkg_tasks --> pkg_session
@@ -390,6 +395,7 @@ flowchart TD
 | [`invariants`](../packages/support/invariants) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
 | [`user-approval`](../packages/ui/user-approval) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-interaction`](../packages/ui/user-interaction) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm) |
+| [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt) |
 | [`tasks`](../packages/tasks/tasks) | `tasks` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`user-approval`](../packages/ui/user-approval) |

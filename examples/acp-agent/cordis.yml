@@ -95,23 +95,6 @@
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
 
-# Filesystem tools do not ride the bash sandbox, so the confined default omits
-# them. Snapshots and explicit danger-full-access launches enable the local
-# provider, policy, and model-facing tools together.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
-  config:
-    cwd: !!js process.cwd()
-
-- id: fs-policy
-  name: '@deepseek-ai/dsh-fs-policy'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
-
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
-
 # `configPath` is read once at load and resolves from the server launch cwd, not
 # `session/new.cwd`; one `hooks.json` therefore applies to every session and a
 # project-local file is not discovered. Missing config registers nothing. Hook
