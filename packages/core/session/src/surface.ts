@@ -196,31 +196,18 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 export class SurfaceManager {
   /** Incremental state shared with the complete surface fold. */
   private _state = createFoldState()
-  /** The last processed seq. -1 forces a full rebuild on first access. */
+  /** The last processed seq. -1 forces the initial full fold. */
   private _lastProcessedSeq = -1
 
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
-   * Reset to unprocessed state. Call after the log has been replaced
-   * wholesale (e.g. after Session seed). Not needed for normal appends —
-   * those are picked up incrementally.
-   */
-  invalidate(): void {
-    this._lastProcessedSeq = -1
-    // A wholesale rebuild is a rewrite: bump the generation so incremental
-    // consumers (the session's derived-message cache) discard their view.
-    this._state = createFoldState(this._state.replaceGeneration + 1)
-  }
-
-  /**
-   * The surface's rewrite generation: bumped by every folded `replace` op and
-   * by {@link invalidate}. A replace is the ONE operation that rewrites the
-   * surface non-monotonically, so an incremental consumer of {@link nodes}
-   * (the session's derived-message cache) compares this between visits — an
-   * unchanged generation guarantees every node it has not seen is a pure tail
-   * append; a changed one means its view must rebuild. Monotonic: it never
-   * moves backwards, so comparisons cannot be fooled by a re-fold.
+   * The surface's rewrite generation, bumped by every folded `replace` op. A
+   * replace is the ONE operation that rewrites the surface non-monotonically,
+   * so an incremental consumer of {@link nodes} (the session's derived-message
+   * cache) compares this between visits — an unchanged generation guarantees
+   * every unseen node is a pure tail append; a changed one means its view must
+   * rebuild.
    */
   get replaceGeneration(): number {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
