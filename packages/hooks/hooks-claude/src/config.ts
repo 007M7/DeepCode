@@ -1,11 +1,11 @@
 /**
- * Parse a Claude Code hook config file into the shared {@link MatcherGroup}
- * shape, faithfully to CC's `hooks.json` / settings `hooks` key format.
+ * Parse the bridge-supported subset of a Claude Code hook config file into the
+ * shared {@link MatcherGroup} shape.
  *
  * A CC config maps each event name to an array of matcher groups, each holding
  * an array of typed hooks. Only `type: 'command'` hooks run here; other types
- * (`prompt`/`agent`/`http`) are PARSED but skipped with a warning (faithful-but-
- * degraded — the same stance Codex takes). The `command` string undergoes
+ * (`http`/`mcp_tool`/`prompt`/`agent`) are parsed but skipped with a warning.
+ * The `command` string undergoes
  * `${CLAUDE_PLUGIN_ROOT}` substitution at parse time so the runner sees a literal.
  *
  * @module @deepseek-ai/dsh-hooks-claude/config

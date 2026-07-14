@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-workflow
 
-The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. Pure schema + lifecycle shaping over [`ctx.workflows`](../workflow/README.md) — script parsing, execution, caps, and cancellation live behind the seam, so a hardened engine swaps in without touching what the model sees.
+The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. This package owns schema and lifecycle shaping over [`ctx.workflows`](../workflow/README.md); script parsing, execution, caps, and cancellation live behind the seam, while the consumer retains ownership of the parent-facing schema and result envelope.
 
 ## What the model sees
 
@@ -20,3 +20,35 @@ Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/arch
 |---|---|---|
 | `toolName` | `workflow` | The model-facing tool name to register. |
 | `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice. |
+
+## Model Experience
+
+### System prompt
+
+**What the model sees**: Every parent request in this plugin's registration scope receives the workflow guidance below. A scoped tool restriction can hide the schema without removing this independently registered guidance.
+
+**Token effect**: Small fixed guidance cost per request while the plugin is active.
+
+#### Workflow guidance
+
+```markdown
+Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
+```
+
+### Tool schema
+
+**What the model sees**: When visible, the generated default [`workflow` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-workflow) carries the complete JavaScript hook and metadata contract; `toolName` can rename the definition, and the model submits script, metadata, and optional args.
+
+**Token effect**: Substantial fixed schema cost on each request where the tool is visible.
+
+### Tool-call history and result
+
+**What the model sees**: The full model-written script, metadata, and args remain in the assistant tool call. Success is exactly `workflow "<name>" completed (<count> agent<optional-s>).`, newline, `Return value:`, newline, and pretty-printed data-dependent JSON; a cap adds `… [truncated: <omitted> more characters]` on a new line. Failures are exactly `Error: workflow run was cancelled`, optionally suffixed ` (<error>)`, `Error: workflow run failed: <error-or-unknown error>`, or defensively `Error: workflow run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: workflow tool requires a calling agent (exec.agent was undefined)`. Intermediate child messages are omitted.
+
+**Token effect**: Call tokens can be large and remain until compaction. Result rendering is capped by `maxResultChars`; child-model tokens are separate from the parent's retained context.
+
+## Known Limitations and Deferred Work
+
+- **The parent turn blocks until the whole workflow settles** — there is no background start/poll surface, and cancellation discards partial output as an error.
+- **`args` must be an object and the result is bounded text** — callers wrap top-level arrays/scalars in a field, and JSON beyond `maxResultChars` is truncated rather than stored behind a retrieval handle.
+- **Workflow policy is fixed per tool registration** — provider selection, caps, and tool name are deployment config, not model-call arguments.

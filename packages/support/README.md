@@ -5,8 +5,8 @@ Packages that exist to serve development, testing, and the examples rather than 
 | Package | Role | ctx key |
 |---|---|---|
 | `acp-snapshot/` | ACP snapshot suite kit: subprocess scenario harness + golden normalizers + the `defineAcpSnapshotSuite` factory | (library — imported by example `*.snapshot.ts` suites) |
-| `invariants/` | Dev-mode event-contract assertions | (listens on `session/*`, `agent/*`) |
+| `invariants/` | Runtime event-contract assertions for development diagnostics | (listens on `session/*`, `agent/*`) |
 | `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent-mock/` | Scripted `SubagentProvider` for deterministic seam/tool tests | (registers on `ctx.subagents`) |
 
-`invariants` runs only in dev mode (contract checks, not runtime behavior). `llm-replay` backs the demos and the snapshot test tier under the per-file coverage gate. `acp-snapshot` carries the snapshot tier's harness/normalizer/suite machinery so every example's suite is a scenario table over one shared, gate-covered implementation. `subagent-mock` exercises the real `ctx.subagents` load path without a model or child agent. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
+`invariants` is development support but has no environment guard: it runs wherever registered, and the default `dsh-agent-core` bundle mounts it unconditionally. `llm-replay` backs the demos and the snapshot test tier under the per-file coverage gate. `acp-snapshot` carries the snapshot tier's harness/normalizer/suite machinery so every example's suite is a scenario table over one shared, gate-covered implementation. `subagent-mock` exercises the real `ctx.subagents` load path without a model or child agent. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
