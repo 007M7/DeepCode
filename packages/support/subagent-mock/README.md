@@ -18,3 +18,12 @@ Load it as a plugin (functional shape: `name`/`inject`/`Config`/`apply`, no defa
 | `structured` | `{ reply }` | Structured value surfaced when a request carries an `outputSchema` and the capability is on. |
 
 Aborting the required request signal or disposing before `result` settles flips the stop reason to `aborted`, so both holder-facing cancellation paths are observable.
+
+## Model Experience
+
+Indirectly, through `dsh-tool-subagent`, which renders this test provider's configured reply or stop-reason error into the parent test history.
+
+## Known Limitations and Deferred Work
+
+- **Scripted provider only** — it does not run a model, create a child agent, or exercise real prompt/tool-loop behavior.
+- **One synthetic outcome per run** — it models no multi-turn, streaming, steering, resume, or subprocess transport behavior.
