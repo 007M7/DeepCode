@@ -48,7 +48,8 @@ Durable values need one accepted representation, not a check followed by a secon
 
 - `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
 - `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
-- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event (type is surface-eligible AND `surfaceOp` present); the second is the type-only check (is this one of the five `SurfaceEventType` values?), used to detect a surface-eligible event MISSING its marker — e.g. when validating a seed/load log.
+- `foldSurface(events)` — replay the canonical surface transitions into detached current event sequences and actual replacement ranges, rejecting surface-eligible events that lack their mandatory marker. `SurfaceManager` shares the same transitions while retaining only its incremental sequence cache.
+- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event (type is surface-eligible AND `surfaceOp` present); the second is the type-only check, used to detect a surface-eligible event MISSING its marker when validating a seed or loaded log.
 
 ### Request-header reconstruction (`request-header.ts`)
 

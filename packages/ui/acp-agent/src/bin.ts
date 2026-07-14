@@ -22,11 +22,13 @@
  * STDERR only (the app plugin loads no stdout logger, and the shared guards
  * write to stderr); a stray stdout write corrupts the protocol frames.
  *
- * Usage: `dsh-acp-agent [path-to-cordis.yml]` (default `./cordis.yml`).
+ * Usage: `dsh-acp-agent [--config path-to-cordis.yml]` (default
+ * `./cordis.yml`).
  *
  * @module @deepseek-ai/dsh-acp-agent/bin
  */
 
+import { parseArgs } from 'node:util'
 import { boot, installFailLoud, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 
 const NAME = 'dsh-acp-agent'
@@ -37,7 +39,12 @@ const NAME = 'dsh-acp-agent'
 installFailLoud(NAME)
 const snapshotMode = process.env['DSH_SNAPSHOT']
 if (snapshotMode !== 'replay') loadEnv(NAME)
-const ctx = await boot(NAME, resolveConfigPath(process.argv[2] ?? './cordis.yml', snapshotMode))
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: { config: { type: 'string', short: 'c' } },
+  strict: true,
+})
+const ctx = await boot(NAME, resolveConfigPath(values.config ?? './cordis.yml', snapshotMode))
 if (snapshotMode !== undefined) {
   process.stdin.on('end', () => {
     void ctx.fiber.dispose().then(() => { process.exit(0) })

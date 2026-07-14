@@ -49,8 +49,8 @@ interface Spawned {
 function spawnAcpAgent(cwd: string): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, binScript, configPath],
-    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
+    ['--import', tsxLoader, binScript, '--config', configPath],
+    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig, DSH_PERMISSION_MODE: 'danger-full-access' }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')

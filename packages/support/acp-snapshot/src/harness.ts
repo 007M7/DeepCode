@@ -222,7 +222,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, opts.configPath ?? opts.agent.configPath],
+      ['--import', tsxLoader, opts.agent.binScript, '--config', opts.configPath ?? opts.agent.configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 
