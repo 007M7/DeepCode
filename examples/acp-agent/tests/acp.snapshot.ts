@@ -125,6 +125,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({
