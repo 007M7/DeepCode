@@ -214,6 +214,9 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
 
 /** Reject request-header vocabulary removed with the legacy delta codec. */
 function assertSupportedRequestHeader(type: string, data: unknown, location: string): void {
+  if (type === 'request/header-delta') {
+    throw new Error(`${location} uses unsupported legacy request/header-delta format`)
+  }
   if (type === 'request/header'
     && data !== null && typeof data === 'object' && !Array.isArray(data)
     && (data as Record<string, unknown>)['reason'] === 'fallback') {
