@@ -1,14 +1,18 @@
 # Cookbook: extension plugin shapes
 
+English | [中文](extension-cookbook.zh.md)
+
+> FIXME: This important guide has not received sufficient human design review; complete that review before the first release.
+
 The three plugin shapes you write against the harness extension surface, as illustrative snippets (elided imports and helper stubs — not copy-paste-complete). For the full step-by-step guides see [adding a package](./adding-a-package.md), [adding a tool](./adding-a-tool.md), and [adding an LLM adapter](./adding-an-llm-adapter.md); for the seams these hook into see [docs/architecture.md](../architecture.md).
 
 ## A tool plugin
 
 A tool registers on `ctx.tools`. The annotated `defineTool` example (typed `execute` args, result shaping, the `run_in_background` pattern) lives in [adding-a-tool.md](./adding-a-tool.md) — that guide is the source of truth for the tool shape. Raw JSON-Schema `ToolDefinition`s are also accepted by `ctx.tools.register()` directly (that is how MCP-sourced tools arrive); `defineTool` is the typed sugar for first-party tools.
 
-## A hook plugin (permission gate)
+## A hook plugin (permission-gate example)
 
-A hook returns a typed decision from the `tools/pre-execute` gate to allow or deny a call — the seam where sandbox, permission, and plan-mode plugins live. (A "native hook" is just this: an ordinary cordis plugin on the interception seams, returning typed decisions — no external protocol needed.)
+This permission gate is one example of a hook plugin. It returns a typed decision from the `tools/pre-execute` gate to allow or deny a call; sandbox, permission, and plan-mode plugins can use this seam. Hook plugins can intercept other seams and are not inherently permission gates. A "native hook" is an ordinary Cordis plugin on an interception seam; it needs no external protocol.
 
 ```ts
 import type { Context } from 'cordis'

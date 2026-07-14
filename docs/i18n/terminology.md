@@ -40,7 +40,7 @@
 | Cordis | Cordis | | | |
 | dispose | dispose | dispose（资源释放） | | |
 | doc-sync | doc-sync | doc-sync（文档同步门禁） | | |
-| fiber | fiber | fiber（插件运行时） | | |
+| fiber | fiber | | | |
 | fixture | fixture | fixture（测试前置数据） | | |
 | fork | fork | | | |
 | Function Calling | Function Calling | Function Calling（函数调用） | | |
@@ -51,7 +51,6 @@
 | loader | loader | | | |
 | manifest | manifest | manifest（元数据清单） | | |
 | monorepo | monorepo | | | |
-| package | package | | | 保留英文；指 npm 包（`@deepseek-ai/dsh-*`） |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
@@ -125,6 +124,7 @@
 | module | 模块 | | | |
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
+| package | 包 | 包（package） | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |
 | pairing | 配对 | | | |
 | peer dependency | 对等依赖 | 对等依赖（peer dependency） | | |
 | permission | 权限 | | | |
