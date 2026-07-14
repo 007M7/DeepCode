@@ -423,10 +423,16 @@ export class AgentLoop extends Service implements AgentFactory {
     error: unknown,
   ): void {
     this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${String(error)}`)
-    try {
-      this.ctx.emit('agent-loop/config-start-failed', sessionId, error)
-    } catch (listenerError) {
-      this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${String(listenerError)}`)
+    const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      try {
+        const returned: unknown = callback(...args)
+        void Promise.resolve(returned).catch((listenerError: unknown) => {
+          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${String(listenerError)}`)
+        })
+      } catch (listenerError: unknown) {
+        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${String(listenerError)}`)
+      }
     }
   }
 
