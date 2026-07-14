@@ -46,6 +46,7 @@ const GROUP_ORDER = [
   'cordis',
   'hooks',
   'session-persistence',
+  'session-query',
   'support',
   'ui',
 ]
