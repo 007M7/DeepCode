@@ -76,6 +76,8 @@ interface SubagentRun {
 }
 ```
 
+A local run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, and record `request.parent.session.id` in the child's `parentSession` header. Runtime ownership may place the child under the parent, provider, or root scope; `parentSession` is the durable transport-neutral lineage. A remote provider instead returns a parent-scoped lifecycle id and does not publish a local child.
+
 ## The provider seam: `SubagentProvider`
 
 One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present. `inheritsParentContext` is a DESCRIPTIVE fact beside the capabilities (nothing validates against it): whether a child sees the parent conversation (`fork`: true, `spawn`/`acp`: false) — the model-facing consumer derives truthful tool wording from it. It describes conversation history only, not tool registrations, injected services, or authority inheritance.

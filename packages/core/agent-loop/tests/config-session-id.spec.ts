@@ -113,6 +113,31 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 
+  it('joins an exact-id persistence lookup before AgentLoop disposal completes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    const listing = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.list>>>()
+    vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(listing.promise)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const loop = await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-dispose'), model: 'mock' }],
+    })
+    let disposed = false
+    const disposal = loop.dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+
+    listing.resolve([])
+    await disposal
+    expect(ctx.agents.get(SessionId('stdio-exact-dispose'))).toBeUndefined()
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+    await ctx.fiber.dispose()
+  })
+
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
