@@ -1,20 +1,8 @@
 /**
- * The matcher primitive shared by both hook dialects: decide whether a matcher
- * pattern selects a given query (a tool name, a session source, …).
- *
- * The two dialects differ ONLY in how a non-empty pattern is interpreted, so
- * that single axis is the {@link MatcherMode} parameter:
- * - `claude`: a pattern of purely `[A-Za-z0-9_|]+` is a LITERAL (pipe =
- *   exact-match alternation, e.g. `Edit|Write`); anything else is a regex.
- * - `codex`: every pattern is an unanchored regex (no literal fast path).
- *
- * Both treat an absent / empty / `'*'` pattern as match-all, and both treat an
- * invalid regex as a non-match: a broken matcher selects nothing rather than
- * throwing into the loop. This is SILENT — the boolean return cannot distinguish
- * "did not match" from "failed to compile", so a typo'd pattern (e.g. `[`)
- * quietly disables that matcher with no warning. Surfacing bad config would need
- * a diagnostic-returning variant or parse-time validation (`TODO(matcher-diagnostics)`).
- *
+ * Matcher shared by both hook dialects. Claude treats alphanumeric/underscore/
+ * pipe patterns as literal alternatives and other patterns as regex; Codex
+ * treats every non-empty pattern as an unanchored regex. Missing, empty, and
+ * `*` match all; invalid regexes silently match nothing.
  * @module @deepseek-ai/dsh-hook-protocol/matcher
  */
 
@@ -29,15 +17,14 @@ function isMatchAll(matcher: string | undefined): boolean {
 const CLAUDE_LITERAL = /^[A-Za-z0-9_|]+$/
 
 /**
- * Whether `matcher` selects `query` under the given dialect {@link MatcherMode}.
- * Match-all sentinels (absent/`''`/`'*'`) always match. A `claude` literal
- * pattern exact-matches the query (splitting `|` into alternatives); every other
- * `claude` pattern and ALL `codex` patterns are tested as an unanchored regex.
- * An invalid regex matches nothing (never throws).
+ * Whether `matcher` selects `query` under the given dialect. Claude literal
+ * patterns exact-match pipe-separated alternatives; all other patterns are
+ * unanchored regexes. Invalid regexes return `false` rather than throwing.
  * @param matcher - the configured pattern; absent/empty/`'*'` are the match-all sentinels.
  * @param query - the candidate value (a tool name, a session source, …).
  * @param mode - the dialect deciding literal-vs-regex interpretation of the pattern.
- * @returns `true` when the pattern selects the query; `false` on a non-match or an invalid regex.
+ * @returns `true` when the pattern selects the query; `false` on a non-match or an invalid
+ *   regex.
  */
 export function matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean {
   if (isMatchAll(matcher)) return true

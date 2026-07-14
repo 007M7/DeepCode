@@ -1,10 +1,9 @@
 /**
- * Loop-level tool-order determinism: the request/header event — and therefore
- * the frozen request the adapter receives — carries the assembly's canonical
- * tool order (system-prompt's `toolOrder` config, or lexicographic name
- * order), regardless of the order tool plugins happened to register in.
- * Registration order is a plugin-load artifact (concurrent dynamic imports
- * race), so nothing downstream of the registry may depend on it.
+ * Loop-level tool-order determinism: the request/header event — and therefore the frozen
+ * request the adapter receives — carries the assembly's canonical tool order (system-prompt's
+ * `toolOrder` config, or lexicographic name order), regardless of the order tool plugins
+ * happened to register in. Registration order is a concurrent loading artifact
+ * and must not leak downstream.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -93,11 +92,7 @@ describe('loop-level canonical tool order', () => {
   })
 
   it('fails the turn — no model request — when toolOrder names an unregistered tool', async () => {
-    // The assemble rejection escapes to runTurn's outer catch: the open turn
-    // closes with an `error` reason (agent/error mirrors it), no step opens,
-    // no request/header is logged, the adapter never sees a request, and the
-    // agent returns to idle — a misconfigured deployment fails every turn
-    // deterministically instead of silently reordering nothing.
+    // Unknown tool order fails before step or request creation and returns the agent to idle.
     const adapter = new MockAdapter([textResponse('never sent')])
     const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
     registerNamed(ctx, 'alpha')

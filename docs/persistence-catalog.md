@@ -23,7 +23,7 @@ An approval question was put to the answerer chain — log-only audit (like `hoo
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:84`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -33,7 +33,7 @@ The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly 
 'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:95`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -43,7 +43,7 @@ The session's approval policy was switched — log-only, durable, replayable, ne
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:107`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -75,13 +75,13 @@ Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/
 
 #### `bash/sandbox-mode` — log-only
 
-The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); execution and ACP config-option reporting fold it without adding prompt text or a context notice.
+Durable log-only sandbox-mode override; never a surface event or model message. Execution and ACP option reporting fold the latest event through effectiveSandboxMode without adding a prompt notice.
 
 ```ts persistence-catalog
 'bash/sandbox-mode': { mode: SandboxMode }
 ```
 
-Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
+Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 
@@ -93,7 +93,7 @@ Marks the end of a compaction — log-only, releases the lock. `error` set if su
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:46`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:38`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -103,7 +103,7 @@ Marks the start of a compaction — log-only, holds the lock until `compact/end`
 'compact/start': { turn: number }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -115,7 +115,7 @@ Provenance record of a completed summarization — log-only, no surfaceOp. The s
 
 Types: [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/types.ts:30`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
 
 ### `context/*`
 
@@ -141,29 +141,29 @@ A hook command was invoked at a hook point — log-only provenance (like `compac
 'hook/invoked': { turn: number; point: string; dialect: HookDialect; matcher?: string; handlerId: string }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:27`](../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-protocol/src/types.ts)
 
 #### `hook/result` — log-only
 
-A hook command's outcome — log-only, paired with a prior `hook/invoked` (same `handlerId`). `decision` is the dialect-neutral outcome derived by `appendHookResult` (which owns the rule): the hook's parsed decision (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to halt via `continue:false`, else `'pass'`. `exitCode` is the process exit (absent if it never ran), `stderrSummary` the trimmed stderr truncated to the bridge's configured cap (the block reason source on exit 2), `durationMs` the wall-clock runtime (audit timing; snapshot replay normalizes it). `turn` matches the `hook/invoked`.
+Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the parsed permission result, `stop` for `continue:false`, or `pass`; exit code may be absent, stderr is bounded, and duration is wall-clock runtime.
 
 ```ts persistence-catalog
 'hook/result': { turn: number; point: string; handlerId: string; decision: string; exitCode?: number; stderrSummary?: string; durationMs: number }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
 
 ### `permission/*`
 
 #### `permission/preset` — log-only
 
-The session's permission preset was switched — log-only (the `bash/sandbox-mode` precedent): durable and replayable, never in the model transcript. The LAST such event is the session's preset (effectivePermissionPreset); the knob events the switch wrote through follow it in the same turn, and they — not this record of the user's choice — are what execution reads.
+Records the selected preset as durable, log-only user intent. The knob events follow in the same turn and control execution; this event stays out of the model transcript and lets effectivePermissionPreset preserve a selection when bundles match.
 
 ```ts persistence-catalog
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:42`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src/index.ts)
 
 ### `prompt/*`
 
@@ -259,7 +259,7 @@ Source: [`packages/core/session/src/types.ts:300`](../packages/core/session/src/
 
 #### `tool/code-dispatch` — log-only
 
-One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized BEFORE dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text. Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter model context; persistence and UIs get every call. Appended inside the parent `run_code`'s execution (the bridge drains its queue before returning), so the turn-enclosure invariant holds by construction.
+One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized before dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text.
 
 ```ts persistence-catalog
 'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
@@ -267,7 +267,7 @@ One bridged sub-dispatch from a `run_code` program: the parent `run_code` call i
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:38`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:25`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 

@@ -1,12 +1,7 @@
 /**
- * Worker-side execution logic, written as plain functions over an injected
- * port so the unit suite can run every line IN-PROCESS against a fake port
- * (a real worker thread is a separate V8 isolate the coverage provider
- * cannot observe). The real worker entry (`worker.ts`) is a thin
- * self-executing glue file over {@link runWorkerMain}, excluded from
- * coverage the same way `bin.ts` entrypoints are, and exercised end-to-end
- * by the integration tests that spawn real workers.
- *
+ * Worker-side execution logic, written as plain functions over an injected port so the unit
+ * suite can run every line IN-PROCESS against a fake port (a real worker thread is a separate
+ * V8 isolate the coverage provider cannot observe).
  * @module @deepseek-ai/dsh-code-runtime-worker/src/bootstrap
  */
 
@@ -96,12 +91,11 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
 
 /**
  * Redirect a stream's `write` into the log buffer (the program-visible
- * `process.stdout`/`process.stderr` in the real worker), so raw writes land
- * in emission order alongside console output instead of racing down a pipe.
- * The shim keeps Node's `write(chunk[, encoding][, callback])` contract: the
- * callback fires asynchronously once the chunk is admitted (a program
- * awaiting flush completion must complete, not sit until the wall timeout),
- * even for writes the exhausted budget drops.
+ * `process.stdout`/`process.stderr` in the real worker), so raw writes land in emission order
+ * alongside console output instead of racing down a pipe. It preserves Node's optional callback
+ * contract: the callback runs asynchronously after admission, even when the log budget drops
+ * the write.
+ *
  * @param logs - the buffer captured writes are pushed into.
  * @param stream - the stream whose `write` slot is patched.
  * @param source - the log source the captured writes are attributed to.
@@ -152,16 +146,12 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
 }
 
 /**
- * Prepare the program's completion value for the done message: a value whose
- * MEASURED cross-boundary size fits `maxValueBytes` crosses raw — exact
- * bytes for a string, the structured-clone wire size (`v8.serialize`) for
- * everything else, so a huge container whose BOUNDED inspect rendering
- * happens to be small cannot smuggle itself past the cap. Anything else
- * (non-cloneable, or oversized) is REPLACED by its bounded `util.inspect`
- * rendering, byte-truncated ({@link truncateUtf8Bytes}) with an in-band
- * marker — the seam contract's "a non-transferable value is replaced by a
- * string rendering", extended to oversized ones so a huge return cannot
- * flood the host.
+ * Prepare the program's completion value for the done message: a value whose MEASURED
+ * cross-boundary size fits `maxValueBytes` crosses raw — exact bytes for a string, the
+ * structured-clone wire size (`v8.serialize`) for everything else, so a huge container whose
+ * bounded inspect rendering happens to be small cannot smuggle itself past the cap. Oversized
+ * or non-cloneable values are replaced by a bounded string rendering with an in-band marker.
+ *
  * @param value - the program's completion value.
  * @param maxValueBytes - the byte cap for the value.
  * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
@@ -215,13 +205,11 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
 }
 
 /**
- * Build the binding namespace objects the program sees: one null-prototype
- * global per namespace, each declared name an own enumerable async function
- * that bridges over the port (`__proto__`/`constructor`/`toString` are
- * ordinary keys, never prototype collisions). A non-cloneable argument
- * rejects that one call with a descriptive error; the host's reply (`ok`
- * false) rejects it likewise, so a failed tool call surfaces in the program
- * as an ordinary promise rejection.
+ * Build the binding namespace objects the program sees: one null-prototype global per
+ * namespace, each declared name an own enumerable async function that bridges over the port
+ * (`__proto__`/`constructor`/`toString` are ordinary keys, never prototype collisions).
+ * Non-cloneable arguments and host failure replies reject only the corresponding call.
+ *
  * @param data - the boot payload's namespace declarations (globals + names).
  * @param port - the port binding calls are posted to.
  * @param pending - the id-keyed map each posted call parks its handles in.
@@ -256,17 +244,12 @@ export function makeNamespaces(
 }
 
 /**
- * Run one program to settlement and post the {@link DoneMessage}: wires the
- * reply handler, materializes the namespaces and console shim, compiles the
- * type-stripped body as an async function (top-level `await`/`return`
- * work), and reports a thrown program error as the done message's `error`
- * field. Exactly one done message is ever posted.
- * @param port - the message port to the host (the real `parentPort`, or the tests' fake).
+ * Run one strict async-function body, allowing top-level `await` and `return`, and post exactly
+ * one terminal {@link DoneMessage}; a thrown program error becomes its `error` field.
+ * @param port - host message port or test double.
  * @param data - the boot payload the host sent.
- * @param streams - the stream objects whose `write` is captured (the real
- *   `process.stdout`/`process.stderr` in the worker; fakes in tests).
- * @returns resolves after the done message is posted (the tests await it;
- *   the real entry lets the worker exit naturally).
+ * @param streams - stdout/stderr objects captured as program logs.
+ * @returns after posting the done message.
  */
 export async function runWorkerMain(
   port: BootstrapPort,
