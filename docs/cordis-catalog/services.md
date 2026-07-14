@@ -33,6 +33,7 @@ register(agent: Agent): () => void
 enter(agent: Agent, owner: Agent | undefined): () => void
 announce(agent: Agent): void
 get(id: SessionId): Agent | undefined
+isOwnedBy(id: SessionId, owner: Agent): boolean
 list(): Agent[]
 roots(): Agent[]
 ```

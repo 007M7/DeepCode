@@ -441,6 +441,18 @@ export class AgentRegistry extends Service {
   }
 
   /**
+   * Test whether a live agent was created through one exact parent agent's
+   * scoped context. Runtime ownership is independent of durable session
+   * lineage and remains unambiguous when unrelated providers reuse an id.
+   * @param id - the candidate child agent's shared agent/session id.
+   * @param owner - the expected runtime creator agent.
+   * @returns true only while the exact child entry is live under that owner.
+   */
+  isOwnedBy(id: SessionId, owner: Agent): boolean {
+    return this.store.get(id)?.owner === owner
+  }
+
+  /**
    * All live agents, in registration order.
    * @returns a fresh array; mutating it does not affect the registry.
    */
