@@ -162,6 +162,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionQuery',
+    summary: 'Live-preferred logical-corpus and exact-event read service.',
+    methods: [
+      'listSessions(): Promise<SessionRecord[]>',
+      'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+      'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
+    ],
+  },
+  {
     key: 'sessions',
     summary: 'In-memory session store (`ctx.sessions`).',
     methods: [
@@ -809,8 +818,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: E /* …truncated — full shape in source */',
   },
   {
+    name: 'SessionEventReadRequest',
+    declaration: 'export interface SessionEventReadRequest {\n    sessionId: SessionId;\n    seq: number;\n    before?: number;\n    after?: number;\n}',
+  },
+  {
+    name: 'SessionEventRecord',
+    declaration: 'export interface SessionEventRecord {\n    sessionId: SessionId;\n    seq: number;\n    type: SessionEventType;\n    time: number;\n    surface: SessionEventSurface;\n}',
+  },
+  {
+    name: 'SessionEventSurface',
+    declaration: 'export type SessionEventSurface = \'current\' | \'shadowed\' | \'log-only\';',
+  },
+  {
     name: 'SessionEventType',
     declaration: 'export type SessionEventType = keyof SessionEventMap;',
+  },
+  {
+    name: 'SessionEventWindow',
+    declaration: 'export interface SessionEventWindow {\n    session: SessionHeader;\n    target: SessionEvent;\n    events: SessionEvent[];\n    startSeq: number;\n    endSeq: number;\n}',
   },
   {
     name: 'SessionForkSource',
@@ -823,6 +848,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionRecord',
+    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
   {
     name: 'SkillCandidate',

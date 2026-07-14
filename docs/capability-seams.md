@@ -18,12 +18,14 @@ flowchart LR
   svc_sessions["ctx.sessions<br/>In-memory session store"]
   pkg_agent["agent"]
   pkg_session_persistence["session-persistence"]
+  pkg_session_query["session-query"]
   pkg_subagent_inprocess["subagent-inprocess"]
   pkg_invariants["invariants"]
   svc_sessionPersistence["ctx.sessionPersistence<br/>Durable session persistence seam"]
   pkg_session_persistence_jsonl["session-persistence-jsonl"]
   pkg_session_persistence_sqlite["session-persistence-sqlite"]
   pkg_acp["acp"]
+  svc_sessionQuery["ctx.sessionQuery<br/>Exact session-history reads"]
   pkg_system_prompt["system-prompt"]
   svc_systemPrompt["ctx.systemPrompt<br/>System prompt assembly registry"]
   pkg_tools["tools"]
@@ -108,6 +110,7 @@ flowchart LR
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
   pkg_session_persistence_sqlite --> svc_sessionPersistence
+  pkg_session_query --> svc_sessionQuery
   pkg_skill --> svc_skills
   pkg_skill_local --> svc_skills
   pkg_stdio_agent --> svc_userInteraction
@@ -146,10 +149,12 @@ flowchart LR
   svc_sandbox --> pkg_bash_sandbox
   svc_sessionPersistence --> pkg_acp
   svc_sessionPersistence --> pkg_agent_loop
+  svc_sessionPersistence --> pkg_session_query
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_invariants
   svc_sessions --> pkg_session_persistence
+  svc_sessions --> pkg_session_query
   svc_sessions --> pkg_subagent_inprocess
   svc_skills --> pkg_tool_skill
   svc_subagents --> pkg_tool_subagent
@@ -178,8 +183,9 @@ flowchart LR
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compact-basic`](../packages/compact/compact-basic) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |
-| `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`invariants`](../packages/support/invariants) | - | Owns append-only Session instances and emits the durable session event feed. |
-| `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
+| `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`invariants`](../packages/support/invariants) | - | Owns append-only Session instances and emits the durable session event feed. |
+| `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`session-query`](../packages/session-query/session-query) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
+| `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | - | - | - | Resolves live and optional persisted logs into one logical corpus for exact reads. |
 | `ctx.systemPrompt` | `core` | [`system-prompt`](../packages/core/system-prompt) | - | [`agent-loop`](../packages/core/agent-loop), [`tools`](../packages/core/tools), [`tool-fs`](../packages/fs/tool-fs), [`tool-web`](../packages/web/tool-web) | - | Collects prompt sections and model-facing tool schemas for each step. |
 | `ctx.tools` | `core` | [`tools`](../packages/core/tools) | - | [`agent-loop`](../packages/core/agent-loop), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tool-bash`](../packages/bash/tool-bash), [`tool-cordis`](../packages/cordis/tool-cordis), [`tool-fs`](../packages/fs/tool-fs), [`tool-skill`](../packages/skill/tool-skill), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-todo`](../packages/todo/tool-todo), [`tool-web`](../packages/web/tool-web), [`acp`](../packages/ui/acp) | - | Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation. |
 | `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
