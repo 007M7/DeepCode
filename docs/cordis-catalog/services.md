@@ -161,6 +161,21 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
+## `ctx.permission` — `PermissionService`
+
+The permission service (`ctx.permission`). Owns the deployment's preset table and THE write path for preset switches; presentation layers (the ACP bridge's single `Permissions` select) advertise names and call set. Composing it REQUIRES both mechanism knobs — a confining `ctx.bash` executor and the `ctx.approval` seam. A knob state matching no table entry is not an error but the derived CUSTOM_PRESET state: shown as the current value, never a switch target.
+
+```ts cordis-catalog
+current(events: readonly SessionEvent[]): string
+resolve(name: string): PresetSpec
+optionOf(name: string): PresetOption
+set(session: Session, name: string): void
+```
+
+Types: [SessionEvent](../core-data-structures/core.md)
+
+Source: [`packages/ui/permission/src/index.ts:115`](../../packages/ui/permission/src/index.ts)
+
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
 Abstract process-sandbox service. Subclass, implement confine, and load the subclass as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).

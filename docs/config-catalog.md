@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:250`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -443,6 +443,41 @@ export interface Config {
 ```
 
 Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
+
+## `@deepseek-ai/dsh-permission`
+
+Requires: `bash` · `approval`
+
+```ts config-catalog
+/** The {@link PermissionService} config: the deployment's preset table. */
+export interface Config {
+  /**
+   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
+   * never). The name `custom` is reserved for the derived not-a-preset state.
+   */
+  presets?: Record<string, PresetSpec>
+}
+
+/**
+ * One preset's knob bundle — the sandbox mode and approval policy a session
+ * runs under while the preset is active — plus its presentation.
+ */
+export interface PresetSpec {
+  /** The `bash/sandbox-mode` value the preset writes through. */
+  sandbox: SandboxMode
+  /** The `approval/policy` value the preset writes through. */
+  approval: ApprovalPolicy
+  /** The display label a client shows for this preset; the raw table key when omitted. */
+  name?: string
+  /** One user-facing sentence on what the preset means; omitted when not configured. */
+  description?: string
+}
+```
+
+Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/ui/permission/src/index.ts:97`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

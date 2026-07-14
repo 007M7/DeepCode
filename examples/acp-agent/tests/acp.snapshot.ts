@@ -137,6 +137,15 @@ const SCENARIOS: Scenario[] = [
   // therefore pins its own class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
+  // The default tree owns the single Permissions select. Snapshot mode starts
+  // in danger-full-access so established fixtures stay runner-independent;
+  // these policy scenarios switch to workspace-write in their input scripts.
+  // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
+  // packages' e2e suites.
+  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({
