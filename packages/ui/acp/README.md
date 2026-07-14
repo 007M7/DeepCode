@@ -108,11 +108,17 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 **Token effect**: Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts.
 
-### Human answers and permissions
+### Human answers and permission decisions
 
 **What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
 
 **Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+
+### Permission preset switches
+
+**What the model sees**: `session/set_config_option` emits no model message itself. When `dsh-permission` is composed, the bridge writes the selected preset through that service; the resulting model-visible policy prompt and change notice belong to [`dsh-user-approval`](../user-approval/README.md), while sandbox-mode effects belong to [`dsh-tool-bash`](../../bash/tool-bash/README.md). The ACP `Permissions` select, its option descriptions, pending idle value, and refreshed config response remain client-only.
+
+**Token effect**: Zero direct tokens from the ACP option or the log-only `permission/preset` event. Downstream cost is limited to the owning plugins' policy prompt, conditional retained change notice, and any changed tool outcome.
 
 ### Loaded sessions
 
