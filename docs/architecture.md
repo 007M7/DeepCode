@@ -34,6 +34,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus and exact-event reads |
 
 ## Event
 
@@ -53,9 +54,9 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 Default loop processing remains exposed through plugin-visible services and events.
 
-A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
 
-Declarative startup chooses one agent/session identity. No id mints `<config-id>-session-<uuid>`; exact `sessionId` resumes when stored and otherwise creates; `resumeSessionId` requires stored history. Failures emit `agent-loop/config-start-failed(sessionId, error)`, letting front doors reject buffered work.
+Startup resolves one identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes stored or creates; `resumeSessionId` requires history. Failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject buffered work.
 
 ### Turn Flow
 
