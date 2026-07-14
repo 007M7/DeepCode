@@ -216,6 +216,18 @@ Types: [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
 
+## `ctx.sessionQuery` — `SessionQueryService`
+
+Live-preferred logical-corpus and exact-event read service.
+
+```ts cordis-catalog
+listSessions(): Promise<SessionRecord[]>
+async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
+```
+
+Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
+
 ## `ctx.sessions` — `SessionStore`
 
 In-memory session store (`ctx.sessions`).

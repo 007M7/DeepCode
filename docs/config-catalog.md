@@ -611,6 +611,20 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:50`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
+## `@deepseek-ai/dsh-session-query`
+
+Requires: `sessions`
+
+```ts config-catalog
+/** Configuration for exact session-query reads. */
+export interface Config {
+  /** Maximum accepted raw read context on either side. Defaults to 50. */
+  readWindowMax?: number
+}
+```
+
+Source: [`packages/session-query/session-query/src/config.ts:9`](../packages/session-query/session-query/src/config.ts)
+
 ## `@deepseek-ai/dsh-skill`
 
 ```ts config-catalog
