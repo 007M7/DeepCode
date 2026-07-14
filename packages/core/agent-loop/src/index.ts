@@ -52,6 +52,7 @@ function renderThrown(value: unknown): string {
 /** Factory-level ownership of every preparing or live transaction. */
 class FactoryOwnership {
   private accepting = true
+  private readonly inactive = Promise.withResolvers<void>()
   private transactions = new Set<AgentCreationTransaction>()
   private startupTasks = new Set<Promise<void>>()
 
@@ -73,8 +74,14 @@ class FactoryOwnership {
     void task.then(forget, forget)
   }
 
+  /** Resolve `task`, or stop waiting when factory teardown begins. */
+  async waitWhileActive(task: Promise<void>): Promise<void> {
+    await Promise.race([task, this.inactive.promise])
+  }
+
   async dispose(): Promise<void> {
     this.accepting = false
+    this.inactive.resolve()
     const reason = new Error('agent loop is not active')
     await Promise.all([
       ...[...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
@@ -454,6 +461,8 @@ export class AgentLoop extends Service implements AgentFactory {
     agentOptions: AgentOptions,
     meta: Pick<SessionHeader, 'cwd'>,
   ): Promise<void> {
+    await this.waitForDrainingConfiguredIdentity(ownerCtx, sessionId)
+    if (!this.ownership.isActive()) return
     const exists = (await persistence.list()).some(header => header.id === sessionId)
     if (!this.ownership.isActive()) return
     if (exists) {
@@ -461,6 +470,32 @@ export class AgentLoop extends Service implements AgentFactory {
       return
     }
     this.create(sessionId, agentOptions, meta)
+  }
+
+  /** Wait for an already-disposed same-id lifecycle to finish registry teardown. */
+  private async waitForDrainingConfiguredIdentity(ownerCtx: Context, sessionId: SessionId): Promise<void> {
+    const current = ownerCtx.agents.get(sessionId)
+    if (current?.status !== 'disposed') return
+
+    const released = Promise.withResolvers<void>()
+    const checkReleased = (): void => {
+      if (ownerCtx.agents.get(sessionId) === undefined && ownerCtx.sessions.get(sessionId) === undefined) {
+        released.resolve()
+      }
+    }
+    const disposeAgentListener = ownerCtx.on('agent/disposed', (agent) => {
+      if (agent.id === sessionId) checkReleased()
+    })
+    const disposeSessionListener = ownerCtx.on('session/disposed', (session) => {
+      if (session.id === sessionId) checkReleased()
+    })
+    try {
+      checkReleased()
+      await this.ownership.waitWhileActive(released.promise)
+    } finally {
+      disposeAgentListener()
+      disposeSessionListener()
+    }
   }
 
   /**

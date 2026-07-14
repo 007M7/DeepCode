@@ -67,6 +67,15 @@ function isTTYPair(input: Readable, output: Writable): boolean {
   return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
 }
 
+/** Render an arbitrary failure without allowing hostile coercion to escape the UI boundary. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
 interface PendingQuestion {
   request: AskUserQuestionRequest
   questionIndex: number
@@ -230,7 +239,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       queuedInput.length = 0
       submittedWork = sawRunning
       if (dropped > 0) {
-        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${String(error)}`)
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${renderThrown(error)}`)
       }
       maybeExit()
     })
@@ -390,7 +399,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const text = line.trim()
       if (!text) return
       if (failedStartup !== undefined) {
-        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${String(failedStartup.error)}`)
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${renderThrown(failedStartup.error)}`)
         return
       }
       const agent = target
