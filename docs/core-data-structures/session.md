@@ -109,7 +109,7 @@ export interface EpochHeader {
 }
 ```
 
-Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are absent fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); it is composed once per loop instance and included in every full snapshot that instance records. Legacy v0 logs containing the removed `request/header-delta` format are rejected at seed and persistence-load boundaries rather than replayed incompletely.
+Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are absent fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); it is composed once per loop instance and included in every full snapshot that instance records. Legacy v0 logs containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected at seed, append, and persistence-load boundaries rather than replayed incompletely.
 
 ## `SessionEvent<T>` — one log entry
 
