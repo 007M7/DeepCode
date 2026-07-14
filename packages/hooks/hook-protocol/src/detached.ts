@@ -1,16 +1,7 @@
 /**
- * Quiescence tracking for a bridge's DETACHED hook runs. The waterfall-shaped
- * hook points (`UserPromptSubmit`, `PreToolUse`, …) are awaited by their seams,
- * but the emit-shaped points (`SessionStart`, `SubagentStart`, `SubagentStop`)
- * run fire-and-forget: no seam awaits them, so without tracking a bridge's
- * disposal could strand a live hook process and let a late continuation fire
- * into a disposed context (docs/defensive-patterns.md: dispose must reach
- * quiescence). A bridge creates one tracker in `apply()`, passes
- * {@link DetachedRuns.signal} to each detached {@link runHook} call, wraps the
- * full run chain (the hook run PLUS its `.then` continuation) in
- * {@link DetachedRuns.track}, and registers {@link DetachedRuns.drain} as its
- * disposer.
- *
+ * Quiescence tracking for emit-shaped hook runs that no seam awaits. Bridges
+ * track the run plus its continuation, pass the tracker signal into execution,
+ * and drain on disposal so no process or late callback outlives the fiber.
  * @module @deepseek-ai/dsh-hook-protocol/detached
  */
 

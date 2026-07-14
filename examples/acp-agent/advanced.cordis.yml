@@ -1,7 +1,5 @@
-# Advanced ACP snapshot overlay: keep every native tool on the wire, add the
-# Code Mode worker, and opt into the self-referential Cordis toolset. The base
-# tree already supplies direct spawn subagents and the workflow worker, so this
-# composition exercises all four boundaries in one editor-facing ACP turn.
+# Add Code Mode and Cordis tools to the base spawn/workflow stack, exercising
+# all four boundaries in one ACP snapshot.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

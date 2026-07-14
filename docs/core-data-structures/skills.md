@@ -6,7 +6,9 @@ Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/ind
 
 ## Provider registry
 
-`ctx.skills` is a multi-provider registry. Providers can represent local directories, embedded plugin data, HTTP catalogs, or another source. Provider plugins register synchronously during `apply()`; remote initialization, authentication, and discovery are awaited by `list()`. Provider objects, lookup options, and candidates are readonly same-process contracts, so the registry borrows them instead of manufacturing defensive snapshots. The registry still validates semantic fields, resolves duplicate skill names first-wins by rank/provider order/local order, and sorts the final summaries by `name` for deterministic consumers. A provider `list()` rejection is logged and skipped without caching the degraded catalog; malformed candidates still fail fast because they violate the provider contract.
+`ctx.skills` combines local, embedded, remote, or other providers. Registration is synchronous; remote initialization and discovery belong in awaited `list()`. Provider objects, options, and candidates are borrowed readonly, while semantic fields are validated.
+
+Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and skipped without caching the degraded catalog, while malformed candidates fail fast.
 
 ```ts type-equiv
 interface SkillProvider {
