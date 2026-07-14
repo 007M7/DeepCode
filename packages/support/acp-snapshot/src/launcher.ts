@@ -79,7 +79,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   const { agent, cwd } = options
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, agent.binScript, options.configPath ?? agent.configPath],
+    ['--import', tsxLoader, agent.binScript, '--config', options.configPath ?? agent.configPath],
     {
       cwd,
       env: {

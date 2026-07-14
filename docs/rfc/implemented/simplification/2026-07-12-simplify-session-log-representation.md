@@ -14,7 +14,7 @@ This proposal deliberately retains append and replacement `sourceEventSeqs`, cra
 
 ## Decision
 
-`SurfaceManager.nodes` is a `readonly number[]` of event sequences; the public `SurfaceNode` shape, node links, and seq-to-node map are removed. The internal replace-generation signal remains. Tool-pairing balance and compaction use array values and indices for successor and replacement ranges.
+`SurfaceManager.nodes` is a `readonly number[]` of event sequences; the public `SurfaceNode` shape, node links, and seq-to-node map are removed. The internal replace-generation signal remains. The complete `foldSurface()` read used by session-query returns the same number-array representation plus replacement metadata without making the incremental manager retain history. Tool-pairing balance and compaction use array values and indices for successor and replacement ranges.
 
 Request headers use canonical full snapshots only. Initial and resume anchors remain full snapshots even when unchanged; an in-instance change appends another full `request/header` with reason `change`. The delta event, codec types, diff/apply helpers, and codec-only `fallback` reason are removed. Request reconstruction selects the latest snapshot.
 

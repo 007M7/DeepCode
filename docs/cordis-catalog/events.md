@@ -263,7 +263,7 @@ A session was created in the store. A synchronous listener throw vetoes publicat
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:51`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:52`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -273,7 +273,7 @@ A previously announced session left the store. Emitted exactly once on normal de
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:63`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -285,7 +285,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:82`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -295,7 +295,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.sessions.flush(session
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:100`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
 
 ## `skill/*`
 
