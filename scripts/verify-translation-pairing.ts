@@ -257,7 +257,7 @@ for (const req of manifest.required) {
 // 2. Date-named documents (RFCs) dated on/after the requiredSince cutoff merge
 // bilingual: a new RFC lands with its pair or not at all. Deterministic from
 // the filename alone — no git history, so it holds on shallow CI checkouts.
-const DATED = /(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
+const DATED = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
 for (const source of sources) {
   if (isExcluded(source)) continue
   const dated = DATED.exec(source)

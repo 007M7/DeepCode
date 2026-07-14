@@ -11,6 +11,8 @@
 | `{{source_lang}}` | 源语言名（`English` / `Chinese`） | 由改动侧文件推断：`.zh.md` 被改则为 `Chinese` |
 | `{{target_lang}}` | 目标语言名（`Chinese` / `English`） | 与 `{{source_lang}}` 相对 |
 | `{{terminology}}` | [terminology.md](terminology.md) 的完整表格（Markdown 原文） | 渲染时读取仓库当前版本，不缓存 |
+| `{{source_filename}}` | 源文档的 basename（如 `foo.md`） | 由流水线从待译文件路径取得 |
+| `{{source_filename_zh}}` | 中文侧 basename（如 `foo.zh.md`） | 由 `{{source_filename}}` 派生 |
 
 历史模板的 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 占位符与 `%%` 分段协议已废弃：本模板按整文档翻译（非分段），输出协议为下方三段 XML。
 
@@ -40,8 +42,8 @@ You are a senior technical translator specializing in LLM and agent development 
 - Fenced code blocks must be byte-identical to the source, including ALL comments inside them. Do NOT translate comments inside code blocks. This is a hard rule with no exceptions.
 - Inline code spans (commands, flags, paths, API names, version numbers) must be kept verbatim. Never translate or reformat them.
 - Every relative link must point to the same target as in the source. Link text is translated; link targets are not.
-- Language switcher line: when translating into Chinese, write `[English](source-filename.md) | 中文`. When translating into English, write `English | [中文](source-filename.zh.md)`. Do NOT copy the switcher line from the source file unchanged — you must flip the link direction.
-- After a closing bold marker `**`, always insert a space before the next character.
+- Language switcher line: the source document's filename is `{{source_filename}}`. When translating into Chinese, write `[English]({{source_filename}}) | 中文` immediately after the H1 heading. When translating into English, write `English | [中文]({{source_filename_zh}})` immediately after the H1. Emit this line even when the source file has no switcher yet (a brand-new pair); when the source does have one, flip the link direction — never copy it unchanged.
+- After a closing bold marker `**`, insert a space before the next character when that character is a Latin letter or digit. Never insert a space before full-width (Chinese) punctuation.
 
 ### Tone and Style
 - The translation must read as if originally written in the target language by a native speaker. If an expression sounds like a word-for-word rendering from the source language, rephrase it.

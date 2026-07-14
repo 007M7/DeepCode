@@ -26,6 +26,7 @@ This repo's documentation is read by people and agents both inside and outside t
 1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
 2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table column counts, list kinds, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
+4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new documents merge bilingual from birth.
 
 `pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
 

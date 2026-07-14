@@ -2,14 +2,14 @@
 
 [English](development.md) | 中文
 
-本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建，并帮助你了解本地钩子、日常检查与 CI 门禁。
+本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建、日常工作流与 CI 流程；设计动机与技术权衡请查阅相应 RFC。
 
 ## 前置条件
 
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
-- 可选：一个 DeepSeek API key，用于 REPL/ACP agent 演示和真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -59,7 +59,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点：
 
 - `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest 守卫；
-- `pre-push` 运行 `pnpm run test`、`pnpm run test:snapshot`、`pnpm run hygiene`、`pnpm run doc-sync` 和 `pnpm run verify-module-graph`。
+- `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行单元测试、快照测试、构建、module-graph 新鲜度，以及 `pnpm run hygiene` 与 `pnpm run doc-sync` 的各成员门禁。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 

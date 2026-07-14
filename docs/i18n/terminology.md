@@ -63,6 +63,7 @@
 | thinking | thinking | | | API 字段保留英文；描述模型模式时译为`思考` |
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
+| wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
 
 ## 双语类（中英文文本各自使用中英文）
@@ -92,6 +93,7 @@
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
+| deploy root | 部署根目录 | | | |
 | durability | 持久性 | | | |
 | enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
 | event | 事件 | | | |
@@ -124,6 +126,7 @@
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
 | pairing | 配对 | | | |
+| peer dependency | 对等依赖 | 对等依赖（peer dependency） | | |
 | permission | 权限 | | | |
 | persistence | 持久化 | | | |
 | pipeline | 流水线 | | | |
@@ -140,6 +143,7 @@
 | runtime | 运行时 | | | |
 | sandbox | 沙箱 | | | |
 | service | 服务 | | | |
+| serving surface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
@@ -162,6 +166,7 @@
 | tool schema | 工具 schema | | | |
 | toolkit | 工具包 | | | |
 | turn | 轮次 | | | |
+| VFS | VFS | 虚拟文件系统（VFS） | | |
 | typecheck | 类型检查 | | | |
 | vocabulary | 词汇 | | | |
 | wire format | 协议格式 | 协议格式（wire format） | | |
