@@ -27,7 +27,7 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 
 /** The unbuilt agent entry, leaf config, and workspace tsconfig an ACP test boots. */
 export interface AgentUnderTest {
-  /** The agent bin entry (for example `packages/ui/acp-agent/src/bin.ts`). */
+  /** The agent bin entry (for example `packages/examples/acp-demo/src/bin.ts`). */
   binScript: string
   /** The leaf `cordis.yml` loaded by the bin. */
   configPath: string
