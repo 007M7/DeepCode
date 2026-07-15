@@ -15,8 +15,9 @@ import * as stdioAgent from '../src/index.ts'
  * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
  * survive namespace collapse while silently losing its schema.
  */
-async function mount(config: stdioAgent.Config): Promise<Context> {
+async function mount(config: stdioAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
+  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
   await ctx.plugin(stdioAgent, config)
   // The app mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services + the pre-created agent are ready.
@@ -126,6 +127,19 @@ describe('dsh-stdio-demo app', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards bundled tool config into agent-core', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      skills: await isolatedSkillsConfig(),
+    }, true)
+    const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
+    expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
+      .not.toContain('run_in_background')
+    await ctx.fiber.dispose()
+  })
+
   it('exposes its name and Config schema', () => {
     expect(stdioAgent.name).toBe('stdio-demo')
     expect(stdioAgent.Config).toBeDefined()
@@ -148,7 +162,7 @@ describe('dsh-stdio-demo app', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question', 'skill'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question', 'skill', 'task_kill', 'task_list', 'task_output'])
     await ctx.fiber.dispose()
   })
 

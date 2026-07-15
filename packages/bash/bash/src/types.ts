@@ -1,79 +1,24 @@
 /**
- * Execution vocabulary for the bash executor seam. Types only — the abstract
- * service lives in `./index.ts`, implementations in sibling packages
- * (`@deepseek-ai/dsh-bash-local` first).
- *
+ * Execution types for the bash executor seam. Background task semantics belong
+ * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles.
  * @module dsh-bash/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
-/** Identifies one background task within an executor (generated `bash-N`). */
-export type BashTaskId = Branded<'BashTaskId'>
-
 /**
- * Brand a string as a {@link BashTaskId}.
- * @param id - the raw task-id string (the executor generates `bash-N`).
- * @returns the same string, branded; no validation is performed.
- */
-export function BashTaskId(id: string): BashTaskId {
-  return id as BashTaskId
-}
-
-/**
- * A background task's opaque isolation key — the CONSUMER's owner identity, not
- * the bash seam's. The executor stores and returns it verbatim and never
- * interprets it; the access policy lives in the consumer (`dsh-tool-bash`),
- * which is the single boundary that casts its own id vocabulary into one. A
- * DISTINCT brand (not a `SessionId` alias) keeps the seam decoupled — a
- * sandboxed/remote executor inherits no session dependency.
- */
-export type OwnerToken = Branded<'OwnerToken'>
-
-/**
- * Brand a string as an {@link OwnerToken}. Only the consuming boundary
- * (`dsh-tool-bash`) should cast its own id vocabulary in — see the type's doc.
- * @param id - the consumer's raw owner identity (the tool layer passes the owning agent's session id).
- * @returns the same string, branded; no validation is performed.
- */
-export function OwnerToken(id: string): OwnerToken {
-  return id as OwnerToken
-}
-
-/**
- * Sandbox facts for one foreground run — present on {@link BashRunResult} iff
- * a sandboxing executor ran the command (an unsandboxed executor reports no
- * `sandbox` field at all). Reported independently of `exitCode`/`signal`
- * (orthogonal outcomes), so a caller can tell "the command failed on its own"
- * from "the sandbox blocked a file operation". The mode/enforcement
- * vocabulary lives on the `@deepseek-ai/dsh-sandbox` seam; this shape is the
- * bash seam's result-fact carrier for it.
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
  */
 export interface BashSandboxInfo {
   /** The mode the command actually ran under. */
   mode: SandboxMode
-  /**
-   * True when the executor classifies this run's failure as the sandbox
-   * denying a file operation. The classification is CONSERVATIVE (a failed
-   * exit whose stderr carries a filesystem-permission signature) and reads
-   * the COLLECTED stderr — the bounded in-memory tail per
-   * {@link CollectedOutput} semantics, so a signature that survives only in a
-   * spill file is missed toward `denied: false`. A plain command failure
-   * keeps `denied: false` even under a sandboxed mode.
-   */
+  /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /**
-   * How completely the runner enforced `mode`'s file effects — see
-   * {@link SandboxEnforcement}. Absent exactly when `mode` is
-   * `danger-full-access`: nothing is confined, so there is no enforcement to
-   * report.
-   */
+  /** How completely the selected runner enforced the requested mode. */
   enforcement?: SandboxEnforcement
-  /**
-   * The sandbox runner failed before executing the command. Set only on settled
-   * background tasks; foreground runs throw `SANDBOX_UNAVAILABLE` instead.
-   */
+  /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }
 
@@ -109,30 +54,14 @@ export interface BashExecRequest {
    * uses shell syntax like `FOO=bar cmd`).
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
-   */
-  owner?: OwnerToken | undefined
-  /**
-   * Explicit per-call sandbox policy. The tool stamps a session override or a
-   * one-shot approved escalation, with the grant taking precedence. Sandboxing
-   * executors honor it for this call; non-sandboxing executors do not confine.
-   */
+  /** Explicit per-call sandbox mode override. */
   sandboxMode?: SandboxMode | undefined
 }
 
 /**
- * A fully-resolved execution SPEC — exactly what {@link BashExecutor.run} /
- * {@link BashExecutor.start} act on. `workdir` and `timeoutMs` are REQUIRED:
- * defaulting and capping already happened in {@link BashExecutor.resolve}, so
- * the executor never hides a `?? config` fallback (explicit > implicit). For
- * background tasks, `start()` ignores `timeoutMs` (background runs have no
- * timeout) — the field is still required because the type is shared.
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
  */
 export interface BashExecSpec {
   command: string
@@ -140,40 +69,14 @@ export interface BashExecSpec {
   timeoutMs: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
-   */
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Extra environment entries, merged after credential scrubbing so explicit
+   * values win; absent means no extra entries.
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
-   */
-  owner: OwnerToken | undefined
-  /**
-   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
-   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
-   * stamps the effective mode (the request's explicit override, else its
-   * configured default) so `run()`/`start()` read the spec, never the config;
-   * a non-sandboxing executor carries the request value through verbatim and
-   * ignores it (`undefined` under such an executor means what its README says:
-   * unconfined execution).
-   */
+  /** Resolved sandbox mode; ignored by executors that do not confine. */
   sandboxMode: SandboxMode | undefined
 }
 
@@ -201,42 +104,15 @@ export interface BashRunResult {
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
-  /**
-   * Sandbox facts, present iff a sandboxing executor ran the command — an
-   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
-   * {@link BashSandboxInfo} for the `denied` classification semantics.
-   */
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
   sandbox?: BashSandboxInfo
 }
 
-/** Lifecycle of a background task. */
-export type BashTaskStatus = 'running' | 'completed' | 'killed'
+/** Lifecycle of a background process. */
+export type BashProcessStatus = 'running' | 'completed' | 'killed'
 
-/** A tracked background task handle. */
-export interface BashTask {
-  readonly id: BashTaskId
-  status: BashTaskStatus
-  /** Exit code once finished (null = killed by signal / still running). */
-  exitCode: number | null
-  /** Terminating signal name, when signal-killed. */
-  signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
-  readonly done: Promise<void>
-  /**
-   * Sandbox facts for this task's execution, stamped by a sandboxing executor
-   * once the task settles and BEFORE completion listeners are notified — an
-   * `onTaskDone` consumer and a `done` awaiter both see it. Denial
-   * classification runs against the settled task's collected stderr, so the
-   * field cannot exist earlier: absent while the task is running and under an
-   * executor that does not sandbox. See {@link BashSandboxInfo} for the
-   * `denied` semantics.
-   */
-  sandbox?: BashSandboxInfo
-}
-
-/** One incremental {@link BashExecutor.readOutput} read. */
-export interface BashTaskRead {
-  task: BashTask
+/** One incremental {@link BashProcess.readOutput} read. */
+export interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -247,5 +123,31 @@ export interface BashTaskRead {
   stderrSpillPath?: string
 }
 
-/** Completion callback for background tasks. */
-export type BashTaskListener = (task: BashTask) => void
+/**
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
+ */
+export interface BashProcess {
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
+  /** Exit code once finished (null = killed by signal / still running). */
+  exitCode: number | null
+  /** Terminating signal name, when signal-killed. */
+  signal: NodeJS.Signals | null
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  readonly done: Promise<void>
+  /** Sandbox facts, stamped once a confined process settles. */
+  sandbox?: BashSandboxInfo
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
+}
