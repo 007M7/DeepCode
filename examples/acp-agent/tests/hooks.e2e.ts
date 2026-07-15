@@ -23,7 +23,7 @@ import {
  * The test owns and disposes the ACP subprocess.
  */
 
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))

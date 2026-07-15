@@ -1,5 +1,5 @@
 /**
- * Shared boot glue for the app bins (`dsh-stdio-agent`, `dsh-acp-agent`): load the gitignored
+ * Shared boot glue for the app bins (`dsh-stdio-demo`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), and
  * drive the cordis Loader against a leaf `cordis.yml` until the whole tree has settled.
  * @module @deepseek-ai/dsh-app-boot
