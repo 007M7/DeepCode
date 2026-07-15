@@ -20,6 +20,7 @@ export {
   normalizeStdout,
   scrubRequestHeaders,
   scrubSystemPrompts,
+  scrubToolSchemas,
   type NormalizeContext,
 } from './normalize.ts'
 export {

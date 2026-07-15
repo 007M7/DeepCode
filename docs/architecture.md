@@ -111,7 +111,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Scope
 
-Every live agent owns `agent.ctx` ([`dsh-scope`](../packages/core/scope/README.md)). Agent-local registrations shadow globals and unwind with the agent; async effects such as background-task cleanup are awaited. Scoped listeners hear only that agent through an opaque routing carrier. `CreateAgentOptions.setup(agentCtx)` composes this world before publication. Dev invariants verify carrier/subject alignment. Rationale: [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are a separate [feature](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow same-named globals, receive only that agent's dispatches, and unwind with the agent; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. The [semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md) defines typed resolvers that derive carrier checks from merged `Events` signatures and `scopeTarget`, eliminating the handwritten event table. See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are documented [separately](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
 ## State
 
