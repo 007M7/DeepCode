@@ -14,9 +14,6 @@ import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_GRACE_MS, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
-export { DEFAULT_GRACE_MS, ENV_OVERRIDES, killGroup, OutputCollector, runBash } from './run.ts'
-export type { RunInternals, RunningBash, SpawnOutcome, SpawnSpec } from './run.ts'
-
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
   /** Default working directory for commands (default: process.cwd()). */
@@ -170,7 +167,6 @@ export class LocalBashExecutor extends BashExecutor {
     const id = BashTaskId(`bash-${this.nextTaskId++}`)
     const task: TrackedTask = {
       id,
-      command: spec.command,
       status: 'running',
       exitCode: null,
       signal: null,

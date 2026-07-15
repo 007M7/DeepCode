@@ -119,23 +119,6 @@ declare module 'cordis' {
   interface Context {
     skills: SkillService
   }
-
-  interface Events {
-    /**
-     * A skill provider became resolvable in the `ctx.skills` registry.
-     * Consumers can observe this instead of depending on Cordis plugin load
-     * order, which is concurrent for sibling plugins.
-     * @param provider - the provider that just registered.
-     * @mode emit
-     */
-    'skill/provider-added'(provider: SkillProvider): void
-    /**
-     * A skill provider left the registry because its plugin fiber was disposed.
-     * @param name - the registry name that no longer resolves.
-     * @mode emit
-     */
-    'skill/provider-removed'(name: string): void
-  }
 }
 
 interface IndexedCandidate {
@@ -191,19 +174,16 @@ export class SkillService extends Service {
       throw new Error(`a skill provider named "${name}" is already registered`)
     }
     const providers = this.providers
-    const ctx = this.ctx
     const order = this.nextProviderOrder
     const invalidateCache = (): void => { this.invalidateCache() }
     this.nextProviderOrder += 1
-    const dispose = ctx.effect(function* () {
+    const dispose = this.ctx.effect(function* () {
       providers.set(name, { provider, order })
       invalidateCache()
       yield () => {
         providers.delete(name)
         invalidateCache()
-        ctx.emit('skill/provider-removed', name)
       }
-      ctx.emit('skill/provider-added', provider)
     }, 'skills.registerProvider()')
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
