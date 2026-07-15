@@ -213,7 +213,7 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:158`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

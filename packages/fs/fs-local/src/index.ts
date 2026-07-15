@@ -31,20 +31,6 @@ import {
 } from './fsio.ts'
 import type { FsIoInternals } from './fsio.ts'
 
-export {
-  applyLiteralEdit,
-  listDirectory,
-  probe,
-  readForEdit,
-  readTextForDiff,
-  readWholeText,
-  resolveLocalTarget,
-  restoreLineEndings,
-  streamWholeText,
-  writeFileAtomic,
-} from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo } from './fsio.ts'
-
 /** Configuration for the local filesystem backend. */
 export interface Config {
   /** Base directory for relative paths. Defaults to `process.cwd()`. */
