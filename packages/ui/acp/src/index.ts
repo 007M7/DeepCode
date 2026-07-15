@@ -20,11 +20,12 @@
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
  * its own `ReactLoopAgent`. Sessions are keyed by their shared agent/session id;
  * every `session/event` and `agent/*` event is routed strictly to its owning
- * session record, so two sessions streaming at once never interleave their
- * `session/update` notifications. Permission prompts use the same identity: the
- * bridge answers `approval/request` for its own agents over
- * `session/request_permission` (see the approval answerer below) — whether a
- * call ASKS is policy (a hook or plugin returning `ask`), not the bridge's.
+ * session record, and each `session/update` carries that id. Concurrent updates
+ * may alternate on the shared connection without crossing session attribution.
+ * Permission prompts use the same identity: the bridge answers
+ * `approval/request` for its own agents over `session/request_permission` (see
+ * the approval answerer below) — whether a call ASKS is policy (a hook or
+ * plugin returning `ask`), not the bridge's.
  *
  * stdout is the protocol: this plugin must run in an example that loads NO
  * stdout logger (the console logger writes to stdout and would corrupt the
@@ -483,8 +484,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // whose end arrives late is ignored (see
   // SessionRecord.inflight). A turn that ends `error` REJECTS the prompt (ACP
   // has no error stop reason); other reasons resolve via the codec. Demux
-  // strictly by session id: a `session/event` is routed to its own record, so
-  // two sessions streaming at once never cross-settle or interleave updates.
+  // strictly by session id: concurrent updates may alternate on the shared
+  // connection, but they retain the owning id and never cross-settle.
   ctx.on('session/event', (session, event: SessionEvent) => {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
