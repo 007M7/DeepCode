@@ -24,7 +24,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-subagent": "^0.0.1",
     "@deepseek-ai/dsh-subagent-inprocess": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
@@ -43,7 +43,7 @@
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tool-subagent": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "@cordisjs/plugin-loader": "^1.0.0-rc.4",
-    "cordis": "^4.0.0-rc.6"
+    "@cordisjs/plugin-loader": "^1.0.0-rc.5",
+    "cordis": "^4.0.0-rc.7"
   }
 }

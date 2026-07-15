@@ -14,15 +14,15 @@ Upstream workspace: `cordis-workspace` (local checkout: `~/repos/cordis-workspac
 |---|---|---|---|---|
 | `cosmokit/` | `cosmokit` | 1.8.1 | https://github.com/deepseek-harness/cosmokit | `16f6fc058ade66e8ac5da0033d35a8d0f279f544` |
 | `schemastery/` | `schemastery` | 3.18.0 | https://github.com/deepseek-harness/schemastery (`packages/core`) | `e67cee00ad725bd1534aee930a979ea3eec6f698` |
-| `cordis/` | `cordis` | 4.0.0-rc.6 | https://github.com/deepseek-harness/cordis (`packages/core`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
-| `loader/` | `@cordisjs/plugin-loader` | 1.0.0-rc.4 | https://github.com/deepseek-harness/cordis (`packages/loader`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
+| `cordis/` | `cordis` | 4.0.0-rc.7 | https://github.com/cordiverse/cordis (`packages/core`) | `56b3d4f725681cf4556c1a8695a709cc3b6eed74` |
+| `loader/` | `@cordisjs/plugin-loader` | 1.0.0-rc.5 | https://github.com/cordiverse/cordis (`packages/loader`) | `56b3d4f725681cf4556c1a8695a709cc3b6eed74` |
 | `include/` | `@cordisjs/plugin-include` | 1.0.4 | https://github.com/deepseek-harness/cordis (`packages/include`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
 | `group/` | `@cordisjs/plugin-group` | 1.0.0 | https://github.com/deepseek-harness/cordis (`packages/group`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
 | `timer/` | `@cordisjs/plugin-timer` | 1.1.2 | https://github.com/deepseek-harness/cordis (`packages/timer`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
 | `hmr/` | `@cordisjs/plugin-hmr` | 1.0.15 | https://github.com/deepseek-harness/cordis (`packages/hmr`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
 | `logger-console/` | `@cordisjs/plugin-logger-console` | 1.0.0 | https://github.com/deepseek-harness/cordis (`packages/logger-console`) | `abb0a307cb1d3b0947f455d590cf5ba922d4caa4` |
 
-Third-party dependencies of the vendored packages stay on npm: `@standard-schema/spec`, `js-yaml`, `chokidar`, `picomatch`, `@babel/code-frame`, `supports-color`.
+Third-party dependencies of the vendored packages stay on npm: `@standard-schema/spec`, `js-yaml`, `chokidar`, `picomatch`, `@babel/code-frame`, `supports-color`, `node-addon-require-builtin`.
 
 Intentionally **not** vendored (verified unused by this set): `reggol`, `@cordisjs/utils`, `@cordisjs/element`, `@cordisjs/unyaml` (dev-time YAML import hook only).
 
@@ -36,7 +36,6 @@ Keep this log exhaustive — every divergence from upstream must be listed.
 4. **Vendored TypeScript source internal specifiers**: changed local relative imports/exports from upstream's specifier shape to explicit `.ts` specifiers so TypeScript rewrites emitted JS to `.js` while declarations keep explicit, NodeNext-safe `.ts` specifiers. This includes `loader/src/config/isolate.ts` using `declare module './entry.ts'`.
 5. **`schemastery/tsdown.config.ts` and `logger-console/tsdown.config.ts`**: ours, not upstream files — per-package build-shape overrides (dual ESM+CJS output; separate node/browser entries) for the repo-root tsdown build. They read the JS emitted under `lib/types` and then write the publish runtime entries under `lib/`. Like the regenerated tsconfigs, they are not part of the upstream sync surface.
 6. **`cordis/src/fiber.ts` lifecycle hardening**: locally closes three reentrant disposal gaps. An effect's owner-list wrapper is registered before its setup body runs, so an unload begun from inside setup awaits setup and every collected cleanup; synchronous setup failure removes the wrapper and rolls back collected cleanup. Async cleanup stays owner-visible until quiescence, and Cordis's internal effect composition joins an already-running cleanup while repeated public disposer calls retain their upstream single-shot result. Effect creation is rejected while the owner is `UNLOADING` (while `PENDING` and `LOADING` remain legal), preventing cleanup-time registrations from escaping the unload snapshot. Child fibers register and receive their parent-owned disposer before `internal/plugin` publication, resolve dependency declarations added by that notification before activation, drain effects attached while pending, skip plugin execution when reentrant disposal invalidates the load epoch before its first checkpoint, and contain teardown-notification failures per observer so one callback cannot starve peers or interrupt ownership cleanup.
-7. **`cordis/src/events.ts`**: a `FIXME` documents the upstream `parallel()` bug where a synchronous listener throw aborts callback enumeration and starves later listeners; runtime behavior remains upstream-identical pending an upstream fix.
 
 ## Sync procedure
 
