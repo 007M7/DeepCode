@@ -6,7 +6,7 @@
  */
 
 import { globSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 
 const SCOPE = '@deepseek-ai/dsh-'
 
@@ -33,7 +33,7 @@ export interface PackageGraphNode {
  */
 export function collectPackageGraph(root: string, groupOrder: readonly string[], gate: string): PackageGraphNode[] {
   const packages: PackageGraphNode[] = []
-  for (const rel of globSync('packages/*/*/package.json', { cwd: root }).sort()) {
+  for (const rel of globSync('packages/*/*/package.json', { cwd: root }).map(path => path.split(sep).join('/')).sort()) {
     const json = JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as {
       name: string
       peerDependencies?: Record<string, string>
