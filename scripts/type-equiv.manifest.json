@@ -142,7 +142,6 @@
     { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchRequest", "source": "packages/web/web/src/types.ts" },
     { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchResult", "source": "packages/web/web/src/types.ts" },
     { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchBody", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebProviderStatus", "source": "packages/web/web/src/types.ts" },
 
     { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowStartRequest", "source": "packages/workflow/workflow/src/types.ts" },
     { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowMeta", "source": "packages/workflow/workflow/src/types.ts" },
