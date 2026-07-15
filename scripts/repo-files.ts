@@ -1,7 +1,7 @@
 /** Shared repository file discovery and line-oriented reference scanning. */
 
 import { globSync, readFileSync, realpathSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
 
 /** One authored path plus its canonical target for symlink deduplication. */
 export interface RepoFile {
@@ -37,8 +37,9 @@ export function uniqueRepoFiles(
   const files: RepoFile[] = []
   for (const pattern of patterns) {
     for (const match of globSync(pattern, { cwd: root })) {
-      if (isExcluded(match)) continue
-      const abs = resolve(root, match)
+      const repoPath = match.split(sep).join('/')
+      if (isExcluded(repoPath)) continue
+      const abs = resolve(root, repoPath)
       const real = realpathSync(abs)
       if (seen.has(real)) continue
       seen.add(real)
@@ -65,7 +66,7 @@ export function findReferenceViolations(
   normalize: (raw: string) => string,
   isViolation: (ref: string) => boolean,
 ): ReferenceViolation[] {
-  const file = relative(root, absPath)
+  const file = relative(root, absPath).split(sep).join('/')
   const out: ReferenceViolation[] = []
   const lines = readFileSync(absPath, 'utf8').split('\n')
   for (let i = 0; i < lines.length; i++) {

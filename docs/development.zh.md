@@ -9,7 +9,7 @@
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
-- 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 REPL/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -58,8 +58,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点：
 
-- `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest 守卫；
-- `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行单元测试、快照测试、构建、module-graph 新鲜度，以及 `pnpm run hygiene` 与 `pnpm run doc-sync` 的各成员门禁。
+- `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest（元数据清单）守卫；
+- `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行 runtime-closure 校验、单元测试、重复代码检查、快照测试、构建、module-graph 新鲜度，以及 `pnpm run hygiene` 与 `pnpm run doc-sync` 的各成员门禁。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
