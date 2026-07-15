@@ -8,7 +8,7 @@
 
 # Agent spine; the SDK server creates agents per sessionId.
 - id: agent-core
-  name: '@deepseek-ai/dsh-agent-core'
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
     workspaceContext:
       maxBytes: 65536

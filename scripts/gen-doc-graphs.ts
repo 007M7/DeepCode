@@ -129,8 +129,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['stdio-agent', 'acp'],
-    consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
+    implementations: ['stdio-demo', 'acp'],
+    consumers: ['tool-ask-user', 'stdio-demo', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -147,7 +147,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent registry',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-agent', 'invariants'],
+    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-demo', 'invariants'],
     note: 'Owns live Agent handles and the create/resume factory seam.',
   },
   {
@@ -155,7 +155,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent-loop',
     title: 'Concrete loop driver',
     mode: 'bundle',
-    consumers: ['agent-core'],
+    consumers: ['agent-spine-demo'],
     note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
   },
   {
@@ -422,11 +422,11 @@ type AppExample = typeof APP_EXAMPLES[number]
 function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
   const agentCore = nodeId('bundle', 'agent_core')
   const jsonl = nodeId('bundle', 'jsonl')
-  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-core"]`)
+  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-stdio-agent') {
+  if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-acp-agent') {
+  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
   lines.push(
@@ -452,7 +452,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-agent' || plugin.name === '@deepseek-ai/dsh-acp-agent') {
+    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }

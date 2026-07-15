@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Opt-in dynamic system-prompt context with the current zoned time and elapsed time since the latest model-visible message before the turn. `dsh-agent-core` and shipped examples do not mount it. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
+Opt-in dynamic system-prompt context with the current zoned time and elapsed time since the latest model-visible message before the turn. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
 
 ## Config
 

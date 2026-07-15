@@ -48,14 +48,14 @@ and watch the transcript: one `run_code` call, a program looping over tools, and
 
 ## What each leaf entry demonstrates
 
-This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent) app and the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle it loads; the leaf wires the backends and model-facing optional tools:
+This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
 
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash`/`bash_output`/`bash_kill` tool schemas (`tool-bash`) come from `agent-core`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-agent`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |
