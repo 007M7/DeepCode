@@ -1277,13 +1277,16 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
+- `@deepseek-ai/create-sdk` ([`packages/sdk/create-sdk/src/index.ts`](../packages/sdk/create-sdk/src/index.ts))
 - `@deepseek-ai/dsh-acp-snapshot` ([`packages/support/acp-snapshot/src/index.ts`](../packages/support/acp-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
+- `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))
 - `@deepseek-ai/dsh-timeout` ([`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts))
