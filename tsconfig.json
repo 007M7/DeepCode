@@ -75,6 +75,7 @@
     { "path": "./packages/ui/stdio-agent" },
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/support/acp-snapshot" },
+    { "path": "./packages/support/loader-smoke" },
     { "path": "./packages/subagent/subagent" },
     { "path": "./packages/support/subagent-mock" },
     { "path": "./packages/subagent/tool-subagent" },
