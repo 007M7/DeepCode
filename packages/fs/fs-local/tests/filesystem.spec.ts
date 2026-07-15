@@ -181,11 +181,12 @@ describe('metadata cancellation', () => {
       await Promise.all([statStarted.promise, lstatStarted.promise])
       statController.abort()
       lstatController.abort()
+      const statRejected = expect(pendingStat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      const lstatRejected = expect(pendingLstat).rejects.toMatchObject({ code: 'FS_ABORTED' })
       statRelease.resolve(undefined)
       lstatRelease.resolve(undefined)
 
-      await expect(pendingStat).rejects.toMatchObject({ code: 'FS_ABORTED' })
-      await expect(pendingLstat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      await Promise.all([statRejected, lstatRejected])
     } finally {
       statRelease.resolve(undefined)
       lstatRelease.resolve(undefined)

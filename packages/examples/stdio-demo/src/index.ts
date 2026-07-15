@@ -49,6 +49,10 @@ export interface Config {
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -72,6 +76,8 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,
+  toolBash: agentCore.ToolBashConfigSchema,
+  toolTasks: agentCore.ToolTasksConfigSchema,
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
@@ -86,17 +92,13 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...agentCore.pickSpineConfig(config),
     agents: [{
       id: AgentId('main'),
       model: config.model,
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
-    workspaceContext: config.workspaceContext,
-    ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

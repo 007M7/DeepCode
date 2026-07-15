@@ -44,6 +44,10 @@ export interface Config {
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -62,6 +66,8 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
+  toolBash: agentCore.ToolBashConfigSchema,
+  toolTasks: agentCore.ToolTasksConfigSchema,
 })
 /* jscpd:ignore-end */
 
@@ -73,13 +79,7 @@ export const Config: z<Config> = z.object({
  * from `model`. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
-    workspaceContext: config.workspaceContext,
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-  })
+  ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model })

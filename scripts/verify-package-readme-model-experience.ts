@@ -6,7 +6,7 @@
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
 import { markdownHeadingLines, markdownProseLines, type MarkdownProseLine } from './markdown.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -59,6 +59,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/support/loader-smoke': { kind: 'none', reason: 'The test harness observes child-process streams without changing live requests.' },
   'packages/support/llm-replay': { kind: 'none', reason: 'The keyless adapter invokes no provider model.' },
   'packages/support/subagent-mock': { kind: 'indirect', reason: 'Only dsh-tool-subagent renders its configured test outcome.' },
+  'packages/tasks/tasks': { kind: 'indirect', reason: 'Producer and control-surface plugins own all model rendering over the task registry.' },
   'packages/examples/acp-demo': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-spine-demo and dsh-acp.' },
   'packages/ui/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
   'packages/examples/jsonrpc-demo': { kind: 'indirect', reason: 'Only the externally configured plugin tree contributes model context.' },
@@ -146,7 +147,7 @@ for (const line of readFileSync(resolve(root, 'docs/tool-catalog.md'), 'utf8').s
 }
 
 const failures: Failure[] = []
-const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).sort()
+const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).map(path => path.split(sep).join('/')).sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 let structuredCount = 0
 let contextSurfaceCount = 0
