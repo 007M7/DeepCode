@@ -9,7 +9,8 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
 import * as workerEngineModule from '../src/index.ts'
-import WorkerWorkflowEngine, { HostToWorkerType, WorkerToHostType, type Config } from '../src/index.ts'
+import WorkerWorkflowEngine, { type Config } from '../src/index.ts'
+import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
 
 /** A minimal parent stand-in: the engine only threads it through to the provider. */
 function fakeParent(): Agent {
@@ -1326,6 +1327,7 @@ describe('dsh-workflow-workerthread', () => {
 
     it('has the class-plugin export shape (default = the engine service class)', () => {
       expect(workerEngineModule.default).toBe(WorkerWorkflowEngine)
+      expect('WorkerWorkflowEngine' in workerEngineModule).toBe(false)
       const loader = Object.create(Loader.prototype) as Loader
       const unwrapped: unknown = loader.unwrapExports(workerEngineModule)
       expect(unwrapped).toBe(WorkerWorkflowEngine)
