@@ -17,16 +17,16 @@ This repo's documentation is read by people and agents both inside and outside t
 
   Blob hashes, not commit hashes, so the record is computable for files edited in the same PR (`git hash-object foo.md`) and consistency is a pure content comparison. The recorded hash also recovers the exact last-confirmed text of either side (`git cat-file -p <hash>`), so an out-of-sync pair is updated by diffing the edited side against its last-confirmed state and patching the counterpart minimally — never by re-translating whole files. After bringing the pair back in line, `pnpm run verify-translation-pairing --write` re-records both hashes; that yaml diff is the reviewable act of confirming consistency.
 - **Language switcher.** Both files link to each other immediately after their H1 heading: the English file carries `English | [中文](foo.zh.md)` and the Chinese file carries `[English](foo.md) | 中文`.
-- **Structure mirrors the counterpart.** Heading depths and order, list kinds, table columns, link targets, and verbatim code blocks match one to one across the pair — see [translation-rules.md](translation-rules.md) for the full preservation rules. Existing Markdown gates apply to `.zh.md` files unchanged (`verify-md-wrap`, `verify-md-links`).
+- **Structure mirrors the counterpart.** Heading depths and order, list kinds, ordered-list starts, list item counts, table row and column counts, link targets, and verbatim code blocks match one to one across the pair — see [translation-rules.md](translation-rules.md) for the full preservation rules. Existing Markdown gates apply to `.zh.md` files unchanged (`verify-md-wrap`, `verify-md-links`).
 
 ## The gate: verify-translation-pairing
 
 `pnpm run verify-translation-pairing` (part of `doc-sync`, so CI and the pre-push hook run it) enforces the contract mechanically:
 
 1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
-2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table column counts, list kinds, and every link target apart from the switcher.
+2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
-4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new documents merge bilingual from birth.
+4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named RFCs merge bilingual from birth.
 
 `pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
 
@@ -49,4 +49,4 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Division of labor
 
-Counterparts here are produced by an agent running [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) and reviewed by a human — inference is cheap here, review attention is the scarce resource. The gate exists so that neither the agent nor the reviewer has to remember the contract: pair completeness, consistency, and structure are checked mechanically, and review attention goes to translation quality and terminology, where human judgment is the whole point.
+Counterparts here are produced by an agent running [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) and reviewed by a human — inference is cheap here, review attention is the scarce resource. The gate checks pair completeness, recorded hashes, switchers, and its documented structural signature. Review still owns translation quality, terminology, and structural requirements that the signature does not encode. The prompt contract is executable: [scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) renders the canonical rules into either direction and strictly parses the three-field XML response, while `verify-translation-prompt` exercises both render directions, the checked-in example, and the CDATA split rule in `doc-sync`.
