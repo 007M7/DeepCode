@@ -197,11 +197,16 @@ function ciStaticGates(): Gate[] {
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    demoSmokeGate(),
+    ...staticDemoSmokeGates(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
+}
+
+function staticDemoSmokeGates(): Gate[] {
+  // Native Windows session persistence is outside the gates-only support scope.
+  return process.platform === 'win32' ? [] : [demoSmokeGate()]
 }
 
 function ciArtifactGates(): Gate[] {
