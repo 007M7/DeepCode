@@ -2,7 +2,11 @@
  * The stdio app's readline UI: reads lines from stdin into `agent.send()` or
  * `steer()`, renders the durable event stream to stdout, and exits piped input
  * only after submitted work reaches idle.
- * @module @deepseek-ai/dsh-stdio-agent/stdio-chat
+ *
+ * This package is the independently composable stdio front door. It establishes
+ * the terminal channel and drives an agent created or resumed by app or
+ * developer code.
+ * @module @deepseek-ai/dsh-stdio
  */
 
 import { createInterface } from 'node:readline'
@@ -26,8 +30,6 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  // TODO(fixed-stdio-agent): this app-internal plugin is mounted only for the
-  // precreated `main` agent; remove configurability and its config-only test.
   /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
   agent?: string
 }
@@ -351,15 +353,37 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
 }
 
 /**
+ * Open the terminal channel once its configured agent exists. Generated stdio
+ * projects boot the Cordis tree first and create or resume the agent from
+ * developer code immediately afterward, so stdin must remain untouched until
+ * the matching `agent/created` notification arrives.
+ * @param ctx - the context supplying the agent registry and event stream.
+ * @param config - presentation and target-agent configuration.
+ * @param runtime - process-I/O seam.
+ */
+export function mountStdio(ctx: Context, config: Config, runtime: StdioRuntime): void {
+  const agentId = AgentId(config.agent ?? 'main')
+  if (ctx.agents.get(agentId) !== undefined) {
+    createStdioChat(ctx, config, runtime)
+    return
+  }
+  const dispose = ctx.on('agent/created', (agent) => {
+    if (agent.id !== agentId) return
+    dispose()
+    createStdioChat(ctx, config, runtime)
+  })
+}
+
+/**
  * Cordis entry point. Binds the real `process` streams and delegates to
- * {@link createStdioChat}; the indirection keeps the side-effecting handles out
+ * {@link mountStdio}; the indirection keeps the side-effecting handles out
  * of the testable core, which is why the unit suite drives `createStdioChat`
  * directly. This thin wrapper is exercised end-to-end by the keyless
  * Loader-path e2e smoke in `examples/echo-agent` (the real product entry).
  */
 /* v8 ignore start -- production stdio wiring; testable core is createStdioChat() (covered), exercised e2e by echo-agent keyless smoke */
 export function apply(ctx: Context, config: Config): void {
-  createStdioChat(ctx, config, {
+  mountStdio(ctx, config, {
     input: process.stdin,
     output: process.stdout,
     exit: code => process.exit(code),
