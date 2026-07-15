@@ -20,10 +20,18 @@ These variants are merged inside a `declare module '@deepseek-ai/dsh-session'` b
 
 ## `CompactionResult`
 
-What a successful compaction returns to its caller: the shadowed range and seqs plus the estimated token count. The durable `compact/summary` event owns the raw summary and bookkeeping-event identity.
+What a successful compaction returns to its caller: the bookkeeping-event seqs, raw summary, shadowed range and seqs, and estimated token count.
 
 ```ts type-equiv
 interface CompactionResult {
+  /** The seq of the appended `compact/start` event. */
+  startSeq: number
+  /** The seq of the appended `compact/summary` event. */
+  summarySeq: number
+  /** The seq of the appended `compact/end` event. */
+  endSeq: number
+  /** The summary content blocks produced by the backend. */
+  summary: ContentBlock[]
   /**
    * The surface-boundary pair that was shadowed: the seqs of the first
    * (`start`) and last (`end`) surface nodes of the replaced range. A
