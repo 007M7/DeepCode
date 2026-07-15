@@ -23,7 +23,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:139`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:145`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:148`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:154`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,19 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:283`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:314`](../../packages/core/agent/src/types.ts)
+
+### `agent/post-step` — serial
+
+Awaited serial checkpoint after the response, tool results, injected context, and steering are durable but before `step/end`.
+
+```ts cordis-catalog
+'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:267`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -59,7 +71,7 @@ Awaited serial checkpoint for session-surface mutation after prompt assembly and
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:208`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -71,7 +83,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -83,7 +95,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:173`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -95,7 +107,19 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+
+### `agent/request-error` — waterfall
+
+Recover a model-request failure after its failed step has closed. `retry` opens a new numbered step; `fail` preserves the original request error. Call `next()` to delegate to the next recovery listener or the default.
+
+```ts cordis-catalog
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:281`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -107,7 +131,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:245`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -119,7 +143,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:180`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:186`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -131,7 +155,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:157`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -143,7 +167,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:256`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -155,7 +179,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:260`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:291`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -167,7 +191,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:270`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:301`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -233,7 +257,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:41`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 

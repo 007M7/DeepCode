@@ -70,6 +70,12 @@ export type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: HookContext }
 
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+export type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+
+/** Model-request failure with an optional machine-routable provider code. */
+export type RequestError = Error & { code?: string }
+
 /**
  * The terminal subset of {@link ContinuationDecision}. A listener on
  * `agent/turn-stop` returns this to make the already-composed continuation
@@ -248,6 +254,31 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+    /**
+     * Awaited serial checkpoint after the response, tool results, injected
+     * context, and steering are durable but before `step/end`.
+     * @param agent - the agent that completed the step.
+     * @param turn - the open turn number.
+     * @param step - the completed step number.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode serial
+     */
+    'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+    /**
+     * Recover a model-request failure after its failed step has closed. `retry`
+     * opens a new numbered step; `fail` preserves the original request error.
+     * Call `next()` to delegate to the next recovery listener or the default.
+     * @param agent - the agent whose request failed.
+     * @param turn - the open turn number.
+     * @param step - the failed step number.
+     * @param error - the original model-request failure.
+     * @param retryAttempt - zero-based number of prior recovery retries.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode waterfall
+     */
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
     /**
      * Override whether the turn continues. The default continues after tool
      * calls or steering and stops otherwise; a continue reason becomes steering.

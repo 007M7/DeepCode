@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { mapStopReason, mapUsage, toPiContext, toStreamChunks } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -300,6 +300,18 @@ describe('mapStopReason / mapUsage', () => {
       .toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
       .toMatchObject({ kind: 'error', code: 'SERVER' })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: input exceeds the model context window limit',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: request too large for model context',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',
+    }))).toMatchObject({ kind: 'error', code: 'INVALID_REQUEST' })
   })
 
   it('maps cache fields only when nonzero', () => {

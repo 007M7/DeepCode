@@ -32,14 +32,22 @@ sequenceDiagram
   LLM-->>Driver: StreamChunk*
   Driver->>Session: <code>assistant/chunk</code>*
   Session-->>SDK: <code>session/event</code> <code>assistant/chunk</code>*
+  alt final adapter or terminal in-band request failure
+    Driver->>Session: <code>step/end</code>
+    Driver->>Hooks: <code>agent/request-error</code> waterfall
+    Hooks-->>Driver: retry in a new step or preserve the original error
+  else model request succeeded
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
   Driver->>Session: <code>tool/call</code>
   Driver->>Tools: execute through pre and post waterfalls
   Tools-->>Session: tool-owned events when applicable
-  Driver->>Session: <code>tool/result</code> and <code>step/end</code>
+  Driver->>Session: <code>tool/result</code>, post-tool context, and steering
+  Driver->>Hooks: <code>agent/post-step</code> serial checkpoint
+  Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
   Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint
+  end
   Driver->>Session: <code>turn/end</code>
   Driver->>Persistence: <code>session/flush</code> parallel checkpoint
   Driver-->>SDK: <code>agent/status</code> idle

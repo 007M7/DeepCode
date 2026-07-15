@@ -8,7 +8,7 @@
  * @module dsh-llm-pi-ai/convert
  */
 
-import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, LlmError } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {
   AssistantMessage,
@@ -165,6 +165,7 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  if (isContextWindowExceededError(message)) return CONTEXT_WINDOW_EXCEEDED_CODE
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
   return 'PI_AI_ERROR'

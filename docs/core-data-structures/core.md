@@ -381,6 +381,20 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: HookContext }
 ```
 
+`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+
+```ts type-equiv
+type RequestError = Error & { code?: string }
+```
+
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+
+```ts type-equiv
+type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+```
+
+`agent/post-step` is the awaited successful-step checkpoint after assistant output, tool results, buffered context, and steering are durable. Its signature is `(agent, turn, step, signal)`; replayable facts remain in the session log rather than a transient payload.
+
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
 
 ```ts type-equiv

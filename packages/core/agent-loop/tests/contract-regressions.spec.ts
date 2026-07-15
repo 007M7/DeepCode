@@ -204,6 +204,16 @@ describe('abort during tool execution ends the turn', () => {
     expect(executed).toEqual(['aborter'])           // second tool never ran
     expect(adapter.requests).toHaveLength(1)        // no follow-up model call
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+    const calls = agent.session.events.filter(event => event.type === 'tool/call')
+    const results = agent.session.events.filter(event => event.type === 'tool/result')
+    expect(calls.map(event => event.data.callId)).toEqual([CallId('c1'), CallId('c2')])
+    expect(results).toHaveLength(2)
+    expect(results[0]!.data).toMatchObject({ callId: CallId('c1'), isError: false })
+    expect(results[1]!.data).toMatchObject({
+      callId: CallId('c2'),
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
   })
 })
 

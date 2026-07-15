@@ -281,6 +281,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/post-step',
+    mode: 'serial',
+    signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
+    summary: 'Awaited serial checkpoint after the response, tool results, injected context, and steering are durable but before `step/end`.',
+  },
+  {
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
@@ -303,6 +309,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
     summary: 'Replace the frozen call configuration.',
+  },
+  {
+    name: 'agent/request-error',
+    mode: 'waterfall',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>',
+    summary: 'Recover a model-request failure after its failed step has closed.',
   },
   {
     name: 'agent/session-prefix',

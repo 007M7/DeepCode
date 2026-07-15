@@ -4,7 +4,7 @@ The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is 
 
 ## Overview
 
-A harness is one [Cordis](cordis-primer.md) context. Packages contribute service keys, typed events, and disposable registrations: services expose stable calls (`ctx.llm`, `ctx.tools`, `ctx.sessions`), events provide interception and notifications (`agent/request`, `tools/pre-execute`, `session/event`), and registrations install prompt sections, tools, providers, adapters, or listeners.
+A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed interception and notification events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable registrations for prompts, tools, providers, adapters, and listeners.
 
 `packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
 
@@ -43,9 +43,9 @@ Events form the service extension API; see the exhaustive [events catalog](cordi
 
 ### Event Domains
 
-- **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
-- **Agent events** carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
-- **Capability events** belong to the seam that owns the action. `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` let policy and adapters attach without importing the loop.
+- **Session events** are durable replay facts: boundaries, messages, tools, steering, compaction, and tool-owned state flow through `session/event`.
+- **Agent events** carry the live `Agent` for status, diagnostics, prompt admission, request shaping, result validation, and continuation.
+- **Capability events** belong to their action owner. `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` attach policy and adapters without importing the loop.
 
 ### Interception Semantics
 
@@ -53,9 +53,9 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains work, assembles requests, streams model answers, executes tools, applies continuation policy, and checkpoints state. Every pause is a service call or event available to plugins.
+The shipped loop drains work, assembles requests, streams answers, executes tools, applies continuation policy, and checkpoints state through plugin-visible calls and events.
 
-A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is an agent's append-only log; a **turn** drains one queued batch; a **step** is one model request and its tool executions. Quoted names below are durable events, and unquoted event names are extension points ([sequence companion](agent-lifecycle.md)).
 
 ### Turn Flow
 
@@ -76,42 +76,50 @@ forever:
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
-      'step/start'
       snapshot the derived messages (the reconstruction boundary)
+      'step/start'
       agent/request (config only) -> log request/header -> llm/stream (frozen)
+      on final adapter failure or terminal in-band error/aborted finish:
+        'step/end'
+        agent/request-error(original error, consecutive retry attempt, signal)
+        retry in the next numbered step or preserve the original error
+      otherwise:
         'assistant/chunk'
-      agent/step-result
-      'assistant/message' (transformed content, or an empty successful-call anchor if step-result rejects)
-      each tool call:
-        'tool/call'
-        tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
-        'tool/result'
-      append post-tool context and steering
-      'step/end'
-      agent/turn-continuation
-      agent/turn-stop (terminal policy)
-      stop unless tools or continuation policy ask for another step
+        agent/step-result
+        'assistant/message' (transformed content, or an empty successful-call anchor if step-result rejects)
+        each tool call:
+          'tool/call'
+          tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
+          'tool/result'
+        append post-tool context and steering
+        agent/post-step
+        'step/end'
+        agent/turn-continuation
+        agent/turn-stop (terminal policy)
+        stop unless tools or continuation policy ask for another step
     'turn/end'
     checkpoint persistence and notify idle/running status
 ```
 
-The loop renders one prompt assembly per step. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn instead of shipping a hole. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+Each step renders one prompt assembly. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; missing values fail the turn. `dsh-system-prompt` owns harness identity and the default persona, which an agent-scoped persona may shadow. The loop supplies `model` and `cwd` ([prompt ownership](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
+Post-tool context follows all results, preserving call/result adjacency. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering while the step signal remains open. Leftover steering becomes next-turn input. `agent/turn-stop` is terminal through close and flush: later steering is discarded, while ordinary queued prompts survive.
 
 ### Failure Boundaries
 
-The turn is the containment boundary. A throwing listener, adapter error finish, or failed step ends the current turn with an error reason and reports live diagnostics through `agent/error`; it does not kill the driver loop. `cancel()` clears queued and steering work, aborts the active model/tool boundary when possible, and records the appropriate turn end. Disposal stops the loop, awaits quiescence, unregisters the agent, and lets service disposers drain.
+The turn is the containment boundary. `LlmService` preserves and privately tags errors from final adapter selection, dispatch, and iteration. Those errors and terminal in-band error/aborted finishes close the failed step before `agent/request-error`; retry reconstructs the next numbered step from the log, while decline or failed recovery preserves the provider error. Attempts count consecutive failures and reset after success.
 
-Every session event is turn-enclosed. Reloading a crashed session preserves the interrupted tail and closes it with a synthetic `interrupted` turn end. A failure after the durable turn has closed reports through `agent/error` only because no safe in-turn position remains. A turn ends with one `TurnEndReason` (`completed`, `aborted`, `error`, `disposed`, `max-tokens`, `rejected`, or `interrupted`); per-variant semantics are in [session.md § TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Prompt, middleware, result, tool, post-step, and continuation failures remain ordinary `agent/error` failures. Cancellation and disposal beat recovery. Durable undispatched tool calls receive synthetic `ABORTED` results, preventing dangling replay. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
+
+Every session event is turn-enclosed. Reload preserves a crashed tail and closes it with synthetic `interrupted`; post-close failures report only through `agent/error`. A turn has one `TurnEndReason` (`completed`, `aborted`, `error`, `disposed`, `max-tokens`, `rejected`, or `interrupted`), detailed in [session.md](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the API other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. The caller fiber and concrete factory provider structurally co-own programmatic lifecycles; a consumer handle is the only non-structural teardown capability, and every owner reaches the same awaited disposer.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber and factory provider structurally co-own programmatic lifecycles; the consumer handle is the sole non-structural teardown capability, and all owners share one awaited disposer.
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow same-named globals, receive only that agent's dispatches, and unwind with the agent. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. The [semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md) defines typed resolvers that derive carrier checks from merged `Events` signatures and `scopeTarget`, eliminating the handwritten event table. See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are documented [separately](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
+Each agent owns `agent.ctx`; its registrations shadow globals, receive only that agent's dispatches, and unwind on disposal. `CreateAgentOptions.setup(agentCtx)` composes it before publication. Typed resolvers derive carrier checks from merged events and `scopeTarget` ([semantic gates](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md), [agent scope](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)).
 
 ## State
 
@@ -152,7 +160,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
-| Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall; use serial `agent/turn-stop` for a monotonic terminal stop |
+| Intercept prompts, requests, model completion/failure, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` event; use serial `agent/turn-stop` for a monotonic terminal stop |
 | Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |

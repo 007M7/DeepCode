@@ -9,6 +9,7 @@
 import { Context, Service } from 'cordis'
 import type { GenerateOptions, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
+import { markLlmAdapterFailure } from './adapter-failure.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -18,6 +19,7 @@ export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
+export { isLlmAdapterFailure } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -119,16 +121,64 @@ export class LlmService extends Service {
   }
 
   /**
+   * Final adapter boundary. It tags only failures from adapter selection,
+   * synchronous dispatch, iterator construction, or iteration while preserving
+   * the original Error object. Middleware outside this generator remains
+   * distinguishable as plugin work. Adapter cleanup is best-effort after an
+   * earlier failure or downstream close and never masks the winning error.
+   */
+  private async * adapterStream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
+    let iterator: AsyncIterator<StreamChunk>
+    try {
+      const stream = this.adapter(options.model).stream(options)
+      iterator = stream[Symbol.asyncIterator]()
+    } catch (error: unknown) {
+      throw markLlmAdapterFailure(error)
+    }
+
+    let completed = false
+    try {
+      while (true) {
+        let value: StreamChunk
+        try {
+          const item = await iterator.next()
+          if (item.done) {
+            completed = true
+            return
+          }
+          value = item.value
+        } catch (error: unknown) {
+          throw markLlmAdapterFailure(error)
+        }
+        // End the adapter-owned try before yielding: consumer/middleware
+        // failures resumed into this generator must remain untagged.
+        yield value
+      }
+    } finally {
+      if (!completed) {
+        try {
+          const close = iterator.return?.bind(iterator)
+          if (close) await close()
+        } catch {
+          // Lookup and invocation are both adapter-owned cleanup following an
+          // existing failure/downstream close; neither can replace it.
+        }
+      }
+    }
+  }
+
+  /**
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
-   * `options.model`. Dispatches through the `llm/stream` waterfall.
+   * `options.model`. Dispatches through the `llm/stream` waterfall. Final
+   * adapter dispatch/iteration failures retain their original Error identity
+   * and are tagged so the agent loop can distinguish them from middleware
+   * failures without widening request recovery to plugin code.
    * @param options - the full request; `options.model` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    return this.ctx.waterfall(this, 'llm/stream', options, () => {
-      return this.adapter(options.model).stream(options)
-    })
+    return this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options))
   }
 }
 

@@ -7,7 +7,7 @@ DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](ht
 `@deepseek-ai/dsh-llm-deepseek` already talks to the same endpoint. This package is its **design-verification twin**: same models, same wire protocol, completely different internals — a unified LLM library with its own event vocabulary versus hand-rolled fetch/SSE. Anything the harness `StreamChunk` protocol cannot express for BOTH implementations is a core-vocabulary bug. The differences it exercised on purpose:
 
 - pi-ai hands tool-call `arguments` around as **parsed objects**; the harness keeps raw JSON strings. The adapter patches replay payloads back to the original raw strings before sending them, and re-stringifies parsed output tool calls at `block-end`.
-- pi-ai reports failures as **in-stream error events** (it never throws mid-stream); these map to `finish {kind:'error'|'aborted'}` chunks — the protocol's other sanctioned error path besides throwing (which llm-deepseek uses).
+- pi-ai reports failures as **in-stream error events** (it never throws mid-stream); these map to `finish {kind:'error'|'aborted'}` chunks — the protocol's other sanctioned error path besides throwing (which llm-deepseek uses). Context-overflow detail maps to the same canonical `CONTEXT_WINDOW_EXCEEDED` code as the hand-rolled adapter.
 - pi-ai folds reasoning tokens into `usage.output`; there is no separate reasoning count to map.
 - pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, scrubbing pi-ai's own per-tool `strict` default — the hand-rolled twin sends no such field — omitted reasoning effort, raw replayed tool arguments).
 

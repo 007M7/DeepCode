@@ -52,7 +52,7 @@ The driver owns one agent for its lifetime. It records turn, step, request, stre
 
 Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
-Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
+Plugin failure ends the current turn, not the loop. Only final adapter dispatch/iteration failures and terminal in-band error or aborted finishes enter `agent/request-error`; middleware, result processing, tools, and `agent/post-step` remain ordinary turn failures. Recovery observes a closed failed step, and a retry rebuilds the request from the durable log in a new numbered step. Cancellation clears pending work and aborts the current step without leaking to the next prompt; model-requested calls that were already durable receive synthetic aborted results when cancellation prevents dispatch. Terminal continuation stops remain authoritative through turn close and durability flush.
 
 ### What belongs to plugins
 
