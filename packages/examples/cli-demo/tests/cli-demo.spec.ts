@@ -89,7 +89,14 @@ describe('dsh-cli-demo app composition', () => {
       ctx.tools.register({ name, description: name, parameters: {}, execute: async () => [] })
     }
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `cli-skill`: CLI...')
-    expect((await ctx.systemPrompt.assemble()).tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill'])
+    expect((await ctx.systemPrompt.assemble()).tools.map(tool => tool.name)).toEqual([
+      'zulu',
+      'alpha',
+      'skill',
+      'task_kill',
+      'task_list',
+      'task_output',
+    ])
   })
 
   it('exposes the Loader-safe namespace plugin shape and schema', () => {
