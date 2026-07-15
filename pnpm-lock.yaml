@@ -332,52 +332,6 @@ importers:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
-  packages/core/agent-core:
-    dependencies:
-      schemastery:
-        specifier: ^3.18.0
-        version: 3.18.0
-    devDependencies:
-      '@cordisjs/plugin-timer':
-        specifier: workspace:^
-        version: link:../../../vendor/timer
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../agent
-      '@deepseek-ai/dsh-agent-loop':
-        specifier: workspace:^
-        version: link:../agent-loop
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../support/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../session
-      '@deepseek-ai/dsh-skill':
-        specifier: workspace:^
-        version: link:../../skill/skill
-      '@deepseek-ai/dsh-skill-local':
-        specifier: workspace:^
-        version: link:../../skill/skill-local
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../system-prompt
-      '@deepseek-ai/dsh-tool-bash':
-        specifier: workspace:^
-        version: link:../../bash/tool-bash
-      '@deepseek-ai/dsh-tool-skill':
-        specifier: workspace:^
-        version: link:../../skill/tool-skill
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../tools
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-
   packages/core/agent-loop:
     dependencies:
       schemastery:
@@ -482,6 +436,152 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/examples/acp-demo:
+    devDependencies:
+      '@cordisjs/plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-acp':
+        specifier: workspace:^
+        version: link:../../ui/acp
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-spine-demo':
+        specifier: workspace:^
+        version: link:../agent-spine-demo
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../ui/app-boot
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      '@deepseek-ai/dsh-user-interaction':
+        specifier: workspace:^
+        version: link:../../ui/user-interaction
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+      schemastery:
+        specifier: ^3.17.0
+        version: 3.18.0
+
+  packages/examples/agent-spine-demo:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@cordisjs/plugin-timer':
+        specifier: workspace:^
+        version: link:../../../vendor/timer
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-skill-local':
+        specifier: workspace:^
+        version: link:../../skill/skill-local
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: workspace:^
+        version: link:../../bash/tool-bash
+      '@deepseek-ai/dsh-tool-skill':
+        specifier: workspace:^
+        version: link:../../skill/tool-skill
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/examples/jsonrpc-demo:
+    dependencies:
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../ui/app-boot
+    devDependencies:
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/examples/stdio-demo:
+    devDependencies:
+      '@cordisjs/plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@cordisjs/plugin-logger-console':
+        specifier: workspace:^
+        version: link:../../../vendor/logger-console
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-spine-demo':
+        specifier: workspace:^
+        version: link:../agent-spine-demo
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../ui/app-boot
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-stdio':
+        specifier: workspace:^
+        version: link:../../ui/stdio
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-ask-user':
+        specifier: workspace:^
+        version: link:../../ui/tool-ask-user
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      '@deepseek-ai/dsh-user-interaction':
+        specifier: workspace:^
+        version: link:../../ui/user-interaction
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+      schemastery:
+        specifier: ^3.17.0
+        version: 3.18.0
 
   packages/fs/fs:
     devDependencies:
@@ -1313,45 +1413,6 @@ importers:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
-  packages/ui/acp-agent:
-    devDependencies:
-      '@cordisjs/plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
-      '@cordisjs/plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@deepseek-ai/dsh-acp':
-        specifier: workspace:^
-        version: link:../acp
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-core':
-        specifier: workspace:^
-        version: link:../../core/agent-core
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../app-boot
-      '@deepseek-ai/dsh-session-persistence-jsonl':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence-jsonl
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      '@deepseek-ai/dsh-user-interaction':
-        specifier: workspace:^
-        version: link:../user-interaction
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
-      schemastery:
-        specifier: ^3.17.0
-        version: 3.18.0
-
   packages/ui/app-boot:
     devDependencies:
       '@cordisjs/plugin-include':
@@ -1376,9 +1437,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-core':
+      '@deepseek-ai/dsh-agent-spine-demo':
         specifier: workspace:^
-        version: link:../../core/agent-core
+        version: link:../../examples/agent-spine-demo
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -1397,16 +1458,6 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
-
-  packages/ui/jsonrpc-agent:
-    dependencies:
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../app-boot
-    devDependencies:
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/ui/permission:
     dependencies:
@@ -1454,57 +1505,6 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
-
-  packages/ui/stdio-agent:
-    devDependencies:
-      '@cordisjs/plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
-      '@cordisjs/plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@cordisjs/plugin-logger-console':
-        specifier: workspace:^
-        version: link:../../../vendor/logger-console
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-core':
-        specifier: workspace:^
-        version: link:../../core/agent-core
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../app-boot
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
-      '@deepseek-ai/dsh-session-persistence-jsonl':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence-jsonl
-      '@deepseek-ai/dsh-stdio':
-        specifier: workspace:^
-        version: link:../stdio
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tool-ask-user':
-        specifier: workspace:^
-        version: link:../tool-ask-user
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      '@deepseek-ai/dsh-user-interaction':
-        specifier: workspace:^
-        version: link:../user-interaction
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
-      schemastery:
-        specifier: ^3.17.0
-        version: 3.18.0
 
   packages/ui/tool-ask-user:
     devDependencies:
@@ -1799,12 +1799,12 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../packages/core/agent
-      '@deepseek-ai/dsh-agent-core':
-        specifier: workspace:^
-        version: link:../../packages/core/agent-core
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../packages/core/agent-loop
+      '@deepseek-ai/dsh-agent-spine-demo':
+        specifier: workspace:^
+        version: link:../../packages/examples/agent-spine-demo
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/ui/app-boot
@@ -1853,9 +1853,9 @@ importers:
       '@deepseek-ai/dsh-jsonrpc':
         specifier: workspace:^
         version: link:../../packages/ui/jsonrpc
-      '@deepseek-ai/dsh-jsonrpc-agent':
+      '@deepseek-ai/dsh-jsonrpc-demo':
         specifier: workspace:^
-        version: link:../../packages/ui/jsonrpc-agent
+        version: link:../../packages/examples/jsonrpc-demo
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../packages/llm/llm

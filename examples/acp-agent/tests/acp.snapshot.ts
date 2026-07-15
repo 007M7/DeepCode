@@ -13,11 +13,11 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
  * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
-// The dsh-acp-agent bin (the demo:acp entry), this example's cordis.yml, and
+// The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
 // the repo-root tsconfig (four levels up from examples/acp-agent/tests) — all
 // ABSOLUTE: the subprocess cwd is a temp dir outside the repo.
 const AGENT = {
-  binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
