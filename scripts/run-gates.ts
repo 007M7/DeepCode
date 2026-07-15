@@ -153,6 +153,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'pre-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+        pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
         pnpmScript('snapshot', 'test:snapshot'),
@@ -168,6 +169,7 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
@@ -191,6 +193,7 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     demoSmokeGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -273,7 +276,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
-    pnpmScript('scoped-dispatch', 'verify-scoped-dispatch', { label: 'scoped dispatch' }),
+    pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
@@ -332,8 +335,8 @@ function builtBinSmokeGate(): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
-    'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

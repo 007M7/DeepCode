@@ -1,6 +1,6 @@
 # User Interaction
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-stdio-agent` renders questions in readline, and `dsh-acp` maps them to ACP form elicitations.
+The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-stdio-demo` renders questions in readline, and `dsh-acp` maps them to ACP form elicitations.
 
 Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 

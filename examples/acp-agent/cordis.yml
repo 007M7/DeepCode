@@ -37,7 +37,7 @@
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
 - id: acp-agent
-  name: '@deepseek-ai/dsh-acp-agent'
+  name: '@deepseek-ai/dsh-acp-demo'
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
@@ -94,23 +94,6 @@
 # thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
-
-# Filesystem tools do not ride the bash sandbox, so the confined default omits
-# them. Snapshots and explicit danger-full-access launches enable the local
-# provider, policy, and model-facing tools together.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
-  config:
-    cwd: !!js process.cwd()
-
-- id: fs-policy
-  name: '@deepseek-ai/dsh-fs-policy'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
-
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-  disabled: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) !== 'danger-full-access'"
 
 # `configPath` is read once at load and resolves from the server launch cwd, not
 # `session/new.cwd`; one `hooks.json` therefore applies to every session and a

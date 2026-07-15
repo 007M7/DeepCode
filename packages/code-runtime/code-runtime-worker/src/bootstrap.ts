@@ -7,7 +7,6 @@
 
 import { inspect } from 'node:util'
 import { serialize } from 'node:v8'
-import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
 import { logTruncationMarker } from './protocol.ts'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
@@ -28,12 +27,12 @@ export interface PatchableStream {
 }
 
 /**
- * Ordered log capture under one shared byte budget, delivered to a sink as
- * each entry lands (the real sink streams entries over the port eagerly, so
+ * Ordered text capture under one shared byte budget, delivered to a sink as
+ * each item lands (the real sink streams text over the port eagerly, so
  * captured output survives a mid-run termination). Once the budget is
- * exhausted it emits exactly one in-band marker entry (on the `stderr`
- * diagnostics channel) and silently drops everything after — the cap is a
- * blast-radius bound, so "how much was lost" intentionally stays unmeasured.
+ * exhausted it emits exactly one in-band marker and silently drops everything
+ * after. The cap is a blast-radius bound, so "how much was lost" intentionally
+ * stays unmeasured.
  */
 export class LogBuffer {
   private remaining: number
@@ -42,28 +41,28 @@ export class LogBuffer {
   // under Node's native strip-only mode, which rejects non-erasable syntax —
   // and parameter properties are non-erasable.
   private readonly maxBytes: number
-  private readonly sink: (entry: CodeLogEntry) => void
+  private readonly sink: (text: string) => void
 
-  constructor(maxBytes: number, sink: (entry: CodeLogEntry) => void) {
+  constructor(maxBytes: number, sink: (text: string) => void) {
     this.maxBytes = maxBytes
     this.sink = sink
     this.remaining = maxBytes
   }
 
   /**
-   * Emit one entry to the sink, charging its text against the budget (drops + marks once exhausted).
-   * @param entry - the log entry to deliver.
+   * Emit text to the sink, charging it against the budget (drops + marks once exhausted).
+   * @param text - the captured text to deliver.
    */
-  push(entry: CodeLogEntry): void {
+  push(text: string): void {
     if (this.truncated) return
-    const cost = Buffer.byteLength(entry.text, 'utf8')
+    const cost = Buffer.byteLength(text, 'utf8')
     if (cost > this.remaining) {
       this.truncated = true
-      this.sink({ source: 'stderr', text: logTruncationMarker(this.maxBytes) })
+      this.sink(logTruncationMarker(this.maxBytes))
       return
     }
     this.remaining -= cost
-    this.sink(entry)
+    this.sink(text)
   }
 }
 
@@ -84,7 +83,7 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
     args.map(arg => typeof arg === 'string' ? arg : inspect(arg, INSPECT_OPTIONS)).join(' ')
   const shim = Object.create(null) as Record<(typeof CONSOLE_LEVELS)[number], (...args: unknown[]) => void>
   for (const level of CONSOLE_LEVELS) {
-    shim[level] = (...args: unknown[]) => { logs.push({ source: 'console', level, text: render(args) }) }
+    shim[level] = (...args: unknown[]) => { logs.push(render(args)) }
   }
   return shim
 }
@@ -98,17 +97,16 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
  *
  * @param logs - the buffer captured writes are pushed into.
  * @param stream - the stream whose `write` slot is patched.
- * @param source - the log source the captured writes are attributed to.
  * @returns the restore function (the in-process tests un-patch; the real
  *   worker never needs to).
  */
-export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream, source: 'stdout' | 'stderr'): () => void {
+export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream): () => void {
   // The slot's VALUE is stored for restore and reassigned — never invoked
   // detached, so the unbound-method concern does not apply.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const original = stream.write
   stream.write = (chunk: unknown, ...rest: unknown[]): boolean => {
-    logs.push({ source, text: typeof chunk === 'string' ? chunk : String(chunk) })
+    logs.push(typeof chunk === 'string' ? chunk : String(chunk))
     // Node's optional-encoding shape: the callback is whichever of the next
     // two positions holds a function (a non-function there is the encoding).
     const callback = [rest[0], rest[1]].find(
@@ -256,9 +254,9 @@ export async function runWorkerMain(
   data: WorkerBootData,
   streams: { stdout: PatchableStream; stderr: PatchableStream },
 ): Promise<void> {
-  const logs = new LogBuffer(data.maxLogBytes, (entry) => { port.postMessage({ type: 'log', entry }) })
-  captureStreamWrites(logs, streams.stdout, 'stdout')
-  captureStreamWrites(logs, streams.stderr, 'stderr')
+  const logs = new LogBuffer(data.maxLogBytes, (text) => { port.postMessage({ type: 'log', text }) })
+  captureStreamWrites(logs, streams.stdout)
+  captureStreamWrites(logs, streams.stderr)
 
   const pending = new Map<number, PendingCall>()
   wireReplies(port, pending)

@@ -12,6 +12,13 @@ const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
 const root = resolve(import.meta.dirname, '..')
 const packagesRoot = resolve(root, 'packages')
 
+// Run publint's JS CLI through the current node, not the .bin shim: the
+// extensionless shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd
+// variant needs shell:true, which space-joins args UNESCAPED (DEP0190) and
+// breaks when the repo path contains spaces. The JS entry is identical on every
+// platform (`bin` is `./src/cli.js` per publint's package.json).
+const publintCli = resolve(root, 'node_modules/publint/src/cli.js')
+
 type PublintResult =
   | { path: string; status: 'passed'; stdout: string; stderr: string }
   | { path: string; status: 'failed'; stdout: string; stderr: string; message: string }
@@ -50,7 +57,7 @@ function outputText(value: unknown): string {
 
 async function runPublint(path: string): Promise<PublintResult> {
   try {
-    const { stdout, stderr } = await execFileAsync('node_modules/.bin/publint', [path], {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [publintCli, path], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,

@@ -8,7 +8,7 @@
 
 # Agent spine; the SDK server creates agents per sessionId.
 - id: agent-core
-  name: '@deepseek-ai/dsh-agent-core'
+  name: '@deepseek-ai/dsh-agent-spine-demo'
 
 # Stock DeepSeek adapters. Loading requires an API key; initialize and shutdown
 # may use a dummy key because they do not call the model.
