@@ -8,7 +8,7 @@ Two runtime carriers coexist under ``runtime/``, both injected by the repo's
   {x64, arm64}); the target machine needs no Node installation.
 - **node (dev-only)**: the full deploy closure under ``runtime/node/``
   (``package.json`` + ``node_modules/``), executed as ``node
-  runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`` on a
+  runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js`` on a
   system Node >= 22.19. It is the current checkout's source build, never
   selected automatically, and excluded from wheel/sdist distributions.
 
