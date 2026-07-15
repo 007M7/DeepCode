@@ -19,8 +19,8 @@ Search and fetch share no request schema and no business logic, but they are del
 | Member | Semantics |
 |---|---|
 | `registerSearchProvider(provider)` / `registerFetchProvider(provider)` | Register a backend. Throws `WebError` `WEB_DUPLICATE_PROVIDER` on a duplicate id within that capability kind. Returns a disposer. Disposed with the calling fiber. |
-| `search(request, exec?)` | Resolve the search provider and run one search. Enforces `request.maxResults` on the result (truncates `sources[]`, sets `truncated`). Throws `WebError` when the capability cannot run. |
-| `fetch(request, exec?)` | Resolve the fetch provider and retrieve one URL. A non-2xx response is a result, not a throw. Throws `WebError` for failures to safely retrieve or represent the resource. |
+| `search(request, signal?)` | Resolve the search provider and run one search. Enforces `request.maxResults` on the result (truncates `sources[]`, sets `truncated`). Throws `WebError` when the capability cannot run. |
+| `fetch(request, signal?)` | Resolve the fetch provider and retrieve one URL. A non-2xx response is a result, not a throw. Throws `WebError` for failures to safely retrieve or represent the resource. |
 
 Providers register **capabilities**, not tools. `dsh-tool-web` is the only owner of model-facing names, descriptions, prompt guidance, JSON schemas, and presentation.
 
@@ -30,18 +30,18 @@ Selection never depends on registration, config, or HMR order. A capability has 
 
 | Situation | Execution |
 |---|---|
-| configured id registered and `status().available` | runs that provider |
+| configured id registered and `available()` | runs that provider |
 | configured id not registered | `WEB_PROVIDER_CONFIGURED_MISSING` |
 | configured id registered but unavailable | `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` |
 | no id, exactly one registered usable provider | runs it |
 | no id, no usable provider | `WEB_PROVIDER_UNAVAILABLE` |
 | no id, multiple usable providers | `WEB_PROVIDER_AMBIGUOUS` |
 
-The failure branches throw `WebError`, whose structured code (plus message detail — the missing id, the ambiguous candidate set) is the surface callers route on. A provider's own `status()` is a cheap local check (credential presence, parseable config) that feeds this execution-time selection and **must not make network calls**; `dsh-tool-web` never calls a provider's `status()` — it executes through `ctx.web.search()`/`fetch()` and routes on the thrown codes, so provider selection has one owner.
+The failure branches throw `WebError`, whose structured code (plus message detail — the missing id, the ambiguous candidate set) is the surface callers route on. A provider's own `available()` is a cheap local check (credential presence, parseable config) that feeds this execution-time selection and **must not make network calls**; `dsh-tool-web` never calls it — the tool executes through `ctx.web.search()`/`fetch()` and routes on the thrown codes, so provider selection has one owner.
 
 ## Vocabulary
 
-`WebSearchRequest` (`query`, `maxResults?`) → `WebSearchResult` (`providerId`, `query`, `content?`, `sources[]`, `truncated`); each `WebSearchSource` has a required `url` and optional `title`/`snippet`/`publishedAt` (Perplexity citations may be URL-only). `WebFetchRequest` (`url`, `timeoutMs?`) → `WebFetchResult` (`providerId`, final `url`, `statusCode`, `body`, `truncated`); `WebFetchBody` is a CLOSED discriminated union (`html` | `text`) owned here — consumers `switch` to exhaustiveness so a new kind breaks their compilation until handled. See `src/types.ts` for the full contracts and the `WebError` code taxonomy.
+`WebSearchRequest` (`query`, `maxResults?`) → `WebSearchResult` (`content?`, `sources[]`, `truncated`); each `WebSearchSource` has a required `url` and optional `title`/`snippet`/`publishedAt` (Perplexity citations may be URL-only). `WebFetchRequest` (`url`) → `WebFetchResult` (final `url`, `statusCode`, `body`, `truncated`); cancellation is a direct optional `AbortSignal` argument to `search()`/`fetch()`. `WebFetchBody` is a CLOSED discriminated union (`html` | `text`) owned here — consumers `switch` to exhaustiveness so a new kind breaks their compilation until handled. See `src/types.ts` for the full contracts and the `WebError` code taxonomy.
 
 ## Model Experience
 

@@ -240,8 +240,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       'registerSearchProvider(provider: WebSearchProvider): () => void',
       'registerFetchProvider(provider: WebFetchProvider): () => void',
-      'async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>',
-      'async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>',
+      'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
+      'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
     ],
   },
   {
@@ -1034,32 +1034,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UserInteractionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
   },
   {
-    name: 'WebExecContext',
-    declaration: 'export interface WebExecContext {\n    readonly signal?: AbortSignal;\n}',
-  },
-  {
     name: 'WebFetchBody',
     declaration: 'export type WebFetchBody = {\n    readonly kind: \'html\';\n    readonly content: string;\n} | {\n    readonly kind: \'text\';\n    readonly content: string;\n};',
   },
   {
     name: 'WebFetchProvider',
-    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>;\n}',
+    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
   },
   {
     name: 'WebFetchRequest',
-    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n    readonly timeoutMs?: number;\n}',
+    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n}',
   },
   {
     name: 'WebFetchResult',
-    declaration: 'export interface WebFetchResult {\n    readonly providerId: string;\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
-  },
-  {
-    name: 'WebProviderStatus',
-    declaration: 'export type WebProviderStatus = {\n    readonly available: true;\n} | {\n    readonly available: false;\n    readonly reason: \'missing-credential\' | \'misconfigured\';\n};',
+    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchProvider',
-    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>;\n}',
+    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
   {
     name: 'WebSearchRequest',
@@ -1067,7 +1059,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchResult',
-    declaration: 'export interface WebSearchResult {\n    readonly providerId: string;\n    readonly query: string;\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WebSearchResult {\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchSource',
