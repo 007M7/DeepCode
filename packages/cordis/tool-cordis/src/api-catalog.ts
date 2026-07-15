@@ -388,18 +388,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
-    name: 'skill/provider-added',
-    mode: 'emit',
-    signature: '\'skill/provider-added\'(provider: SkillProvider): void',
-    summary: 'A skill provider became resolvable in the `ctx.skills` registry.',
-  },
-  {
-    name: 'skill/provider-removed',
-    mode: 'emit',
-    signature: '\'skill/provider-removed\'(name: string): void',
-    summary: 'A skill provider left the registry because its plugin fiber was disposed.',
-  },
-  {
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',

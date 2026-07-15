@@ -1,8 +1,8 @@
 /**
  * The stdio chat app: the default agent spine ({@link @deepseek-ai/dsh-agent-core}) plus the
- * coupled front-door cluster a terminal chat needs — a console logger, the readline UI (the
- * in-package `stdio-chat` module), JSONL session persistence, and a pre-created `main` agent
- * the UI drives.
+ * coupled front-door cluster a terminal chat needs — a console logger, the independently
+ * packaged readline UI, JSONL session persistence, the user-interaction seam with its
+ * `ask_user_question` tool, and a pre-created `main` agent the UI drives.
  * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
  * Loader plugin intentionally exposes named exports only; a default export
  * would hide its `Config` schema (see docs/postmortem/0001).
@@ -19,7 +19,7 @@ import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
-import * as uiStdio from './stdio-chat.ts'
+import * as uiStdio from '@deepseek-ai/dsh-stdio'
 
 export const name = 'stdio-agent'
 
