@@ -9,9 +9,10 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-llm'
 import { DeepSeekAdapter } from './adapter.ts'
+import type { DeepSeekCatalogModel } from './adapter.ts'
 
 export { DeepSeekAdapter, httpErrorCode } from './adapter.ts'
-export type { DeepSeekAdapterOptions } from './adapter.ts'
+export type { DeepSeekAdapterOptions, DeepSeekCatalogModel } from './adapter.ts'
 export { serializeMessages, serializeRequest } from './serialize.ts'
 export type { RequestDefaults } from './serialize.ts'
 export { DONE, parseSse } from './sse.ts'
@@ -20,6 +21,11 @@ export type * from './types.ts'
 
 export const name = 'llm-deepseek'
 export const inject = ['llm']
+
+const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
+  { id: 'deepseek-v4-flash' },
+  { id: 'deepseek-v4-pro' },
+]
 
 /**
  * Plugin config, validated by the same-named schemastery schema. Every field
@@ -36,17 +42,44 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
   reasoningEffort?: 'high' | 'max'
+  /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
+  models?: DeepSeekCatalogModel[]
 }
+
+const catalogModel: z<DeepSeekCatalogModel> = z.object({
+  id: z.string().required(),
+  name: z.string(),
+  description: z.string(),
+})
 
 export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
+  models: z.array(catalogModel).default(DEFAULT_MODELS),
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
+
+/** Resolve, validate, and detach the advisory model catalog. */
+function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): DeepSeekCatalogModel[] {
+  const seen = new Set<string>()
+  return (models ?? DEFAULT_MODELS).map((model) => {
+    if (model.id.length === 0) throw new Error('llm-deepseek: catalog model ids must be non-empty')
+    if (model.name !== undefined && model.name.length === 0) {
+      throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
+    }
+    if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
+    seen.add(model.id)
+    return {
+      id: model.id,
+      ...model.name === undefined ? {} : { name: model.name },
+      ...model.description === undefined ? {} : { description: model.description },
+    }
+  })
+}
 
 export function apply(ctx: Context, config: Config): void {
   const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY
@@ -61,5 +94,6 @@ export function apply(ctx: Context, config: Config): void {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
     },
+    models: resolveModels(config.models),
   }))
 }

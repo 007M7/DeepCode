@@ -262,6 +262,6 @@ export class HarnessSdkServer {
   }
 
   private hasAdapterFor(provider: string): boolean {
-    return this.ctx.get('llm')?.providers().includes(provider) ?? false
+    return this.ctx.get('llm')?.listProviders().some(entry => entry.id === provider) ?? false
   }
 }

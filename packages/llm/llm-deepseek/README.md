@@ -14,9 +14,14 @@ A second, library-backed implementation of the same seam exists in `@deepseek-ai
     baseURL: !!js process.env.DEEPSEEK_BASE_URL  # default: https://api.deepseek.com
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
+    models:                  # optional; defaults to V4 Flash and V4 Pro
+      - id: deepseek-v4-flash
+        name: DeepSeek V4 Flash
+      - id: private-reasoner
+        description: Company-hosted reasoning model
 ```
 
-The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
+The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for clients such as ACP editors, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
 `reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
 

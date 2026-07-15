@@ -121,13 +121,14 @@ The abstract `llm` service: an adapter registry plus a streaming model-call surf
 
 ```ts cordis-catalog
 registerAdapter(providers: string[], adapter: LlmAdapter): () => void
-providers(): string[]
+listProviders(): LlmProviderInfo[]
+async listModels(provider: string): Promise<LlmModelInfo[]>
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:76`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:96`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

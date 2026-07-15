@@ -7,6 +7,8 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "Message", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "MessageSourceMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "FinishReasonMap", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmProviderInfo", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmModelInfo", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateOptions", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "LlmCallConfig", "source": "packages/llm/llm/src/call-config.ts" },

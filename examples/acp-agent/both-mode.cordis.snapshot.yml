@@ -26,3 +26,10 @@
             name: '@deepseek-ai/dsh-code-runtime-worker'
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'
+            config:
+              providers:
+                - id: deepseek
+                  name: DeepSeek
+                  models:
+                    - id: deepseek-v4-flash
+                    - id: deepseek-v4-pro

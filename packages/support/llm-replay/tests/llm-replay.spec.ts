@@ -198,7 +198,7 @@ describe('loadReplayScript', () => {
   })
 })
 
-describe('installLlmReplay (through the real waterfall)', () => {
+describe('installLlmReplay (through the real LlmService)', () => {
   function writeLog(...calls: StreamChunk[][]): void {
     let seq = 1
     const events: SessionEvent[] = []
@@ -215,6 +215,40 @@ describe('installLlmReplay (through the real waterfall)', () => {
     // No adapter registered for 'm' — replay must not reach it.
     installLlmReplay(ctx, { file })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('registers a replay-only provider catalog when configured', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const dispose = installLlmReplay(ctx, {
+      file,
+      providers: [
+        {
+          id: 'deepseek',
+          name: 'DeepSeek',
+          models: [
+            { id: 'flash' },
+            { id: 'pro', name: 'Pro', description: 'Larger model' },
+          ],
+        },
+        { id: 'empty' },
+      ],
+    })
+
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'deepseek', name: 'DeepSeek' },
+      { id: 'empty', name: 'empty' },
+    ])
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
+      { provider: 'deepseek', id: 'flash', name: 'flash' },
+      { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
+    ])
+    await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
+    expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
+
+    dispose()
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('serves the Nth call the Nth derived entry (positional)', async () => {
@@ -574,11 +608,12 @@ describe('apply (the plugin entry)', () => {
     expect(inject).toEqual(['llm'])
   })
 
-  it('installs replay from an explicit config.file', async () => {
+  it('installs replay and its catalog from explicit config', async () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file })
+    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }] })
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 

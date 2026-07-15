@@ -15,7 +15,7 @@ import type {
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { PiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
@@ -63,6 +63,18 @@ export class PiAiAdapter extends LlmAdapter {
   constructor(options: PiAiAdapterOptions) {
     super()
     this.profiles = new Map(options.profiles.map(profile => [profile.provider, profile]))
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    const profile = this.profiles.get(provider)
+    if (profile === undefined) {
+      return Promise.reject(new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER'))
+    }
+    return Promise.resolve(getModels(profile.provider as KnownProvider).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name,
+    })))
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

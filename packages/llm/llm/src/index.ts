@@ -7,7 +7,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, Message, StreamChunk } from './types.ts'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
 import { deepFreeze } from './call-config.ts'
 
@@ -62,6 +62,26 @@ export class LlmError extends HarnessError {
  */
 export abstract class LlmAdapter {
   /**
+   * Describe one provider route owned by this adapter.
+   * @param provider - a route passed to `registerAdapter()` for this instance.
+   * @returns detached display metadata whose id must equal `provider`.
+   */
+  providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: provider }
+  }
+
+  /**
+   * List models this adapter can currently advertise for one owned provider.
+   * The result is advisory: an adapter may accept unlisted model ids, and
+   * consumers must not turn absence into request rejection.
+   * @param _provider - one provider route owned by this adapter.
+   * @returns discoverable models in adapter-preferred order.
+   */
+  listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve([])
+  }
+
+  /**
    * Stream one model call as raw chunks. The only required method.
    * @param options - the fully-assembled request; implementations must honor `options.signal`.
    * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
@@ -74,7 +94,7 @@ export abstract class LlmAdapter {
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
-  private adapters = new Map<string, LlmAdapter>()
+  private adapters = new Map<string, { adapter: LlmAdapter; provider: LlmProviderInfo }>()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -92,14 +112,20 @@ export class LlmService extends Service {
     const dispose = this.ctx.effect(function* (this: LlmService) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
       const unique = new Set<string>()
+      const registrations: { adapter: LlmAdapter; provider: LlmProviderInfo }[] = []
       for (const provider of providers) {
         if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
         if (unique.has(provider) || this.adapters.has(provider)) {
           throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
         }
+        const info = adapter.providerInfo(provider)
+        if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
+          throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
+        }
         unique.add(provider)
+        registrations.push({ adapter, provider: { id: info.id, name: info.name } })
       }
-      for (const provider of providers) this.adapters.set(provider, adapter)
+      for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
       yield () => {
         for (const provider of providers) this.adapters.delete(provider)
       }
@@ -110,17 +136,50 @@ export class LlmService extends Service {
   }
 
   /**
-   * Provider routes with a registered adapter.
-   * @returns the registered provider names, in registration order.
+   * Describe provider routes with a registered adapter.
+   * @returns detached provider metadata in registration order.
    */
-  providers(): string[] {
-    return [...this.adapters.keys()]
+  listProviders(): LlmProviderInfo[] {
+    return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
   }
 
-  private adapter(provider: string): LlmAdapter {
-    const adapter = this.adapters.get(provider)
-    if (!adapter) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
-    return adapter
+  /**
+   * Discover models advertised by one registered provider. Catalog membership
+   * is advisory and never changes routing or request validation.
+   * @param provider - registered provider route to inspect.
+   * @returns detached model metadata in adapter-preferred order.
+   */
+  async listModels(provider: string): Promise<LlmModelInfo[]> {
+    const adapter = this.registration(provider).adapter
+    const models = await adapter.listModels(provider)
+    const seen = new Set<string>()
+    return models.map((model) => {
+      if (
+        typeof model.provider !== 'string'
+        || model.provider !== provider
+        || typeof model.id !== 'string'
+        || model.id.length === 0
+        || typeof model.name !== 'string'
+        || model.name.length === 0
+        || (model.description !== undefined && typeof model.description !== 'string')
+        || seen.has(model.id)
+      ) {
+        throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
+      }
+      seen.add(model.id)
+      return {
+        provider: model.provider,
+        id: model.id,
+        name: model.name,
+        ...model.description === undefined ? {} : { description: model.description },
+      }
+    })
+  }
+
+  private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
+    const registration = this.adapters.get(provider)
+    if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
+    return registration
   }
 
   /** Remove replay state whose historical route is owned by another adapter. */
@@ -128,7 +187,7 @@ export class LlmService extends Service {
     const messages: Message[] = options.messages.map((message) => {
       const provenance = message.provenance
       if (message.role !== 'assistant' || provenance?.replayState === undefined) return message
-      if (this.adapters.get(provenance.provider) === adapter) return message
+      if (this.adapters.get(provenance.provider)?.adapter === adapter) return message
       return {
         ...message,
         provenance: { provider: provenance.provider, model: provenance.model },
@@ -150,7 +209,7 @@ export class LlmService extends Service {
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     return this.ctx.waterfall(this, 'llm/stream', options, () => {
-      const adapter = this.adapter(options.provider)
+      const adapter = this.registration(options.provider).adapter
       return adapter.stream(this.forAdapter(options, adapter))
     })
   }

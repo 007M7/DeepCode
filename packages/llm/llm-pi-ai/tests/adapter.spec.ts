@@ -186,9 +186,23 @@ describe('provider profile lifecycle', () => {
     const fiber = await ctx.plugin(LlmPiAi, {
       providers: [{ provider: 'openai' }, { provider: 'anthropic' }],
     })
-    expect(ctx.llm.providers()).toEqual(['openai', 'anthropic'])
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'openai', name: 'openai' },
+      { id: 'anthropic', name: 'anthropic' },
+    ])
     await fiber.dispose()
-    expect(ctx.llm.providers()).toEqual([])
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('exposes the installed pi-ai model catalog through provider-neutral metadata', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, { providers: [{ provider: 'openai' }] })
+    const models = await ctx.llm.listModels('openai')
+    expect(models.find(model => model.id === 'gpt-4.1')).toEqual({
+      provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
+    })
+    expect(models.every(model => model.provider === 'openai')).toBe(true)
   })
 
   it('accepts absent credentials for pi-ai ambient authentication', async () => {
@@ -210,6 +224,7 @@ describe('provider profile lifecycle', () => {
 
   it('constructs the adapter directly and rejects routes it does not own', async () => {
     const adapter = new PiAiAdapter({ profiles: [{ provider: 'openai' }] })
+    await expect(adapter.listModels('anthropic')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
     await expect((async () => {
       for await (const _chunk of adapter.stream({ provider: 'anthropic', model: 'claude-sonnet-4', messages: [] })) { /* drain */ }
     })()).rejects.toMatchObject({ code: 'NO_ADAPTER' })

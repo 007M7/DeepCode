@@ -130,7 +130,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
       'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
-      'providers(): string[]',
+      'listProviders(): LlmProviderInfo[]',
+      'async listModels(provider: string): Promise<LlmModelInfo[]>',
       'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
     ],
   },
@@ -740,6 +741,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HookContext',
     declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
+  },
+  {
+    name: 'LlmModelInfo',
+    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'LlmProviderInfo',
+    declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
   },
   {
     name: 'Message',

@@ -381,7 +381,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(() => ctx.llm.registerAdapter(['m1'], new MockAdapter([])))
       .toThrow('already registered')
     // the original registration survives the failed attempt
-    expect(ctx.llm.providers()).toEqual(['m1'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm1', name: 'm1' }])
   })
 
   it('an agent without a model fails the step with a clear error (not NO_ADAPTER for "default")', async () => {

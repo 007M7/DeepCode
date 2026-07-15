@@ -5,7 +5,7 @@
  */
 
 import { Context } from 'cordis'
-import LlmService, { CallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, type GenerateOptions, type LlmModelInfo, type LlmProviderInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -39,8 +39,22 @@ import { type AcpConfig } from '../src/index.ts'
 /** A scripted mock adapter (mirrors the agent-loop test adapter). */
 class MockAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
-  constructor(private script: (StreamChunk[] | 'hang')[]) {
+  constructor(
+    private script: (StreamChunk[] | 'hang')[],
+    private readonly providers: readonly LlmProviderInfo[],
+    private readonly models: readonly LlmModelInfo[],
+  ) {
     super()
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    const info = this.providers.find(entry => entry.id === provider)
+    if (info === undefined) throw new Error(`MockAdapter: unknown provider ${provider}`)
+    return info
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve(this.models.filter(model => model.provider === provider))
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -142,6 +156,9 @@ export interface BridgeHarness {
   storageDir: string
 }
 
+/** Test-only overrides preserve explicit undefined to suppress harness defaults. */
+type AcpConfigOverrides = { [K in keyof AcpConfig]?: AcpConfig[K] | undefined }
+
 /**
  * Build the bridge + a connected client over an in-memory transport pair.
  *
@@ -155,7 +172,9 @@ export interface BridgeHarness {
  */
 export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
-  config?: Partial<AcpConfig>
+  config?: AcpConfigOverrides
+  /** Provider-neutral directory exposed to ACP model-selection tests. */
+  catalog?: { providers: LlmProviderInfo[]; models: LlmModelInfo[] }
   /** Deployment persona for the tree (the system-prompt plugin's config). */
   persona?: string
   storageDir: string
@@ -185,7 +204,11 @@ export async function makeBridgeHarness(options: {
   withFs?: boolean
   fsCwd?: string
 } = { storageDir: '' }): Promise<BridgeHarness> {
-  const adapter = new MockAdapter(options.script ?? [])
+  const catalog = options.catalog ?? {
+    providers: [{ id: 'mock', name: 'Mock' }],
+    models: [{ provider: 'mock', id: 'mock', name: 'Mock' }],
+  }
+  const adapter = new MockAdapter(options.script ?? [], catalog.providers, catalog.models)
 
   const ctx = new Context()
   await ctx.plugin(LlmService)
@@ -211,7 +234,7 @@ export async function makeBridgeHarness(options: {
     await ctx.plugin(FsPolicy)
     await ctx.plugin(ToolFs)
   }
-  ctx.llm.registerAdapter(['mock'], adapter)
+  ctx.llm.registerAdapter(catalog.providers.map(provider => provider.id), adapter)
 
   // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the agent writes flow
   // to the client's reader and vice versa. (ndJsonStream takes (output, input): the agent
@@ -272,7 +295,7 @@ export async function makeBridgeHarness(options: {
   })
 
   // Default route fields only when the caller omitted them; explicit undefined values must survive.
-  const cfg: AcpConfig = { stream: agentStream, ...options.config }
+  const cfg = { stream: agentStream, ...options.config } as AcpConfig
   if (!(options.config && 'provider' in options.config)) cfg.provider = 'mock'
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
   // Mount the bridge the way production does: as a cordis plugin (via `ctx.plugin` with the
