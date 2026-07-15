@@ -60,6 +60,7 @@
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
         "./packages/session-query/*/src",
+        "./packages/sdk/*/src",
         "./packages/ui/*/src",
         "./packages/examples/*/src",
         "./packages/util/*/src",
