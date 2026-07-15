@@ -61,6 +61,7 @@
         "./packages/session-query/*/src",
         "./packages/ui/*/src",
         "./packages/util/*/src",
+        "./packages/mcp/*/src",
         "./packages/support/*/src"
       ]
     }
