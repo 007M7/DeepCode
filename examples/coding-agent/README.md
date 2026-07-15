@@ -11,7 +11,7 @@ The REPL agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem t
 pnpm run demo:repl
 ```
 
-Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ `bash_output` / `bash_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
+Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
 
 ```
 > fix the failing test in /path/to/project
@@ -54,8 +54,8 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
-| `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash`/`bash_output`/`bash_kill` tool schemas (`tool-bash`) come from `agent-core`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
+| `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |

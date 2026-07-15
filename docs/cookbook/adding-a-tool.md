@@ -45,9 +45,9 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Long-running work
 
-Follow tool-bash's background pattern: a `run_in_background` flag returns a task id immediately; companion tools poll incrementally and kill; completion notices arrive via `agent.inject()`. Bound buffers and spill full output to disk so nothing is silently lost.
+Gate `run_in_background` with producer config, reject a pre-aborted call, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
 
-> TODO: each tool reimplements this background pattern by hand today. At some point we need a generic long-running-tool layer that handles task ids, incremental polling, kill, and completion notices uniformly.
+The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. Once the id is returned, use a task-owned cancellation signal rather than `exec.signal`. See the [background task runtime RFC](../rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
 ## Execution policy and observation
 
