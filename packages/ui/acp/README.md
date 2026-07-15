@@ -42,7 +42,7 @@ Forward and reverse indexes route every event, prompt, cancel, and approval to o
 
 When `ctx.permission` is composed, the bridge advertises one `permission` select in `session/new` and `session/load`. Options come from the deployment's preset table; the current value comes from the session fold, with switch-away-only `custom` for unmatched knobs. `session/set_config_option` accepts advertised presets and writes both sandbox-mode and approval-policy events through `PermissionService.set()`. Open-turn switches append immediately; idle switches overlay responses and anchor at the next `agent/prompt-submit`, before request assembly. A crash before anchoring restores the durable fold. See the [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md), [`dsh-permission`](../permission/README.md), and [protocol matrix](acp-feature-support.md#6-session-config-options).
 
-Background-task isolation rides on the `ctx.tasks` runtime (`dsh-tasks`): task ids are global and predictable, so every read/kill/wait/list is fenced to the owning agent's session (`session.header.id`), and one session's agent can't read or kill another's task through `task_output`/`task_kill`. Ownership is by session token, not `Agent` object identity — a different `Agent` object on the same session may access the task — and because the registration lives in the tasks service it survives a producer-plugin HMR reload.
+The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictable task ids by the owning session; ACP sessions therefore cannot read or stop one another's background work.
 
 ## Per-session cwd
 

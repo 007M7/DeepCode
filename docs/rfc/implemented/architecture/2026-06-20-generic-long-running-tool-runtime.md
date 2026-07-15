@@ -1,185 +1,128 @@
-# RFC: The background task runtime (`ctx.tasks`) and the generic task control tools
+# RFC: The background task runtime (`ctx.tasks`) and generic task control tools
 
 Status: implemented
 
 ## Problem
 
-The bash capability seam supports both foreground commands and long-running background tasks. Background support was large: the abstract executor exposed `start`, `get`, `ownerOf`, `list`, `readOutput`, `kill`, and `onTaskDone`; the local executor tracked tasks, incremental reads, owner tokens, process cleanup, and completion listeners; the model saw three tools (`bash`, `bash_output`, `bash_kill`); the tool plugin injected completion notices back into the owning agent's session. The local executor fenced task access behind owner tokens because predictable global task ids are a cross-session read/kill hazard.
+Background bash originally combined two responsibilities: the bash executor ran processes and also managed task ids, ownership, incremental reads, cancellation, completion listeners, and model-facing control tools. Adding background subagents required the same lifecycle and interaction contract. Implementing that contract independently for every long-running capability would duplicate isolation, cleanup, notification, and prompt behavior while teaching the model a different collect-and-stop protocol for each producer.
 
-The [tool cookbook](../../../cookbook/adding-a-tool.md) already pointed at the real design smell: background bash is really generic long-running-tool infrastructure living inside one tool. The pressure stopped being hypothetical with [background subagent tasks](../feature/2026-07-08-background-subagent-tasks.md), which needs the same task ids, owner isolation, polling, stop, completion notices, and prompt guidance, and whose first draft answered by cloning the protocol under new names (`subagent_wait`, `subagent_output`, `subagent_stop`) and reshaping `dsh-tool-subagent` into a multi-tool plugin solely so the cloned companion tools would not collide across instances. Every future long-running capability (dev servers, watchers, remote jobs) would clone it again, and the model would learn a new collect/stop habit per capability.
-
-The surveyed peer products converged on the opposite shape. Claude Code exposes one `TaskOutput`/`TaskStop` pair spanning seven task kinds (background shells, subagents, remote sessions, …), with its earlier per-capability `BashOutput`/`KillShell` names kept only as aliases; Kimi Code's `BackgroundManager` runs process, agent, and pending-question kinds behind the same two tools and a ~5-method producer interface; DeepSeek-Reasonix serves bash and delegation from one session-scoped jobs manager; OpenCode's `BackgroundJob` registry is kind-agnostic by construction. The lesson is that the task registry, the control tools, and the notification path are one capability, and the producers (bash, subagents) are plugins into it.
+The task registry, control tools, and completion notices form one harness capability. Bash and subagents should supply execution-specific hooks without owning generic task behavior.
 
 ## Decision
 
-The `tasks/` package group owns background-task semantics once, and bash and subagents are producers:
+The `tasks/` package group owns background-task semantics:
 
-- `@deepseek-ai/dsh-tasks` — the task registry service (`ctx.tasks`): branded task ids, owner-scoped authorization, status snapshots, incremental/final output reads, cancellation, wait-for-terminal, completion listeners, and the awaited owner-cleanup path.
-- `@deepseek-ai/dsh-tool-tasks` — the model-facing control surface: `task_output`, `task_list`, `task_kill`, the completion-notice injection into the owning session, and the system-prompt section that teaches the background-task habit.
+- `@deepseek-ai/dsh-tasks` registers running work as `ctx.tasks` and owns task ids, authorization, snapshots, reads, cancellation, waiting, completion listeners, and cleanup.
+- `@deepseek-ai/dsh-tool-tasks` exposes `task_output`, `task_list`, and `task_kill`, injects completion notices, and supplies the background-task system-prompt guidance.
 
-Producers register running work into `ctx.tasks` and stay owners of their execution concerns: `dsh-tool-bash`'s `run_in_background` path registers the process it started (incremental stdout, spill formatting, kill), and `dsh-tool-subagent`'s background mode ([the feature RFC](../feature/2026-07-08-background-subagent-tasks.md)) registers the child run (final output only, cancel + dispose). The bash seam carries no registry: `bash_output`/`bash_kill` no longer exist (the generic tools replaced them), and the subagent companion tools were never created. The `dsh-agent-core` bundle loads the pair, so every shipped deployment has the control surface.
+Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
 
-The registry is a CONCRETE service, not an interface/implementation seam pair: there is exactly one sensible in-process implementation today, and the capability-seam convention says not to split preemptively. The pre-release stance lets a later durable/remote job system extract an interface when a second backend actually exists.
+`TaskService` is a concrete service. There is one in-process implementation, so an interface/backend package split would be speculative. A durable or remote implementation can introduce that seam when its lifecycle requirements are known.
 
-## Task model
+## Runtime contract
 
-`dsh-tasks` owns the vocabulary ([data-structure catalog](../../../core-data-structures/tasks.md)). `TaskId` is branded, generated by the registry as `<kind>-N` with a per-kind counter (`bash-1`, `subagent-1`) — the kind prefix keeps ids self-describing in transcripts and preserves the pre-runtime `bash-N` shape. Ids are runtime-global and predictable, so every access is authorized (below).
+The literal types live in the [task data-structure catalog](../../../core-data-structures/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
 
-A producer hands its work to `ctx.tasks.start()` in a declare-then-execute shape (the pattern the timeout-policy plugin set: the capability declares, the shared layer executes): identity first, then a `run()` starter the runtime invokes only once nothing can fail anymore.
+The producer hooks define three responsibilities:
 
-```ts ignore-check
-interface TaskStart {
-  /** Producer kind — also the id prefix ('bash', 'subagent', …). */
-  kind: string
-  /** One-line model-facing label (the command; the delegation description). */
-  label: string
-  /** The spawning agent; undefined = unowned (open access, dies with the service). */
-  owner?: Agent
-  /** Start the actual work; called exactly once, after preflight passed. */
-  run(): TaskHooks
-}
+- `cancel(reason?)` synchronously requests termination, is idempotent, and must cause `done` to settle.
+- `done` never rejects and settles only after the producer has released the task's resources.
+- Optional `readOutput()` returns the next consuming output delta. Omitting it declares a final-output task whose terminal result comes from `TaskOutcome.output`.
 
-interface TaskHooks {
-  /** Request termination; idempotent; must lead to `done` settling. The optional reason is `task_kill`'s logged reason, forwarded. */
-  cancel(reason?: string): void
-  /** Settles at QUIESCENCE — after the producer has released the task's resources. Never rejects. */
-  done: Promise<TaskOutcome>
-  /** OPTIONAL incremental read (stream kinds). Consecutive calls never re-deliver output; the producer owns truncation/spill formatting. Absence = final-output-only kind. */
-  readOutput?(): string
-}
+Statuses are `running`, `stopping`, `completed`, `killed`, and `failed`. Producer-specific information such as an exit code or stop reason belongs in `detail`; the registry does not interpret it. Task ids are branded and generated as `<kind>-N`, with a counter per kind.
 
-interface TaskOutcome {
-  status: 'completed' | 'killed' | 'failed'
-  /** Kind-specific detail rendered into the status line ('exit code: 3', 'max-tokens'). */
-  detail?: string
-  /** Final output for final-only kinds; read idempotently after the task settles. */
-  output?: string
-}
-```
+The runtime attaches one continuation to `done`, records the first terminal outcome, resolves waiters, and invokes completion listeners with per-listener error containment. First-wins settlement matters during teardown: if `cancel` throws, the runtime force-fails the record and warns that work may be orphaned rather than waiting forever for a promise that may never settle. A later producer outcome cannot overwrite that diagnosis or notify twice. A `cancel` that returns without eventually settling `done` still blocks teardown because the runtime cannot distinguish it from a slow, valid stop.
 
-The task status vocabulary is generic and closed: `running`, `stopping` (cancel requested, not yet settled), and the three terminal values above. Kind-specific meaning rides in `detail`, so the registry never learns process or agent semantics — the method presence (`readOutput`) is the capability, mirroring `SubagentRun.sendMessage`.
+Task registrations are not effects of the producer tool fiber. Reloading a tool or control-surface plugin therefore does not kill work owned by an agent and backend. The task service's own disposal cancels all live tasks and awaits contract-compliant producers.
 
-The registry attaches ONE continuation to `done`: record the terminal snapshot, then notify task-done listeners with per-listener containment (the guarantee the bash seam's `notifyTaskDone` used to give its own listener set). `done` settling at quiescence — not merely at completion — makes ordinary owner cleanup and service disposal awaitable without a second completion surface. Settlement is first-wins because teardown has one explicit failure fallback: if producer `cancel` throws before the request is delivered, `done` may never settle, so the registry force-fails the record with a possible-orphan detail instead of deadlocking disposal; a late producer outcome cannot overwrite that diagnosis or notify twice. This fallback terminates bookkeeping, not necessarily the underlying work.
+## Authorization and owner lifecycle
 
-Registrations are NOT effect-scoped to the registering fiber: a task belongs to its owning agent and its producing backend, not to the tool plugin whose call started it, so an HMR reload of `dsh-tool-bash` or `dsh-tool-tasks` never orphans or kills a running task (the same argument that used to keep bash ownership in the executor). The registry's own disposal cancels every live task and awaits contract-compliant producers to quiescence. A teardown cancel that throws force-fails the terminal record and logs that work may be orphaned; this prevents a broken producer from deadlocking the fiber without pretending the work stopped.
+Task ids are runtime-global and predictable, so every access is authorized by the registry. `get`, `read`, `wait`, and `kill` accept the calling `Agent`; `list` returns only tasks visible to that caller. An owned task is accessible only to the exact owning session. Unowned tasks are open to non-agent callers and die with the task service.
 
-## Authorization and the service surface
+The snapshot stores the owner's branded `SessionId` for authorization, while lifecycle operations retain the exact live `Agent` instance. These identities serve different purposes: session equality grants access, but exact object identity selects cleanup and completion delivery. Reusing an agent or session id cannot redirect an old scope's cleanup or notices to a replacement.
 
-Cross-session isolation lives IN the runtime so every consumer gets the same rule for free: read/kill/wait/get take the caller (`Agent | undefined`), and a task whose owner session differs from the caller's session is rejected (`!== undefined` comparison — an unowned task is open, a no-agent caller cannot match an owned one). `list(caller)` returns only the caller-visible tasks (owned-by-caller or unowned) — a global listing would leak other sessions' labels. The snapshot carries that authorization identity as the canonical branded `SessionId`, not a package-local token or bare string. Lifecycle ownership is independent: start retains the exact live `Agent` instance, owner cleanup selects by object identity, and completion listeners receive that exact owner, so id reuse cannot redirect cleanup or notices to a replacement.
+The first task for an owner attaches one asynchronous effect to `owner.ctx`. Agent-scope disposal cancels that owner's live tasks, awaits their terminal records, and removes their snapshots. This effect survives producer reloads and joins the agent's existing quiescence boundary. The task service retains the effect disposer so service reload can detach callbacks from still-live agent scopes after global teardown.
 
-```ts ignore-check
-class TaskService extends Service {           // ctx.tasks
-  start(spec: TaskStart): TaskId              // preflight (throws) → spec.run() starts the work → atomic commit (cannot fail)
-  get(id: TaskId, caller?: Agent): TaskSnapshot            // non-consuming; throws: unknown id, foreign owner
-  list(caller?: Agent): TaskSnapshot[]                     // caller-visible only
-  read(id: TaskId, caller?: Agent): TaskRead               // delta (stream kinds, consuming) or final output (final kinds, idempotent) + snapshot
-  kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal'
-  wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
-  onTaskDone(listener: (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>): () => void   // exact owner; effect-scoped, contained
-  attachSurface(name: string): () => void     // the misconfiguration fence, below
-}
-```
+For contract-compliant producers, `AgentHandle.dispose()` resolves only after owned background work has stopped. Work intended to outlive an agent must be started unowned; survival across runtime restarts requires a separate durable-job design.
 
-`TaskSnapshot` is the read-only projection: id, kind, label, branded owner `SessionId`, status, detail, started/finished timestamps, and the `reported` notice-suppression flag (below). `wait` resolves with the terminal snapshot, or with the still-`running` snapshot on timeout; aborting the wait cancels only the wait — unless the task already settled, in which case the wait still delivers the terminal snapshot (settlement suppressed the completion notice on this live waiter's behalf, and an aborted waiter un-counts itself synchronously so a same-tick settlement never suppresses a notice nobody will deliver).
+## Service surface
 
-**Misconfiguration fails loud**: a deployment that loads a background-capable producer without any control surface would let the model start tasks it can never read or stop — the half-loaded failure mode the subagent RFC's first draft reshaped a whole plugin to avoid. The fence is `attachSurface()`: `dsh-tool-tasks` attaches (effect-scoped) on load, and `start()` throws `background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)` when none is attached — the earliest self-contained moment, since concurrent plugin start makes a load-time check racy. The registry stays ignorant of tool names; a deployment with a custom (non-model) surface attaches its own.
+`TaskService` provides:
 
-## The model-facing control tools
+- `start(spec)` for preflighted, atomic registration.
+- `get(id, caller?)` and `list(caller?)` for non-consuming snapshots.
+- `read(id, caller?)` for a consuming stream delta or an idempotent final result.
+- `kill(id, caller?, reason?)` for cancellation.
+- `wait(id, timeoutMs, caller?, signal?)` for bounded terminal waiting.
+- `onTaskDone(listener)` for effect-scoped observation with exact-owner delivery and listener containment.
+- `attachSurface(name)` for the control-surface availability fence.
 
-`dsh-tool-tasks` registers three kind-agnostic tools (ACP render intent: `generic` cards, `kind: 'execute'` for kill and `'read'` for output/list, no `locations`):
+`wait` returns the terminal snapshot when the task settles or the live snapshot when its timeout expires. Aborting a wait cancels only that wait. If settlement has already assigned terminal delivery to the waiter, the terminal snapshot still wins. Waiters unregister synchronously on abort so a same-tick settlement cannot suppress a completion notice on behalf of a reader that receives nothing.
 
-- `task_output(task_id, wait?, timeout_ms?)` — non-blocking by default: stream kinds return output produced since the previous read, final kinds return only a status line while running and the final output once terminal; every response ends with the status line (`[status: running]`, `[status: completed, exit code: 0]`, `[status: failed, max-tokens]` — generic status + producer detail). `wait: true` blocks until the task settles or the timeout expires (config: defaulted `waitTimeoutMs`, capped `maxWaitTimeoutMs`); a timed-out wait returns `[status: running]` and leaves the task alive. Polling-by-default preserves the established bash habit; `wait` is what a parent uses when it is genuinely blocked on a subagent's answer.
-- `task_list()` — the caller's tasks, one line each: `<id> [<kind>] <status> — <label>`; `(no background tasks)` when empty. Most peers make listing a human-only surface (`/tasks` panels) and only Gemini CLI ships a model-facing list; DSH keeps it model-facing because the harness is an SDK with no guaranteed user UI — a deployment may have no `/tasks` equivalent — and a caller-scoped list is one cheap registry read.
-- `task_kill(task_id, reason?)` — requests cancellation and returns immediately (`requested cancellation of task <id>`); the optional `reason` lands in the logged tool args and is forwarded to the producer's `cancel` hook (the subagent producer aborts its task-owned signal with that reason). Killing an already-terminal task reports its terminal status rather than failing; a producer `cancel` that throws fails the call loud and leaves the task untouched (still `running`, notice not suppressed).
+A producer loaded without any control surface would let callers start work they cannot collect or stop. `dsh-tool-tasks` therefore calls `attachSurface()` for its lifetime, and `start()` fails before producer execution when no surface is attached. This check occurs at start rather than plugin load because sibling plugins may activate concurrently. Custom non-model surfaces can attach themselves without teaching the registry tool names.
 
-`task_output`'s read cursor is task-scoped and CONSUMING for stream kinds: the registry keeps one cursor per task, and a read returns everything produced since the previous read, exactly like the old `bash_output`. v1's intended reader is the owning model — the owner fence already makes it the only model-facing one — so a non-consuming observation surface (a UI tailing a task, multiple concurrent readers) is deliberately out of scope; when one is needed, it extends the registry with a cursor/snapshot read API rather than changing `task_output`, because two consumers sharing the consuming cursor would silently eat each other's output.
+## Model-facing control surface
 
-One system-prompt section (order 106, next to `tool:bash`) teaches the cross-call habit the per-tool descriptions cannot: track every returned task id; you are notified in-session when a task finishes, so do not busy-poll or sleep on one — keep working on independent steps and do not duplicate a running task's work; do not produce a final answer while a relevant task still runs — call `task_output` (with `wait` when blocked) to collect it first; `task_kill` tasks that stopped mattering. The do-not-poll and do-not-duplicate sentences are near-verbatim convergent across Claude Code, Kimi Code, and OpenCode — they are the two failure modes every peer engineered against.
+`dsh-tool-tasks` registers three kind-independent tools with generic ACP cards:
 
-Completion notices stay durable context, not a wake-up (`agent.inject()` appends a logged `context/message` the next model request sees; it does not run the model): on `onTaskDone`, `dsh-tool-tasks` injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` through the exact owner captured at start, never a replacement found through a reused agent/session id, with the disposed-race contained. Notices are deduplicated the way Claude Code and Kimi Code both learned to: a task the model explicitly killed, or whose terminal state a read/wait already returned (including a wait pending at the moment of settlement), is marked `reported` and its notice suppressed — never a redundant "finished" for work the model just collected or ended. The model-visible ⟺ logged invariant holds with no new session event type.
+- `task_output(task_id, wait?, timeout_ms?)` reads output and always appends `[status: ...]`. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Reads are non-blocking unless `wait: true`, whose timeout is defaulted and capped by plugin config. A wait timeout reports the still-running status and does not stop the task.
+- `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`, or `(no background tasks)`.
+- `task_kill(task_id, reason?)` requests cancellation immediately. The optional logged reason is forwarded to the producer. Terminal tasks report their existing status; a throwing producer cancel fails the call and leaves the task running.
 
-Completion listeners are observation-only: each synchronous throw and returned promise rejection is logged independently, later listeners still run, and listener promises are not awaited before waiters or task teardown continue.
+Stream reads share one task-scoped consuming cursor because the owning model is the intended reader. A UI or multiple independent readers need a separate non-consuming observation API; sharing this cursor would let readers consume one another's output.
 
-## Producer opt-in and schema exposure
+The system prompt tells the model to retain task ids, continue independent work instead of busy-polling or duplicating a running task, collect relevant tasks before its final answer, and kill work that no longer matters. Completion injects a logged `context/message` into the exact owner's session; it becomes durable context for the next request but does not wake an idle agent.
 
-Whether a producer tool offers `run_in_background` is that producer's own defaulted config: `enableRunInBackground?: boolean` on `dsh-tool-bash` and on each `dsh-tool-subagent` instance (both default `true` — bash keeps its always-exposed behavior, and a deployment disables either per instance from cordis.yml, no code edit). A bundle forwards the configs of the child plugins it owns: `dsh-agent-core` exposes `toolBash` for its built-in producer and `toolTasks` for the generic control surface, while independently composed producers such as subagent instances receive config directly. This forwarding is config reachability, not producer registration: future background-capable tools do not become `agent-core` fields unless that bundle also chooses to own them. A disabled producer omits the parameter from its schema entirely — and, because the arg validator deliberately allows undeclared keys, its `execute` ALSO refuses a forced `run_in_background: true` loud (the omission is advertising; the execution-time check is the enforcement). `ctx.tasks` plays no part in schema shaping — it never rewrites or decorates a producer's tool schema (Kimi Code regex-rewrites its bash description when background is disabled; config-owns-the-schema makes that trick unnecessary) — it only provides runtime registration. The two halves compose fail-loud: the producer's config decides what the model sees, and a background call that still reaches `start()` without a control surface throws the load-this-package error. `start()` preflights every failable check (the fence, validation, exact live owner instance, and owner-cleanup attach) BEFORE invoking the producer's `run()` and commits atomically after — background work started without a collectable id is structurally impossible, not a producer rollback obligation.
+The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown.
 
-## Agent-scope owner cleanup
+## Producer opt-in
 
-A contract-compliant background task must not outlive its owner: the subagent case leaks live child agents/sessions otherwise, and `agent/disposed` is an observe-only notification rather than a quiescence seam. Every live agent already owns an awaited structural registration scope ([agent-scope contract](2026-07-08-agent-scope-contexts.md)), so the task runtime uses that single lifecycle mechanism:
+Each producer owns whether its schema exposes `run_in_background` through defaulted config. `dsh-tool-bash` and each `dsh-tool-subagent` instance use `enableRunInBackground`, defaulting to true. A disabled instance omits the parameter and also rejects a forced background argument at execution because the generic argument validator permits undeclared keys. Schema omission advertises the capability; the execution check enforces it.
 
-- After validating and retaining the exact registered owner instance, the first task for that owner registers an async effect through `owner.ctx`. The effect belongs to the agent scope, survives producer reloads, selects tasks by exact owner identity, cancels them, awaits each terminal record, and drops the snapshots; a replacement reusing the same ids is outside that set.
-- `AgentHandle.dispose()` stops and drains the driver, detaches the agent and session, then awaits scope disposal. The task cleanup therefore participates in the same memoized quiescence boundary as every other agent-owned registration; no task-specific link exists in `AgentRegistry` or the loop.
-- The tasks service retains each exact owner-effect disposer so service reload can detach callbacks from still-live scopes after global task teardown, rather than leaving a dead service retained until every agent exits.
+`ctx.tasks` does not rewrite producer schemas. A bundle forwards configuration only for producers it owns. If a background call reaches `start()` without an attached surface, the runtime fence fails before execution.
 
-For contract-compliant producers, `AgentHandle.dispose()` resolves only after the owner's background children are gone. A producer whose teardown cancel throws is the explicit degradation: its record settles `failed` with a possible-orphan detail and cleanup continues. An ownerless task is the sanctioned way for healthy work to outlive an agent, and a future durable-job RFC is the way to outlive the runtime.
+## Producer integrations
 
-## Bash migration
+The bash seam exposes `resolve`, `run`, and `start`. `start(spec)` returns a `BashProcess` with incremental reads, cancellation, exit facts, and a non-rejecting quiescence promise. The local executor retains live handles only so its own disposal can kill and join processes. Foreground callers continue to use `resolve` and `run` directly.
 
-`dsh-bash` keeps the execution contract and carries no registry. The seam is `resolve`, `run`, and `start`, where `start(spec)` returns a process handle — `BashProcess`: `{ command, status, exitCode, signal, done, readOutput(), kill() }` — instead of a registry entry: `get`/`ownerOf`/`list`/`onTaskDone`, the listener machinery, `BashTaskId`, `OwnerToken`, and the spec's `owner` field are gone (a consumer census found `get`/`list` reached only by test harnesses and `onTaskDone` single-consumer — `dsh-tool-bash`; the hook bridges consume `resolve`+`run` only). The local executor keeps an internal table of LIVE processes solely for its own disposal quiescence (entries leave on settlement). The foreground trusted-plugin path (`resolve` + `run` with `stdin`/`env`, used by the hook bridges) is untouched and never routes through the runtime; `BashExecSpec.timeoutMs` stays required-but-ignored by `start()` (shared-spec status quo, documented in the seam JSDoc); the credential-scrub duplication between the bash and ACP spawn sites is explicitly NOT this runtime's work — the registry never touches process spawning.
+For background bash, `dsh-tool-bash` registers the calling agent as owner. Its hooks map `kill()` to cancellation, `done` to a completed or killed `TaskOutcome`, and `readOutput()` to the process's bounded incremental output plus spill and sandbox notices. Generic task tools own ids, status lines, listing, waiting, and completion notices.
 
-`dsh-tool-bash` keeps the `bash` tool; the `run_in_background` path is `ctx.tasks.start({ kind: 'bash', label: command, owner: exec.agent, run })` whose `run()` spawns through `ctx.bash.start(...)` and returns the hooks, where `done` maps the process exit to a `TaskOutcome` (`processOutcome`: `completed`/`killed` + exit-code/signal detail) and `readOutput` wraps the handle's incremental read with the spill/lossy formatting (`renderProcessRead`). The completion-notice listener left `dsh-tool-bash` entirely.
-
-## Subagent integration
-
-[Background subagent tasks](../feature/2026-07-08-background-subagent-tasks.md) rides this runtime while `dsh-tool-subagent` keeps its one-instance-per-provider shape. The task starter creates an independent `AbortController`, immediately begins async `ctx.subagents.start()` with that signal, and synchronously returns hooks: `cancel(reason)` aborts the controller, while `done` awaits startup rollback or the ready run's result and disposal. This covers cancellation before and after readiness through the subagent seam's one signal channel. Terminal mapping remains `completed` with final text, `aborted` as `killed`, and other reasons as `failed`; there is no `readOutput` because the child session remains the detailed trace.
+For background subagents, `dsh-tool-subagent` creates a task-owned `AbortController` and begins provider startup inside the task starter. Cancellation aborts the same signal before or after provider readiness. `done` awaits both the child result and child disposal, maps completed output to a final result, maps abort to `killed`, and maps other stop reasons or infrastructure failures to `failed`. Intermediate child history remains in the child session and is not exposed through `readOutput()`.
 
 ## Alternatives considered
 
-### Why not per-capability companion tools (`bash_output`/`bash_kill` + `subagent_wait`/`subagent_output`/`subagent_stop`)?
+### Per-capability control tools
 
-That is the trajectory this RFC interrupted. Each capability re-implements ids, ownership, polling, stop, notices, and guidance; the model learns N collect/stop habits and the prompt carries N near-identical tool descriptions; `dsh-tool-subagent` needed a structural reshape purely to de-duplicate its clones. Claude Code walked this exact path — per-capability `BashOutput`/`KillShell` first, then a generalized `TaskOutput`/`TaskStop` spanning shells, agents, and remote sessions with the old names kept as deprecated aliases — and the pre-release stance let this repo land directly on the unified shape with no alias burden.
+Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, notification, and guidance while increasing the model's schema and protocol burden. One runtime keeps execution-specific behavior in producers without cloning the task lifecycle.
 
-### Why not an abstract `TaskRuntime` seam with swappable backends?
+### An abstract task-runtime backend
 
-There is one in-process implementation and no concrete second backend; the capability-seam rule is to split when the consumer and backend can actually evolve independently, not before. A durable/persistent job system is the plausible second backend, and it changes the lifecycle contract (survival across owner disposal) enough that its RFC should own the interface extraction.
+No second backend exists. Durable work also changes owner and restart semantics, so its design should extract an interface from concrete requirements rather than preserve this implementation speculatively.
 
-### Why not keep authorization in the consumers, as bash did?
+### Consumer-owned authorization or cleanup events
 
-The bash split put policy in `dsh-tool-bash` so the executor seam stayed session-free — right for a seam that may be implemented remotely. The registry is harness-local infrastructure whose entire purpose includes the isolation fence; leaving the fence to each consumer means every future surface (model tools, a UI bridge, hook bridges) re-implements it or forgets it. Centralizing it is most of the reason the runtime exists.
+Consumer-owned checks invite inconsistent or missing isolation on each new surface. A broadcast cleanup event makes every listener filter every agent and provides no registration disposer. Central authorization plus one owner-scoped effect gives every consumer the same fence and an awaited, removable lifecycle hook.
 
-### Why not a `parallel`-mode `agent/cleanup` event instead of the keyed registry?
+### Blocking output or a separate wait tool
 
-An event fires for every agent at every disposal and every listener must filter; `Promise.all` rejection semantics need extra containment; and there is no disposer to make registrations effects. A keyed registry is targeted, contained, and disposable — and the loop already drains an ordered chain, so one more awaited link was the smaller change.
+Blocking by default would serialize the parent while background work runs. Waiting without reading would add another model call and schema without returning useful information. `task_output(wait: true)` makes blocking explicit and combines it with result delivery.
 
-### Why not blocking-by-default `task_output` (Claude Code's `block: true`)?
+The wait uses the shared deadline primitives but not the generic tool-timeout policy. A wait timeout is a successful observation that returns `[status: running]`; the generic policy would replace it with a timeout error. No tool-call timeout controls task lifetime after a task id has been returned.
 
-The established bash habit is poll-between-work, and the guidance tells the model to keep doing independent work while tasks run; defaulting to block would silently serialize the parent on its slowest child. The explicit `wait: true` keeps blocking a deliberate act, and the wait/read/kill trio still lands within the three-tool surface.
+### Runtime-owned output sinks
 
-### Why not a separate `task_wait` tool?
+A push sink would centralize buffering, but bash already owns bounded buffers, truncation, and spill files behind its executor seam. Pulling formatted deltas preserves that ownership. A durable backend that owns storage may justify revisiting the producer interface.
 
-Waiting is never useful without reading the result afterwards; a separate tool doubles the calls and the schema surface for zero information. Folding it into `task_output` matches the only real usage pattern.
+### Random ids, promotion, or lifecycle session events
 
-### Why not `ToolDefinition.timeoutMs` (the timeout-policy plugin) for `task_output`'s wait?
-
-The [timeout library](2026-07-06-timeout-deadline-library.md) gives `wait()` its timing internals — `ctx.tasks.wait` arms a `deadline()` and classifies wait-timeout vs caller-abort with `timeoutOf` scoped to `TASK_WAIT_TIMEOUT` — but the tool-call-level policy is deliberately NOT adopted: timeout-policy replaces a timed-out call with a structured `TOOL_TIMEOUT` failure, whereas a timed-out `task_output(wait: true)` is a SUCCESS that must still report `[status: running]` (the model needs the task's state either way, and the task keeps running). The wait therefore bounds its own deadline through the tool's `waitTimeoutMs`/`maxWaitTimeoutMs` config. For the same reason, no timeout policy manages a background task's LIFETIME: once the id is returned the work is off the tool-call deadline entirely — cancellation belongs to `task_kill` and owner cleanup.
-
-### Why not a push-sink producer contract (`appendOutput`/`settle`), as Kimi Code's manager uses?
-
-A sink centralizes output buffering, truncation, and spill in the runtime, which is elegant when the runtime owns output storage. In this codebase those concerns already live — bounded, tested, spill-file-aware — inside `dsh-bash-local`, and keeping process concerns in the executor is the point of the bash seam. The pull contract (`readOutput()` returning a formatted delta) reuses that machinery as-is; a sink would relocate it for no v1 gain. If a durable backend later makes the runtime own output storage, the producer contract is the one seam to revisit.
-
-### Why not random task ids (Claude Code's per-kind `36^8` suffixes)?
-
-Peers with shared registries use unguessable ids as defense-in-depth against cross-session access and predictable-path attacks. Here the owner fence is the boundary — exactly as `dsh-tool-bash` documented for the old predictable `bash-N` — and the registry hands no filesystem paths derived from the id, so sequential per-kind counters keep transcripts readable and tests deterministic. Nothing prevents switching the generator later; the id is branded and opaque to consumers.
-
-### Why not foreground→background promotion?
-
-Claude Code, Kimi Code, and OpenCode all let a running foreground call be promoted to a background task (user action or an over-budget auto-detach). It is deliberately out of v1: promotion needs a UI/user channel the SDK does not prescribe, and it changes the foreground tools' result contracts. The registration-based design leaves the door open — a foreground execution is promotable by registering its already-running work mid-flight — and a follow-up RFC can add it without touching the model-facing control tools.
-
-### Why not new session events for task lifecycle?
-
-Everything model-visible already lands in the log: starts and reads are tool calls/results, notices are injected `context/message` events. A `task/*` session event would duplicate facts the log carries, and live registry state (`task_list`) is intentionally runtime state, exactly as bash's task table was.
+Authorization, not unguessability, is the access boundary, and ids do not derive filesystem paths; sequential branded ids keep transcripts readable. Foreground-to-background promotion requires a user interaction contract the SDK does not prescribe. Starts, reads, and notices are already logged as tool and context events, so dedicated task session events would duplicate model-visible facts.
 
 ## Testing
 
-Unit coverage pins the registry lifecycle (register/read/kill/wait/list, owner isolation including no-agent callers and stale owner objects after id reuse, stream-vs-final read semantics, listener containment, notice suppression after an explicit kill or terminal read/wait, the `attachSurface` fence, start atomicity, model-facing and teardown cancel failures, ordinary disposal quiescence, and per-kind counters), the branded `SessionId` boundary, owner-effect placement and service-detach behavior, both producers' start mapping including async subagent readiness cancellation, and the structural no-uncollectable-work guarantee. Snapshot coverage pins the task tool schemas and prompt section.
+Unit coverage pins preflight atomicity, per-kind ids, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-surface fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
 
 ## Consequences
 
-One background-task contract exists instead of a per-capability clone family: a background subagent and a background bash command coexist in one session under one id namespace, one listing, one notice format, and one guidance section, and the [tool cookbook](../../../cookbook/adding-a-tool.md) points long-running tools at `ctx.tasks`. The cost was a wide landing change — the bash seam lost its registry surface and every test tier moved with it, model-facing tool names churned (`bash_output`/`bash_kill` deleted), and the ACP snapshot pinned header was refreshed for the new schemas — sanctioned by the pre-release stance.
+Bash commands and subagents share one id vocabulary, listing, notice format, prompt habit, and set of control tools. New long-running producers implement execution hooks instead of another registry and tool family. The [tool cookbook](../../../cookbook/adding-a-tool.md) points producers to this contract.
 
-Owner-scoped cleanup changed bash semantics: a task that previously outlived its agent now dies with it. Deployments that relied on fire-and-forget background commands start them unowned (a non-agent caller) or accept the new lifecycle; the uniformity was judged worth the change, and the durable-job direction remains open for real survival requirements.
-
-Teardown trusts the producer contract that a successful `cancel` leads to `done` settling at quiescence. An explicit cancel throw is detectable and force-fails the record with a possible-orphan warning so disposal cannot deadlock; a cancel that returns but silently fails is indistinguishable from a slow stop and can still stall teardown. Covering that residual requires a bounded lifetime or a separate forced-disposal contract, both outside this runtime shape.
-
-`wait` is the first blocking tool call whose duration is model-controlled; the config cap bounds it, but a model that serializes on `wait` loses the parallelism the feature exists for — prompt guidance mitigates, and a future continuation-policy guard can enforce. Recording live background-flow snapshot scenarios (a polled and killed background command, a completion-notice turn) and a with-key e2e background lifecycle require a `DEEPSEEK_API_KEY` re-record and remain named follow-up work. The runtime deliberately defers durable/cross-restart tasks, non-consuming observation cursors, and foreground→background promotion (see Alternatives).
+Owned background bash now stops with its agent instead of surviving it. Background processes have no executor timeout; callers must kill irrelevant work or rely on owner/service disposal. Stream reads support one consuming reader, completion notices do not wake idle agents, and a producer that returns from `cancel` without settling `done` can still stall teardown. Durable jobs, independent observation cursors, and foreground promotion remain separate designs.

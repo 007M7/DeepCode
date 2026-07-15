@@ -419,8 +419,7 @@ describe('background execution through the task runtime', () => {
   })
 
   it('a background task started by an agent is registered with that agent as owner', async () => {
-    // The fence SEMANTICS are pinned in dsh-tasks; this only pins that
-    // tool-bash forwards exec.agent as the registration's owner.
+    // The producer must forward exec.agent as the task owner.
     const ctx = await setupWithTasks()
     const agent = registerFakeAgent(ctx, 'sess-owner')
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true }, agent)
@@ -466,9 +465,7 @@ describe('background execution through the task runtime', () => {
   })
 
   it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
-    // TaskService WITHOUT any control surface: tasks.start preflights that
-    // fence BEFORE invoking the producer's run(), so the executor is never
-    // asked to spawn — there is no orphan to roll back.
+    // With no control surface, task preflight fails before the executor can spawn.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -500,9 +497,7 @@ describe('background execution through the task runtime', () => {
     const parameters = ctx.tools.get('bash')!.parameters as { properties: Record<string, unknown> }
     expect('run_in_background' in parameters.properties).toBe(false)
 
-    // Schema omission is advertising, not enforcement: the arg validator
-    // allows undeclared keys, so a forced run_in_background must be REFUSED
-    // at execution time (review finding) — while foreground still works.
+    // Schema omission is advertising; execution must also enforce the opt-out.
     const forced = await call(ctx, 'bash', { command: 'echo hi', description: 'test command', run_in_background: true })
     expect(forced.isError).toBe(true)
     expect(text(forced)).toContain('run_in_background is disabled for this deployment')

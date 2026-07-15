@@ -1,28 +1,10 @@
 /**
- * The model-facing `bash` tool. Pure schema + text shaping — every process
- * concern lives behind the `ctx.bash` executor seam (`@deepseek-ai/dsh-bash`),
- * so sandbox/permission/remote executor implementations swap in without
- * touching what the model sees.
+ * Model-facing `bash` tool over the `ctx.bash` executor seam. Background calls
+ * register process handles with `ctx.tasks`; their work uses task cancellation
+ * rather than the tool-call signal after an id is returned.
  *
- * Background runs are TASKS, not bash-private state: `run_in_background`
- * starts a process through the seam and registers its handle with the generic
- * `ctx.tasks` runtime (`@deepseek-ai/dsh-tasks`), which owns the id, the
- * owner fence, the completion notice, and the model-facing collect/stop
- * tools (`task_output`/`task_list`/`task_kill` from
- * `@deepseek-ai/dsh-tool-tasks`). Whether the parameter is exposed at all is
- * THIS plugin's `enableRunInBackground` config (default on) — the registry
- * never rewrites a producer's schema.
- *
- * The tool-call abort signal is deliberately NOT wired to a background
- * process: after the task id is returned the parent step may end while the
- * work continues; cancellation belongs to `task_kill` and the owner-disposal
- * cleanup. A signal already aborted before the call refuses to start.
- *
- * TODO(permissions): commands run with the executor's full authority. The
- * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
- * sandboxing `BashExecutor` implementations — see docs/architecture.md
- * § Extending The Harness.
- *
+ * TODO(permissions): deployment policy belongs in `tools/pre-execute` and
+ * sandboxing executors; see docs/architecture.md § Extending The Harness.
  * @module @deepseek-ai/dsh-tool-bash
  */
 
@@ -44,14 +26,9 @@ import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
-/** Config: whether the model may background commands (the producer-opt-in flag). */
+/** Configures whether the model may background commands. */
 export interface Config {
-  /**
-   * Expose `run_in_background` in the bash schema (default true). Disabled,
-   * the parameter is absent entirely — schema and capability never disagree.
-   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
-   * one fails the call loud with the load-these-packages message.
-   */
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
 }
 
@@ -59,14 +36,7 @@ export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
 })
 
-/**
- * Validate the constraints the SchemaSpec can't express. `defineTool` now
- * validates parsed args against the SchemaSpec before `execute` runs (the
- * arg-validation RFC), so type/required/enum checks are already done and `args`
- * is the validated `InferArgs` shape here. What remains are value constraints
- * the DSL has no vocabulary for: non-empty strings and a positive, finite
- * timeout.
- */
+/** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
 interface BashToolArgs {
   command: string
   description: string
@@ -129,39 +99,14 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
-// ---------------------------------------------------------------------------
-// UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
-// renders a bash call's pending and completed states. They are display-only and
-// pure — a UI may call them during live streaming AND a session-log replay.
-// ---------------------------------------------------------------------------
-
 /**
- * Pending-state presentation for a `bash` call. The TITLE is the exact `command`
- * — a `kind: 'execute'` card is rendered as a terminal whose header label IS the
- * title, and an execute-kind card HIDES `rawInput` (Zed: `should_show_raw_input
- * = !is_terminal_tool`), so the command must BE the title to be seen. This
- * mirrors the reference ACP adapters (claude-agent-acp, codex-acp), which both
- * use the bare command as an execute tool's title. The model-written
- * `description` (a readable summary) rides as a `content` text block shown ABOVE
- * the card. (Note: claude-agent-acp DROPS the description in terminal mode and
- * shows only the card; surfacing it as a content block is a deliberate
- * divergence here — we keep the human summary visible alongside the card.)
- * `rawInput` still carries the bare command for non-execute UIs that DO render it.
- *
- * `terminal` marks the call so a capable UI renders a TERMINAL card — but ONLY a
- * FOREGROUND run is a terminal: a `run_in_background` call returns a task id
- * immediately (it never streams a terminal; its output is polled via
- * `task_output`), so it is NOT marked terminal and renders as an ordinary
- * execute card. For a foreground run the `terminal.cwd` (header) is the model
- * `workdir` when given — ABSOLUTE as-is, RELATIVE for the UI bridge to resolve
- * against the session cwd; when omitted the bridge fills the session workspace
- * cwd (this PURE presenter, args only, can't see it).
+ * Present foreground calls as terminals and background starts as generic cards.
+ * The command remains the title on both paths; foreground cwd is passed through
+ * for the bridge to resolve, while background descriptions remain card content.
  */
 type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
 
 function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView {
-  // A background start is not an interactive terminal — a generic execute card
-  // with the command as rawInput and the description as a content block.
   if (args.run_in_background === true) {
     return {
       card: 'generic',
@@ -171,7 +116,6 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
       content: [{ type: 'text', text: args.description }],
     }
   }
-  // A foreground run is a terminal; an explicit workdir supplies its cwd.
   return {
     card: 'terminal',
     title: args.command,
@@ -189,13 +133,10 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (block === undefined || block.type !== 'text') return undefined
   const raw = block.text
   const isBackground = typeof args === 'object' && args !== null && (args as { run_in_background?: unknown }).run_in_background === true
-  // A background ack or an errored run is not a real terminal exit: render the
-  // fenced ```console fallback as generic content (no exit pill).
+  // Background acknowledgements and errors have no terminal exit status.
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  // A finished foreground run supplies raw output and parsed exit status.
-  // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
 
@@ -251,9 +192,7 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
-  // The bash tool's cross-call HABIT, which the per-tool description cannot
-  // carry (it describes one call): the exit-code marker is only useful
-  // if the model actually checks it every time.
+  // Cross-call guidance belongs in the prompt rather than one-call schema prose.
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
@@ -291,12 +230,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
-      // `description` is display/logging metadata only (surfaced to UIs via
-      // the tool/call session event); it is intentionally NOT forwarded to
-      // ctx.bash and has no effect on execution.
-      // Default the workdir to the calling agent's session cwd so each ACP
-      // session runs in its own workspace (see resolveWorkdir); an explicit
-      // model workdir still wins.
+      // Description is display metadata; workdir defaults to the caller's session.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)
@@ -308,27 +242,17 @@ export function apply(ctx: Context, config: Config): void {
         ...sandboxMode !== undefined ? { sandboxMode } : {},
       }
       if (args.run_in_background === true) {
-        // The schema omission is advertising, not enforcement — the arg
-        // validator deliberately allows undeclared keys, so a caller (or a
-        // model that has seen the parameter elsewhere) can still send it.
-        // A disabled deployment must refuse at execution time, loud.
+        // Undeclared keys are allowed, so schema omission also needs enforcement.
         if (!backgroundEnabled) {
           throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
         }
-        // The generic runtime owns everything task-shaped; without it a task
-        // id would be uncollectable — fail loud with the fix, not a dangle.
         const tasks = ctx.get('tasks')
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
-        // A step already cancelled must not spawn; after the id is returned
-        // the tool-call signal is deliberately NOT wired to the process
-        // (cancellation belongs to task_kill / owner cleanup), so the check
-        // happens here, once, instead of passing the signal to start().
+        // Reject pre-start cancellation; returned tasks use their own lifecycle.
         if (exec.signal?.aborted) throw new Error('command aborted')
-        // tasks.start preflights (surface fence, owner cleanup) BEFORE run()
-        // spawns anything, and cannot fail after — the process can never
-        // start without a collectable id.
+        // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
           label: args.command,

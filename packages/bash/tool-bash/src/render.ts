@@ -15,7 +15,7 @@ function streamText(output: CollectedOutput): string {
 
 /**
  * Shape one finished run into the text the model sees: stdout, then a marked
- * stderr section, then exit-status markers. Non-zero exits are REPORTED, not
+ * stderr section, then exit-status markers. Non-zero exits are reported, not
  * errored — the model decides how to react; only infrastructure failures
  * (spawn errors, aborts) surface as isError results.
  * @param result - the completed foreground run from the executor.
@@ -40,23 +40,15 @@ export function renderResult(
   if (body.length === 0) body = '(no output)'
 
   const markers: string[] = []
-  // The sandbox marker precedes the exit-status markers so `[exit code: N]`
-  // stays the LAST line (exitStatus() anchors its parse there). Denial is a
-  // reported fact like timeout: the model decides how to react.
+  // Keep the exit marker last because parseExitStatus anchors there.
   if (result.sandbox?.denied) {
     markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
-    // The same-turn nudge lives at the decision point: only when this
-    // composition advertises the fields (a lever is never hinted that the
-    // schema does not offer), and inside the sandbox marker family so the
-    // exit-code marker stays the last line.
+    // Hint only when the composition exposes escalation, before the final exit marker.
     if (escalationModes.length > 0) {
       markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
     }
   }
-  // Timeout is reported independently of how the process actually ended: a
-  // command can trap SIGTERM and exit 0 after our timer fired (e.g.
-  // `trap "exit 0" TERM; sleep 60`), giving timedOut:true / exitCode:0 /
-  // signal:null — the model must still see that the command was cut short.
+  // A command may trap SIGTERM and exit 0 after timeout; still report interruption.
   if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)
   if (result.signal !== null) {
     markers.push(`[killed by signal: ${result.signal}]`)

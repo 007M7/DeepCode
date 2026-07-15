@@ -81,7 +81,7 @@ describe('dsh-tool-subagent', () => {
     expect(schema!.description).not.toContain('task_output')
   })
 
-  it('refuses a forced run_in_background at execution time when the instance disables it (review finding)', async () => {
+  it('refuses a forced run_in_background at execution time when the instance disables it', async () => {
     // Schema omission is advertising, not enforcement: the arg validator
     // allows undeclared keys, so the opt-out must also hold in execute().
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
@@ -253,7 +253,7 @@ describe('dsh-tool-subagent', () => {
     // Backend reloads with a DIFFERENT conversation-history descriptor: the wording is re-derived
     // from the fresh provider, not served stale from the first mount.
     await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
-    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('inherits this conversation')
   })
 
   it('the tool PLUGIN fiber owns its lifecycle listeners: disposal unmounts, and a disposed fiber never zombie-mounts', async () => {
@@ -303,10 +303,10 @@ describe('dsh-tool-subagent', () => {
     expect(props['prompt']!.description).toContain('include everything it needs')
   })
 
-  it('derives fork-shaped wording from a seeded-conversation provider (the description stops lying)', async () => {
+  it('derives inherited-context wording from a seeded-conversation provider', async () => {
     const ctx = await setup({ provider: 'mock', toolName: 'subagent' }, { inheritsParentContext: true })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
-    expect(schema.description).toContain('INHERITS this conversation')
+    expect(schema.description).toContain('inherits this conversation')
     expect(schema.description).not.toContain('does not see this conversation')
     const props = (schema.parameters as { properties: Record<string, { description: string }> }).properties
     expect(props['prompt']!.description).toContain('completed turns')
@@ -711,8 +711,7 @@ describe('dsh-tool-subagent background mode', () => {
   })
 
   it('forwards task_kill reasons through the run signal (and defaults one when absent)', async () => {
-    // A provider whose runs settle only on signal abort — the mock settles on a
-    // microtask, too fast to observe a LIVE kill through the real tools.
+    // Use a provider that remains live until its signal is aborted.
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } })
     const parent = ownerAgent(ctx, 'sess-parent')
     const cancels: (string | undefined)[] = []
@@ -736,9 +735,7 @@ describe('dsh-tool-subagent background mode', () => {
         }
       },
     })
-    // Direct apply (schema bypass): schemastery would default agentOptions to
-    // an (truthy) empty object — the raw config exercises the omitted branch
-    // on the background start request.
+    // Direct apply preserves omitted agentOptions instead of applying schema defaults.
     tool.apply(ctx, { provider: 'hanging', toolName: 'subagent_hang' })
 
     const startOne = await ctx.tools.execute({ callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', run_in_background: true }, agent: parent })
@@ -810,9 +807,7 @@ describe('dsh-tool-subagent background mode', () => {
 
 describe('background preflight failure (no orphaned child, by construction)', () => {
   it('never starts the child when tasks.start preflight throws', async () => {
-    // TaskService is loaded but NO control surface is attached: tasks.start
-    // preflights that fence BEFORE invoking the producer's run(), so the
-    // provider is never asked to spawn — there is no orphan to roll back.
+    // With no control surface, task preflight fails before the provider can spawn.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TaskService)

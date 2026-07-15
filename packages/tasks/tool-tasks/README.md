@@ -1,35 +1,35 @@
 # @deepseek-ai/dsh-tool-tasks
 
-The model-facing background task control surface over `ctx.tasks`: three kind-agnostic tools, the completion-notice injection, and the prompt section that teaches the background habit. Loading this plugin calls `ctx.tasks.attachSurface('tool-tasks')`, which is what arms producers' `ctx.tasks.start()`.
+The model-facing control surface for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the surface required by `ctx.tasks.start()`.
 
 ## Tools
 
-- `task_output(task_id, wait?, timeout_ms?)` — non-blocking read by default (stream kinds: the consuming delta since the previous read; final kinds: the final answer once terminal); every response ends with a `[status: …]` line (generic status + producer detail, e.g. `[status: completed, exit code: 0]`). `wait: true` blocks until settlement, bounded by `waitTimeoutMs`/`maxWaitTimeoutMs` config; a timed-out wait returns `[status: running]` and leaves the task alive.
-- `task_list()` — the caller's tasks, `<id> [<kind>] <status> — <label>` per line.
-- `task_kill(task_id, reason?)` — requests cancellation and returns immediately; the logged `reason` is forwarded to the producer. An already-terminal task is described via a non-consuming snapshot (never eats a pending delta).
+- `task_output(task_id, wait?, timeout_ms?)` reads without blocking by default. Stream tasks return only the next delta; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. `wait: true` waits up to the configured cap and leaves a still-running task alive on timeout.
+- `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`.
+- `task_kill(task_id, reason?)` requests cancellation immediately and forwards the logged reason. Terminal tasks return a non-consuming snapshot.
 
-ACP render intent: all three are `generic` cards (`read`/`read`/`execute`) — a task read is not a terminal.
+All three use generic ACP cards: `read` for output and list, `execute` for kill.
 
 ## Completion notices
 
-On `onTaskDone`, injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` through the exact owner `Agent` captured at task start (`agent.inject()` — durable context for the next request, not a wake-up). It never re-resolves a reusable agent/session id to a replacement. Suppressed when the snapshot is `reported` (the model already killed it, or a read/wait returned the end) — never a redundant "finished"; the disposed-owner race is contained.
+An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
 
 ## Config
 
 | key | default | meaning |
 |---|---|---|
-| `waitTimeoutMs` | `30000` | wait duration when `task_output` sets `wait` without `timeout_ms` |
-| `maxWaitTimeoutMs` | `600000` | hard cap; larger model-supplied `timeout_ms` values are clamped |
+| `waitTimeoutMs` | `30000` | wait used when `wait: true` omits `timeout_ms` |
+| `maxWaitTimeoutMs` | `600000` | cap for model-supplied waits |
 
-A config whose default exceeds the cap fails loud at load.
+A default above the cap fails at load.
 
 ## Model Experience
 
 ### System prompt
 
-**What the model sees**: Every request in this plugin's registration scope contains the background-task guidance below. Agent-scoped tool filtering can hide the control schemas without removing this independently registered section.
+**What the model sees**: Every request in this plugin's registration scope contains this guidance. Agent-scoped tool filtering may hide the tools without removing the independently registered prompt section.
 
-**Token effect**: Small fixed input cost per request while the plugin is active.
+**Token effect**: Small fixed input cost per request while active.
 
 #### Background-task guidance
 
@@ -39,18 +39,18 @@ Track every background task id you start. You are notified in-session when a tas
 
 ### Tool schemas
 
-**What the model sees**: The model sees the generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this control surface is visible.
+**What the model sees**: The generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this surface is visible.
 
 **Token effect**: Fixed schema cost on each request where the tools are visible.
 
-### Task results and notices
+### Results and notices
 
-**What the model sees**: Reads return a producer-owned output delta or `(no new output)`, followed by `[status: <status>]` with optional producer detail. Listing returns `(no background tasks)` or one `<id> [<kind>] <status> — <label>` line per visible task. Kill returns `requested cancellation of task <id>` or `task <id> had already finished [status: ...]`. An unreported owned completion injects exactly `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.`
+**What the model sees**: Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. An empty list returns `(no background tasks)`. Kill returns `requested cancellation of task <id>` or the existing terminal status. Unreported owned completion uses the notice above.
 
-**Token effect**: Results and completion notices are retained in the parent session until compaction; stream reads consume their cursor and do not repeat prior output.
+**Token effect**: Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output.
 
 ## Known Limitations and Deferred Work
 
-- **Completion notices do not wake idle agents** — they become durable context for the next request; callers needing an immediate result must use `task_output`.
-- **Stream reads are single-consumer** — this control surface exposes the task runtime's one consuming cursor rather than independent observers.
-- **Unowned tasks have no session fence** — deployments exposing background starts outside an agent must provide their own caller policy or avoid ownerless tasks.
+- **Completion notices do not wake idle agents** — callers needing an immediate result must use `task_output`.
+- **Stream reads are single-consumer** — independent observers need another runtime API.
+- **Unowned tasks have no session fence** — external surfaces must supply caller policy or avoid them.

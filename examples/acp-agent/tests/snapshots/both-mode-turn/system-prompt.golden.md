@@ -49,22 +49,22 @@ declare const tools: {
     /** The exact skill name from the available skills list. */
     name: string;
   }): Promise<string>;
-  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to get a task id immediately and keep working; collect the final answer with `task_output` (wait: true when you are blocked on it) and stop it with `task_kill`. */
+  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. */
     prompt: string;
-    /** Run the subagent as a background task and return a task id immediately (collect with task_output, stop with task_kill). */
+    /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
   }): Promise<string>;
-  /** Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to get a task id immediately and keep working; collect the final answer with `task_output` (wait: true when you are blocked on it) and stop it with `task_kill`. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent_fork(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
-    /** Run the subagent as a background task and return a task id immediately (collect with task_output, stop with task_kill). */
+    /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
   }): Promise<string>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
@@ -76,7 +76,7 @@ declare const tools: {
   }): Promise<string>;
   /** List your background tasks (running and finished) with their ids, kinds, and statuses. */
   task_list(args: Record<string, unknown>): Promise<string>;
-  /** Read output/status from a background task (started by a tool with `run_in_background`). Stream tasks (bash) return only output produced since your previous task_output call; final-output tasks (subagent) return the final answer once the task finishes. Every response ends with a [status: ...] line. Non-blocking by default; set `wait: true` to block until the task finishes (bounded by a capped timeout) when you are genuinely blocked on its result. */
+  /** Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap. */
   task_output(args: {
     /** Task id returned by the tool that started the background work. */
     task_id: string;

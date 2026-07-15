@@ -269,7 +269,7 @@ describe('TaskService.wait', () => {
     const wait = ctx.tasks.wait(id, 5_000)
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     expect(await wait).toMatchObject({ status: 'completed', reported: true })
-    // The pending wait marked the task reported BEFORE listeners ran.
+    // A waiting reader claims delivery before completion listeners inspect the snapshot.
     expect(seen[0]).toMatchObject({ id, reported: true })
   })
 
@@ -330,7 +330,7 @@ describe('TaskService.wait', () => {
     await expect(ctx.tasks.wait(id, 5_000, undefined, preAborted.signal)).rejects.toThrow('wait aborted')
   })
 
-  it('an abort racing settlement in the same tick does not swallow the notice (review finding)', async () => {
+  it('an abort racing settlement in the same tick does not swallow the notice', async () => {
     const ctx = await harness()
     const seen: TaskSnapshot[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
@@ -339,11 +339,8 @@ describe('TaskService.wait', () => {
 
     const controller = new AbortController()
     const wait = ctx.tasks.wait(id, 5_000, undefined, controller.signal)
-    // Same synchronous tick, settlement QUEUED first: the settle continuation
-    // will run before the rejected wait's `finally`, so only the SYNCHRONOUS
-    // un-count inside onAbort keeps it from reading a stale waiter count,
-    // marking the task reported, and suppressing the completion notice for a
-    // wait that then delivers nothing.
+    // Settlement is queued first, so abort must remove the waiter synchronously;
+    // otherwise settlement suppresses the notice for a reader that receives nothing.
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     controller.abort()
     await expect(wait).rejects.toThrow('wait aborted')
@@ -351,15 +348,12 @@ describe('TaskService.wait', () => {
     expect(seen[0]).toMatchObject({ id, status: 'completed', reported: false })
   })
 
-  it('an abort landing AFTER settlement still delivers the terminal snapshot it owes', async () => {
+  it('an abort landing after settlement still delivers the terminal snapshot it owes', async () => {
     const ctx = await harness()
     const controller = new AbortController()
     const seen: TaskSnapshot[] = []
-    // The listener runs synchronously inside settle — aborting HERE lands the
-    // abort after settlement marked this waiter reported (notice suppressed)
-    // but before the wait's own resolve microtask. Rejecting now would leave
-    // the finished task both unreported and notice-suppressed, so the wait
-    // must resolve and deliver instead.
+    // The listener aborts after settlement has assigned delivery to this waiter
+    // but before its resolve microtask; the waiter must still receive the result.
     ctx.tasks.onTaskDone((snapshot) => {
       seen.push(snapshot)
       controller.abort()
@@ -426,14 +420,12 @@ describe('TaskService owner isolation', () => {
     const ctx = await harness()
     const ghost = stubAgent(ctx, 'ghost') // never registered in ctx.agents
 
-    // Exact-instance preflight rejects the unregistered agent BEFORE any
-    // registry mutation or owner-cleanup attachment.
+    // Exact-instance validation precedes registry mutation and cleanup attachment.
     expect(() => ctx.tasks.start(producer({ owner: ghost }).spec))
       .toThrow('is not the registered agent instance')
     expect(ctx.tasks.list(ghost)).toEqual([])
 
-    // Once the agent actually exists, the same owner gets a WORKING cleanup —
-    // the failed attempt must not have marked it as already covered.
+    // A later valid registration must still attach cleanup for the same object.
     ctx.agents.register(ghost)
     const cancels: (string | undefined)[] = []
     let settle!: (outcome: TaskOutcome) => void
@@ -607,13 +599,11 @@ describe('TaskService owner cleanup', () => {
     await tick()
     const drainedWithoutProducerDone = drained
     if (!drainedWithoutProducerDone) {
-      // Failure-path cleanup for the pre-fix implementation: let its pending
-      // drain finish without weakening the assertion captured above.
+      // Release the producer if the assertion fails so the test can finish.
       settle({ status: 'completed' })
       await drain
     } else {
-      // A late producer completion must not replace the forced failed record or
-      // notify listeners a second time.
+      // A late producer completion must not replace the failure or notify twice.
       settle({ status: 'completed' })
       await tick()
     }
@@ -681,7 +671,7 @@ describe('TaskService disposal', () => {
     await tick()
     const disposedWithoutProducerDone = disposed
     if (!disposedWithoutProducerDone) {
-      // Failure-path cleanup for the pre-fix implementation.
+      // Release the producer if the assertion fails so the test can finish.
       settle({ status: 'completed' })
       await disposal
     } else {

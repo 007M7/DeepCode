@@ -56,12 +56,12 @@ Source: [`packages/ui/user-approval/src/index.ts:229`](../../packages/ui/user-ap
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 
-Semantics every implementation must honor:
+Implementations must honor these semantics:
 
-- run REJECTS only for infrastructure failures (unusable workdir, missing shell, pre-aborted signal). Nonzero exits, timeout kills, and abort kills RESOLVE with a descriptive BashRunResult — reporting a failed command is the tool layer's job, not an exception.
-- start returns immediately; no timeout applies to background processes (callers stop them via BashProcess.kill or the spec's AbortSignal). The handle's `done` settles at process close and never rejects (a spawn failure settles as `killed` with the error readable on stderr).
-- BashProcess.readOutput is incremental: consecutive reads never re-deliver output. Implementations bound their buffers; reads that lost data flag `lossy` and point at full-stream spill files when available.
-- Disposal kills every running background process and awaits their exit (no orphan processes survive `fiber.dispose()`).
+- run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
+- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
+- BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
+- Disposal kills all running background processes and awaits their exit.
 
 ```ts cordis-catalog
 abstract resolve(request: BashExecRequest): BashExecSpec
@@ -71,7 +71,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:68`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:46`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -259,7 +259,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:98`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:72`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

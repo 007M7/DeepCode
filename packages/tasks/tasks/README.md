@@ -1,35 +1,34 @@
 # @deepseek-ai/dsh-tasks
 
-The background task registry (`ctx.tasks`): a runtime-global, CONCRETE service (no interface/implementation split — one sensible in-process implementation exists; a durable job backend would own that extraction) that gives every long-running tool the same ids, isolation, and lifecycle.
+The process-local background task registry (`ctx.tasks`). It gives long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup. The service is concrete; a durable backend can introduce an interface when its different lifecycle is specified.
 
 ## Service API
 
-- `start(spec): TaskId` — declare-then-execute: the producer hands identity (`kind` — also the id prefix — `label`, optional `owner: Agent`) plus `run()`, the starter that returns the work's `TaskHooks` (`cancel(reason?)`, `done: Promise<TaskOutcome>` settling at QUIESCENCE and never rejecting, optional `readOutput()` for stream kinds; absence = final-output-only). Every check that can fail — the control-surface fence (the loud guard against a deployment exposing `run_in_background` with no way to collect or stop the work), validation, the owner-cleanup attach — runs BEFORE `run()` starts the actual work, and nothing can fail after it returns: work started without a collectable id is structurally impossible, not a producer rollback obligation.
-- `get(id, caller?)` / `list(caller?)` — non-consuming snapshots; `list` returns only caller-owned plus unowned tasks (a global listing would leak foreign labels).
-- `read(id, caller?): TaskRead` — stream kinds consume the per-task cursor (v1's single intended reader is the owning model — a non-consuming multi-reader surface would be a cursor/snapshot API extension, not a `read` change); final kinds read the terminal output idempotently.
-- `kill(id, caller?, reason?)` — `'requested'` (live task: producer `cancel` runs first — a throw fails the kill loud and leaves the task untouched — then `stopping`) or `'already-terminal'`. Every successful kill marks the task `reported` (the killer saw the end → completion notice suppressed).
-- `wait(id, timeoutMs, caller?, signal?)` — resolves with the terminal snapshot (marked `reported`), or the live snapshot at timeout; an aborted signal rejects the WAIT only — unless the task already settled, in which case the wait still resolves and delivers the terminal snapshot (settlement suppressed the completion notice on this waiter's behalf, so rejecting would leave the finish both unreported and un-noticed). Timing is a [`dsh-timeout`](../../util/timeout/README.md) `deadline()` scoped to the `TASK_WAIT_TIMEOUT` code, so a nested foreign deadline never misreads as a wait timeout; timeout and abort detach their settlement resolver immediately, keeping retention bounded while the task remains live.
-- `onTaskDone(listener)` — exactly once per terminal task record, with the snapshot plus its exact lifecycle owner (or `undefined`); effect-scoped, contains synchronous throws and returned promise rejections without awaiting listener work, silent after service disposal.
-- `attachSurface(name)` — declares a control surface exists (the model tools, or a deployment's custom surface); effect-scoped.
+- `start(spec): TaskId` validates the control surface, spec, and exact live owner before calling the producer's `run()` once. A starter throw leaves nothing registered; successful return commits without another failable step.
+- `get(id, caller?)` and `list(caller?)` return non-consuming snapshots. Listing includes only caller-owned and unowned tasks.
+- `read(id, caller?)` consumes the single cursor for stream tasks and reads terminal output idempotently for final-output tasks.
+- `kill(id, caller?, reason?)` invokes producer cancellation before changing status. A cancellation throw leaves the task running; success changes it to `stopping` and marks terminal delivery reported.
+- `wait(id, timeoutMs, caller?, signal?)` returns a terminal snapshot or the live snapshot at timeout. Aborting stops only the wait; settlement wins once it has committed terminal delivery to that waiter.
+- `onTaskDone(listener)` observes each terminal record with the exact owner. Listener throws and rejections are contained; listener work is not awaited.
+- `attachSurface(name)` declares a control surface for its effect lifetime. `start()` fails before producer execution when none is attached.
 
-Every read/kill/wait/get compares the task's owner session (`owner.session.header.id`) with the caller's and rejects a foreign one — ids are predictable (`bash-1`), so the fence, not id secrecy, is the isolation boundary.
+Owned access compares the task's `SessionId` with the caller's. Ids such as `bash-1` are predictable, so this fence is the boundary. Unowned tasks are open to callers and last until service disposal.
 
 ## Lifecycle
 
-- Registrations are NOT effect-scoped to the registering fiber: tasks belong to their owning agent + producing backend, so producer/surface HMR reloads never touch them.
-- An owned task retains the exact live `Agent` instance validated at start and attaches one awaited cleanup through `owner.ctx`: agent-scope disposal selects only that instance's tasks, cancels them, awaits contract-compliant producers to quiescence, and drops their snapshots. Reused agent/session ids cannot make an old cleanup sweep replacement work. If a teardown cancel throws, it force-fails the record and logs that the underlying work may be orphaned rather than deadlocking `AgentHandle.dispose()`.
-- Service disposal closes the listener registry first, applies the same cancellation rule to every live task, awaits terminal records, then detaches its effects from still-live agent scopes so a reloaded tasks service is not retained until those agents exit.
-- A producer whose `cancel` returns but never causes `done` to settle remains indistinguishable from a slow stop and can stall teardown; solving that residual requires an explicit bounded-lifetime or forced-disposal design.
+Tasks belong to their owner and backend, not the producer tool fiber, so producer and surface reloads do not stop them. The first task for an owner attaches one awaited effect to the exact `Agent` scope. Owner disposal cancels that object's tasks, awaits producer quiescence, and removes their snapshots; reused agent or session ids cannot redirect an old cleanup.
+
+Service disposal closes listeners, cancels all live tasks, awaits their records, and detaches effects from surviving owner scopes. If teardown cancellation throws, the service force-fails the record and warns that work may be orphaned instead of deadlocking. A cancellation that returns but never settles `done` remains indistinguishable from a slow stop and can stall teardown.
+
+See the [task type catalog](../../../docs/core-data-structures/tasks.md) and [runtime RFC](../../../docs/rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md).
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-tasks` and producer plugins, which render task ids, output, status, and completion notices.
+Indirectly, through producer plugins and [`dsh-tool-tasks`](../tool-tasks/README.md), which render task ids, output, status, cancellation, and completion notices.
 
 ## Known Limitations and Deferred Work
 
-- **Tasks are process-local** — durable or cross-restart execution is deferred.
-- **Stream output has one consuming cursor** — non-consuming observation and multiple independent readers require a separate cursor/snapshot API.
-- **Foreground work cannot be promoted** — producers must choose foreground or background before execution starts.
-- **A silently ineffective producer cancel can stall teardown** — the runtime can force-settle an explicit cancel throw, but cannot distinguish a slow stop from a cancel that returned without stopping work.
-
-See the [runtime RFC](../../../docs/rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) § Alternatives for the deferred designs.
+- **Tasks are process-local** — durable or cross-restart execution needs a separate lifecycle.
+- **Stream output has one consuming cursor** — independent observers need a cursor or snapshot API.
+- **Foreground work cannot be promoted** — producers choose foreground or background before starting.
+- **A silently ineffective cancel can stall teardown** — only an explicit throw can be force-failed safely.

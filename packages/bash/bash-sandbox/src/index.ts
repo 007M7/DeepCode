@@ -20,7 +20,7 @@ import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
  * Plugin config: the local executor's knobs plus the sandbox policy. All
  * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
  * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is NOT configured here: which platform
+ * explicitly). The runner choice is not configured here: which platform
  * backend confines the command is the `ctx.sandbox` provider's config.
  */
 export interface Config extends LocalConfig {
@@ -70,10 +70,8 @@ export function classifyRunnerFailure(result: BashRunResult, signatures: readonl
 }
 
 /**
- * The classifier core shared by foreground results and settled background
- * tasks: failed AND signature present. Lowercases BOTH sides — the seam
- * declares its signatures case-insensitive, and producers compose them from
- * runtime data of any case (an `argv0` path, `No such file or directory`).
+ * Shared classifier for failed runs. Signatures are case-insensitive and may
+ * include runtime values such as an executable path.
  */
 function matchesSignature(exitCode: number | null, stderr: string, signatures: readonly string[]): boolean {
   if (exitCode === null || exitCode === 0) return false
@@ -104,15 +102,10 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
   /**
-   * Per-process facts, keyed by handle from `start()` until the settle stamp
-   * consumes them: the mode the process runs under (per-call — an escalated process
-   * differs from its neighbors) plus its wrap facts. The seam returns facts
-   * PER WRAP — a provider may legally vary enforcement or dialect between
-   * calls — so overlapping background processes must each classify against their
-   * OWN wrap; a single latest-wrap field would let a later `start()` clobber
-   * an earlier process's facts before it settles. A `danger-full-access` process
-   * has NO entry (nothing confined it), which is what the settle stamp keys
-   * off.
+   * Per-process confinement facts retained until settlement. Providers may
+   * vary enforcement and diagnostic dialect between overlapping calls, so a
+   * shared latest-wrap value would classify a process against the wrong facts.
+   * Unconfined processes have no entry.
    */
   private readonly processFacts = new Map<BashProcess, {
     mode: ConfinedSandboxMode
@@ -123,10 +116,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
-    // schemastery (static Config) already filled the defaulted fields — the
-    // cast records that runtime fact (mirrors LocalBashExecutor's config
-    // cast). `workspaceRoot` and `cwd` have NO schema default, so their
-    // fallback chain is real branching.
+    // Schemastery fills mode before construction; workspaceRoot and cwd retain runtime fallbacks.
     this.mode = config.mode as SandboxMode
     this.workspaceRoot = resolve(config.workspaceRoot ?? config.cwd ?? process.cwd())
   }
@@ -168,11 +158,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     // Same stamped-by-resolve invariant as run().
     const mode = spec.sandboxMode as SandboxMode
     if (mode === 'danger-full-access') return super.start(spec)
-    // Sandbox facts are stamped at settle time by onProcessDone()
-    // (denial classification runs against the settled task's collected
-    // stderr). The map entry lands synchronously after spawn, strictly
-    // before the earliest possible settle (including a spawn rejection, whose
-    // promise reaction cannot run until this synchronous start call returns).
+    // Install facts synchronously; promise settlement cannot run before start() returns.
     const confined = this.confine(spec.command, mode)
     const proc = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined
@@ -188,10 +174,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
       this.processFacts.delete(proc)
-      // Runner failure outranks denial (the command never ran; the runner's
-      // own error text can contain denial words). A settled task has no
-      // error channel left, so the fact IS the surface here — the foreground
-      // path throws instead.
+      // Runner failure outranks denial because its diagnostics may contain denial terms.
       const runnerFailed = matchesSignature(proc.exitCode, stderr, facts.runnerFailureSignatures)
       proc.sandbox = {
         mode: facts.mode,

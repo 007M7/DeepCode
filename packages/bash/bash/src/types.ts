@@ -1,14 +1,6 @@
 /**
- * Execution vocabulary for the bash executor seam. Types only — the abstract
- * service lives in `./index.ts`, implementations in sibling packages
- * (`@deepseek-ai/dsh-bash-local` first).
- *
- * Background TASK semantics (ids, ownership, polling protocol, completion
- * listeners) deliberately do NOT live here: the seam starts a background
- * PROCESS and returns a {@link BashProcess} handle; the caller (the tool
- * layer) registers that handle with the generic `ctx.tasks` runtime
- * (`@deepseek-ai/dsh-tasks`), which owns everything task-shaped.
- *
+ * Execution types for the bash executor seam. Background task semantics belong
+ * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles.
  * @module dsh-bash/types
  */
 
@@ -67,12 +59,9 @@ export interface BashExecRequest {
 }
 
 /**
- * A fully-resolved execution SPEC — exactly what {@link BashExecutor.run} /
- * {@link BashExecutor.start} act on. `workdir` and `timeoutMs` are REQUIRED:
- * defaulting and capping already happened in {@link BashExecutor.resolve}, so
- * the executor never hides a `?? config` fallback (explicit > implicit). For
- * background processes, `start()` ignores `timeoutMs` (background runs have no
- * timeout) — the field is still required because the type is shared.
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
  */
 export interface BashExecSpec {
   command: string
@@ -80,20 +69,11 @@ export interface BashExecSpec {
   timeoutMs: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec:
-   * it has no config default, so a missing one means "no stdin" — the safe,
-   * ordinary case — not a silent footgun, so it stays a plain optional rather
-   * than required-but-nullable (see the request field).
-   */
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Extra environment entries, merged after credential scrubbing so explicit
+   * values win; absent means no extra entries.
    */
   env?: Record<string, string> | undefined
   /** Resolved sandbox mode; ignored by executors that do not confine. */
@@ -144,12 +124,9 @@ export interface BashProcessRead {
 }
 
 /**
- * A live background process handle, returned by {@link BashExecutor.start}.
- * The HANDLE is the only access path (no executor-level id lookup): the
- * caller holds it, adapts it into a `ctx.tasks` registration, or drops it.
- * Reads stay valid after the process exits (the remaining buffered output is
- * still consumable); the executor's own disposal kills every running process
- * and awaits {@link done}.
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
  */
 export interface BashProcess {
   /** Process lifecycle state (settled exactly once). */

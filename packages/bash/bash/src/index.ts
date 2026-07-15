@@ -1,23 +1,7 @@
 /**
- * The bash executor seam (`ctx.bash`): an abstract service defining WHAT a
- * bash backend does — run foreground commands, start background processes —
- * without saying HOW. Implementations subclass {@link BashExecutor} and
- * register themselves as the `bash` service; `@deepseek-ai/dsh-bash-local`
- * (local subprocesses) is the first. Future implementations swap in
- * sandboxes, containers, or remote exec servers without touching the tool
- * schemas that consume them (`@deepseek-ai/dsh-tool-bash`).
- *
- * The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the
- * surveyed agents: pi hides execution behind a `BashOperations` interface
- * (local shell / SSH / VM backends), Codex behind an exec-server protocol.
- *
- * The seam is deliberately TASK-FREE: `start()` hands back a
- * {@link BashProcess} handle (incremental reads, kill, a quiescence promise)
- * and nothing else. Task ids, owner isolation, polling tools, and completion
- * notices are the generic `ctx.tasks` runtime's job (`@deepseek-ai/dsh-tasks`)
- * — the tool layer adapts the handle into a task registration. This keeps a
- * remote/sandbox executor free of any session or registry dependency.
- *
+ * The `ctx.bash` executor seam for foreground commands and background process
+ * handles. Task ids, ownership, polling, and notices belong to
+ * `@deepseek-ai/dsh-tasks`, keeping executors independent of sessions.
  * @module @deepseek-ai/dsh-bash
  */
 
@@ -49,21 +33,15 @@ declare module 'cordis' {
  * implementation per context; loading a second throws, which is cordis'
  * standard duplicate-service behavior).
  *
- * Semantics every implementation must honor:
- * - {@link run} REJECTS only for infrastructure failures (unusable workdir,
- *   missing shell, pre-aborted signal). Nonzero exits, timeout kills, and
- *   abort kills RESOLVE with a descriptive {@link BashRunResult} — reporting
- *   a failed command is the tool layer's job, not an exception.
+ * Implementations must honor these semantics:
+ * - {@link run} rejects only for infrastructure failures. Nonzero exits,
+ *   timeout kills, and abort kills resolve with a {@link BashRunResult}.
  * - {@link start} returns immediately; no timeout applies to background
- *   processes (callers stop them via {@link BashProcess.kill} or the spec's
- *   AbortSignal). The handle's `done` settles at process close and never
- *   rejects (a spawn failure settles as `killed` with the error readable on
- *   stderr).
+ *   processes. `done` settles at process close and never rejects; spawn
+ *   failures settle as `killed` with the error on stderr.
  * - {@link BashProcess.readOutput} is incremental: consecutive reads never
- *   re-deliver output. Implementations bound their buffers; reads that lost
- *   data flag `lossy` and point at full-stream spill files when available.
- * - Disposal kills every running background process and awaits their exit
- *   (no orphan processes survive `fiber.dispose()`).
+ *   repeat output. Lossy reads report truncation and available spill files.
+ * - Disposal kills all running background processes and awaits their exit.
  */
 export abstract class BashExecutor extends Service {
   constructor(ctx: Context) {

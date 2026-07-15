@@ -1,32 +1,11 @@
 /**
- * The background task registry (`ctx.tasks`): ONE home for the semantics every
- * long-running tool needs — branded task ids, owner-scoped isolation, status
- * snapshots, incremental/final output reads, cancellation, wait-for-terminal,
- * completion listeners, and the awaited owner-cleanup path. Producers
- * (`dsh-tool-bash` background commands, `dsh-tool-subagent` background
- * delegations, future long-running tools) hand their work to
- * {@link TaskService.start} — preflight, then the producer's starter, then an
- * atomic commit — and keep their own execution concerns; the
- * model-facing control surface (`@deepseek-ai/dsh-tool-tasks`) drives the
- * generic read/list/kill/wait operations.
+ * The in-process background task registry (`ctx.tasks`). It owns task ids,
+ * session-scoped access, lifecycle state, completion listeners, and owner
+ * cleanup while producers retain their execution resources.
  *
- * A CONCRETE service, not an interface/implementation seam pair: there is one
- * sensible in-process implementation today, and the capability-seam convention
- * says not to split preemptively (see the background-task-runtime RFC).
- *
- * Cross-session isolation lives IN the registry: task ids are runtime-global
- * and predictable (`bash-1`, `subagent-1`), so every read/kill/wait compares
- * the task's owner session against the caller and rejects a foreign one —
- * every surface gets the fence for free instead of re-implementing it.
- *
- * Task registrations are NOT effect-scoped to the registering fiber: a task
- * belongs to its owning agent and producing backend, not to the tool plugin
- * whose call started it, so an HMR reload of a producer or of the control
- * surface never orphans or kills a running task. The registry's own disposal
- * cancels every live task and awaits contract-compliant producers to
- * quiescence. If a teardown cancel throws, the registry force-fails its record
- * to avoid deadlock and logs that the underlying work may be orphaned.
- *
+ * Registrations outlive producer and control-surface fibers. Agent or service
+ * disposal cancels live work and awaits compliant producers; a throwing
+ * teardown cancel force-fails only the record and reports a possible orphan.
  * @module @deepseek-ai/dsh-tasks
  */
 
@@ -53,12 +32,7 @@ declare module 'cordis' {
   }
 }
 
-/**
- * The `dsh-timeout` code stamped on a {@link TaskService.wait} deadline's
- * `TimeoutReason`. A wait timeout only ends the WAIT (the task keeps running
- * and the live snapshot is returned) — scoping `timeoutOf` to this code keeps
- * a foreign (outer, nested) deadline's timeout from being misread as ours.
- */
+/** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
 
 /** The registry's mutable per-task record (never handed out — see {@link TaskService.snapshot}). */
@@ -78,9 +52,9 @@ interface TrackedTask {
   reported: boolean
   /** Resolves once the terminal snapshot is recorded and listeners notified. */
   settled: Promise<void>
-  /** Resolver for {@link settled} (called by the first effective {@link TaskService.settle}). */
+  /** Resolver for {@link settled}, called by the first effective settlement. */
   markSettled: () => void
-  /** Live {@link TaskService.wait} calls — a settlement with waiters marks the task reported. */
+  /** Live waits; settlement with a waiter marks the task reported. */
   waiters: number
   /** Removable resolvers for live waits; timeout/abort unregister before the task settles. */
   waitResolvers: Set<() => void>
@@ -101,15 +75,9 @@ export class TaskService extends Service {
   private surfaces = new Set<symbol>()
   private listeners = new Set<TaskDoneListener>()
   private listenersClosed = false
-  /** Owner agents whose scope cleanup is attached, mapped to its exact disposer. */
+  /** Owner agents with attached scope cleanup, mapped to the exact disposer. */
   private ownerCleanups = new Map<Agent, () => Promise<void> | void>()
-  /**
-   * The service's OWN construction-time context, for work that outlives the
-   * calling fiber: detached settlement continuations (logging), and the
-   * service teardown. Owner cleanup itself is registered through the owning
-   * agent's scope so it survives producer-plugin reloads and participates in
-   * the agent's structural quiescence boundary.
-   */
+  /** Service context used by detached settlement continuations and teardown. */
   private readonly selfCtx: Context
 
   constructor(ctx: Context) {
@@ -119,24 +87,14 @@ export class TaskService extends Service {
   }
 
   /**
-   * PREFLIGHT, start, then atomically register background work; returns its
-   * task id (`<kind>-N`, per-kind counter). Every check that can fail — the
-   * control-surface fence ({@link attachSurface}; a task the model could
-   * never read or stop must fail loud before it exists), kind/label
-   * validation, exact live owner-instance identity, and the owner's awaited
-   * disposal-cleanup attach (once per owner agent, through `owner.ctx`) — runs BEFORE
-   * `spec.run()` starts the actual work, and nothing in the runtime can fail
-   * after it returns: "work started but never got a collectable id" is
-   * structurally impossible, not a producer rollback obligation. The runtime
-   * attaches ONE continuation to the returned `done` that records the
-   * terminal snapshot, notifies {@link onTaskDone} listeners, and releases
-   * waiters. A throwing `run()` propagates with nothing registered (the
-   * producer owns any partial cleanup of its own failed start).
-   * @param spec - the task's identity/owner plus the `run()` starter (see {@link TaskStart}).
-   * @returns the registry-issued task id.
+   * Preflight access, validation, and owner cleanup before starting and
+   * atomically registering work. A throwing starter leaves nothing registered;
+   * after it returns, registration cannot fail. Settlement records the outcome,
+   * notifies listeners, and releases waiters.
+   * @param spec - task identity, owner, and synchronous starter.
+   * @returns the registry-issued `<kind>-N` id.
    */
   start(spec: TaskStart): TaskId {
-    // -- Preflight: everything that can throw, before any work or mutation. --
     if (this.surfaces.size === 0) {
       throw new Error('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
     }
@@ -144,10 +102,7 @@ export class TaskService extends Service {
     if (spec.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
     if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
 
-    // -- Start: the producer's work begins only now, preflight-clean. --
     const hooks = spec.run()
-
-    // -- Commit: pure mutations; nothing below can throw. --
     const count = (this.counters.get(spec.kind) ?? 0) + 1
     this.counters.set(spec.kind, count)
     const id = TaskId(`${spec.kind}-${count}`)
@@ -177,8 +132,7 @@ export class TaskService extends Service {
     void hooks.done.then(
       (outcome) => { this.settle(task, outcome) },
       (error: unknown) => {
-        // Producer contract violation (`done` must never reject) — contained
-        // as a failed outcome so waiters, cleanup, and disposal never hang.
+        // Contain a producer contract violation so cleanup and waiters cannot hang.
         this.selfCtx.logger.warn(`tasks: task ${task.id} 'done' rejected (producer contract violation): ${String(error)}`)
         this.settle(task, { status: 'failed', detail: String(error) })
       },
@@ -187,11 +141,10 @@ export class TaskService extends Service {
   }
 
   /**
-   * The caller-VISIBLE tasks (owned by the caller's session, or unowned), in
-   * registration order. Never lists another session's tasks — a global
-   * listing would leak their labels across the isolation fence.
-   * @param caller - the reading agent; undefined (a non-agent caller) sees only unowned tasks.
-   * @returns fresh snapshots; mutating them does not affect the registry.
+   * List caller-owned and unowned tasks in registration order without exposing
+   * another session's labels.
+   * @param caller - reading agent; a non-agent caller sees only unowned tasks.
+   * @returns fresh snapshots.
    */
   list(caller?: Agent): TaskSnapshot[] {
     const session = caller?.session.header.id
@@ -201,12 +154,10 @@ export class TaskService extends Service {
   }
 
   /**
-   * A non-consuming snapshot of one task — unlike {@link read}, never touches
-   * the stream cursor or the reported flag (the kill surface uses it to
-   * describe an already-terminal task WITHOUT eating a pending delta).
-   * Throws for an unknown id or a task owned by another session.
-   * @param id - the task to look up.
-   * @param caller - the reading agent, checked against the task's owner.
+   * Return a non-consuming snapshot without changing its read cursor or notice
+   * state. Throws for an unknown or foreign task.
+   * @param id - task to look up.
+   * @param caller - reading agent checked against the owner.
    * @returns a fresh snapshot.
    */
   get(id: TaskId, caller?: Agent): TaskSnapshot {
@@ -216,15 +167,12 @@ export class TaskService extends Service {
   }
 
   /**
-   * Read a task's output. Stream kinds (registered with `readOutput`) yield
-   * the CONSUMING delta since the previous read — one cursor per task, the
-   * owning model is v1's single intended reader; final-output kinds yield
-   * empty text while live and the terminal output idempotently once settled.
-   * A read that returns the terminal state marks the task {@link TaskSnapshot.reported}.
-   * Throws for an unknown id or a task owned by another session.
-   * @param id - the task to read.
-   * @param caller - the reading agent, checked against the task's owner.
-   * @returns the read text plus the post-read snapshot.
+   * Read the next stream delta, or the idempotent final output after settlement.
+   * A terminal read marks the task reported. Throws for an unknown or foreign
+   * task.
+   * @param id - task to read.
+   * @param caller - reading agent checked against the owner.
+   * @returns output text and the post-read snapshot.
    */
   read(id: TaskId, caller?: Agent): TaskRead {
     const task = this.expect(id)
@@ -237,18 +185,13 @@ export class TaskService extends Service {
   }
 
   /**
-   * Request cancellation of a task. A live task has its producer
-   * `cancel(reason)` invoked FIRST — a throw propagates (fail loud) and
-   * leaves the task untouched (still `running`, notice not suppressed) —
-   * then moves to `stopping` and settles through the normal `done` path; an
-   * already-terminal task is reported, not failed. Every SUCCESSFUL kill
-   * marks the task {@link TaskSnapshot.reported}: the killer has seen (or
-   * asked for) the end, so the completion notice is suppressed. Throws for
-   * an unknown id or a task owned by another session.
-   * @param id - the task to cancel.
-   * @param caller - the killing agent, checked against the task's owner.
-   * @param reason - the surface's logged reason, forwarded to the producer.
-   * @returns 'requested' when cancellation was asked of a live task, 'already-terminal' otherwise.
+   * Request cancellation, then mark the task stopping and reported. A producer
+   * throw propagates without changing task state. Throws for an unknown or
+   * foreign task.
+   * @param id - task to cancel.
+   * @param caller - killing agent checked against the owner.
+   * @param reason - logged reason forwarded to the producer.
+   * @returns `requested` for live work, otherwise `already-terminal`.
    */
   kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal' {
     const task = this.expect(id)
@@ -257,12 +200,7 @@ export class TaskService extends Service {
       task.reported = true
       return 'already-terminal'
     }
-    // Producer cancel FIRST: a throw must leave the task untouched (still
-    // `running`, notice not suppressed) — the killer's tool call fails loud,
-    // but task_list and the eventual completion notice keep telling the
-    // truth about a cancellation that never happened. Cancel is synchronous
-    // and settlement lands on a later microtask, so the mutations below
-    // cannot race the settle path.
+    // Cancel first so a throw leaves both lifecycle and notice state unchanged.
     task.cancel(reason)
     task.status = 'stopping'
     task.reported = true
@@ -270,23 +208,16 @@ export class TaskService extends Service {
   }
 
   /**
-   * Wait for a task to settle, bounded by a timeout. Resolves with the
-   * terminal snapshot (marked {@link TaskSnapshot.reported} — the wait
-   * response reports the end, so the completion notice is suppressed), or
-   * with the still-live snapshot when the timeout expires first. An abort of
-   * `signal` rejects the WAIT only (the task keeps running) — UNLESS the task
-   * has already settled: settlement saw this live waiter and suppressed the
-   * completion notice on its behalf, so the wait still resolves and delivers
-   * the terminal snapshot it owes (an abort must never leave a finished task
-   * both unreported and notice-suppressed). Each live wait uses a removable
-   * resolver that timeout/abort detaches, so a long-running task does not
-   * retain expired waits. Throws for an unknown id, a task owned by another
-   * session, or a non-positive timeout.
-   * @param id - the task to wait for.
-   * @param timeoutMs - max wait in milliseconds (positive, finite; the surface caps it).
-   * @param caller - the waiting agent, checked against the task's owner.
-   * @param signal - optional abort for the wait itself.
-   * @returns the snapshot at settlement, or at timeout when the task outlives the wait.
+   * Wait for settlement or timeout without cancelling the task. Caller abort
+   * rejects only while the task is live; after settlement it returns the
+   * terminal snapshot so a notice suppressed for this waiter is still delivered.
+   * Timed-out and aborted waits detach their resolvers. Throws for invalid,
+   * unknown, or foreign input.
+   * @param id - task to wait for.
+   * @param timeoutMs - positive finite wait bound in milliseconds.
+   * @param caller - waiting agent checked against the owner.
+   * @param signal - optional cancellation of the wait itself.
+   * @returns snapshot at settlement or timeout.
    */
   async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot> {
     const task = this.expect(id)
@@ -296,12 +227,8 @@ export class TaskService extends Service {
     }
     if (!isTerminal(task.status)) {
       if (signal?.aborted) throw new Error('wait aborted')
-      // `waiters` is the settle-path heuristic "someone WILL deliver the
-      // terminal snapshot, suppress the notice". An abort breaks that promise,
-      // so the un-count must happen SYNCHRONOUSLY inside onAbort — the
-      // `finally` decrement alone runs a microtask later, after a same-tick
-      // settlement could already have read the stale count and suppressed the
-      // notice for a waiter that then rejects and delivers nothing.
+      // Abort removes the waiter synchronously so same-tick settlement cannot
+      // suppress a notice for a wait that will reject.
       task.waiters += 1
       let counted = true
       const uncount = (): void => {
@@ -310,11 +237,8 @@ export class TaskService extends Service {
         task.waiters -= 1
       }
       try {
-        // The dsh-timeout deadline fits wait() exactly because both only
-        // NOTIFY: a wait timeout returns the live snapshot (the task keeps
-        // running — nothing is terminated), and timeoutOf scoped to our own
-        // code tells that timeout apart from a caller abort, which rejects
-        // the wait. `using` clears the timer on every exit path.
+        // The scoped deadline distinguishes a successful wait timeout from
+        // caller cancellation and clears its timer on every exit.
         using d = deadline(signal, timeoutMs, TASK_WAIT_TIMEOUT)
         await new Promise<void>((resolve, reject) => {
           const onSettled = (): void => {
@@ -327,8 +251,7 @@ export class TaskService extends Service {
             if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
               resolve()
             } else if (isTerminal(task.status)) {
-              // Settlement already ran and suppressed the notice for this
-              // waiter — deliver the terminal snapshot instead of rejecting.
+              // Settlement suppressed the notice for this waiter; deliver it.
               resolve()
             } else {
               uncount()
@@ -347,14 +270,11 @@ export class TaskService extends Service {
   }
 
   /**
-   * Register a completion listener, called exactly once per terminal task
-   * record with its snapshot and exact lifecycle owner (or `undefined` for an
-   * unowned task). Effect-scoped (disposed with the calling fiber); per-listener
-   * containment (one throwing or rejecting listener is logged, never starves
-   * the rest); returned promises are observed but not awaited; never fires
-   * after this service is disposed.
-   * @param listener - called with each terminal snapshot and its exact owner.
-   * @returns the disposer that unregisters the listener.
+   * Register an effect-scoped completion listener. Each listener is contained;
+   * returned promises are observed but not awaited. No listener runs after
+   * service disposal.
+   * @param listener - receives each terminal snapshot and its exact owner.
+   * @returns disposer that unregisters the listener.
    */
   onTaskDone(listener: TaskDoneListener): () => void {
     const dispose = this.ctx.effect(() => {
@@ -365,19 +285,13 @@ export class TaskService extends Service {
   }
 
   /**
-   * Declare that a control surface capable of reading/stopping tasks is
-   * loaded. {@link start} refuses to start a background task while NO
-   * surface is attached — the loud fence against a deployment exposing
-   * `run_in_background` without any way to collect or stop the work. The
-   * model-facing `@deepseek-ai/dsh-tool-tasks` attaches on load; a deployment
-   * with a custom (non-model) surface attaches its own. Effect-scoped:
-   * detached with the calling fiber.
-   * @param name - a diagnostic label for the surface (duplicate names count independently).
-   * @returns the disposer that detaches the surface.
+   * Attach an effect-scoped surface that can read and stop tasks. {@link start}
+   * refuses work while none is attached.
+   * @param name - diagnostic label; duplicate names remain independent.
+   * @returns disposer that detaches this surface.
    */
   attachSurface(name: string): () => void {
-    // One token per attach call: duplicate names stay independent, and the
-    // single-shot effect disposer removes exactly its own attachment.
+    // One token per call keeps duplicate labels independently disposable.
     const token = Symbol(name)
     const dispose = this.ctx.effect(() => {
       this.surfaces.add(token)
@@ -421,14 +335,9 @@ export class TaskService extends Service {
   }
 
   /**
-   * Record the first terminal outcome, notify listeners with containment, then
-   * release waiters. Normally the producer's single `done` continuation calls
-   * this; teardown also force-fails the record when `cancel` throws and `done`
-   * may never settle. First-wins makes a producer outcome arriving after that
-   * fallback a no-op, so listeners fire once and the diagnosed terminal state
-   * is never overwritten. A settlement observed by a pending {@link wait}
-   * marks the task reported BEFORE listeners run, so the notice surface can
-   * suppress its redundant "finished".
+   * Record the first terminal outcome, notify contained listeners, and release
+   * waiters. First-wins preserves a teardown force-failure against late producer
+   * settlement. Pending waits mark the task reported before listeners run.
    */
   private settle(task: TrackedTask, outcome: TaskOutcome): void {
     if (isTerminal(task.status)) return
@@ -457,17 +366,10 @@ export class TaskService extends Service {
   }
 
   /**
-   * Attach the awaited owner-disposal cleanup for an owner agent, once. The
-   * effect is registered through `owner.ctx`, so it belongs to the agent scope
-   * rather than the producer or long-lived tasks fiber: it survives producer
-   * reloads, runs at the structural agent quiescence boundary, and removes its
-   * wrapper automatically when that scope unwinds. The tasks service retains
-   * the exact disposer only so service teardown can detach cross-fiber effects
-   * instead of leaving a dead service captured by still-live agents.
-   * Fails loud when no agent registry is mounted or when `owner` is not the
-   * exact live instance currently registered under its id — accepting a stale
-   * object after id reuse would attach its session's task to another agent's
-   * lifecycle.
+   * Attach one awaited cleanup through the exact owner's scope. This survives
+   * producer reloads and joins agent quiescence; the retained disposer lets
+   * service teardown detach the cross-fiber effect. Fails when the registry is
+   * absent or the owner is not its currently registered instance.
    */
   private ensureOwnerCleanup(owner: Agent): void {
     const ownerId = owner.id
@@ -479,8 +381,7 @@ export class TaskService extends Service {
       throw new Error(`agent "${ownerId}" is not the registered agent instance (background task owner must be live)`)
     }
     if (this.ownerCleanups.has(owner)) return
-    // Attach FIRST, record after: an already-disposing scope rejects effects,
-    // and marking the owner as covered before that would poison later starts.
+    // Record only after attach succeeds; a disposing scope rejects new effects.
     const detach = owner.ctx.effect(() => async () => {
       this.ownerCleanups.delete(owner)
       await this.disposeOwned(owner)
@@ -497,11 +398,8 @@ export class TaskService extends Service {
   }
 
   /**
-   * Service teardown: close the listener registry FIRST (late completions
-   * from teardown kills stay silent), cancel every live task, and await each
-   * terminal record. Contract-compliant producers settle at quiescence; a
-   * producer whose cancel throws is force-failed so disposal cannot deadlock,
-   * with the possible underlying orphan logged explicitly.
+   * Close listeners, cancel live tasks, await settlement, and detach owner
+   * effects. Throwing cancels are force-failed to avoid teardown deadlock.
    */
   private async disposeAll(): Promise<void> {
     this.listenersClosed = true
@@ -510,24 +408,16 @@ export class TaskService extends Service {
     this.cancelForTeardown(all, 'tasks service disposed')
     await Promise.all(all.map(task => task.settled))
     this.store.clear()
-    // These effects belong to agent scopes, not this service's fiber. Detach
-    // them after the shared store is quiescent so a tasks-service reload cannot
-    // leave old callbacks retaining the dead service until each agent exits.
+    // Detach cross-fiber owner effects after the shared store is quiescent.
     const ownerCleanups = [...this.ownerCleanups.values()]
     this.ownerCleanups.clear()
     await Promise.all(ownerCleanups.map(cleanup => Promise.resolve(cleanup())))
   }
 
   /**
-   * Teardown-path cancellation with per-task containment: unlike the
-   * model-facing {@link kill} (where a throwing producer `cancel` fails the tool
-   * call and leaves the record live), teardown force-fails a record whose cancel
-   * throws because its `done` may depend on a request that never arrived. This
-   * prevents disposal deadlock but cannot prove the underlying work stopped, so
-   * the potential orphan is carried in the detail and warning. A cancel that
-   * returns but never leads to `done` remains indistinguishable from a slow stop
-   * and can still stall teardown; fixing that requires a separate bounded-lifetime
-   * or forced-disposal design.
+   * Cancel tasks during teardown with per-task containment. A throwing cancel
+   * force-fails the record and reports a possible orphan; a cancel that returns
+   * without settling remains indistinguishable from a slow stop and may stall.
    */
   private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
     for (const task of tasks) {

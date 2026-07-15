@@ -154,7 +154,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:27`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:17`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -165,7 +165,7 @@ Requires: `sandbox`
  * Plugin config: the local executor's knobs plus the sandbox policy. All
  * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
  * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is NOT configured here: which platform
+ * explicitly). The runner choice is not configured here: which platform
  * backend confines the command is the `ctx.sandbox` provider's config.
  */
 export interface Config extends LocalConfig {
@@ -886,19 +886,14 @@ Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/ti
 Requires: `tools` · `bash` · `systemPrompt`
 
 ```ts config-catalog
-/** Config: whether the model may background commands (the producer-opt-in flag). */
+/** Configures whether the model may background commands. */
 export interface Config {
-  /**
-   * Expose `run_in_background` in the bash schema (default true). Disabled,
-   * the parameter is absent entirely — schema and capability never disagree.
-   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
-   * one fails the call loud with the load-these-packages message.
-   */
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:48`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:30`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -962,42 +957,29 @@ export interface Config {
   /** The `ctx.subagents` provider name to start runs on (e.g. `spawn`, `acp`). */
   provider: string
   /**
-   * The model-facing tool name to register (default `subagent`). To expose more
-   * than one transport, load this plugin once per provider — each load MUST set
-   * a distinct `toolName` (the tool registry rejects a duplicate name), e.g.
-   * `{ provider: 'spawn', toolName: 'subagent' }` and
-   * `{ provider: 'acp', toolName: 'subagent_acp' }`.
+   * Model-facing tool name (default `subagent`). Each loaded instance must use
+   * a distinct name.
    */
   toolName?: string
   /**
-   * Expose `run_in_background` in this instance's schema (default true).
-   * Disabled, the parameter is absent entirely — schema and capability never
-   * disagree; delegation through this instance stays strictly synchronous.
-   * Backgrounding also needs the `ctx.tasks` runtime at call time; a missing
-   * one fails the call loud with the load-these-packages message.
+   * Expose `run_in_background` (default true). Disabled instances omit the
+   * parameter and reject forced background calls.
    */
   enableRunInBackground?: boolean
   /**
-   * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults.
+   * Agent options applied to every child; omitted fields use child-loop defaults.
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona applied to every child this tool spawns: a scoped
-   * `deployment:persona` section shadowing the deployment's persona for the
-   * child alone. Requires the bound provider's `persona` capability
-   * (in-process backends support it; a request against one that doesn't is
-   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   * Per-child persona that shadows `deployment:persona`. Requires the
+   * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string
   /**
-   * Tool scoping applied to every child this tool spawns (see
-   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
-   * the child's prompt AND refuse to execute. Requires the provider's
-   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
-   * child otherwise sees every global tool — including this delegation tool
-   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
-   * bounds recursion.
+   * Tool filter applied to every child. Filtered tools disappear from its
+   * prompt and reject execution. Requires the provider's `toolFilter`
+   * capability; unknown names fail startup. Children otherwise see this tool,
+   * so deny it or set `maxDepth` to bound recursion.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -1006,12 +988,8 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Recursion cap applied to every child this tool spawns (see
-   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
-   * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Must be a non-negative safe integer and is
-   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
-   * deployments that expose this tool to children).
+   * Maximum child depth. Requires the provider's `depthLimit` capability and a
+   * non-negative safe integer. Omission is unbounded.
    */
   maxDepth?: number
 }
@@ -1019,14 +997,14 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:59`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:23`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-tasks`
 
 Requires: `tools` · `tasks` · `systemPrompt`
 
 ```ts config-catalog
-/** Config: the `task_output` wait bounds (defaulted, capped — never hardcoded). */
+/** Configures bounded `task_output` waits. */
 export interface Config {
   /** Wait duration applied when `task_output` sets `wait` without `timeout_ms` (default 30s). */
   waitTimeoutMs?: number
@@ -1035,7 +1013,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts:34`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/tasks/tool-tasks/src/index.ts:21`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 

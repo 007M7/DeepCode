@@ -357,7 +357,7 @@ Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/
 
 ### `subagent`
 
-Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to get a task id immediately and keep working; collect the final answer with `task_output` (wait: true when you are blocked on it) and stop it with `task_kill`.
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.
 
 ```json
 {
@@ -373,7 +373,7 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Run the subagent as a background task and return a task id immediately (collect with task_output, stop with task_kill)."
+      "description": "Run as a background task and return its id; collect with task_output or stop with task_kill."
     }
   },
   "required": [
@@ -429,7 +429,7 @@ Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/
 
 ### `task_output`
 
-Read output/status from a background task (started by a tool with `run_in_background`). Stream tasks (bash) return only output produced since your previous task_output call; final-output tasks (subagent) return the final answer once the task finishes. Every response ends with a [status: ...] line. Non-blocking by default; set `wait: true` to block until the task finishes (bounded by a capped timeout) when you are genuinely blocked on its result.
+Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.
 
 ```json
 {
