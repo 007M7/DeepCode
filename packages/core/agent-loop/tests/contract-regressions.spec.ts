@@ -139,6 +139,115 @@ describe('abort during tool execution ends the turn', () => {
     expect(adapter.requests).toHaveLength(1)        // no follow-up model call
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
   })
+
+  it('records context accepted before a tool-step abort in the same turn', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-abort-injection'), { model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        agent.inject([{ type: 'text', text: 'accepted before abort' }], { source: { kind: 'plugin', plugin: 'test' } })
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'context/message', 'step/end', 'turn/end'])
+    expect(events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'accepted before abort' }])
+  })
+
+  it('drains deferred context before disposal reaches quiescence', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'waiter', {})])
+    const ctx = await harness(adapter)
+    const started = Promise.withResolvers<undefined>()
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-dispose-injection'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+    ctx.tools.register(defineTool({
+      name: 'waiter',
+      description: '',
+      parameters: {},
+      async execute(_args, exec) {
+        agent.inject([{ type: 'text', text: 'accepted before disposal' }], { source: { kind: 'plugin', plugin: 'test' } })
+        started.resolve(undefined)
+        const signal = exec.signal
+        if (!signal) throw new Error('tool execution signal is missing')
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve()
+          else signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+
+    send(agent, 'go')
+    await started.promise
+    await fiber.dispose()
+
+    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'accepted before disposal' }])
+    expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'disposed' })
+  })
+
+  it('limits injection deferral to the current tool batch', async () => {
+    const adapter = new MockAdapter([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'aborter', arguments: '{}' } },
+        { type: 'block-start', index: 1, blockType: 'tool-call' },
+        { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'second', arguments: '{}' } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ] satisfies StreamChunk[],
+      textResponse('later turn'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-historical-tool-pair'), { model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'second',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'must not run' }]
+      },
+    }))
+
+    send(agent, 'leave an unmatched historical call')
+    await waitForIdle(ctx, agent)
+    ctx.on('agent/pre-step', (subject, turn) => {
+      if (subject === agent && turn === 2) {
+        agent.inject([{ type: 'text', text: 'new turn context' }], { source: { kind: 'plugin', plugin: 'test' } })
+      }
+    })
+    send(agent, 'start a text-only turn')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'new turn context' }])
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('new turn context')
+  })
 })
 
 describe('steering from late extension points is never stranded', () => {

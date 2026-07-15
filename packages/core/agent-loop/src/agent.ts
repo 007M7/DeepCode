@@ -12,7 +12,7 @@ import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { isToolPairingBalanced, snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
@@ -149,6 +149,8 @@ export class ReactLoopAgent implements Agent {
    * this set before the lifecycle unregisters the agent or detaches its session.
    */
   private pendingIdleFlushes = new Set<Promise<void>>()
+  /** Whether the current step is executing an assistant tool-call batch. */
+  private toolBatchActive = false
   /** Open-turn injections waiting for the active assistant tool-call batch to close. */
   private deferredInjections: InboxMessage[] = []
 
@@ -231,11 +233,9 @@ export class ReactLoopAgent implements Agent {
     if (isTurnOpen(this.session)) {
       const accepted = this.acceptMessage(content, options)
       // Provider protocols require every assistant tool-call batch to be
-      // followed only by its tool results. Queue arbitrary asynchronous context
-      // until the tail cut is balanced; an existing queue preserves FIFO in the
-      // narrow window after the last result and before the loop drains it.
-      if (this.deferredInjections.length > 0
-        || !isToolPairingBalanced(this.session.surface.nodes, this.session.events, null)) {
+      // followed only by its tool results. Historical interrupted batches do
+      // not own new context; only the currently executing batch may defer it.
+      if (this.toolBatchActive) {
         this.deferredInjections.push(accepted)
         return
       }
@@ -285,6 +285,17 @@ export class ReactLoopAgent implements Agent {
     const pending = this.deferredInjections.splice(0)
     for (const accepted of pending) {
       this.session.append('context/message', accepted, { surfaceOp: 'append' })
+    }
+  }
+
+  /** Run one tool-call batch and drain its deferred context before resolving or rejecting. */
+  private async withToolBatch<T>(run: () => Promise<T>): Promise<T> {
+    this.toolBatchActive = true
+    try {
+      return await run()
+    } finally {
+      this.toolBatchActive = false
+      this.drainDeferredInjections()
     }
   }
 
@@ -352,7 +363,7 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
-      drainDeferredInjections: () => { this.drainDeferredInjections() },
+      withToolBatch: run => this.withToolBatch(run),
       // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     })

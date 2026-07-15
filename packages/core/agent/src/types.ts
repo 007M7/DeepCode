@@ -104,10 +104,10 @@ export interface Agent {
 
   /**
    * Append detached model-facing context without running the model. An open-turn
-   * injection joins at the current log position unless tool results are pending,
-   * in which case it waits FIFO until the complete result batch is logged. Idle
-   * injection uses a one-shot turn and durability checkpoint. Disposal awaits
-   * idle checkpoints; flush failures report through `agent/error`.
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 

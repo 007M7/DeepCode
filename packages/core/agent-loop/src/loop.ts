@@ -85,8 +85,8 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
-  /** Append context that arrived while an assistant tool-call batch was awaiting its results. */
-  readonly drainDeferredInjections: () => void
+  /** Run an active tool-call batch and drain deferred context before resolving or rejecting. */
+  readonly withToolBatch: <T>(run: () => Promise<T>) => Promise<T>
 }
 
 /**
@@ -327,7 +327,7 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -350,10 +350,6 @@ async function runTurn(
         }
         break
       }
-
-      // A successful tool step has committed its complete result batch. Context
-      // accepted while that batch was pending can now join the open turn.
-      if (stepOutcome.hadToolCalls) handle.drainDeferredInjections()
 
       // Preserve max-token completion unless a later disposal, abort, or error wins.
       const stepReason = stepFinishReason(stepOutcome.finish)
@@ -468,6 +464,7 @@ async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
   agent: ReactLoopAgent,
+  handle: LoopHandle,
   turn: number,
   step: number,
   assembly: PromptAssembly,
@@ -561,51 +558,54 @@ async function runStep(
 
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
-  // Buffer context until all results are appended to preserve call/result adjacency.
-  const pendingContext: HookContext[] = []
-  for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
-    let parsedArguments: unknown
-    try {
-      parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
-    } catch {
-      parsedArguments = call.arguments
+  if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
+  return handle.withToolBatch(async () => {
+    // Buffer context until all results are appended to preserve call/result adjacency.
+    const pendingContext: HookContext[] = []
+    for (const call of toolCalls) {
+      /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
+      if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+      const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
+      let parsedArguments: unknown
+      try {
+        parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
+      } catch {
+        parsedArguments = call.arguments
+      }
+      // TODO(pre-tool-input-rewrite): Keep logged history and live presentation aligned;
+      // see docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md.
+      const result = await ctx.tools.execute({
+        callId: call.id,
+        name: call.name,
+        arguments: parsedArguments,
+        agent,
+        signal,
+      })
+      session.append('tool/result', {
+        turn, step,
+        // Preserve transcript pairing even if a post-execute listener returns another id.
+        callId: call.id,
+        content: result.content,
+        isError: result.isError,
+        ...result.error ? { error: result.error } : {},
+        // Persist tool-owned presentation data for replay.
+        ...result.meta !== undefined ? { meta: result.meta } : {},
+      }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
+      if (result.additionalContext) pendingContext.push(result.additionalContext)
+      // The signal may flip while the tool is awaited.
+      /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+      /* v8 ignore stop */
     }
-    // TODO(pre-tool-input-rewrite): Keep logged history and live presentation aligned;
-    // see docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md.
-    const result = await ctx.tools.execute({
-      callId: call.id,
-      name: call.name,
-      arguments: parsedArguments,
-      agent,
-      signal,
-    })
-    session.append('tool/result', {
-      turn, step,
-      // Preserve transcript pairing even if a post-execute listener returns another id.
-      callId: call.id,
-      content: result.content,
-      isError: result.isError,
-      ...result.error ? { error: result.error } : {},
-      // Persist tool-owned presentation data for replay.
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
-    // The signal may flip while the tool is awaited.
-    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    /* v8 ignore stop */
-  }
 
-  // Append buffered context after the complete result batch.
-  for (const context of pendingContext) {
-    agent.inject(context.content, { source: context.source })
-  }
+    // Append buffered context after the complete result batch.
+    for (const context of pendingContext) {
+      agent.inject(context.content, { source: context.source })
+    }
 
-  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+    return { hadToolCalls: true, finish: assembler.finish }
+  })
 }
 
 function withoutToolCalls(message: Message): Message {
