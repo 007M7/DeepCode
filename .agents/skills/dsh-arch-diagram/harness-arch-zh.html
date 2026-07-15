@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1536, initial-scale=1.0">
+  <title>DeepSeek Harness · 架构</title>
+  <link rel="stylesheet" href="harness-arch.css">
+</head>
+<body>
+  <div class="page">
+    <p class="eyebrow cn">架 构</p>
+    <h1 class="cn">系统一览</h1>
+
+    <div class="diagram">
+      <p class="section-label top cn">默 认 服 务</p>
+
+      <div class="row top">
+        <div class="card"><span class="name">ctx.sessions</span><span class="desc cn">事件溯源日志</span></div>
+        <div class="card"><span class="name">ctx.systemPrompt</span><span class="desc cn">系统提示词组装</span></div>
+        <div class="card"><span class="name">ctx.tools</span><span class="desc cn">工具注册与执行</span></div>
+        <div class="card"><span class="name">ctx.agents</span><span class="desc cn">Agent 实例与事件</span></div>
+        <div class="card"><span class="name">ctx.agentLoop</span><span class="desc cn">ReAct 控制循环</span></div>
+      </div>
+
+      <div class="bus-row">
+        <div class="bus cn">
+          <span class="core">Cordis</span>
+          <span class="dot">·</span>
+          <span class="core">微内核</span>
+          <span class="vendored">(vendored)</span>
+        </div>
+        <div class="yml-side">
+          <div class="yml-arrow">
+            <svg viewBox="0 0 30 12" width="30" height="12" xmlns="http://www.w3.org/2000/svg">
+              <line x1="30" y1="6" x2="8" y2="6" stroke="#8a8f9c" stroke-width="1.2" stroke-dasharray="3 3"/>
+              <polyline points="8,3 2,6 8,9" fill="none" stroke="#8a8f9c" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="yml-box">
+            <div class="file">cordis.yml</div>
+            <div class="sub cn">部署清单</div>
+          </div>
+          <div class="yml-note cn">决定哪些插件加载</div>
+        </div>
+      </div>
+
+      <div class="row bottom">
+        <div class="card"><span class="name">ctx.llm</span><span class="desc cn">模型适配层</span></div>
+        <div class="card"><span class="name">ctx.bash</span><span class="desc cn">命令行执行</span></div>
+        <div class="card"><span class="name">ctx.sandbox</span><span class="desc cn">进程隔离</span></div>
+        <div class="card"><span class="name">ctx.codeRuntime</span><span class="desc cn">JS 运行时</span></div>
+        <div class="card"><span class="name">ctx.fs</span><span class="desc cn">文件读写</span></div>
+        <div class="card"><span class="name">ctx.skills</span><span class="desc cn">可复用技能</span></div>
+        <div class="card"><span class="name">ctx.web</span><span class="desc cn">网页搜索抓取</span></div>
+        <div class="card"><span class="name">ctx.compact</span><span class="desc cn">上下文压缩</span></div>
+        <div class="card"><span class="name">ctx.subagents</span><span class="desc cn">子智能体</span></div>
+        <div class="card"><span class="name">ctx.workflows</span><span class="desc cn">动态编排</span></div>
+        <div class="card"><span class="name">ctx.sessionPersistence</span><span class="desc cn">会话持久化</span></div>
+        <div class="card"><span class="name">ctx.sessionQuery</span><span class="desc cn">会话日志查询</span></div>
+      </div>
+
+      <p class="section-label bottom cn">能 力 服 务</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,220 @@
+/* DeepSeek brand — bone-white + brand-blue, all sans-serif, no italic, no serif. */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg-top:      #ffffff;
+  --bg-bot:      #e8effc;
+  --ink:         #1a1a1a;
+  --muted:       #8a8f9c;
+  --card-bd:     #dde3ef;
+  --card-bg:     #ffffff;
+  --brand:       #4a6ef5;
+  --brand-soft:  #dbe4fe;
+
+  --sans:  'Inter', 'Noto Sans SC', 'PingFang SC', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --cn:    'Noto Sans SC', 'PingFang SC', 'Inter', -apple-system, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: linear-gradient(135deg, var(--bg-top) 0%, var(--bg-bot) 100%);
+  padding: 40px 64px 32px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern" 1, "liga" 1, "cv02" 1, "cv11" 1;
+}
+
+.page {
+  max-width: 1560px;
+  margin: 0 auto;
+}
+
+/* ── header ─────────────────────────────────────────── */
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.eyebrow.cn { font-family: var(--cn); letter-spacing: 0.4em; text-transform: none; }
+
+h1 {
+  font-family: var(--sans);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin-bottom: 88px;
+}
+h1.cn { font-family: var(--cn); letter-spacing: 0.02em; font-weight: 600; }
+
+/* ── diagram frame ──────────────────────────────────── */
+.diagram { position: relative; }
+
+.section-label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 20px;
+}
+.section-label.cn { font-family: var(--cn); letter-spacing: 0.4em; text-transform: none; font-size: 12px; }
+.section-label.bottom { margin: 20px 0 0; }
+
+/* ── card rows ──────────────────────────────────────── */
+.row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  width: 96%;
+  margin: 0 auto;
+  position: relative;
+}
+.row.top .card { flex: 1; }
+.row.bottom {
+  gap: 0;
+  justify-content: space-between;
+}
+/* flex: 0 0 auto so cards keep their intrinsic (nowrap) width and
+   neighbouring card backgrounds cannot clip a description. */
+.row.bottom .card { flex: 0 0 auto; }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-bd);
+  border-radius: 6px;
+  padding: 14px 10px;
+  text-align: center;
+  min-width: 0;
+  position: relative;
+}
+.card .name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.2;
+  white-space: nowrap;
+  display: block;
+}
+.card .desc {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.3;
+  min-height: 28px;
+  white-space: nowrap;
+}
+.card .desc.cn { font-family: var(--cn); }
+.row.bottom .card { padding: 10px 6px; }
+.row.bottom .card .name { font-size: 10px; }
+.row.bottom .card .desc { font-size: 9px; min-height: 22px; }
+.row.bottom .card .desc.cn { font-size: 10px; }
+
+/* connectors — pure CSS, guaranteed vertical & parallel */
+.row.top    .card::after,
+.row.bottom .card::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  background: var(--brand);
+}
+.row.top    .card::after  { top: 100%; height: 40px; }
+.row.bottom .card::before { bottom: 100%; height: 40px; }
+
+/* ── bus row (Cordis) ───────────────────────────────── */
+.bus-row {
+  position: relative;
+  width: 96%;
+  margin: 40px auto;
+}
+.bus {
+  height: 60px;
+  background: var(--brand);
+  color: #ffffff;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.bus .dot { padding: 0 12px; opacity: 0.75; }
+.bus .vendored {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 400;
+  opacity: 0.8;
+  margin-left: 8px;
+}
+.bus.cn .core { font-family: var(--cn); }
+
+/* ── cordis.yml side box (positioned outside bus width) ─ */
+.yml-side {
+  position: absolute;
+  left: calc(100% + 20px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.yml-arrow {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 12px;
+}
+.yml-arrow svg { display: block; }
+.yml-box {
+  width: 100%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-bd);
+  border-radius: 6px;
+  padding: 12px 10px;
+  text-align: center;
+}
+.yml-box .file {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.yml-box .sub {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+.yml-box .sub.cn { font-family: var(--cn); letter-spacing: 0.05em; }
+.yml-note {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 10px;
+  width: 100%;
+  text-align: center;
+  line-height: 1.4;
+}
+.yml-note.cn { font-family: var(--cn); letter-spacing: 0.05em; }
