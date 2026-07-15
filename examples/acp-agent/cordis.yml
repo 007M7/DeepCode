@@ -37,7 +37,7 @@
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
 - id: acp-agent
-  name: '@deepseek-ai/dsh-acp-agent'
+  name: '@deepseek-ai/dsh-acp-demo'
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
