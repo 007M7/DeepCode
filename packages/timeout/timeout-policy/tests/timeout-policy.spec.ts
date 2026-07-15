@@ -11,9 +11,9 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, type ToolExecutionInput, type ToolExecutionResult, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
-import { TOOL_TIMEOUT, toolTimeoutResult } from '@deepseek-ai/dsh-timeout-policy'
+import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-timeout-policy'
 
 /** Mount the registry + the zero-config timeout-policy enforcer. */
 async function setup() {
@@ -60,7 +60,7 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
     ctx.tools.register(defineTool({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] } }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'fast', arguments: {} })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
   })
 
   it('a budgeted tool receives the DERIVED deadline signal (not the caller signal) during dispatch', async () => {
@@ -109,7 +109,6 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     await vi.advanceTimersByTimeAsync(150)
     const result = await pending
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: tool call timed out after 100ms' }],
       isError: true,
       error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
@@ -140,16 +139,7 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
   })
 })
 
-describe('toolTimeoutResult', () => {
-  it('builds the structured TOOL_TIMEOUT result', () => {
-    expect(toolTimeoutResult(CallId('c9'), 250)).toEqual({
-      callId: CallId('c9'),
-      content: [{ type: 'text', text: 'Error: tool call timed out after 250ms' }],
-      isError: true,
-      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
-    } satisfies ToolExecutionResult)
-  })
-
+describe('timeout-policy contract', () => {
   it('exposes the owned code constant', () => {
     expect(TOOL_TIMEOUT).toBe('TOOL_TIMEOUT')
   })

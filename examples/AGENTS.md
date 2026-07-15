@@ -13,7 +13,7 @@ Each example has both:
 
 Mock-only examples require only the keyless tier; state that exception in the test.
 
-Temp-cwd keyless smokes set `TSX_TSCONFIG_PATH` to the root tsconfig and pass `--expose-internals` when loading HMR.
+Keyless stdio smokes use `@deepseek-ai/dsh-loader-smoke` for isolation, root-tsconfig loading, subprocess lifecycle, diagnostics, EOF, and cleanup; tests supply paths, environment, input, and assertions.
 
 Do not inventory example tests here; the `tests/` trees and root scripts are authoritative.
 
