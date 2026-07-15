@@ -155,18 +155,20 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
     }
   }, 30_000)
 
-  it.each([
-    ['SIGINT', 130],
-    ['SIGTERM', 143],
-  ] as const)('cancels and disposes on %s with exit %i', async (signal, code) => {
-    consumer = await makeConsumer()
-    const result = await runBuiltBin(
-      consumer,
-      ['--config', './cordis.yml', '--output-format', 'stream-json', 'hang'],
-      signal,
-    )
-    expect(result, JSON.stringify(result)).toMatchObject({ code, signal: null })
-    expect(result.stdout).toContain('"kind":"aborted"')
-    expect(result.stderr).toContain(`received ${signal}`)
-  }, 30_000)
+  describe.skipIf(process.platform === 'win32')('POSIX signal delivery', () => {
+    it.each([
+      ['SIGINT', 130],
+      ['SIGTERM', 143],
+    ] as const)('cancels and disposes on %s with exit %i', async (signal, code) => {
+      consumer = await makeConsumer()
+      const result = await runBuiltBin(
+        consumer,
+        ['--config', './cordis.yml', '--output-format', 'stream-json', 'hang'],
+        signal,
+      )
+      expect(result, JSON.stringify(result)).toMatchObject({ code, signal: null })
+      expect(result.stdout).toContain('"kind":"aborted"')
+      expect(result.stderr).toContain(`received ${signal}`)
+    }, 30_000)
+  })
 })
