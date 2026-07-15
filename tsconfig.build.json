@@ -85,6 +85,9 @@
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },
-    { "path": "./packages/mcp/mcp-client" }
+    { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/sdk/helper" },
+    { "path": "./packages/sdk/scripts" },
+    { "path": "./packages/sdk/create-sdk" }
   ]
 }
