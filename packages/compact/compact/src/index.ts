@@ -14,6 +14,7 @@ import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
 export { renderContentBlocks, renderTranscript } from './render.ts'
+export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {
@@ -67,6 +68,8 @@ export abstract class CompactService extends Service {
    * balanced so assistant tool calls remain paired with their results. A model-
    * backed implementation forwards cancellation and rejects active, missing,
    * reversed, or unbalanced ranges.
+   * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
+   * for the edge checks.
    *
    * @param session - session to mutate.
    * @param start - first surface seq, inclusive.

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import LlmService from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -124,9 +124,9 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
       for (const cp of checkpoints) {
         const node = nodes.find(n => n.seq === cp.seq)
         if (!node) continue // shadowed by a later checkpoint — no longer an edge.
-        expect(isToolPairingBalanced(nodes, events, node.seq),
+        expect(toolPairingBalancedBefore(agent.session, node),
           `checkpoint seq ${node.seq} must be a balanced region START`).toBe(true)
-        expect(isToolPairingBalanced(nodes, events, node.next),
+        expect(toolPairingBalancedAfter(agent.session, node),
           `checkpoint seq ${node.seq} must be a balanced region END`).toBe(true)
       }
     } finally {
