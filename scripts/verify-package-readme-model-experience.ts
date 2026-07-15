@@ -55,6 +55,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/subagent/subagent-subprocess': { kind: 'indirect', reason: 'Only process-based subagent backends compose a child model request.' },
   'packages/support/acp-snapshot': { kind: 'none', reason: 'The test harness observes and normalizes transcripts without changing live requests.' },
   'packages/support/invariants': { kind: 'none', reason: 'The observer validates requests but never rewrites their context.' },
+  'packages/support/loader-smoke': { kind: 'none', reason: 'The test harness observes child-process streams without changing live requests.' },
   'packages/support/llm-replay': { kind: 'none', reason: 'The keyless adapter invokes no provider model.' },
   'packages/support/subagent-mock': { kind: 'indirect', reason: 'Only dsh-tool-subagent renders its configured test outcome.' },
   'packages/ui/acp-agent': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-core and dsh-acp.' },

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { computeHunkDiffs, diffsFromMeta, DIFF_CONTEXT } from '@deepseek-ai/dsh-tool-fs'
+import { computeHunkDiffs, diffsFromMeta, DIFF_CONTEXT } from '../src/diff.ts'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 
 const lines = (n: number): string => Array.from({ length: n }, (_, i) => `line${i + 1}`).join('\n') + '\n'
