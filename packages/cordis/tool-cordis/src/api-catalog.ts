@@ -575,7 +575,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
+    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
   },
   {
     name: 'BashTaskId',

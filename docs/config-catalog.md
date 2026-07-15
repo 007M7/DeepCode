@@ -140,7 +140,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:21`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:18`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
