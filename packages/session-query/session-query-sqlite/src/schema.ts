@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 1
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 2
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -24,8 +24,6 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
   if (actual !== ':memory:') await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
   const db = new DatabaseSync(actual)
   try {
-    // journalMode is a validated closed union, not caller-controlled SQL.
-    db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
     const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
     const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
     const userTables = listUserTables(db)
@@ -38,6 +36,9 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
     if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID && version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) {
       resetDerivedSchema(db)
     }
+    // Apply mutating pragmas only after refusing foreign or canonical files.
+    // journalMode is a validated closed union, not caller-controlled SQL.
+    db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
     ensurePersistentSchema(db)
     ensureTemporarySchema(db)
     return db
@@ -78,7 +79,7 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       cwd            TEXT,
       parent_session TEXT,
       seed_length    INTEGER,
-      fingerprint    TEXT NOT NULL,
+      revision       TEXT NOT NULL,
       generation     INTEGER NOT NULL
     ) STRICT
   `)
@@ -90,6 +91,7 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       type UNINDEXED,
       time UNINDEXED,
       surface UNINDEXED,
+      codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )
   `)
@@ -117,6 +119,7 @@ function ensureTemporarySchema(db: DatabaseSync): void {
       type UNINDEXED,
       time UNINDEXED,
       surface UNINDEXED,
+      codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )
   `)

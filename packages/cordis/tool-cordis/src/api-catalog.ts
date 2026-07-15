@@ -149,6 +149,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
       'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
       'abstract list(): Promise<SessionHeader[]>',
+      'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
     ],
   },
   {
@@ -156,6 +157,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Live-preferred logical-corpus and exact-event read service.',
     methods: [
       'listSessions(): Promise<SessionRecord[]>',
+      'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
       'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
       'async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>',
       'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
@@ -834,7 +836,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventSearchRequest',
-    declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: string;\n}',
+    declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SessionEventSurface',
@@ -861,6 +863,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
   {
+    name: 'SessionPersistenceRevision',
+    declaration: 'export type SessionPersistenceRevision = Branded<\'SessionPersistenceRevision\'>;',
+  },
+  {
+    name: 'SessionPersistenceSnapshot',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
@@ -873,6 +883,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
   },
   {
+    name: 'SessionSearchCursor',
+    declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
+  },
+  {
     name: 'SessionSearchExecContext',
     declaration: 'export interface SessionSearchExecContext {\n    signal?: AbortSignal;\n}',
   },
@@ -882,11 +896,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSearchPage',
-    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: string;\n}',
+    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SessionSearchRequest',
-    declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: string;\n}',
+    declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SkillCandidate',

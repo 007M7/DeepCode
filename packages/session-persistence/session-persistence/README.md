@@ -12,6 +12,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | `append(id, events): Promise<void>` | Durably persist a batch (from the `session/flush` drain). Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
 | `load(id): Promise<{ meta; events }>` | Reload meta + log. Preserves an interrupted (unclosed) final turn and closes it with synthetic closers — an error `tool/result` per unanswered `tool-call`, then `step/end?`+`turn/end {interrupted}` (a turn can be huge — never truncated); only a torn tail fragment is dropped. Events contiguous (`events[i].seq === i`); rejects a committed-region gap/parse error or unknown `version`. |
 | `list(): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. A zero-event lazily-materialized session is absent from `list`. |
+| `listSnapshots(): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log is unchanged and changes after append or mutating load repair. |
 
 ## Invariants every backend must honor
 
@@ -24,7 +25,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 The two first-party backends were byte-identical (or same-algorithm) for ALL of their write-path orchestration — the in-memory bookkeeping (per-id state, write-behind buffers, per-id serialization chains, per-session init promises), the `session/event` → buffer → `session/flush` drain, lazy materialization, crash-tail repair on load, the four `session/created` adoption cases (new / HMR-adopt / collision / ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives differed (write bytes vs. INSERT rows).
 
-`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its four public service methods to the coordinator. This keeps the duplicated, correctness-heavy orchestration in a single place (it used to receive the same fixes twice).
+`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates the stateful write/read methods to the coordinator. Lightweight snapshot listing remains a backend storage primitive because its revision identity is backend-owned.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 
@@ -38,11 +39,11 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 | `list()` | List all stored metadata. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 
-The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). A third-party backend MAY implement the abstract service directly without the coordinator, but it must also provide trustworthy lightweight snapshot revisions. See [the write-coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
 ## Testing backends
 
-Import `runPersistenceContract` from `tests/contract.ts` (the public-API contract) and `runCoordinatorContract` from `tests/coordinator-contract.ts` (the shared write-path orchestration: adoption, HMR, collision, dispose-drain, crash-tail repair) and call each with a fixture for your backend. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics AND the same orchestration, so a backend's own spec is left with only storage-mechanics tests (path sanitization, fsync rollback; schema version, transaction rollback) on top.
+Import `runPersistenceContract` from `tests/contract.ts` (the public API, including stable/change-sensitive lightweight revisions) and `runCoordinatorContract` from `tests/coordinator-contract.ts` (the shared write-path orchestration: adoption, HMR, collision, dispose-drain, crash-tail repair) and call each with a fixture for your backend. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics AND the same orchestration, so a backend's own spec is left with only storage-mechanics tests (path sanitization, fsync rollback; schema version, transaction rollback) on top.
 
 Three backends run these suites: an in-memory reference (in `tests/`), `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`). All passing the same contract + coordinator suite is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
 

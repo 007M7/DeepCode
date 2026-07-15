@@ -10,7 +10,7 @@ Full-text search is related but materially larger. Putting provider coordination
 
 ## Decision
 
-`@deepseek-ai/dsh-session-query` owns `ctx.sessionQuery`, a small trusted exact-read service over one logical corpus. It exposes `listSessions()`, `listEvents(sessionId)`, provider-independent `filterEvents(sessionId, filters)`, and bounded `readEvent(request)`. The package also declares the separate abstract `ctx.sessionSearch` contract and shared semantic extraction used by the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md), but `ctx.sessionQuery` does not coordinate providers or synchronize a derived index.
+`@deepseek-ai/dsh-session-query` owns `ctx.sessionQuery`, a small trusted exact-read service over one logical corpus. It exposes `listSessions()`, provider-independent `filterSessions(filters)`, `listEvents(sessionId)`, `filterEvents(sessionId, filters)`, and bounded `readEvent(request)`. The package also declares the separate abstract `ctx.sessionSearch` contract and shared semantic extraction used by the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md), but `ctx.sessionQuery` does not coordinate providers or synchronize a derived index.
 
 The service observes the optional `ctx.sessionPersistence` binding dynamically but retains no persisted cache or invalidation listener. Each cross-corpus list asks the active backend for authoritative metadata, then overlays a fresh live-store list. Matching ids become one `SessionRecord`: the live header wins and `live`/`persisted` independently report source availability. Immutable header disagreement is `SESSION_QUERY_SOURCE_CONFLICT`.
 

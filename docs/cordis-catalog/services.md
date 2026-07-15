@@ -195,11 +195,12 @@ abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 abstract list(): Promise<SessionHeader[]>
+abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
 ```
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:112`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
@@ -207,12 +208,13 @@ Live-preferred logical-corpus and exact-event read service.
 
 ```ts cordis-catalog
 listSessions(): Promise<SessionRecord[]>
+async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
 async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:83`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:96`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -244,7 +246,7 @@ abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExec
 abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:54`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:67`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

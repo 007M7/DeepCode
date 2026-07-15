@@ -258,11 +258,11 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
     // Two unmerged branches each shipped a DISTINCT layout under user_version 3
     // (one added only `seed_length`, the other only the surface columns). The
-    // merged build is v4; an on-disk v3 is ambiguous and is missing at least one
+    // the current build rejects every older layout; an on-disk v3 is ambiguous and is missing at least one
     // of this build's columns, so it MUST be rejected, not opened. Stamp a v3
     // database and confirm the version check refuses it.
     const path = await freshDbPath()
-    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
+    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION
     const db = openDatabase(path, 'wal')
     db.exec('PRAGMA user_version = 3')
     db.close()
@@ -338,7 +338,18 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(4)
+    expect(SCHEMA_VERSION).toBe(5)
+  })
+
+  it('keeps the revision stable for an empty repair hook', async () => {
+    const b = await backend()
+    const m = meta('empty-repair')
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = await b.ctx.sessionPersistence.listSnapshots()
+    await (b.ctx.sessionPersistence as SessionPersistenceSqlite).commitRepair(m, undefined, [])
+    expect(await b.ctx.sessionPersistence.listSnapshots()).toEqual(before)
+    await b.dispose()
   })
 })
 

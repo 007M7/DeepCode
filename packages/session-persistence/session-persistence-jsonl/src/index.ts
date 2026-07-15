@@ -11,7 +11,7 @@
  * (the `session/event` → buffer → `session/flush` drain, per-session
  * serialization, write cursors, fork-seed persistence, HMR live-adoption,
  * crash-repair sequencing, dispose quiescence) lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
+ * {@link PersistenceCoordinator} this class composes. The stateful public
  * {@link SessionPersistence} methods delegate to the coordinator.
  *
  * @module @deepseek-ai/dsh-session-persistence-jsonl
@@ -19,12 +19,12 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -179,20 +179,44 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** List all stored sessions' metadata (header line only — no full-log parse). */
   async list(): Promise<SessionHeader[]> {
-    const metas: SessionHeader[] = []
+    return (await this.listArtifacts()).map(artifact => artifact.header)
+  }
+
+  /** List metadata plus a stat-derived identity for each append-only log. */
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    const snapshots: SessionPersistenceSnapshot[] = []
+    for (const artifact of await this.listArtifacts()) {
+      const identity = await stat(artifact.path, { bigint: true })
+      snapshots.push({
+        header: artifact.header,
+        revision: SessionPersistenceRevision([
+          identity.dev,
+          identity.ino,
+          identity.size,
+          identity.mtimeNs,
+          identity.ctimeNs,
+        ].join(':')),
+      })
+    }
+    return snapshots
+  }
+
+  private async listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>> {
+    const artifacts: Array<{ header: SessionHeader; path: string }> = []
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listJsonl(dir)) {
         // Read ONLY the header line, not the whole log: a session picker must
         // scale with the number of sessions, not the total size of every
         // conversation (the log persists every assistant/chunk verbatim).
-        const first = await this.readFirstLine(`${dir}/${name}`)
+        const path = `${dir}/${name}`
+        const first = await this.readFirstLine(path)
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        metas.push(meta)
+        artifacts.push({ header: meta, path })
       }
     }
-    return metas
+    return artifacts
   }
 
   // --- materialization / append / repair (file mechanics) ---

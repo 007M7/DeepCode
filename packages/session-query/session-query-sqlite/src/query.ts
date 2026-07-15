@@ -2,15 +2,23 @@
 
 import {
   SessionQueryError,
-  filterSessionEventDocuments,
-  filterSessionResults,
+  materializeSessionEventResultFilters,
+  materializeSessionResultFilters,
 } from '@deepseek-ai/dsh-session-query'
 import type {
+  SessionAvailability,
   SessionEventMetadataFilter,
+  SessionEventResultFilter,
   SessionEventSearchRequest,
   SessionResultFilter,
+  SessionSearchCursor,
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
+
+/** Collision-free marker inserted before an FTS5 match by `highlight()`. */
+export const FTS_HIGHLIGHT_START = '\uFDD0'
+/** Collision-free marker inserted after an FTS5 match by `highlight()`. */
+export const FTS_HIGHLIGHT_END = '\uFDD1'
 
 /** Limit defaults needed to normalize a search request. */
 export interface QueryLimits {
@@ -26,7 +34,7 @@ export interface NormalizedSessionRequest {
   sessionFilters: readonly SessionResultFilter[]
   eventFilters: readonly SessionEventMetadataFilter[]
   limit: number
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 
 /** Normalized within-session request. */
@@ -35,7 +43,7 @@ export interface NormalizedEventRequest {
   query: string
   filters: readonly SessionEventMetadataFilter[]
   limit: number
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 
 /** Parameterized SQL predicate fragment. */
@@ -56,16 +64,15 @@ export function normalizeSessionRequest(
   request: SessionSearchRequest,
   limits: QueryLimits,
 ): NormalizedSessionRequest {
-  const sessionFilters = request.sessionFilters ?? []
-  const eventFilters = request.eventFilters ?? []
-  filterSessionResults([], sessionFilters)
-  filterSessionEventDocuments([], eventFilters)
+  const sessionFilters = materializeSessionResultFilters(request.sessionFilters ?? [])
+  const eventFilters = materializeMetadataFilters(request.eventFilters ?? [])
+  const cursor = materializeCursor(request.cursor)
   return {
     query: normalizeQuery(request.query),
     sessionFilters,
     eventFilters,
     limit: normalizeLimit(request.limit, limits),
-    ...request.cursor === undefined ? {} : { cursor: request.cursor },
+    ...cursor === undefined ? {} : { cursor },
   }
 }
 
@@ -79,14 +86,17 @@ export function normalizeEventRequest(
   request: SessionEventSearchRequest,
   limits: QueryLimits,
 ): NormalizedEventRequest {
-  const filters = request.filters ?? []
-  filterSessionEventDocuments([], filters)
+  if (typeof request.sessionId !== 'string') {
+    throw new SessionQueryError('session-search session id must be text', 'SESSION_QUERY_INVALID_FILTER')
+  }
+  const filters = materializeMetadataFilters(request.filters ?? [])
+  const cursor = materializeCursor(request.cursor)
   return {
     sessionId: request.sessionId,
     query: normalizeQuery(request.query),
     filters,
     limit: normalizeLimit(request.limit, limits),
-    ...request.cursor === undefined ? {} : { cursor: request.cursor },
+    ...cursor === undefined ? {} : { cursor },
   }
 }
 
@@ -115,9 +125,23 @@ export function buildSessionWhere(filters: readonly SessionResultFilter[]): SqlW
       case 'availability': {
         const availability = [...new Set(filter.values)]
         if (availability.length === 0) clauses.push('0')
-        else if (availability.length === 1) clauses.push(`${availability[0]} = 1`)
+        else if (availability.length === 1) {
+          const value = availability[0] as SessionAvailability
+          switch (value) {
+            case 'live':
+              clauses.push('live = 1')
+              break
+            case 'persisted':
+              clauses.push('persisted = 1')
+              break
+            default:
+              unknownAvailability(value)
+          }
+        }
         break
       }
+      default:
+        unknownFilter(filter)
     }
   }
   return { sql: clauses.join(' AND '), params }
@@ -145,6 +169,8 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
       case 'surface':
         addList(clauses, params, 'surface', filter.values)
         break
+      default:
+        unknownFilter(filter)
     }
   }
   return { sql: clauses.join(' AND '), params }
@@ -157,6 +183,18 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
  */
 export function quoteFtsData(query: string): string {
   return `"${query.replaceAll('"', '""')}"`
+}
+
+/**
+ * Remove reserved marker collisions before text enters FTS5 or MATCH.
+ * @param text - extracted document text or normalized caller query.
+ * @returns text with reserved noncharacters mapped to replacement characters.
+ */
+export function sanitizeFtsText(text: string): string {
+  return text
+    .replaceAll('\0', '\uFFFD')
+    .replaceAll(FTS_HIGHLIGHT_START, '\uFFFD')
+    .replaceAll(FTS_HIGHLIGHT_END, '\uFFFD')
 }
 
 /**
@@ -185,19 +223,16 @@ export function requestFingerprint(request: NormalizedSessionRequest | Normalize
 
 /**
  * Build a whitespace-normalized excerpt no longer than `maxChars`.
- * @param text - complete extracted semantic document.
- * @param query - normalized literal query used to position the excerpt.
+ * @param markedText - complete document with FTS5 `highlight()` markers.
  * @param maxChars - maximum result length in Unicode code points.
  * @returns bounded plain-text snippet.
  */
-export function makeSnippet(text: string, query: string, maxChars: number): string {
-  const clean = text.replace(/\s+/gu, ' ').trim()
+export function makeSnippet(markedText: string, maxChars: number): string {
+  const { text: clean, matchStart } = normalizeMarkedText(markedText)
   const characters = Array.from(clean)
   if (characters.length <= maxChars) return clean
   if (maxChars === 1) return '…'
-  const foundUnits = clean.toLowerCase().indexOf(query.toLowerCase())
-  const found = foundUnits < 0 ? -1 : Array.from(clean.slice(0, foundUnits)).length
-  let start = found < 0 ? 0 : Math.max(0, found - Math.floor(maxChars / 3))
+  let start = Math.max(0, matchStart - Math.floor(maxChars / 3))
   let prefix = start > 0 ? '…' : ''
   let suffix = '…'
   let contentLength = maxChars - prefix.length - suffix.length
@@ -216,6 +251,28 @@ export function makeSnippet(text: string, query: string, maxChars: number): stri
   return `${prefix}${characters.slice(start, end).join('')}${suffix}`
 }
 
+function normalizeMarkedText(markedText: string): { text: string; matchStart: number } {
+  const characters: string[] = []
+  let matchStart: number | undefined
+  for (const character of markedText) {
+    if (character === FTS_HIGHLIGHT_START) {
+      matchStart ??= characters.length
+      continue
+    }
+    if (character === FTS_HIGHLIGHT_END) continue
+    if (/\s/u.test(character)) {
+      if (characters.length > 0 && characters.at(-1) !== ' ') characters.push(' ')
+    } else {
+      characters.push(character)
+    }
+  }
+  if (characters.at(-1) === ' ') characters.pop()
+  return {
+    text: characters.join(''),
+    matchStart: matchStart ?? 0,
+  }
+}
+
 function normalizeQuery(value: string): string {
   if (typeof value !== 'string') {
     throw new SessionQueryError('session-search query must be text', 'SESSION_QUERY_INVALID_QUERY')
@@ -227,7 +284,44 @@ function normalizeQuery(value: string): string {
       'SESSION_QUERY_INVALID_QUERY',
     )
   }
-  return query
+  if (query.includes('\0')) {
+    throw new SessionQueryError(
+      'session-search query must not contain NUL',
+      'SESSION_QUERY_INVALID_QUERY',
+    )
+  }
+  return sanitizeFtsText(query)
+}
+
+function materializeCursor(cursor: SessionSearchCursor | undefined): SessionSearchCursor | undefined {
+  if (cursor === undefined) return undefined
+  if (typeof cursor !== 'string') {
+    throw new SessionQueryError('session-search cursor must be text', 'SESSION_QUERY_INVALID_CURSOR')
+  }
+  return cursor
+}
+
+function materializeMetadataFilters(
+  filters: readonly SessionEventMetadataFilter[],
+): SessionEventMetadataFilter[] {
+  const candidates: readonly SessionEventResultFilter[] = filters
+  for (const filter of candidates) {
+    switch (filter.kind) {
+      case 'seq':
+      case 'time':
+      case 'type':
+      case 'surface':
+        break
+      case 'text':
+        throw new SessionQueryError(
+          'session-search metadata filters do not accept text clauses',
+          'SESSION_QUERY_INVALID_FILTER',
+        )
+      default:
+        unknownFilter(filter)
+    }
+  }
+  return materializeSessionEventResultFilters(filters) as SessionEventMetadataFilter[]
 }
 
 function normalizeLimit(value: number | undefined, limits: QueryLimits): number {
@@ -309,4 +403,19 @@ function compareNullable(a: string | null, b: string | null): number {
   if (a === null) return -1
   if (b === null) return 1
   return a.localeCompare(b)
+}
+
+function unknownAvailability(value: never): never {
+  throw new SessionQueryError(
+    `session availability filter contains unknown value "${String(value)}"`,
+    'SESSION_QUERY_INVALID_FILTER',
+  )
+}
+
+function unknownFilter(filter: never): never {
+  const kind = (filter as { kind?: unknown }).kind
+  throw new SessionQueryError(
+    `session filter contains unknown kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`,
+    'SESSION_QUERY_INVALID_FILTER',
+  )
 }

@@ -14,7 +14,7 @@
  * {@link PersistenceBackend} hook object.
  *
  * The abstract {@link SessionPersistence} service's public API is independent of
- * this: a backend IS a `SessionPersistence` (its four public methods delegate to
+ * this: a backend IS a `SessionPersistence` (its write/read methods delegate to
  * a coordinator it composes), so a third-party backend MAY implement the service
  * directly without using the coordinator at all.
  *
@@ -146,7 +146,7 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
- * {@link PersistenceBackend}, and delegates its four public service methods to
+ * {@link PersistenceBackend}, and delegates its write/read service methods to
  * the matching coordinator methods.
  *
  * All per-id operations are serialized (a per-id promise chain) so concurrent

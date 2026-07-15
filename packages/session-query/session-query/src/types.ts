@@ -5,6 +5,9 @@
  */
 
 import type { SessionEvent, SessionEventType, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionSearchCursor } from './cursor.ts'
+
+export type { SessionSearchCursor } from './cursor.ts'
 
 /** Whether an event is current model context, replaced context, or raw-log-only. */
 export type SessionEventSurface = 'current' | 'shadowed' | 'log-only'
@@ -106,7 +109,7 @@ export interface SessionSearchPage<T> {
   /** Results for this page in contract-defined order. */
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
-  nextCursor?: string
+  nextCursor?: SessionSearchCursor
 }
 
 /** Controls shared by cross-session and within-session search calls. */
@@ -126,7 +129,7 @@ export interface SessionSearchRequest {
   /** Maximum sessions in this page. */
   limit?: number
   /** Opaque cursor returned for the identical normalized request. */
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 
 /** Within-session full-text search request. */
@@ -140,7 +143,7 @@ export interface SessionEventSearchRequest {
   /** Maximum events in this page. */
   limit?: number
   /** Opaque cursor returned for the identical normalized request. */
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 
 /** One event full-text search hit with a bounded plain-text excerpt. */

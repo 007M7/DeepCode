@@ -24,9 +24,19 @@
 import { Context, Service } from 'cordis'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionPersistenceRevision } from './revision.ts'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
+export { SessionPersistenceRevision } from './revision.ts'
+
+/** Lightweight immutable source identity returned without loading a full log. */
+export interface SessionPersistenceSnapshot {
+  /** Detached metadata for one materialized session. */
+  header: SessionHeader
+  /** Opaque token that changes whenever this stored log changes. */
+  revision: SessionPersistenceRevision
+}
 
 // The backend-agnostic write-path orchestration first-party backends compose.
 export { PersistenceCoordinator } from './coordinator.ts'
@@ -156,6 +166,15 @@ export abstract class SessionPersistence extends Service {
    * @returns one header per materialized session.
    */
   abstract list(): Promise<SessionHeader[]>
+
+  /**
+   * List materialized sessions with cheap per-log change tokens.
+   *
+   * Repeated observations of an unchanged log return the same revision. A
+   * successful mutating {@link load} repair changes the next listed revision.
+   * @returns one header and opaque revision per materialized session without loading full logs.
+   */
+  abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
 }
 
 export default SessionPersistence

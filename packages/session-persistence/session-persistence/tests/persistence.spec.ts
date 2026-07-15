@@ -3,8 +3,8 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  SessionPersistence, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
-  type PersistenceBackend, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
@@ -108,6 +108,14 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
 
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(e => structuredClone(e.meta))
+  }
+
+
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    return [...this.store.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+    }))
   }
 }
 

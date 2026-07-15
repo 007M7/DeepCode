@@ -1,6 +1,12 @@
 /** Pure provider-independent predicates for logical sessions and event text. */
 
-import type { SessionRecord, SessionEventSearchDocument, SessionEventResultFilter, SessionResultFilter, SessionResultRange } from './types.ts'
+import type {
+  SessionEventResultFilter,
+  SessionEventSearchDocument,
+  SessionRecord,
+  SessionResultFilter,
+  SessionResultRange,
+} from './types.ts'
 import { SessionQueryError } from './config.ts'
 
 /**
@@ -29,6 +35,66 @@ export function filterSessionEventDocuments<T extends SessionEventSearchDocument
 ): T[] {
   const predicates = filters.map(eventPredicate)
   return documents.filter(document => predicates.every(predicate => predicate(document)))
+}
+
+/**
+ * Copy and validate logical-session filters before an asynchronous boundary.
+ * @param filters - caller-owned clauses to materialize.
+ * @returns detached validated clauses.
+ */
+export function materializeSessionResultFilters(
+  filters: readonly SessionResultFilter[],
+): SessionResultFilter[] {
+  assertArray(filters)
+  return filters.map((filter) => {
+    switch (filter.kind) {
+      case 'id':
+        return { kind: filter.kind, values: copyStrings(filter.kind, filter.values) }
+      case 'cwd':
+        return { kind: filter.kind, values: copyNullableStrings(filter.kind, filter.values) }
+      case 'created-at':
+        return copyRange(filter.kind, filter)
+      case 'parent':
+        return { kind: filter.kind, values: copyNullableStrings(filter.kind, filter.values) }
+      case 'availability': {
+        const values = copyStrings(filter.kind, filter.values)
+        assertAllowedValues(filter.kind, values, ['live', 'persisted'])
+        return { kind: filter.kind, values }
+      }
+      default:
+        return unknownFilter(filter)
+    }
+  })
+}
+
+/**
+ * Copy and validate event filters before an asynchronous boundary.
+ * @param filters - caller-owned clauses to materialize.
+ * @returns detached validated clauses.
+ */
+export function materializeSessionEventResultFilters(
+  filters: readonly SessionEventResultFilter[],
+): SessionEventResultFilter[] {
+  assertArray(filters)
+  return filters.map((filter) => {
+    switch (filter.kind) {
+      case 'seq':
+      case 'time':
+        return copyRange(filter.kind, filter)
+      case 'type':
+        return { kind: filter.kind, values: copyStrings(filter.kind, filter.values) }
+      case 'surface': {
+        const values = copyStrings(filter.kind, filter.values)
+        assertAllowedValues(filter.kind, values, ['current', 'shadowed', 'log-only'])
+        return { kind: filter.kind, values }
+      }
+      case 'text':
+        if (typeof filter.text !== 'string') throw invalidFilter('text filter text must be a string')
+        return { kind: filter.kind, text: filter.text }
+      default:
+        return unknownFilter(filter)
+    }
+  })
 }
 
 /**
@@ -66,6 +132,8 @@ function sessionPredicate(filter: SessionResultFilter): (record: SessionRecord) 
     case 'availability':
       assertAllowedValues(filter.kind, filter.values, ['live', 'persisted'])
       return record => filter.values.some(value => value === 'live' ? record.live : record.persisted)
+    default:
+      return unknownFilter(filter)
   }
 }
 
@@ -88,7 +156,45 @@ function eventPredicate(filter: SessionEventResultFilter): (document: SessionEve
       const pattern = compileSessionTextFilter(filter.text)
       return document => pattern.test(document.text)
     }
+    default:
+      return unknownFilter(filter)
   }
+}
+
+function copyStrings<T extends string>(name: string, values: readonly T[]): T[] {
+  if (!isRuntimeArray(values) || values.some(value => typeof value !== 'string')) {
+    throw invalidFilter(`${name} filter values must be an array of strings`)
+  }
+  return [...values]
+}
+
+function assertArray(value: unknown): void {
+  if (!Array.isArray(value)) throw invalidFilter('filters must be an array')
+}
+
+function copyNullableStrings<T extends string>(name: string, values: readonly (T | null)[]): Array<T | null> {
+  if (!isRuntimeArray(values) || values.some(value => value !== null && typeof value !== 'string')) {
+    throw invalidFilter(`${name} filter values must be an array of strings or null`)
+  }
+  return [...values]
+}
+
+function copyRange<K extends 'created-at' | 'seq' | 'time'>(
+  kind: K,
+  range: SessionResultRange,
+): { kind: K } & SessionResultRange {
+  const copy = {
+    kind,
+    ...range.from === undefined ? {} : { from: range.from },
+    ...range.to === undefined ? {} : { to: range.to },
+  }
+  validateRange(kind, copy)
+  return copy
+}
+
+function unknownFilter(filter: never): never {
+  const kind = (filter as { kind?: unknown }).kind
+  throw invalidFilter(`unknown filter kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`)
 }
 
 function assertAllowedValues(
@@ -125,8 +231,13 @@ function matchesRange(value: number, range: SessionResultRange): boolean {
 }
 
 function invalidRange(name: string, detail: string): SessionQueryError {
-  return new SessionQueryError(
-    `session ${name} filter ${detail}`,
-    'SESSION_QUERY_INVALID_FILTER',
-  )
+  return invalidFilter(`${name} filter ${detail}`)
+}
+
+function invalidFilter(detail: string): SessionQueryError {
+  return new SessionQueryError(`session ${detail}`, 'SESSION_QUERY_INVALID_FILTER')
+}
+
+function isRuntimeArray(value: unknown): boolean {
+  return Array.isArray(value)
 }

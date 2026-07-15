@@ -10,6 +10,8 @@ import SessionQueryService, {
   extractSessionEventText,
   filterSessionEventDocuments,
   filterSessionResults,
+  materializeSessionEventResultFilters,
+  materializeSessionResultFilters,
   SessionSearchService,
   type SessionEventSearchHit,
   type SessionEventSearchRequest,
@@ -175,6 +177,31 @@ describe('session-query document and filter helpers', () => {
       surfaceOp: { op: 'replace', start: 9, end: 9 },
     }]
     expect(() => buildSessionEventRecords(id, malformed)).toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
+  })
+
+  it('owns filters and rejects malformed runtime filter shapes deterministically', () => {
+    expect(materializeSessionResultFilters([{ kind: 'created-at', to: 2 }]))
+      .toEqual([{ kind: 'created-at', to: 2 }])
+    expect(() => materializeSessionResultFilters('not-an-array' as never))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionResultFilters([{ kind: 'id', values: 'bad' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionResultFilters([{ kind: 'id', values: [1] } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionResultFilters([{ kind: 'cwd', values: 'bad' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionResultFilters([{ kind: 'parent', values: [1] } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionResultFilters([{} as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionEventResultFilters([{ kind: 'text', text: 1 } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => materializeSessionEventResultFilters([{ kind: 'future' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => filterSessionResults([], [{ kind: 'future' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => filterSessionEventDocuments([], [{ kind: 'future' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
   })
 
   it('exposes the scan path on the concrete exact-read service', async () => {

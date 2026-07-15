@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
-import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
+  type SessionEventSurface,
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
 
@@ -59,6 +60,14 @@ class TestPersistence extends SessionPersistence {
     TestPersistence.afterList?.()
     return Promise.resolve(headers)
   }
+
+
+  async listSnapshots() {
+    return [...TestPersistence.entries.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+    }))
+  }
 }
 
 async function liveContext(config: ConstructorParameters<typeof SessionQueryService>[1] = {}): Promise<Context> {
@@ -92,6 +101,38 @@ describe('session-query exact reads', () => {
     expect(records.every(record => record.live && !record.persisted)).toBe(true)
     Object.assign(records[2]!.header, { createdAt: 99 })
     expect(older.header.createdAt).toBe(1)
+  })
+
+  it('filters sessions symmetrically and owns mutable filter values immediately', async () => {
+    const durable = header('durable-filter', 1)
+    TestPersistence.reset([{ meta: durable, events: eventLog('durable') }])
+    const ctx = await liveContext()
+    const live = ctx.sessions.create(SessionId('live-filter'), { meta: { createdAt: 2 } })
+    live.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    const persistence = await ctx.plugin(TestPersistence)
+
+    const ids = [durable.id]
+    const filtered = ctx.sessionQuery.filterSessions([{ kind: 'id', values: ids }])
+    ids[0] = live.id
+    await expect(filtered).resolves.toEqual([{
+      header: durable,
+      live: false,
+      persisted: true,
+    }])
+
+    const surfaces: SessionEventSurface[] = ['current']
+    const events = ctx.sessionQuery.filterEvents(live.id, [{ kind: 'surface', values: surfaces }])
+    surfaces[0] = 'shadowed'
+    await expect(events).resolves.toMatchObject([{ sessionId: live.id, surface: 'current', text: 'live' }])
+    await expect(ctx.sessionQuery.filterSessions([{ kind: 'future' } as never]))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionQuery.filterEvents(live.id, [{ kind: 'future' } as never]))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await persistence.dispose()
   })
 
   it('classifies current, shadowed, and raw-log-only events through foldSurface', async () => {
@@ -266,5 +307,27 @@ describe('session-query exact reads', () => {
     expect(ctx.sessionQuery).toBeInstanceOf(SessionQueryService)
     await fiber.dispose()
     expect(ctx.sessionQuery).toBeUndefined()
+  })
+
+  it('awaits optional-persistence child-fiber quiescence on disposal', async () => {
+    TestPersistence.reset()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const query = await ctx.plugin(SessionQueryService)
+    const persistence = await ctx.plugin(TestPersistence)
+    const optional = (ctx.sessionQuery as unknown as {
+      _corpus: { _optionalPersistenceFiber: Fiber }
+    })._corpus._optionalPersistenceFiber
+    let release!: () => void
+    const cleanup = new Promise<void>((resolve) => { release = resolve })
+    optional.ctx.effect(() => () => cleanup)
+
+    let settled = false
+    const disposing = query.dispose().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release()
+    await disposing
+    await persistence.dispose()
   })
 })

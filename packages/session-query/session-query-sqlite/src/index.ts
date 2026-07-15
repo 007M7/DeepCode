@@ -6,12 +6,17 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { Context } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import type {
+  SessionPersistenceRevision,
+  SessionPersistenceSnapshot,
+} from '@deepseek-ai/dsh-session-persistence'
 import {
   SessionQueryError,
+  SessionSearchCursor,
   SessionSearchService,
   assertSessionHeadersCompatible,
   buildSessionEventSearchDocuments,
@@ -22,6 +27,7 @@ import type {
   SessionEventSearchRequest,
   SessionSearchExecContext,
   SessionSearchHit,
+  SessionSearchCursor as SessionSearchCursorValue,
   SessionSearchPage,
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
@@ -32,6 +38,8 @@ import {
 import {
   type NormalizedEventRequest,
   type NormalizedSessionRequest,
+  FTS_HIGHLIGHT_END,
+  FTS_HIGHLIGHT_START,
   buildEventWhere,
   buildSessionWhere,
   makeSnippet,
@@ -39,6 +47,7 @@ import {
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
+  sanitizeFtsText,
 } from './query.ts'
 
 export {
@@ -78,19 +87,30 @@ interface ResolvedConfig {
 
 interface ObservedSession {
   header: SessionHeader
-  events: SessionEvent[]
   documents: SessionEventSearchDocument[]
   fingerprint: string
+}
+
+interface ObservedPersistedSession {
+  header: SessionHeader
+  revision: SessionPersistenceRevision
+  loaded?: ObservedSession
 }
 
 interface Observation {
   persistence: SessionPersistence | undefined
   persistenceRevision: number
-  persisted: Map<SessionId, ObservedSession>
+  persisted: Map<SessionId, ObservedPersistedSession>
   live: Map<SessionId, ObservedSession>
 }
 
-interface IndexedRow {
+interface IndexedPersistedRow {
+  id: string
+  revision: string
+  generation: number
+}
+
+interface IndexedLiveRow {
   id: string
   fingerprint: string
   generation: number
@@ -109,8 +129,9 @@ interface SearchRow {
   type: string
   time: number
   surface: string
-  text: string
-  score: number
+  marked_text: string
+  match_count: number
+  document_length: number
 }
 
 interface CursorPayload {
@@ -149,27 +170,32 @@ export class SessionSearchSqlite extends SessionSearchService {
   private _localGeneration = 0
   private _tail: Promise<void> = Promise.resolve()
   private _closed = false
+  private _closePromise: Promise<void> | undefined
+  private readonly _optionalPersistenceFiber: Fiber
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
     this.config = resolveConfig(config)
     this._ready = this._open()
-    ctx.effect(() => {
-      const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
-        const service = childCtx.sessionPersistence
-        const binding = {}
-        this._persistenceBinding = binding
-        this._persistence = service
+    // Attach a rejection observer immediately; callers still receive the same
+    // rejection from `_ready`, including when no search is ever attempted.
+    void this._ready.catch(() => undefined)
+    this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
+      const service = childCtx.sessionPersistence
+      const binding = {}
+      this._persistenceBinding = binding
+      this._persistence = service
+      this._persistenceRevision += 1
+      childCtx.effect(() => () => {
+        /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
+        if (this._persistenceBinding !== binding) return
+        this._persistenceBinding = undefined
+        this._persistence = undefined
         this._persistenceRevision += 1
-        childCtx.effect(() => () => {
-          /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
-          if (this._persistenceBinding !== binding) return
-          this._persistenceBinding = undefined
-          this._persistence = undefined
-          this._persistenceRevision += 1
-        }, 'sessionSearchSqlite.persistenceBinding')
-      })
-      return () => void fiber.dispose()
+      }, 'sessionSearchSqlite.persistenceBinding')
+    })
+    ctx.effect(() => {
+      return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionSearchSqlite.optionalPersistence')
     ctx.effect(() => async () => this.close(), 'sessionSearchSqlite.close')
   }
@@ -179,17 +205,18 @@ export class SessionSearchSqlite extends SessionSearchService {
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionSearchHit>> {
     const normalized = normalizeSessionRequest(request, this.config)
-    return this._serialized(exec?.signal, async () => {
-      await this._ensureReady(exec?.signal)
-      await this._reconcile(exec?.signal)
-      assertNotAborted(exec?.signal)
+    const signal = exec?.signal
+    return this._serialized(signal, async () => {
+      await this._ensureReady(signal)
+      await this._reconcile(signal)
+      assertNotAborted(signal)
       const generation = String(this._globalGeneration)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'sessions', fingerprint, generation)
       const rows = this._querySessions(normalized, offset)
-      return page(rows, normalized.limit, row => this._sessionHit(row, normalized.query), cursorOffset => encodeCursor({
+      return page(rows, normalized.limit, row => this._sessionHit(row), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
         scope: 'sessions',
@@ -205,17 +232,18 @@ export class SessionSearchSqlite extends SessionSearchService {
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionEventSearchHit>> {
     const normalized = normalizeEventRequest(request, this.config)
-    return this._serialized(exec?.signal, async () => {
-      await this._ensureReady(exec?.signal)
-      await this._reconcile(exec?.signal)
-      assertNotAborted(exec?.signal)
+    const signal = exec?.signal
+    return this._serialized(signal, async () => {
+      await this._ensureReady(signal)
+      await this._reconcile(signal)
+      assertNotAborted(signal)
       const generation = this._targetGeneration(normalized.sessionId)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, generation)
       const rows = this._queryEvents(normalized, offset)
-      return page(rows, normalized.limit, row => this._eventHit(row, normalized.query), cursorOffset => encodeCursor({
+      return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
         scope: 'events',
@@ -227,8 +255,12 @@ export class SessionSearchSqlite extends SessionSearchService {
   }
 
   /** Close the database after every accepted operation reaches quiescence. */
-  async close(): Promise<void> {
-    if (this._closed) return
+  close(): Promise<void> {
+    this._closePromise ??= this._close()
+    return this._closePromise
+  }
+
+  private async _close(): Promise<void> {
     this._closed = true
     await this._tail
     try {
@@ -287,20 +319,20 @@ export class SessionSearchSqlite extends SessionSearchService {
   }
 
   private async _reconcile(signal: AbortSignal | undefined): Promise<void> {
-    const observation = await this._observeStable(signal)
-    assertNotAborted(signal)
     const db = this._requireDb()
     const persistedRows = db.prepare(
-      'SELECT id, fingerprint, generation FROM persisted_sessions',
-    ).all() as unknown as IndexedRow[]
+      'SELECT id, revision, generation FROM persisted_sessions',
+    ).all() as unknown as IndexedPersistedRow[]
     const liveRows = db.prepare(
       'SELECT id, fingerprint, generation FROM temp.live_sessions',
-    ).all() as unknown as IndexedRow[]
+    ).all() as unknown as IndexedLiveRow[]
     const persistedById = new Map(persistedRows.map(row => [row.id as SessionId, row]))
     const liveById = new Map(liveRows.map(row => [row.id as SessionId, row]))
+    const observation = await this._observeStable(persistedById, signal)
+    assertNotAborted(signal)
     const persistentChanges = observation.persistence === undefined
       ? []
-      : [...observation.persisted.values()].filter(entry => persistedById.get(entry.header.id)?.fingerprint !== entry.fingerprint)
+      : [...observation.persisted.values()].filter(entry => entry.loaded !== undefined)
     const persistentDeletes = observation.persistence === undefined
       ? []
       : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
@@ -327,13 +359,17 @@ export class SessionSearchSqlite extends SessionSearchService {
         db.exec('BEGIN IMMEDIATE')
         began = true
         for (const row of persistentDeletes) this._deleteSession('persisted', row.id as SessionId)
-        for (const entry of persistentChanges) this._replaceSession('persisted', entry, nextMainGeneration)
+        for (const entry of persistentChanges) {
+          /* v8 ignore next -- observation loads every entry whose revision differs */
+          if (entry.loaded === undefined) throw new Error(`missing loaded revision for session "${entry.header.id}"`)
+          this._replacePersistedSession(entry.loaded, entry.revision, nextMainGeneration)
+        }
         if (persistentChanges.length > 0 || persistentDeletes.length > 0) {
           db.prepare('UPDATE search_state SET global_generation = ? WHERE singleton = 1').run(nextMainGeneration)
         }
         for (const row of liveDeletes) this._deleteSession('live', row.id as SessionId)
         for (const { entry, generation } of liveReplacements) {
-          this._replaceSession('live', entry, generation)
+          this._replaceLiveSession(entry, generation)
         }
         db.exec('COMMIT')
       } catch (error: unknown) {
@@ -360,21 +396,39 @@ export class SessionSearchSqlite extends SessionSearchService {
     this._lastPersistenceRevision = observation.persistenceRevision
   }
 
-  private async _observeStable(signal: AbortSignal | undefined): Promise<Observation> {
+  private async _observeStable(
+    indexed: ReadonlyMap<SessionId, IndexedPersistedRow>,
+    signal: AbortSignal | undefined,
+  ): Promise<Observation> {
     for (;;) {
       assertNotAborted(signal)
       const persistence = this._persistence
       const persistenceRevision = this._persistenceRevision
-      const persisted = new Map<SessionId, ObservedSession>()
+      let persisted = new Map<SessionId, ObservedPersistedSession>()
       if (persistence !== undefined) {
         try {
-          const headers = await waitWithAbort(persistence.list(), signal)
-          for (const listed of headers) {
-            const loaded = await waitWithAbort(persistence.load(listed.id), signal)
-            assertSessionHeadersCompatible(listed, loaded.meta)
-            persisted.set(listed.id, observeSession(loaded.meta, loaded.events))
+          const canReuseIndexed = this._lastPersistenceRevision === undefined
+            || this._lastPersistenceRevision === persistenceRevision
+          const before = await waitWithAbort(persistence.listSnapshots(), signal)
+          persisted = materializePersistenceSnapshots(before)
+          for (const entry of persisted.values()) {
+            if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
+            const loaded = await waitWithAbort(persistence.load(entry.header.id), signal)
+            assertSessionHeadersCompatible(entry.header, loaded.meta)
+            entry.loaded = observeSession(loaded.meta, loaded.events)
           }
+          const after = materializePersistenceSnapshots(
+            await waitWithAbort(persistence.listSnapshots(), signal),
+          )
+          if (!samePersistenceSnapshots(persisted, after)) continue
+          if (this._persistenceRevision !== persistenceRevision) continue
         } catch (error: unknown) {
+          if (isAbort(error) || signal?.aborted) {
+            throw new SessionQueryError('session-search aborted', 'SESSION_QUERY_ABORTED', {
+              cause: error,
+            })
+          }
+          if (this._persistenceRevision !== persistenceRevision) continue
           if (error instanceof SessionQueryError) throw error
           throw new SessionQueryError(
             `session-search persistence observation failed: ${errorMessage(error)}`,
@@ -414,13 +468,50 @@ export class SessionSearchSqlite extends SessionSearchService {
     }
   }
 
-  private _replaceSession(source: 'persisted' | 'live', entry: ObservedSession, generation: number): void {
-    this._deleteSession(source, entry.header.id)
+  private _replacePersistedSession(
+    entry: ObservedSession,
+    revision: SessionPersistenceRevision,
+    generation: number,
+  ): void {
+    this._deleteSession('persisted', entry.header.id)
     const db = this._requireDb()
-    const sessionTable = source === 'persisted' ? 'persisted_sessions' : 'temp.live_sessions'
-    const docsTable = source === 'persisted' ? 'persisted_docs' : 'temp.live_docs'
     db.prepare(`
-      INSERT INTO ${sessionTable}
+      INSERT INTO persisted_sessions
+        (id, version, created_at, cwd, parent_session, seed_length, revision, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.header.id,
+      entry.header.version,
+      entry.header.createdAt,
+      entry.header.cwd ?? null,
+      entry.header.parentSession ?? null,
+      entry.header.seedLength ?? null,
+      revision,
+      generation,
+    )
+    const insert = db.prepare(`
+      INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    for (const document of entry.documents) {
+      const text = sanitizeFtsText(document.text)
+      insert.run(
+        text,
+        document.sessionId,
+        document.seq,
+        document.type,
+        document.time,
+        document.surface,
+        Array.from(text).length,
+      )
+    }
+  }
+
+  private _replaceLiveSession(entry: ObservedSession, generation: number): void {
+    this._deleteSession('live', entry.header.id)
+    const db = this._requireDb()
+    db.prepare(`
+      INSERT INTO temp.live_sessions
         (id, version, created_at, cwd, parent_session, seed_length, fingerprint, generation)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -434,11 +525,20 @@ export class SessionSearchSqlite extends SessionSearchService {
       generation,
     )
     const insert = db.prepare(`
-      INSERT INTO ${docsTable} (text, session_id, seq, type, time, surface)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
-      insert.run(document.text, document.sessionId, document.seq, document.type, document.time, document.surface)
+      const text = sanitizeFtsText(document.text)
+      insert.run(
+        text,
+        document.sessionId,
+        document.seq,
+        document.type,
+        document.time,
+        document.surface,
+        Array.from(text).length,
+      )
     }
   }
 
@@ -455,19 +555,16 @@ export class SessionSearchSqlite extends SessionSearchService {
       ranked AS (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY session_id
-          ORDER BY score ASC, time DESC, seq DESC
+          ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
         ) AS event_rank
         FROM filtered
       )
       SELECT * FROM ranked
       WHERE event_rank = 1
-      ORDER BY score ASC, time DESC, session_id ASC, seq DESC
+      ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      quoteFtsData(request.query),
-      this._persistence === undefined ? 0 : 1,
-      this._persistence === undefined ? 0 : 1,
-      quoteFtsData(request.query),
+      ...selectedDocumentsParams(request.query, this._persistence !== undefined),
       ...sessionWhere.params,
       ...eventWhere.params,
       request.limit + 1,
@@ -483,13 +580,10 @@ export class SessionSearchSqlite extends SessionSearchService {
       ${selected.sql}
       SELECT * FROM matched
       WHERE ${where}
-      ORDER BY score ASC, time DESC, seq DESC
+      ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      quoteFtsData(request.query),
-      this._persistence === undefined ? 0 : 1,
-      this._persistence === undefined ? 0 : 1,
-      quoteFtsData(request.query),
+      ...selectedDocumentsParams(request.query, this._persistence !== undefined),
       request.sessionId,
       ...eventWhere.params,
       request.limit + 1,
@@ -515,23 +609,23 @@ export class SessionSearchSqlite extends SessionSearchService {
     )
   }
 
-  private _sessionHit(row: SearchRow, query: string): SessionSearchHit {
+  private _sessionHit(row: SearchRow): SessionSearchHit {
     return {
       header: rowHeader(row),
       live: row.live === 1,
       persisted: row.persisted === 1,
-      bestMatch: this._eventHit(row, query),
+      bestMatch: this._eventHit(row),
     }
   }
 
-  private _eventHit(row: SearchRow, query: string): SessionEventSearchHit {
+  private _eventHit(row: SearchRow): SessionEventSearchHit {
     return {
       sessionId: row.session_id as SessionId,
       seq: row.seq,
       type: row.type as SessionEventSearchHit['type'],
       time: row.time,
       surface: row.surface as SessionEventSearchHit['surface'],
-      snippet: makeSnippet(row.text, query, this.config.snippetChars),
+      snippet: makeSnippet(row.marked_text, this.config.snippetChars),
     }
   }
 
@@ -548,7 +642,7 @@ export class SessionSearchSqlite extends SessionSearchService {
 
 function selectedDocumentsSql(): { sql: string } {
   return {
-    sql: `WITH matched AS (
+    sql: `WITH candidates AS (
       SELECT
         pd.session_id AS session_id,
         ps.version AS version,
@@ -562,8 +656,8 @@ function selectedDocumentsSql(): { sql: string } {
         pd.type AS type,
         CAST(pd.time AS INTEGER) AS time,
         pd.surface AS surface,
-        pd.text AS text,
-        bm25(persisted_docs) AS score
+        highlight(persisted_docs, 0, ?, ?) AS marked_text,
+        CAST(pd.codepoint_length AS INTEGER) AS document_length
       FROM persisted_docs AS pd
       JOIN persisted_sessions AS ps ON ps.id = pd.session_id
       WHERE persisted_docs MATCH ?
@@ -585,13 +679,37 @@ function selectedDocumentsSql(): { sql: string } {
         ld.type AS type,
         CAST(ld.time AS INTEGER) AS time,
         ld.surface AS surface,
-        ld.text AS text,
-        bm25(live_docs) AS score
+        highlight(live_docs, 0, ?, ?) AS marked_text,
+        CAST(ld.codepoint_length AS INTEGER) AS document_length
       FROM temp.live_docs AS ld
       JOIN temp.live_sessions AS ls ON ls.id = ld.session_id
       WHERE live_docs MATCH ?
+    ), matched AS (
+      SELECT *,
+        (
+          length(CAST(marked_text AS BLOB))
+          - length(CAST(replace(marked_text, ?, '') AS BLOB))
+        ) / ? AS match_count
+      FROM candidates
     )`,
   }
+}
+
+function selectedDocumentsParams(query: string, persistenceVisible: boolean): Array<string | number> {
+  const expression = quoteFtsData(query)
+  const visible = persistenceVisible ? 1 : 0
+  return [
+    FTS_HIGHLIGHT_START,
+    FTS_HIGHLIGHT_END,
+    expression,
+    visible,
+    visible,
+    FTS_HIGHLIGHT_START,
+    FTS_HIGHLIGHT_END,
+    expression,
+    FTS_HIGHLIGHT_START,
+    Buffer.byteLength(FTS_HIGHLIGHT_START, 'utf8'),
+  ]
 }
 
 function observeLive(session: Session): ObservedSession {
@@ -606,12 +724,54 @@ function observeSession(header: SessionHeader, events: readonly SessionEvent[]):
   const detachedEvents = events.map(event => structuredClone(event))
   return {
     header: detachedHeader,
-    events: detachedEvents,
     documents: buildSessionEventSearchDocuments(detachedHeader.id, detachedEvents),
     fingerprint: createHash('sha256')
       .update(JSON.stringify({ header: detachedHeader, events: detachedEvents }))
       .digest('base64url'),
   }
+}
+
+function materializePersistenceSnapshots(
+  snapshots: readonly SessionPersistenceSnapshot[],
+): Map<SessionId, ObservedPersistedSession> {
+  if (!isRuntimeArray(snapshots)) throw new Error('persistence snapshots must be an array')
+  const result = new Map<SessionId, ObservedPersistedSession>()
+  for (const snapshot of snapshots) {
+    if (typeof snapshot.revision !== 'string') {
+      throw new Error('persistence snapshot revision must be a string')
+    }
+    const header = structuredClone(snapshot.header)
+    if (result.has(header.id)) {
+      throw new Error(`persistence listed duplicate session "${header.id}"`)
+    }
+    result.set(header.id, { header, revision: snapshot.revision })
+  }
+  return result
+}
+
+function samePersistenceSnapshots(
+  before: ReadonlyMap<SessionId, ObservedPersistedSession>,
+  after: ReadonlyMap<SessionId, ObservedPersistedSession>,
+): boolean {
+  if (before.size !== after.size) return false
+  for (const [id, first] of before) {
+    const second = after.get(id)
+    if (
+      second === undefined
+      || first.revision !== second.revision
+      || !sameHeader(first.header, second.header)
+    ) return false
+  }
+  return true
+}
+
+function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
+  return a.version === b.version
+    && a.id === b.id
+    && a.createdAt === b.createdAt
+    && a.cwd === b.cwd
+    && a.parentSession === b.parentSession
+    && a.seedLength === b.seedLength
 }
 
 function rowHeader(row: SearchRow): SessionHeader {
@@ -629,7 +789,7 @@ function page<Row, Item>(
   rows: readonly Row[],
   limit: number,
   convert: (row: Row) => Item,
-  nextCursor: (offset: number) => string,
+  nextCursor: (offset: number) => SessionSearchCursorValue,
   offset: number,
 ): SessionSearchPage<Item> {
   const hasMore = rows.length > limit
@@ -639,12 +799,12 @@ function page<Row, Item>(
   }
 }
 
-function encodeCursor(payload: CursorPayload): string {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+function encodeCursor(payload: CursorPayload): SessionSearchCursorValue {
+  return SessionSearchCursor(Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url'))
 }
 
 function decodeCursor(
-  cursor: string,
+  cursor: SessionSearchCursorValue,
   instance: string,
   scope: CursorPayload['scope'],
   fingerprint: string,
@@ -760,6 +920,10 @@ function asError(error: unknown): Error {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown error'
+}
+
+function isRuntimeArray(value: unknown): boolean {
+  return Array.isArray(value)
 }
 
 export default SessionSearchSqlite

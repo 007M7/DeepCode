@@ -15,7 +15,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -31,6 +31,8 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  /** Monotonic log-change token incremented in each mutating transaction. */
+  revision: number
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -67,15 +69,9 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * current {@link SCHEMA_VERSION}; an existing database whose version is NOT the
  * current one (written by a different, incompatible build — older or newer) is
  * REJECTED rather than opened against a layout this build does not understand.
- * There are no migrations: an earlier layout is not upgraded in place — it is
- * rejected. v1 had a different `sessions` shape; v2 lacked all of
- * `seed_length`/`source_event_seqs`/`surface_op`. v3 is SKIPPED: two unmerged
- * branches each shipped a DISTINCT v3 (one adding only `seed_length`, the other
- * adding only the surface columns), so an on-disk v3 is ambiguous — it could be
- * either sibling layout, neither of which has all of this build's columns. v4
- * is the merged layout carrying every column; bumping past the collided v3
- * makes the version check reject both sibling v3 databases instead of opening
- * one against columns it does not have.
+ * There are no migrations: an incompatible layout is rejected. The current
+ * sessions row carries every header field plus its monotonic snapshot revision;
+ * the events row carries the complete surface metadata.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - the journal pragma to apply — a closed in-code union, validated by the plugin Config.
  * @returns the open handle with pragmas applied and both tables ensured.
@@ -105,7 +101,8 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
       created_at     INTEGER NOT NULL,
       cwd            TEXT,
       parent_session TEXT,
-      seed_length    INTEGER
+      seed_length    INTEGER,
+      revision       INTEGER NOT NULL
     ) STRICT
   `)
   db.exec(`

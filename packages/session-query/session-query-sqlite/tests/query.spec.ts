@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
+import { SessionSearchCursor, type SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
 import {
   buildEventWhere,
   buildSessionWhere,
+  FTS_HIGHLIGHT_END,
+  FTS_HIGHLIGHT_START,
   makeSnippet,
   normalizeEventRequest,
   normalizeSessionRequest,
@@ -32,13 +34,13 @@ describe('SQLite search request normalization', () => {
       sessionFilters: [{ kind: 'availability', values: ['live'] }],
       eventFilters: [{ kind: 'surface', values: ['current'] }],
       limit: 3,
-      cursor: 'next',
+      cursor: SessionSearchCursor('next'),
     }, limits)).toEqual({
       query: 'needle',
       sessionFilters: [{ kind: 'availability', values: ['live'] }],
       eventFilters: [{ kind: 'surface', values: ['current'] }],
       limit: 3,
-      cursor: 'next',
+      cursor: SessionSearchCursor('next'),
     })
     expect(normalizeEventRequest({ sessionId: SessionId('s'), query: 'needle' }, limits)).toEqual({
       sessionId: SessionId('s'),
@@ -50,13 +52,13 @@ describe('SQLite search request normalization', () => {
       sessionId: SessionId('s'),
       query: 'needle',
       filters: [{ kind: 'seq', from: 1 }],
-      cursor: 'next',
+      cursor: SessionSearchCursor('next'),
     }, limits)).toEqual({
       sessionId: SessionId('s'),
       query: 'needle',
       filters: [{ kind: 'seq', from: 1 }],
       limit: 2,
-      cursor: 'next',
+      cursor: SessionSearchCursor('next'),
     })
   })
 
@@ -65,10 +67,38 @@ describe('SQLite search request normalization', () => {
       .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
     expect(() => normalizeSessionRequest({ query: ' \n ' }, limits))
       .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
+    expect(() => normalizeSessionRequest({ query: 'bad\0query' }, limits))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
+    expect(() => normalizeEventRequest({ sessionId: 1 as never, query: 'x' }, limits))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => normalizeEventRequest({
+      sessionId: SessionId('s'),
+      query: 'x',
+      cursor: 1 as never,
+    }, limits)).toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
+    expect(() => normalizeSessionRequest({
+      query: 'x',
+      eventFilters: [{ kind: 'text', text: 'x' } as never],
+    }, limits)).toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => normalizeSessionRequest({
+      query: 'x',
+      eventFilters: [{} as never],
+    }, limits)).toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
     for (const limit of [1.5, 0, 4]) {
       expect(() => normalizeEventRequest({ sessionId: SessionId('s'), query: 'x', limit }, limits))
         .toThrow(expectCode('SESSION_QUERY_INVALID_LIMIT'))
     }
+  })
+
+  it('materializes owned filter values during normalization', () => {
+    const values = ['live'] as Array<'live' | 'persisted'>
+    const filter = { kind: 'availability' as const, values }
+    const request = { query: 'needle', sessionFilters: [filter] }
+    const normalized = normalizeSessionRequest(request, limits)
+
+    values[0] = 'persisted'
+    request.sessionFilters.push({ kind: 'availability', values: ['persisted'] })
+    expect(normalized.sessionFilters).toEqual([{ kind: 'availability', values: ['live'] }])
   })
 })
 
@@ -120,6 +150,17 @@ describe('SQLite search predicate compilation', () => {
       { kind: 'surface', values: [] },
     ])).toEqual({ sql: '0 AND 0', params: [] })
   })
+
+  it('rejects runtime-unknown filter discriminants in both SQL builders', () => {
+    expect(() => buildSessionWhere([{ kind: 'future' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => buildEventWhere([{ kind: 'future' } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => buildSessionWhere([{ kind: 'availability', values: ['future'] } as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    expect(() => buildSessionWhere([{} as never]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+  })
 })
 
 describe('SQLite query identity and presentation', () => {
@@ -169,11 +210,13 @@ describe('SQLite query identity and presentation', () => {
   })
 
   it('normalizes, bounds, and positions snippets by Unicode code point', () => {
-    expect(makeSnippet('  short\ntext  ', 'absent', 20)).toBe('short text')
-    expect(makeSnippet('abcdef', 'f', 1)).toBe('…')
-    expect(makeSnippet('abcdefghij', 'absent', 5)).toBe('abcd…')
-    expect(makeSnippet('abcdefghij', 'c', 5)).toBe('…bcd…')
-    expect(makeSnippet('abcdef', 'f', 2)).toBe('a…')
-    expect(makeSnippet('abcdef', 'f', 5)).toBe('…cdef')
+    expect(makeSnippet('  short\ntext  ', 20)).toBe('short text')
+    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
+    expect(makeSnippet('abcdefghij', 5)).toBe('abcd…')
+    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
+    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('a…')
+    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
+    expect(makeSnippet(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
+      .toBe('x—café y')
   })
 })

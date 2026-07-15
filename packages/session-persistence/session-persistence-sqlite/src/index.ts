@@ -11,7 +11,7 @@
  * Like the JSONL backend it supplies ONLY the storage primitives (the
  * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
  * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
+ * {@link PersistenceCoordinator} this class composes. The stateful public
  * {@link SessionPersistence} methods delegate to the coordinator.
  *
  * @module @deepseek-ai/dsh-session-persistence-sqlite
@@ -23,8 +23,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -181,6 +181,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
         const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
         insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
       }
+      this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -209,6 +210,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
           insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
         }
       }
+      if (tornMarker !== undefined || closers.length > 0) {
+        this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
+      }
       this.db.exec('COMMIT')
     } catch (error) {
       // The DELETE+INSERT cannot collide (a row at a closer's seq is preserved or
@@ -228,6 +232,16 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       .prepare('SELECT * FROM sessions')
       .all() as unknown as SessionRow[]
     return rows.map(rowToMeta)
+  }
+
+  /** List metadata with an append-only event-count revision per session. */
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    await this.ready
+    const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
+    return rows.map(row => ({
+      header: rowToMeta(row),
+      revision: SessionPersistenceRevision(`revision:${row.revision}`),
+    }))
   }
 
   /** Close the database handle (awaited by the coordinator's dispose, post-drain). */
@@ -250,8 +264,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, revision)
+      VALUES (?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,

@@ -58,11 +58,15 @@ export interface SessionEventSearchDocument extends SessionEventRecord {
 }
 ```
 
-`ctx.sessionQuery.filterEvents(sessionId, filters)` returns these documents in ascending seq order. Messages, reasoning, tool calls/results, blocked prompts, todos, and failure/status detail contribute semantic text; structural events and stream chunks do not.
+`ctx.sessionQuery.filterSessions(filters)` applies `SessionResultFilter` to the complete logical corpus; `ctx.sessionQuery.filterEvents(sessionId, filters)` returns matching documents in ascending seq order. Messages, reasoning, tool calls/results, blocked prompts, todos, and failure/status detail contribute semantic text; structural events and stream chunks do not.
 
 ## Full-text search pages
 
 The independent `ctx.sessionSearch` seam has two scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
+
+```ts type-equiv
+export type SessionSearchCursor = Branded<'SessionSearchCursor'>
+```
 
 ```ts type-equiv
 export interface SessionSearchRequest {
@@ -70,7 +74,7 @@ export interface SessionSearchRequest {
   sessionFilters?: readonly SessionResultFilter[]
   eventFilters?: readonly SessionEventMetadataFilter[]
   limit?: number
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 ```
 
@@ -80,14 +84,14 @@ export interface SessionEventSearchRequest {
   query: string
   filters?: readonly SessionEventMetadataFilter[]
   limit?: number
-  cursor?: string
+  cursor?: SessionSearchCursor
 }
 ```
 
 ```ts type-equiv
 export interface SessionSearchPage<T> {
   items: readonly T[]
-  nextCursor?: string
+  nextCursor?: SessionSearchCursor
 }
 ```
 

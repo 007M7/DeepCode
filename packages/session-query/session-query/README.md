@@ -7,6 +7,7 @@ This is trusted context-wide infrastructure. It performs no caller authorization
 ## Reads
 
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
+- `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
 - `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
 - `readEvent(request)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
@@ -21,7 +22,7 @@ The text clause is deliberately independent of FTS providers: caller text is esc
 
 ## Full-text seam
 
-`SessionSearchService` owns the independent `ctx.sessionSearch` key. `searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. Both return opaque cursor pages, accept optional cancellation, and expose snippets without provider-specific numeric scores. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
+`SessionSearchService` owns the independent `ctx.sessionSearch` key. `searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
 
 The package has no provider coordinator or registration protocol. A concrete backend owns observation, reconciliation, ranking, cursor generations, and query execution as one lifecycle; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
 

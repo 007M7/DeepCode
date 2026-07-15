@@ -16,6 +16,7 @@ import type {
   SessionEventSearchRequest,
   SessionEventWindow,
   SessionRecord,
+  SessionResultFilter,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchPage,
@@ -28,14 +29,26 @@ import {
 } from './config.ts'
 import { SessionCorpus } from './corpus.ts'
 import { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
-import { filterSessionEventDocuments } from './filters.ts'
+import {
+  filterSessionEventDocuments,
+  filterSessionResults,
+  materializeSessionEventResultFilters,
+  materializeSessionResultFilters,
+} from './filters.ts'
 
 export type * from './types.ts'
+export { SessionSearchCursor } from './cursor.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
 export { SESSION_QUERY_READ_WINDOW_MAX, SessionQueryError } from './config.ts'
 export { extractSessionEventText } from './extraction.ts'
 export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
-export { compileSessionTextFilter, filterSessionEventDocuments, filterSessionResults } from './filters.ts'
+export {
+  compileSessionTextFilter,
+  filterSessionEventDocuments,
+  filterSessionResults,
+  materializeSessionEventResultFilters,
+  materializeSessionResultFilters,
+} from './filters.ts'
 export { assertSessionHeadersCompatible } from './sources.ts'
 
 declare module 'cordis' {
@@ -110,6 +123,16 @@ export class SessionQueryService extends Service {
   }
 
   /**
+   * Filter the complete logical corpus with provider-independent predicates.
+   * @param filters - ANDed session metadata and availability clauses.
+   * @returns matching cloned records in deterministic newest-first order.
+   */
+  async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
+    const ownedFilters = materializeSessionResultFilters(filters)
+    return this._filterSessions(ownedFilters)
+  }
+
+  /**
    * List lightweight raw-log event records for one logical session.
    * @param sessionId - live-preferred session id to read.
    * @returns event records in ascending seq order.
@@ -129,6 +152,18 @@ export class SessionQueryService extends Service {
     sessionId: SessionId,
     filters: readonly SessionEventResultFilter[],
   ): Promise<SessionEventSearchDocument[]> {
+    const ownedFilters = materializeSessionEventResultFilters(filters)
+    return this._filterEvents(sessionId, ownedFilters)
+  }
+
+  private async _filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
+    return filterSessionResults(await this._corpus.listSessions(), filters)
+  }
+
+  private async _filterEvents(
+    sessionId: SessionId,
+    filters: readonly SessionEventResultFilter[],
+  ): Promise<SessionEventSearchDocument[]> {
     const loaded = await this._corpus.load(sessionId)
     const documents = buildSessionEventSearchDocuments(sessionId, loaded.events)
     return filterSessionEventDocuments(documents, filters)
@@ -142,16 +177,27 @@ export class SessionQueryService extends Service {
   async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow> {
     const before = this._readWindow('before', request.before)
     const after = this._readWindow('after', request.after)
-    const loaded = await this._corpus.load(request.sessionId)
-    const target = loaded.events[request.seq]
-    if (target === undefined || target.seq !== request.seq) {
+    const sessionId = request.sessionId
+    const seq = request.seq
+    return this._readEvent(sessionId, seq, before, after)
+  }
+
+  private async _readEvent(
+    sessionId: SessionId,
+    seq: number,
+    before: number,
+    after: number,
+  ): Promise<SessionEventWindow> {
+    const loaded = await this._corpus.load(sessionId)
+    const target = loaded.events[seq]
+    if (target === undefined || target.seq !== seq) {
       throw new SessionQueryError(
-        `session "${request.sessionId}" has no event at seq ${request.seq}`,
+        `session "${sessionId}" has no event at seq ${seq}`,
         'SESSION_QUERY_EVENT_NOT_FOUND',
       )
     }
-    const startSeq = Math.max(0, request.seq - before)
-    const endSeq = Math.min(loaded.events.length - 1, request.seq + after)
+    const startSeq = Math.max(0, seq - before)
+    const endSeq = Math.min(loaded.events.length - 1, seq + after)
     return {
       session: loaded.header,
       target,
