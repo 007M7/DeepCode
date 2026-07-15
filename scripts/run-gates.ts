@@ -96,8 +96,7 @@ function pnpmScript(id: string, script: string, options: Partial<Gate> = {}): Ga
   return {
     id,
     label: options.label ?? script,
-    command: pnpmBin(),
-    args: ['run', script],
+    ...pnpmInvocation(['run', script]),
     ...options,
   }
 }
@@ -106,14 +105,18 @@ function pnpmExec(id: string, args: string[], options: Partial<Gate> = {}): Gate
   return {
     id,
     label: options.label ?? `pnpm exec ${args.join(' ')}`,
-    command: pnpmBin(),
-    args: ['exec', ...args],
+    ...pnpmInvocation(['exec', ...args]),
     ...options,
   }
 }
 
-function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+function pnpmInvocation(args: string[]): Pick<Gate, 'command' | 'args'> {
+  const entrypoint = process.env.npm_execpath
+  if (entrypoint === undefined || entrypoint === '') {
+    throw new Error('run-gates: npm_execpath is unavailable; invoke the runner through a pnpm package script.')
+  }
+  // Windows cannot spawn the pnpm.cmd shim directly; the JavaScript entrypoint keeps every host shell-free.
+  return { command: process.execPath, args: [entrypoint, ...args] }
 }
 
 function nodeOptions(...options: string[]): string {
@@ -194,11 +197,16 @@ function ciStaticGates(): Gate[] {
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    demoSmokeGate(),
+    ...staticDemoSmokeGates(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
+}
+
+function staticDemoSmokeGates(): Gate[] {
+  // Native Windows session persistence is outside the gates-only support scope.
+  return process.platform === 'win32' ? [] : [demoSmokeGate()]
 }
 
 function ciArtifactGates(): Gate[] {
@@ -297,8 +305,7 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
   return {
     id: 'demo-smoke',
     label: 'demo smoke',
-    command: pnpmBin(),
-    args: ['run', 'demo:echo'],
+    ...pnpmInvocation(['run', 'demo:echo']),
     input: 'echo ci smoke\n',
     ...dependencyOptions,
     verify: async (result) => {
