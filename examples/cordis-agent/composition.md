@@ -20,9 +20,9 @@ flowchart LR
   cfg --> plugin_cordis_web
   plugin_cordis_web_fetch_local["web-fetch-local<br/>@deepseek-ai/dsh-web-fetch-local"]
   cfg --> plugin_cordis_web_fetch_local
-  plugin_cordis_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-agent"]
+  plugin_cordis_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-demo"]
   cfg --> plugin_cordis_stdio_agent
-  plugin_cordis_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_cordis_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_cordis_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_cordis_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
@@ -41,7 +41,7 @@ flowchart LR
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `web` | `@deepseek-ai/dsh-web` |
 | `web-fetch-local` | `@deepseek-ai/dsh-web-fetch-local` |
-| `stdio-agent` | `@deepseek-ai/dsh-stdio-agent` |
+| `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
 | `tool-cordis` | `@deepseek-ai/dsh-tool-cordis` |
 
 Source config: [`examples/cordis-agent/cordis.yml`](cordis.yml).
