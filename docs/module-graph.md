@@ -115,6 +115,9 @@ flowchart TD
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
+  subgraph group_mcp["packages/mcp"]
+    pkg_mcp_client["mcp-client"]
+  end
   subgraph group_sandbox["packages/sandbox"]
     pkg_sandbox["sandbox"]
     pkg_sandbox_local["sandbox-local"]
@@ -270,6 +273,8 @@ flowchart TD
   pkg_tool_ask_user --> pkg_user_interaction
   pkg_repeat_tool_guard --> pkg_agent
   pkg_repeat_tool_guard --> pkg_tools
+  pkg_mcp_client --> pkg_llm
+  pkg_mcp_client --> pkg_tools
   pkg_tool_workflow --> pkg_agent
   pkg_tool_workflow --> pkg_llm
   pkg_tool_workflow --> pkg_system_prompt
@@ -407,6 +412,7 @@ flowchart TD
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`permission`](../packages/ui/permission), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
+| [`mcp-client`](../packages/mcp/mcp-client) | `mcp` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`skill-local`](../packages/skill/skill-local), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tool-skill`](../packages/skill/tool-skill), [`tools`](../packages/core/tools) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`subagent-subprocess`](../packages/subagent/subagent-subprocess) |
