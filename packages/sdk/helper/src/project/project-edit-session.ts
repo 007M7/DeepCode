@@ -56,6 +56,7 @@ function canUpdateResource(previous: ProjectResource, next: ProjectResource): bo
   if (previous.kind !== next.kind) return false
   switch (previous.kind) {
     case 'npm-dependency': return previous.name === (next as typeof previous).name
+    case 'package-script': return previous.name === (next as typeof previous).name
     case 'cordis-config-entry': {
       const candidate = next as typeof previous
       return previous.entry.name === candidate.entry.name
@@ -282,7 +283,10 @@ export class ProjectEditSession implements FeatureProjectView {
         continue
       }
       await mkdir(dirname(absolute), { recursive: true })
-      await writeFile(absolute, document.serialize(), 'utf8')
+      await writeFile(absolute, document.serialize(), {
+        encoding: 'utf8',
+        ...document.createMode === undefined ? {} : { mode: document.createMode },
+      })
     }
     this.committed = true
     return { project: await this.source.reopen(), changes }
@@ -369,6 +373,21 @@ export class ProjectEditSession implements FeatureProjectView {
         this.manifest().setNpmDependency(dependency.section, resource.name, dependency.spec)
         return
       }
+      case 'package-script': {
+        const manifest = this.manifest()
+        const current = manifest.script(resource.name)
+        if (!previous || previous.kind !== 'package-script') {
+          if (current !== undefined) throw new Error(`feature-owned package script already exists: ${resource.name}`)
+          manifest.setScript(resource.name, resource.command)
+          return
+        }
+        if (current === resource.command) return
+        if (current !== previous.command) {
+          throw new Error(`feature-owned package script was modified: ${resource.name}`)
+        }
+        manifest.setScript(resource.name, resource.command)
+        return
+      }
       case 'cordis-config-entry': {
         const current = this.cordis().entry(resource.entry.id)
         if (!current) this.cordis().addEntry(resource.entry)
@@ -412,7 +431,9 @@ export class ProjectEditSession implements FeatureProjectView {
         if (existing.serialize() !== previous.document.serialize()) {
           throw new Error(`feature-owned file was modified: ${resource.document.relativePath}`)
         }
-        throw new Error(`updating feature-owned files is not supported: ${resource.document.relativePath}`)
+        this.documents.set(resource.document.relativePath, resource.document.clone())
+        this.removed.delete(resource.document.relativePath)
+        return
       }
     }
   }
@@ -422,6 +443,16 @@ export class ProjectEditSession implements FeatureProjectView {
       case 'npm-dependency':
         this.manifest().removeNpmDependency(resource.section, resource.name)
         return
+      case 'package-script': {
+        const manifest = this.manifest()
+        const current = manifest.script(resource.name)
+        if (current === undefined) throw new Error(`owned package script is missing: ${resource.name}`)
+        if (resource.removeOnlyWhenUnchanged && current !== resource.command) {
+          throw new Error(`feature-owned package script was modified: ${resource.name}`)
+        }
+        manifest.removeScript(resource.name)
+        return
+      }
       case 'cordis-config-entry': {
         const entry = this.cordis().entry(resource.entry.id)
         if (!entry || entry.name !== resource.entry.name) {

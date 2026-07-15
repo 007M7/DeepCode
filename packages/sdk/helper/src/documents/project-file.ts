@@ -17,12 +17,16 @@ export abstract class ProjectFile {
   /** Text observed when the document entered the snapshot; absent for a new file. */
   readonly originalText: string | undefined
 
-  protected constructor(relativePath: string, originalText?: string) {
+  /** Permission bits used only when the file is first created. */
+  readonly createMode: number | undefined
+
+  protected constructor(relativePath: string, originalText?: string, createMode?: number) {
     if (relativePath.startsWith('/') || relativePath.split('/').includes('..')) {
       throw new Error(`project document path must stay inside the project: ${relativePath}`)
     }
     this.relativePath = relativePath
     this.originalText = originalText
+    this.createMode = createMode
   }
 
   /** Clone the document for an isolated edit session. */

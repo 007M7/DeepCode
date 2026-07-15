@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,7 @@ import { FeatureRegistry } from '../src/features/registry.ts'
 import { ProjectContribution } from '../src/features/resources.ts'
 import type { CordisConfigEntryResource, ProjectResource } from '../src/features/resources.ts'
 import type { CordisConfigEntry } from '../src/documents/cordis-yaml-file.ts'
+import { PackageJsonFile } from '../src/documents/package-json-file.ts'
 import { TextProjectFile } from '../src/documents/project-file.ts'
 import { featureId, resourceKey } from '../src/ids.ts'
 import { NpmPackageManager } from '../src/package-managers/package-manager.ts'
@@ -246,6 +247,44 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(committed.changes.npmDependenciesChanged).toBe(true)
   })
 
+  it('switches app-owned files and scripts while protecting user edits', async () => {
+    const project = await createCommitted()
+    const registry = createBuiltinRegistry(project.profile)
+    const edit = project.edit(registry)
+    edit.configureFeature(registry.get(featureId('app')), selection('app', ['acp']))
+    const acp = (await edit.commit()).project
+    expect(acp.profile.runInterface).toBe('acp')
+    expect(acp.packageManifest().scripts).toMatchObject({
+      dev: 'dsh dev index.ts',
+      start: 'dsh start index.js',
+    })
+    expect(await readFile(join(acp.root, 'README.md'), 'utf8')).toContain('Run as an ACP server')
+    expect(await readFile(join(acp.root, 'index.ts'), 'utf8')).not.toContain('agents.create')
+
+    const acpRegistry = createBuiltinRegistry(acp.profile)
+    const embedEdit = acp.edit(acpRegistry)
+    embedEdit.configureFeature(acpRegistry.get(featureId('app')), selection('app', ['embed']))
+    const embed = (await embedEdit.commit()).project
+    expect(embed.profile.runInterface).toBe('embed')
+    expect(await readFile(join(embed.root, 'README.md'), 'utf8')).toContain('Embed the harness')
+    expect(await readFile(join(embed.root, 'index.ts'), 'utf8')).toContain('agents.create')
+
+    await writeFile(join(embed.root, 'README.md'), '# Custom README\n')
+    const modified = await SdkProject.open(embed.root)
+    const modifiedRegistry = createBuiltinRegistry(modified.profile)
+    expect(() => { modified.edit(modifiedRegistry).configureFeature(
+      modifiedRegistry.get(featureId('app')),
+      selection('app', ['stdio']),
+    ) }).toThrow('feature-owned file was modified: README.md')
+
+    const manifest = PackageJsonFile.parse(await readFile(join(embed.root, 'package.json'), 'utf8'))
+    manifest.removeScript('dev')
+    await writeFile(join(embed.root, 'package.json'), manifest.serialize())
+    const incomplete = await SdkProject.open(embed.root)
+    expect(createBuiltinRegistry(incomplete.profile).get(featureId('app')).inspect(incomplete).diagnostics)
+      .toContain('missing package.json script dev')
+  })
+
   it('supports disabled feature reconfiguration and rejects invalid state operations', async () => {
     const project = await createCommitted([selection('todo', ['default'])])
     const registry = createBuiltinRegistry(project.profile)
@@ -379,9 +418,29 @@ describe('SdkProject and ProjectEditSession', () => {
     const nextFile: ProjectResource = {
       ...existingFile, key: resourceKey('file:owned.txt'), document: new TextProjectFile('owned.txt', 'replacement'),
     }
-    expect(() => { internals.applyResource(nextFile, previousFile) }).toThrow('updating feature-owned files')
+    internals.applyResource(nextFile, previousFile)
+    expect(internals.documents.get('owned.txt')?.serialize()).toBe('replacement\n')
     internals.documents.set('owned.txt', new TextProjectFile('owned.txt', 'user edit'))
     expect(() => { internals.applyResource(nextFile, previousFile) }).toThrow('was modified')
+    const existingScript: ProjectResource = {
+      kind: 'package-script', key: resourceKey('package-script:build'),
+      name: 'build', command: 'other build', removeOnlyWhenUnchanged: true,
+    }
+    expect(() => { internals.applyResource(existingScript, undefined) }).toThrow('script already exists')
+    const transientScript: ProjectResource = {
+      kind: 'package-script', key: resourceKey('package-script:transient'),
+      name: 'transient', command: 'first', removeOnlyWhenUnchanged: true,
+    }
+    internals.applyResource(transientScript, undefined)
+    const nextScript: ProjectResource = { ...transientScript, command: 'second' }
+    internals.applyResource(nextScript, transientScript)
+    internals.applyResource(nextScript, transientScript)
+    ;(internals.manifest() as PackageJsonFile).setScript('transient', 'user edit')
+    expect(() => { internals.applyResource(transientScript, nextScript) }).toThrow('script was modified')
+    expect(() => { internals.removeResource(nextScript) }).toThrow('script was modified')
+    ;(internals.manifest() as PackageJsonFile).setScript('transient', 'second')
+    internals.removeResource(nextScript)
+    expect(() => { internals.removeResource(nextScript) }).toThrow('script is missing')
     expect(() => { internals.removeResource({
       ...existingFile, key: resourceKey('file:missing.txt'), document: new TextProjectFile('missing.txt', 'missing'),
     }) }).toThrow('owned file is missing')
@@ -546,8 +605,12 @@ describe('SdkProject and ProjectEditSession', () => {
 
   it('preserves duplicate and existing .env values while appending differently named secrets', async () => {
     const project = await createCommitted()
+    if (process.platform !== 'win32') {
+      expect((await stat(join(project.root, '.env'))).mode & 0o777).toBe(0o600)
+    }
     const original = '# keep\nDEEPSEEK_API_KEY=first\nDEEPSEEK_API_KEY=second\n'
     await writeFile(join(project.root, '.env'), original)
+    if (process.platform !== 'win32') await chmod(join(project.root, '.env'), 0o640)
     const reopened = await SdkProject.open(project.root)
     const registry = createBuiltinRegistry(reopened.profile)
     expect(registry.get(featureId('provider')).inspect(reopened)).toMatchObject({
@@ -561,6 +624,9 @@ describe('SdkProject and ProjectEditSession', () => {
     edit.installFeature(registry.get(featureId('web')), selection('web', ['exa'], { apiKey: 'exa-key' }))
     const withExa = (await edit.commit()).project
     expect(await readFile(join(withExa.root, '.env'), 'utf8')).toBe(`${original}EXA_API_KEY=exa-key\n`)
+    if (process.platform !== 'win32') {
+      expect((await stat(join(withExa.root, '.env'))).mode & 0o777).toBe(0o640)
+    }
     const nextRegistry = createBuiltinRegistry(withExa.profile)
     const remove = withExa.edit(nextRegistry)
     remove.configureFeature(nextRegistry.get(featureId('web')), selection('web', ['deepseek']))
@@ -767,7 +833,9 @@ describe('extension points', () => {
     expect(acpEntry?.validateConfig?.({ model: '' })).toHaveLength(1)
     const embedOption = app.options.find(option => option.id === 'embed')
     expect(embedOption?.markerConfigEntries(profile)).toEqual([])
-    expect(embedOption?.contribution(profile, {}).resources).toEqual([])
+    expect(embedOption?.contribution(profile, {}).resources.map(resource => resource.kind)).toEqual([
+      'owned-file', 'owned-file', 'package-script', 'package-script',
+    ])
     expect(embedOption?.matchesConfigEntries([
       { id: 'agent-loop', name: '@deepseek-ai/dsh-agent-loop' },
       { id: 'stdio', name: '@deepseek-ai/dsh-stdio' },

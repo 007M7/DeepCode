@@ -16,6 +16,15 @@ export interface NpmDependencyResource {
   section: 'dependencies' | 'devDependencies'
 }
 
+/** Feature-owned package script. */
+export interface PackageScriptResource {
+  kind: 'package-script'
+  key: ResourceKey
+  name: string
+  command: string
+  removeOnlyWhenUnchanged: boolean
+}
+
 /** Owned Cordis config entry plus the config keys safe to update in place. */
 export interface CordisConfigEntryResource {
   kind: 'cordis-config-entry'
@@ -46,6 +55,7 @@ export interface OwnedFileResource {
 /** Any resource a feature can add to a project. */
 export type ProjectResource =
   | NpmDependencyResource
+  | PackageScriptResource
   | CordisConfigEntryResource
   | EnvironmentResource
   | OwnedFileResource

@@ -126,7 +126,8 @@ describe('create-sdk terminal contract', () => {
         }),
         next: CREATE_TEMPLATES.nextSteps.render({
           directory: resolved.directory,
-          packageManager: resolved.request.packageManager.name,
+          setupRequired: false,
+          ...packageManagerTemplateModel(resolved.request.packageManager),
         }),
         failure: CREATE_TEMPLATES.setupFailure.render({
           directory: resolved.directory,

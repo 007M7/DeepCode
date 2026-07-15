@@ -19,7 +19,7 @@ export class EnvFile extends ProjectFile {
   private readonly lines: string[]
 
   private constructor(relativePath: '.env' | '.env.example', lines: string[], originalText?: string) {
-    super(relativePath, originalText)
+    super(relativePath, originalText, relativePath === '.env' ? 0o600 : undefined)
     this.lines = [...lines]
   }
 

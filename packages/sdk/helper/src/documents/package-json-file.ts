@@ -77,6 +77,16 @@ export class PackageJsonFile extends ProjectFile {
     this.manifest.scripts[name] = command
   }
 
+  /** Read one package script. */
+  script(name: string): string | undefined {
+    return this.manifest.scripts?.[name]
+  }
+
+  /** Remove one package script. */
+  removeScript(name: string): void {
+    delete this.manifest.scripts?.[name]
+  }
+
   /** Set one NPM dependency in its runtime or development section. */
   setNpmDependency(section: NpmDependencySection, name: string, spec: string): void {
     this.manifest[section] ??= {}

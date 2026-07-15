@@ -18,9 +18,9 @@ import {
   type PackageManagerName,
 } from '../package-managers/package-manager.ts'
 import {
+  createBaselineProjectArtifacts,
   createPackageJsonDoc,
-  createProjectArtifacts,
-  type ProjectTemplateContext,
+  createProjectTemplateContext,
 } from '../templates/project-template.ts'
 import type { ProjectCreationRequest, ProjectProfile, RunInterface } from './types.ts'
 import type { FeatureRegistry } from '../features/registry.ts'
@@ -36,6 +36,8 @@ const OPTIONAL_DOCUMENTS = [
   'pnpm-workspace.yaml',
   'hooks.json',
   'codex-hooks.json',
+  'README.md',
+  'index.ts',
 ] as const
 
 function runInterface(entries: readonly CordisConfigEntry[]): RunInterface {
@@ -113,22 +115,6 @@ function parseOptionalDocument(path: string, text: string): ProjectFile {
   }
 }
 
-function templateContext(profile: ProjectProfile): ProjectTemplateContext {
-  return {
-    name: profile.name,
-    description: profile.description,
-    releaseVersion: profile.releaseVersion,
-    model: profile.runtime.model,
-    modelLiteral: JSON.stringify(profile.runtime.model),
-    isAcp: profile.runInterface === 'acp',
-    isStdio: profile.runInterface === 'stdio',
-    isEmbed: profile.runInterface === 'embed',
-    packageManager: profile.packageManager.name,
-    installArgs: profile.packageManager.installCommand().join(' '),
-    buildArgs: profile.packageManager.buildCommand().join(' '),
-  }
-}
-
 /** A project snapshot whose documents can only be changed through {@link ProjectEditSession}. */
 export class SdkProject {
   /** Absolute project directory. */
@@ -172,7 +158,7 @@ export class SdkProject {
       releaseVersion: request.releaseVersion,
       ...request.linkWorkspaceRoot ? { linkWorkspaceRoot: resolve(request.linkWorkspaceRoot) } : {},
     }
-    const templates = templateContext(profile)
+    const templates = createProjectTemplateContext(profile)
     const manifest = createPackageJsonDoc(templates)
     const documents = new Map<string, ProjectFile>()
     documents.set(manifest.relativePath, manifest)
@@ -182,7 +168,7 @@ export class SdkProject {
     for (const document of request.packageManager.configureWorkspace(manifest)) {
       documents.set(document.relativePath, document)
     }
-    for (const document of createProjectArtifacts(templates)) {
+    for (const document of createBaselineProjectArtifacts(templates)) {
       documents.set(document.relativePath, document)
     }
     return new SdkProject(root, 'create', profile, documents)

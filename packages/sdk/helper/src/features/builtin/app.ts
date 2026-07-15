@@ -7,13 +7,39 @@
 import { featureId } from '../../ids.ts'
 import type { ProjectProfile } from '../../project/types.ts'
 import {
+  createAppPackageScripts,
+  createAppProjectArtifacts,
+  createProjectTemplateContext,
+} from '../../templates/project-template.ts'
+import {
   FeatureOption,
   ExclusiveOptionFeature,
 } from '../feature.ts'
-import { ProjectContribution } from '../resources.ts'
-import { npmCordisConfigEntry, optionalString, requiredString } from './helpers.ts'
+import { ProjectContribution, type ProjectResource } from '../resources.ts'
+import {
+  npmCordisConfigEntry,
+  optionalString,
+  ownedTextFile,
+  packageScript,
+  requiredString,
+} from './helpers.ts'
 
 const ID = featureId('app')
+
+function appProjectResources(
+  profile: ProjectProfile,
+  runInterface: 'acp' | 'stdio' | 'embed',
+): readonly ProjectResource[] {
+  const context = createProjectTemplateContext(profile, runInterface)
+  const scripts = createAppPackageScripts(context)
+  return [
+    ...createAppProjectArtifacts(context).map(document => (
+      ownedTextFile(ID, document.relativePath, document.serialize())
+    )),
+    packageScript(ID, 'dev', scripts.dev),
+    packageScript(ID, 'start', scripts.start),
+  ]
+}
 
 class AppOption extends FeatureOption {
   override readonly id: 'acp' | 'stdio' | 'embed'
@@ -45,6 +71,7 @@ class AppOption extends FeatureOption {
     switch (this.id) {
       case 'acp':
         return new ProjectContribution([
+          ...appProjectResources(profile, this.id),
           ...npmCordisConfigEntry(ID, {
             id: 'user-interaction',
             name: '@deepseek-ai/dsh-user-interaction',
@@ -57,6 +84,7 @@ class AppOption extends FeatureOption {
         ])
       case 'stdio':
         return new ProjectContribution([
+          ...appProjectResources(profile, this.id),
           ...npmCordisConfigEntry(ID, {
             id: 'user-interaction',
             name: '@deepseek-ai/dsh-user-interaction',
@@ -74,7 +102,7 @@ class AppOption extends FeatureOption {
           ]),
         ])
       case 'embed':
-        return new ProjectContribution([])
+        return new ProjectContribution(appProjectResources(profile, this.id))
     }
   }
 }

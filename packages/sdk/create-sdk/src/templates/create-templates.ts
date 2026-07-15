@@ -15,9 +15,9 @@ interface CreatedTemplateModel {
   directory: string
 }
 
-interface NextStepsTemplateModel {
+interface NextStepsTemplateModel extends PackageManagerTemplateModel {
   directory: string
-  packageManager: PackageManagerName
+  setupRequired: boolean
 }
 
 interface SetupFailureTemplateModel extends PackageManagerTemplateModel {

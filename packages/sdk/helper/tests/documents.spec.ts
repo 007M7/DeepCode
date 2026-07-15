@@ -22,7 +22,7 @@ import {
   scrubEnvironment,
   type CommandRunner,
 } from '../src/package-managers/package-manager.ts'
-import { createProjectArtifacts } from '../src/templates/project-template.ts'
+import { createBaselineProjectArtifacts } from '../src/templates/project-template.ts'
 import { loadHelperTemplate } from '../src/templates/template-assets.ts'
 import { TextTemplate } from '../src/templates/text-template.ts'
 import { resolveNpmDependency } from '../src/project/npm-dependency-policy.ts'
@@ -219,7 +219,7 @@ describe('structured project documents', () => {
     expect(() => featureId('Bad Id')).toThrow('invalid feature id')
     expect(() => resourceKey('')).toThrow('must not be empty')
     expect(() => loadHelperTemplate('../bad.tpl')).toThrow('must not contain a directory')
-    expect(createProjectArtifacts({
+    expect(createBaselineProjectArtifacts({
       name: 'demo', description: 'demo', releaseVersion: '0.0.1', model: 'model', modelLiteral: '"model"', packageManager: 'yarn',
       isAcp: false, isStdio: false, isEmbed: true,
       installArgs: 'install', buildArgs: 'build',

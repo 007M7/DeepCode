@@ -12,6 +12,7 @@ import type {
   EnvironmentResource,
   OwnedFileResource,
   NpmDependencyResource,
+  PackageScriptResource,
 } from '../resources.ts'
 
 /** Create a runtime NPM dependency resource. */
@@ -21,6 +22,17 @@ function npmDependency(_owner: string, name: string): NpmDependencyResource {
     key: resourceKey(`npm-dependency:${name}`),
     name,
     section: 'dependencies',
+  }
+}
+
+/** Create a feature-owned package script that is replaceable only while unchanged. */
+export function packageScript(_owner: string, name: string, command: string): PackageScriptResource {
+  return {
+    kind: 'package-script',
+    key: resourceKey(`package-script:${name}`),
+    name,
+    command,
+    removeOnlyWhenUnchanged: true,
   }
 }
 

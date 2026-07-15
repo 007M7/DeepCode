@@ -449,6 +449,7 @@ describe('create command composition', () => {
       'next', [{ value: featureId('persistence'), choices: ['jsonl'] }], 'none',
     ]))
     await expect(createProject(argv('next', false), noInstall)).resolves.toBeDefined()
+    expect(noInstall.readStdout()).toContain('npm install && npm run build && npm start')
   })
 
   it('uses the package manager setup path when no setup override is supplied', async () => {

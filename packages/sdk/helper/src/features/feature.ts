@@ -285,6 +285,11 @@ export abstract class Feature {
             diagnostics.push(`missing package.json ${resource.section} entry ${resource.name}`)
           }
           break
+        case 'package-script':
+          if (!manifest.scripts?.[resource.name]) {
+            diagnostics.push(`missing package.json script ${resource.name}`)
+          }
+          break
         case 'owned-file':
           if (!project.hasDocument(resource.document.relativePath)) diagnostics.push(`missing owned file ${resource.document.relativePath}`)
           break

@@ -81,7 +81,8 @@ export async function createProject(
   }
   context.stdout.write(CREATE_TEMPLATES.nextSteps.render({
     directory: resolved.directory,
-    packageManager: resolved.request.packageManager.name,
+    setupRequired: !resolved.install,
+    ...packageManagerTemplateModel(resolved.request.packageManager),
   }))
   return result
 }

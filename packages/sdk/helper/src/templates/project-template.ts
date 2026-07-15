@@ -8,6 +8,7 @@ import { PackageJsonFile } from '../documents/package-json-file.ts'
 import { TextProjectFile } from '../documents/project-file.ts'
 import type { PackageManagerName } from '../package-managers/package-manager.ts'
 import { baselineNpmDependencies } from '../project/npm-dependency-policy.ts'
+import type { ProjectProfile, RunInterface } from '../project/types.ts'
 import { loadHelperTemplate } from './template-assets.ts'
 import type { TextTemplate } from './text-template.ts'
 
@@ -38,8 +39,6 @@ const README_TEMPLATE = loadHelperTemplate<ProjectTemplateContext>('README.md.tp
 const PACKAGE_JSON_TEMPLATE = loadHelperTemplate<{
   name: string
   description: string
-  devScript: string
-  startScript: string
   dependencies: string
   devDependencies: string
 }>('package.json.tpl')
@@ -49,25 +48,42 @@ const TSCONFIG_BASE_TEMPLATE = loadHelperTemplate<ProjectTemplateContext>('tscon
 const GITIGNORE_TEMPLATE = loadHelperTemplate<ProjectTemplateContext>('gitignore.tpl')
 const YARNRC_TEMPLATE = loadHelperTemplate<ProjectTemplateContext>('yarnrc.yml.tpl')
 
+/** Build the template model for one project and selected run interface. */
+export function createProjectTemplateContext(
+  profile: ProjectProfile,
+  runInterface: RunInterface = profile.runInterface,
+): ProjectTemplateContext {
+  return {
+    name: profile.name,
+    description: profile.description,
+    releaseVersion: profile.releaseVersion,
+    model: profile.runtime.model,
+    modelLiteral: JSON.stringify(profile.runtime.model),
+    isAcp: runInterface === 'acp',
+    isStdio: runInterface === 'stdio',
+    isEmbed: runInterface === 'embed',
+    packageManager: profile.packageManager.name,
+    installArgs: profile.packageManager.installCommand().join(' '),
+    buildArgs: profile.packageManager.buildCommand().join(' '),
+  }
+}
+
 /** Render the complete root package defaults before structured contributions merge. */
 export function createPackageJsonDoc(context: ProjectTemplateContext): PackageJsonFile {
-  const stdioModelArg = context.isStdio ? ` -- --model=${JSON.stringify(context.model)}` : ''
   const npmDependencies = baselineNpmDependencies(context.releaseVersion)
   return PackageJsonFile.create(PACKAGE_JSON_TEMPLATE.render({
     name: JSON.stringify(context.name),
     description: JSON.stringify(context.description),
-    devScript: JSON.stringify(`dsh dev index.ts${stdioModelArg}`),
-    startScript: JSON.stringify(`dsh start index.js${stdioModelArg}`),
     dependencies: JSON.stringify(npmDependencies.dependencies),
     devDependencies: JSON.stringify(npmDependencies.devDependencies),
   }))
 }
 
-/** Build every one-shot project artifact from one template context. */
-export function createProjectArtifacts(context: ProjectTemplateContext): TemplateArtifact<ProjectTemplateContext>[] {
+/** Build interface-independent one-shot project artifacts. */
+export function createBaselineProjectArtifacts(
+  context: ProjectTemplateContext,
+): TemplateArtifact<ProjectTemplateContext>[] {
   return [
-    new TemplateArtifact('README.md', README_TEMPLATE, context),
-    new TemplateArtifact('index.ts', INDEX_TEMPLATE, context),
     new TemplateArtifact('tsdown.config.ts', TSDOWN_TEMPLATE, context),
     new TemplateArtifact('tsconfig.base.json', TSCONFIG_BASE_TEMPLATE, context),
     new TemplateArtifact('.gitignore', GITIGNORE_TEMPLATE, context),
@@ -75,4 +91,23 @@ export function createProjectArtifacts(context: ProjectTemplateContext): Templat
       ? [new TemplateArtifact('.yarnrc.yml', YARNRC_TEMPLATE, context)]
       : [],
   ]
+}
+
+/** Build files owned by the selected app feature option. */
+export function createAppProjectArtifacts(
+  context: ProjectTemplateContext,
+): TemplateArtifact<ProjectTemplateContext>[] {
+  return [
+    new TemplateArtifact('README.md', README_TEMPLATE, context),
+    new TemplateArtifact('index.ts', INDEX_TEMPLATE, context),
+  ]
+}
+
+/** Build package scripts owned by the selected app feature option. */
+export function createAppPackageScripts(context: ProjectTemplateContext): Readonly<Record<'dev' | 'start', string>> {
+  const modelArg = context.isStdio ? ` -- --model=${JSON.stringify(context.model)}` : ''
+  return {
+    dev: `dsh dev index.ts${modelArg}`,
+    start: `dsh start index.js${modelArg}`,
+  }
 }
