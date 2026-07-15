@@ -5,11 +5,10 @@
  * model scenarios from the live API, while refresh mode replays committed
  * scripts and rewrites derived artifacts without a key.
  *
- * Exactly one scenario per header-composition class pins tool schemas in JSONL
- * and the system prompt in Markdown. Every live header is checked against that
- * pin, so session-dependent composition must declare a separate class instead
- * of escaping coverage.
- *
+ * Exactly one scenario per header-composition class pins the full prompt and
+ * tool-schema sequences in dedicated sidecars. Every live header is checked
+ * against that pin, so session-dependent composition must declare a separate
+ * class instead of escaping coverage.
  * @module @deepseek-ai/dsh-acp-snapshot/suite
  */
 
@@ -24,10 +23,17 @@ import {
   normalizeStdout,
   scrubRequestHeaders,
   scrubSystemPrompts,
+  scrubToolSchemas,
 } from './normalize.ts'
 
 /** The readable system-prompt snapshot beside each header-pinning fixture. */
 const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.golden.md'
+
+/** The structured tool-schema snapshot beside each header-pinning fixture. */
+const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.golden.json'
+
+/** Stable session-log token standing in for the sidecar's initial schemas. */
+const TOOLS_TOKEN = '{{tools}}'
 
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
@@ -71,8 +77,8 @@ export interface Scenario {
    */
   childSessions?: number
   /**
-   * Whether this scenario is its header class's sole request-header pin. Its Markdown file owns
-   * the prompt, its JSONL keeps tool schemas, and every classmate is checked for equality.
+   * Whether this scenario is its header class's sole request-header pin. Dedicated sidecars own
+   * the prompt and tool schemas, while every classmate is checked for equality.
    */
   pinsHeader?: boolean
   /**
@@ -185,6 +191,77 @@ export function normalizedSystemPrompts(rawLog: string, ctx: NormalizeContext): 
 }
 
 /**
+ * The normalized tool-schema arrays carried by request headers in a session
+ * JSONL, in log order. Headers without an array-valued tools field are omitted
+ * so callers can assert one schema set per header explicitly.
+ *
+ * @param rawLog The session `.jsonl` content to inspect.
+ * @param ctx The volatile values of the run that produced it.
+ * @returns The normalized initial tool-schema arrays, in header order.
+ */
+export function normalizedToolSchemas(rawLog: string, ctx: NormalizeContext): unknown[][] {
+  return normalizedHeaders(rawLog, ctx).flatMap((header) => {
+    if (header === null || typeof header !== 'object') return []
+    const tools = (header as { tools?: unknown }).tools
+    return Array.isArray(tools) ? [tools] : []
+  })
+}
+
+/** The structured contents of a tool-schema sidecar. */
+export interface ToolSchemasSnapshot {
+  /** The complete tool schemas from the pinned request header. */
+  initial: unknown[]
+  /** Complete tool schemas from subsequent changed-header snapshots. */
+  changes: unknown[][]
+}
+
+/**
+ * Render the full tool-schema sequence as canonical, readable JSON.
+ *
+ * @param initial The pinned request header's complete tool schemas.
+ * @param changes Complete tool schemas from later changed headers.
+ * @returns A pretty-printed JSON snapshot ending in one newline.
+ */
+export function formatToolSchemasSnapshot(initial: readonly unknown[], changes: readonly unknown[][] = []): string {
+  return `${JSON.stringify({ initial, changes }, null, 2)}\n`
+}
+
+/**
+ * Parse and validate the stable top-level shape of a tool-schema sidecar.
+ *
+ * @param snapshot The JSON sidecar text.
+ * @returns Its initial and changed-header schema sets.
+ */
+export function parseToolSchemasSnapshot(snapshot: string): ToolSchemasSnapshot {
+  const parsed = JSON.parse(snapshot) as unknown
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('acp-snapshot: tool-schema snapshot must be an object')
+  }
+  const { initial, changes } = parsed as { initial?: unknown; changes?: unknown }
+  if (!Array.isArray(initial) || !Array.isArray(changes) || !changes.every(Array.isArray)) {
+    throw new Error('acp-snapshot: tool-schema snapshot must carry array-valued initial and changes fields')
+  }
+  return { initial, changes }
+}
+
+/**
+ * Restore one sidecar schema set into a tokenized pinned header.
+ *
+ * @param header The parsed request header carrying `tools: "{{tools}}"`.
+ * @param schemas The complete schemas for this full header snapshot.
+ * @returns A copy of the header with its complete schemas restored.
+ */
+export function restorePinnedToolSchemas(header: unknown, schemas: readonly unknown[]): unknown {
+  if (header === null || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('acp-snapshot: pinned request header must be an object')
+  }
+  if ((header as { tools?: unknown }).tools !== TOOLS_TOKEN) {
+    throw new Error(`acp-snapshot: pinned request header tools must equal ${TOOLS_TOKEN}`)
+  }
+  return { ...header, tools: schemas }
+}
+
+/**
  * Render a normalized prompt as a repository-friendly Markdown snapshot.
  * Prompt text is unchanged except that a missing terminal newline is added so
  * the committed file follows the repository newline contract.
@@ -239,6 +316,27 @@ function parseJsonlRecords(text: string): Record<string, unknown>[] {
   return text.split('\n')
     .filter(line => line.trim().length > 0)
     .map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+/**
+ * Find tool calls whose structured result reports `UNKNOWN_TOOL`.
+ *
+ * Snapshot refresh must not turn a missing registration into accepted behavior;
+ * intentional unknown-tool behavior belongs in a focused unit or e2e test.
+ *
+ * @param rawLog The session JSONL to inspect.
+ * @returns The failing call ids in log order, using a diagnostic placeholder when absent.
+ */
+export function unknownToolCallIds(rawLog: string): string[] {
+  return parseJsonlRecords(rawLog).flatMap((record) => {
+    if (record.type !== 'tool/result') return []
+    const data = record.data
+    if (data === null || typeof data !== 'object') return []
+    const { callId, error } = data as { callId?: unknown; error?: unknown }
+    if (error === null || typeof error !== 'object') return []
+    if ((error as { code?: unknown }).code !== 'UNKNOWN_TOOL') return []
+    return [typeof callId === 'string' ? callId : '<missing callId>']
+  })
 }
 
 /**
@@ -368,6 +466,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
         })
 
+        for (const log of result.sessionLogs) {
+          expect(unknownToolCallIds(log.content), `session ${log.id}: snapshot scenarios must not accept UNKNOWN_TOOL`)
+            .toEqual([])
+        }
+
         // Scrub every volatile id the run produced: the ACP server-issued session id plus every
         // harvested log's recorded id (a subagent child id never surfaces over ACP, but it
         // appears in the child's own log header).
@@ -380,9 +483,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         }
 
         // Record writes live model fixtures; keyless refresh writes every comparable replayed
-        // fixture. Pins keep tools but all JSONL files scrub prompt text.
+        // fixture. Pinning JSONL keeps prefixes but moves prompts and schemas into sidecars.
         const scrub = scenario.pinsHeader === true
-          ? scrubSystemPrompts
+          ? (log: string): string => scrubToolSchemas(scrubSystemPrompts(log))
           : scrubRequestHeaders
         const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
         const existingFixtures = REFRESHING
@@ -411,6 +514,15 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             expect(prompts.length, `${mode} produced no system prompt to snapshot`).toBeGreaterThan(0)
             const snapshot = formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1))
             await writeFile(join(dir, SYSTEM_PROMPT_SNAPSHOT), snapshot)
+
+            const schemaSets = normalizedToolSchemas(primary.content, ctx)
+            expect(schemaSets.length, `${mode} produced no tool schemas to snapshot`).toBeGreaterThan(0)
+            expect(schemaSets.length, `${mode} produced a tool-schema sequence that differs from its prompt sequence`)
+              .toBe(prompts.length)
+            await writeFile(join(dir, TOOL_SCHEMAS_SNAPSHOT), formatToolSchemasSnapshot(
+              schemaSets[0] as unknown[],
+              schemaSets.slice(1),
+            ))
           }
         }
 
@@ -433,10 +545,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        // Header-uniformity guard: every live header in a class must equal the
-        // class pin split across its JSONL header (system token + real tools)
-        // and readable Markdown prompt. A pinning scenario may carry declared
-        // changed-header snapshots; each full prompt lives in that Markdown.
+        // Every live full header must equal its class pin reconstructed from
+        // tokenized JSONL plus readable prompt and structured schema sidecars.
         /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
         const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
         const pinningDir = join(snapshotsDir, pinningScenario.name)
@@ -446,6 +556,15 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const initialPromptSnapshot = initialSystemPromptSnapshot(promptSnapshot)
         expect(pinned.length, `the pinning fixture (${pinningScenario.name}) has an unexpected request/header count`)
           .toBe(1 + (pinningScenario.expectedHeaderChanges ?? 0))
+        const toolSchemasSnapshot = await readFile(join(pinningDir, TOOL_SCHEMAS_SNAPSHOT), 'utf8')
+        const toolSchemas = parseToolSchemasSnapshot(toolSchemasSnapshot)
+        const pinnedSchemaSets = [toolSchemas.initial, ...toolSchemas.changes]
+        expect(pinnedSchemaSets.length, `the pinning fixture (${pinningScenario.name}) has an unexpected tool-schema count`)
+          .toBe(pinned.length)
+        const pinnedHeaders = pinned.map((header, index) => restorePinnedToolSchemas(
+          header,
+          pinnedSchemaSets[index] as unknown[],
+        ))
         for (const [logIndex, log] of result.sessionLogs.entries()) {
           const expectedChanges = scenario.pinsHeader === true && logIndex === 0
             ? scenario.expectedHeaderChanges ?? 0
@@ -454,10 +573,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             .toBe(expectedChanges)
           const headers = normalizedHeaders(scrubSystemPrompts(log.content), ctx)
           const prompts = normalizedSystemPrompts(log.content, ctx)
+          const schemaSets = normalizedToolSchemas(log.content, ctx)
           expect(prompts.length, `session ${log.id}: every request/header must carry a string system prompt`)
             .toBe(headers.length)
+          expect(schemaSets.length, `session ${log.id}: every request/header must carry an array-valued tools field`)
+            .toBe(headers.length)
           for (const [k, header] of headers.entries()) {
-            const expected = expectedChanges > 0 ? pinned[k] : pinned[0]
+            const expected = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
               .toEqual(expected)
             if (expectedChanges === 0) {
@@ -471,6 +593,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               prompts.slice(1),
             ), `session ${log.id}: changed system prompts diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
               .toEqual(promptSnapshot)
+            expect(formatToolSchemasSnapshot(
+              schemaSets[0] as unknown[],
+              schemaSets.slice(1),
+            ), `session ${log.id}: changed tool schemas diverged from ${pinningScenario.name}/${TOOL_SCHEMAS_SNAPSHOT}`)
+              .toEqual(toolSchemasSnapshot)
           }
         }
       })
@@ -499,6 +626,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           .toBe(overridden === true)
         expect(existsSync(join(dir, SYSTEM_PROMPT_SNAPSHOT)), `${name}/${SYSTEM_PROMPT_SNAPSHOT} presence must match \`pinsHeader\``)
           .toBe(pinsHeader === true)
+        expect(existsSync(join(dir, TOOL_SCHEMAS_SNAPSHOT)), `${name}/${TOOL_SCHEMAS_SNAPSHOT} presence must match \`pinsHeader\``)
+          .toBe(pinsHeader === true)
         // A nested-agent scenario ships one child fixture per recorded subagent
         // session (`session.1.jsonl` …), the replay source for that child session.
         for (const childFixture of childFixturePaths(dir, childSessions ?? 0)) {
@@ -522,29 +651,37 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every pinning fixture carries one anchor, one readable prompt artifact, and its declared changes', async () => {
-      // The live uniformity guard runs only in NON-pinning scenarios, so a
-      // class made of just its pinning scenario would otherwise accept a
-      // re-recorded pin with undeclared mid-run header changes. Assert the
-      // committed pins directly; a scenario whose arc legitimately rewrites
-      // a prompt section declares the exact count via expectedHeaderChanges.
+    it('every pinning fixture carries one tokenized header sequence and two sidecars', async () => {
+      // Assert the committed pin directly because a class containing only its
+      // pinning scenario has no non-pinning live run to catch undeclared changes.
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))
         const promptSnapshot = await readFile(join(snapshotsDir, scenario.name, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
         expect(headers.length, `${scenario.name}: unexpected request/header count`)
           .toBe(1 + (scenario.expectedHeaderChanges ?? 0))
+        const toolSchemasSnapshot = await readFile(join(snapshotsDir, scenario.name, TOOL_SCHEMAS_SNAPSHOT), 'utf8')
+        const toolSchemas = parseToolSchemasSnapshot(toolSchemasSnapshot)
+        const schemaSets = [toolSchemas.initial, ...toolSchemas.changes]
+        expect(schemaSets.length, `${scenario.name}: tool-schema sequence must match the header sequence`)
+          .toBe(headers.length)
+        for (const [index, header] of headers.entries()) {
+          expect(() => restorePinnedToolSchemas(header, schemaSets[index] as unknown[]), `${scenario.name}: tools must use the sidecar token`)
+            .not.toThrow()
+        }
         expect(promptSnapshot.length, `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must not be empty`).toBeGreaterThan(0)
         expect(promptSnapshot.endsWith('\n'), `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must end in a newline`).toBe(true)
+        expect(toolSchemasSnapshot, `${scenario.name}/${TOOL_SCHEMAS_SNAPSHOT} must use canonical JSON formatting`)
+          .toBe(formatToolSchemasSnapshot(toolSchemas.initial, toolSchemas.changes))
         expect(headerChangeCount(fixture), `${scenario.name}: a pinning fixture must carry exactly its declared changed headers`)
           .toBe(scenario.expectedHeaderChanges ?? 0)
       }
     })
 
-    it('every committed JSONL omits system prompts and only pinning fixtures keep other header bulk', async () => {
-      // System prompts always live in the readable Markdown artifact. Header
-      // pins keep tool schemas/prefixes in JSONL; every other fixture tokenizes
-      // all header bulk. Fixed-point checks make both storage rules fail loud.
+    it('every committed JSONL has valid tool results and canonical header storage', async () => {
+      // Prompts and schemas always leave JSONL. Header pins retain prefixes;
+      // every other fixture tokenizes those too. Fixed-point checks make both
+      // storage rules fail loud.
       for (const scenario of scenarios) {
         const dir = join(snapshotsDir, scenario.name)
         const files = [
@@ -553,12 +690,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         ]
         for (const file of files) {
           const fixture = await readFile(join(dir, file), 'utf8')
+          expect(unknownToolCallIds(fixture), `${scenario.name}/${file} contains UNKNOWN_TOOL`)
+            .toEqual([])
           expect(scrubSystemPrompts(fixture), `${scenario.name}/${file} carries an unscrubbed system prompt`)
             .toEqual(fixture)
-          if (scenario.pinsHeader === true) {
-            expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} must pin the non-system header content`)
-              .not.toEqual(fixture)
-          } else {
+          expect(scrubToolSchemas(fixture), `${scenario.name}/${file} carries unscrubbed tool schemas`)
+            .toEqual(fixture)
+          if (scenario.pinsHeader !== true) {
             expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} carries unscrubbed header content`)
               .toEqual(fixture)
           }

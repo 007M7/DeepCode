@@ -25,8 +25,6 @@ interface WebSearchRequest {
 
 ```ts type-equiv
 interface WebSearchResult {
-  readonly providerId: string
-  readonly query: string
   readonly content?: string
   readonly sources: readonly WebSearchSource[]
   readonly truncated: boolean
@@ -49,7 +47,6 @@ interface WebSearchSource {
 ```ts type-equiv
 interface WebFetchRequest {
   readonly url: string
-  readonly timeoutMs?: number
 }
 ```
 
@@ -57,7 +54,6 @@ HTTP status is part of the fetched resource state, not automatically a failure: 
 
 ```ts type-equiv
 interface WebFetchResult {
-  readonly providerId: string
   readonly url: string
   readonly statusCode: number
   readonly body: WebFetchBody
@@ -73,15 +69,9 @@ type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 ```
 
-## Provider status
+## Provider availability
 
-A provider's `status()` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to execution-time selection, not a health system: `search()`/`fetch()` read it to pick a usable provider, and a selection failure surfaces as the structured `WebError` the caller routes on — which carries the branchable detail (the missing id, the ambiguous candidate set) in its code and message.
-
-```ts type-equiv
-type WebProviderStatus =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-```
+A provider's `available(): boolean` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to execution-time selection, not a health system: `search()`/`fetch()` read it to pick a usable provider, and a selection failure surfaces as the structured `WebError` the caller routes on — which carries the branchable detail (the missing id or ambiguous candidate set) in its code and message.
 
 Selection never depends on registration, config, or HMR order: a capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or the matching env var feeding the same field), or auto-selects when exactly one usable provider is registered; multiple usable providers with no configured id is `WEB_PROVIDER_AMBIGUOUS`, not first-wins.
 

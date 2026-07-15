@@ -18,7 +18,7 @@ When `timeZone` is omitted, the plugin resolves the Node process's system zone o
 
 The duration starts at the latest user, assistant, tool-result, context, or steering message before the current `turn/start`. Every refresh in the turn retains that baseline, so the current prompt does not collapse the interval to approximately zero. The first turn reports that no earlier message exists. The durable clock source is session-event append time, not client send time.
 
-The loop records the dynamic section in `request/header` / `request/header-delta`. Requests therefore remain reconstructable, carry one timing block, and retain no earlier readings in conversation history.
+The loop records the dynamic section in full `request/header` snapshots. Requests therefore remain reconstructable, carry one timing block, and retain no earlier readings in conversation history.
 
 ## Model Experience
 

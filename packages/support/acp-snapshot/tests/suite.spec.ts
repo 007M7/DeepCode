@@ -10,10 +10,15 @@ import {
   fixtureContext,
   formatSystemPromptSnapshot,
   headerChangeCount,
+  formatToolSchemasSnapshot,
   normalizedHeaders,
   normalizedSystemPrompts,
+  normalizedToolSchemas,
+  parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  restorePinnedToolSchemas,
   stabilizeRefreshLog,
+  unknownToolCallIds,
 } from '../src/suite.ts'
 
 /**
@@ -69,6 +74,7 @@ afterAll(async () => {
 function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
+  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.golden.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -126,6 +132,9 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
       'NEW PROMPT LINE',
       '',
     ].join('\n'))
+    const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.golden.json'), 'utf8')
+    expect(schemas).toContain('"description": "D1"')
+    expect(schemas).not.toContain('"name":"stale"')
   })
 })
 
@@ -236,6 +245,23 @@ describe('normalizedSystemPrompts', () => {
   })
 })
 
+describe('normalizedToolSchemas', () => {
+  it('extracts normalized schema arrays and omits absent or non-array fields', () => {
+    const log = [
+      '{"type":"session","id":"a","createdAt":5,"cwd":"/w"}',
+      '{"type":"request/header","seq":0,"time":9,"data":{"header":{"tools":[{"name":"read","description":"work in /w"}]}}}',
+      '{"type":"request/header","seq":1,"time":9,"data":{"header":{}}}',
+      '{"type":"request/header","seq":2,"time":9,"data":{"header":{"tools":null}}}',
+      '{"type":"request/header","seq":3,"time":9,"data":{"header":null}}',
+      '{"type":"request/header","seq":4,"time":9,"data":{"header":"invalid"}}',
+      '',
+    ].join('\n')
+    expect(normalizedToolSchemas(log, { sessionIds: [], cwd: '/w' })).toEqual([
+      [{ name: 'read', description: 'work in {{cwd}}' }],
+    ])
+  })
+})
+
 describe('formatSystemPromptSnapshot', () => {
   it('adds a missing terminal newline without changing an existing one', () => {
     expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
@@ -260,6 +286,61 @@ describe('headerChangeCount', () => {
     const other = JSON.stringify({ type: 'turn/start', seq: 1, time: 9, data: {} })
     expect(headerChangeCount(`${anchor}\n${other}\n\n${change}\n${change}\n`)).toBe(2)
     expect(headerChangeCount(`${anchor}\n`)).toBe(0)
+  })
+})
+
+describe('tool-schema snapshots', () => {
+  const snapshot = {
+    initial: [{ name: 'read', description: 'Read a file.' }],
+    changes: [[{ name: 'grep', description: 'Search files.' }]],
+  }
+
+  it('formats and parses canonical structured JSON', () => {
+    const formatted = formatToolSchemasSnapshot(snapshot.initial, snapshot.changes)
+    expect(formatted).toBe(`${JSON.stringify(snapshot, null, 2)}\n`)
+    expect(parseToolSchemasSnapshot(formatted)).toEqual(snapshot)
+  })
+
+  it('rejects invalid top-level and field shapes', () => {
+    expect(() => parseToolSchemasSnapshot('null')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('"invalid"')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('[]')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('{"initial":{},"changes":[]}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":[],"changes":{}}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":[],"changes":[{}]}')).toThrow(/array-valued/)
+  })
+
+  it('restores initial schemas into the pinned header token', () => {
+    expect(restorePinnedToolSchemas({ system: '{{system}}', tools: '{{tools}}' }, snapshot.initial))
+      .toEqual({ system: '{{system}}', tools: snapshot.initial })
+  })
+
+  it('rejects invalid headers and a missing tool token', () => {
+    expect(() => restorePinnedToolSchemas(null, snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas('invalid', snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas([], snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas({ tools: [] }, snapshot.initial)).toThrow(/must equal/)
+  })
+})
+
+describe('unknownToolCallIds', () => {
+  it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
+    const log = [
+      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":null}',
+      '{"type":"tool/result","data":"invalid"}',
+      '{"type":"tool/result","data":{"error":null}}',
+      '{"type":"tool/result","data":{"error":"invalid"}}',
+      '{"type":"assistant/message","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '',
+    ].join('\n')
+    expect(unknownToolCallIds(log)).toEqual(['missing', '<missing callId>'])
+  })
+
+  it('returns no failures for ordinary tool results', () => {
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
   })
 })
 

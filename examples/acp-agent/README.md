@@ -7,7 +7,7 @@ pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 pnpm run demo:code-mode acp   # the same server in Code Mode: one wire tool, run_code
 ```
 
-The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`code-mode.cordis.yml`](code-mode.cordis.yml) overlays the same tree with `run_code` and its generated TypeScript SDK; see [Code Mode](../../packages/core/tools/README.md#code-mode).
+The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds the unconfined in-process filesystem stack for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
 
 ## stdout is the protocol
 
@@ -39,11 +39,11 @@ This example hosts the ACP snapshot suite. `dsh-llm-replay` reconstructs model s
 
 The default tree composes [`@deepseek-ai/dsh-sandbox-local`](../../packages/sandbox/sandbox-local/), [`@deepseek-ai/dsh-bash-sandbox`](../../packages/bash/bash-sandbox/), [`@deepseek-ai/dsh-user-approval`](../../packages/ui/user-approval/), and [`@deepseek-ai/dsh-permission`](../../packages/ui/permission/). Bash starts in `workspace-write`; a denied operation returns a structured marker, and a retry with `sandbox_permissions` plus `justification` becomes a one-shot `session/request_permission` prompt in the editor. "Allow once" runs exactly that retry under the wider mode ([sandbox RFC § Escalation](../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)).
 
-- **One session config option is live**: a capable client shows one `Permissions` select. `workspace-write` means workspace-confined bash plus `ask`; `danger-full-access` means unconfined file access plus `never`. Switching writes one `permission/preset` event through to the sandbox-mode and approval-policy events, and `session/load` reports the resumed value.
+- **One session config option is live**: a capable client shows one `Permissions` select. `workspace-write` means workspace-confined bash plus `ask`; `danger-full-access` means unconfined bash plus `never`. Switching writes one `permission/preset` event through to the sandbox-mode and approval-policy events, and `session/load` reports the resumed value.
 - **Every approval is one-shot**: the choices are `Allow once` and `Reject`; a dismissal, rejection, missing editor, or unavailable runner fails closed.
 - **The boundary is bash-only and config-fixed today**: in-process filesystem tools are omitted from the confined live default, while the sandbox workspace root remains the server's launch directory.
 
-`tests/escalation.e2e.ts` boots this default tree keyless, drives the permission select, and—with a key and usable runner—proves both approval outcomes against the filesystem. The snapshot suite uses the same tree: snapshot mode starts at `danger-full-access` so established fixtures remain runner-independent, while the permission-switching and escalation inputs explicitly select `workspace-write` before exercising that policy path. No fixture pins a real denial because kernel error text is backend-specific; real confinement remains covered by the sandbox packages' kernel e2e suites.
+`tests/escalation.e2e.ts` boots this default tree keyless, drives the permission select, and—with a key and usable runner—proves both approval outcomes against the filesystem. Most snapshots use that tree and start at `danger-full-access` so bash fixtures remain runner-independent; scenarios that call `read`, `write`, or `edit` use the fixed full-access fs overlay and a separate request-header pin. The permission-switching and escalation inputs select `workspace-write` before exercising the bash policy path. No fixture pins a real denial because kernel error text is backend-specific; real confinement remains covered by the sandbox packages' kernel e2e suites.
 
 ## MVP limitations
 

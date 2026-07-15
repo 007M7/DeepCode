@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { basename, dirname, resolve } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import Include from '@cordisjs/plugin-include'
 
 /**
  * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
@@ -95,10 +96,16 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
- * tree settles. The include uses an absolute file URL while `baseUrl` stays at
- * the config directory for its relative imports. A missing fiber rejects here;
- * a later init rejection is handled by {@link installFailLoud}. Built bins need
- * `--expose-internals` for bare plugin specifiers; relative specifiers do not.
+ * tree settles. Entry names load through the Loader's internal module loader
+ * against `baseUrl` (the config directory), which may live outside
+ * `node_modules` reach and, unbuilt, cannot load vendored source; the
+ * bootstrap include is therefore statically imported and mounted as the
+ * `cordis:include` builtin, loading through the ambient module pipeline
+ * (vite/tsx/plain ESM) while the included tree's own specifiers stay
+ * config-relative. A missing fiber rejects here; a later init rejection is
+ * handled by {@link installFailLoud}. Built bins need `--expose-internals` or
+ * the Loader's native fallback for bare plugin specifiers; relative specifiers
+ * do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
@@ -108,8 +115,9 @@ export async function boot(binName: string, absoluteConfigPath: string): Promise
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
   await ctx.plugin(Loader)
+  ctx.loader.builtins.include = Include
   await ctx.loader.create({
-    name: '@cordisjs/plugin-include',
+    name: 'cordis:include',
     config: { path: pathToFileURL(absoluteConfigPath).href },
   })
   await ctx.loader.await()
