@@ -34,7 +34,7 @@ An earlier draft put the full algorithm (the retention walk, token-summing, text
 
 ### Auto-compaction runs on `agent/pre-step`, a dedicated surface-mutation seam
 
-Compaction is a **surface mutation**, not a request transform — and that distinction is the seam it belongs on. The loop's request lifecycle, per step, is: assemble the system prompt → open the step → derive the message history from the surface → run the `agent/request` waterfall → call the model. An earlier cut wedged compaction into the `agent/request` waterfall, which forced two problems: (1) the loop had already derived `messages` from the *stale* surface, so the listener had to mutate the surface and then *re-derive* and overwrite `request.messages` — a double-derive whose only purpose was to undo the premature first derive; and (2) `agent/request` also carries downstream-injected context a listener might have added to `request.messages`, which compaction cannot act on (it can only compact the surface), inviting the confusion of measuring tokens compaction can't shed.
+Compaction mutates the session surface, so it runs before the step opens and before messages are derived. `agent/request` remains a call-config transform and never needs to rebuild history after a surface change.
 
 The fix is a dedicated loop seam, **`agent/pre-step`** (`@mode serial`), fired by the loop *after* system assembly and *before* the step opens (`step/start`):
 
@@ -62,7 +62,7 @@ A runaway turn thus compacts exactly like any other history: its early *closed* 
 
 ### Head-anchoring: one auto checkpoint, always at the head
 
-`compactIfNeeded` always anchors the compacted range at the surface **head** (`nodes[0]`). After a first compaction lands a summary node at the head, the *second* compaction's range starts at that summary node and re-summarizes it together with the steps accumulated since — so the surface holds **at most one** auto-generated checkpoint, always at the head, re-consolidated each cycle (the backend's checkpoint-merge prompt makes this a cheap incremental merge — see below). This is *why* `CompactionResult.shadowedRange` is a **surface-position span, not a numeric seq interval**: after a replace lands a fresh high-seq summary node at an older range's position, `start` can be numerically **greater** than `end`. The range is resolved positionally (index into the ordered node list and slice), and `shadowedSeqs` is the authoritative set in surface order. (Manual `compactRegion` may target any aligned mid-range and so *can* leave several checkpoints; the checkpoint framing does not claim everything after it is recent.)
+Auto-compaction always starts at the surface head, merging the prior checkpoint with newly compacted history so only one automatic checkpoint remains. `shadowedRange` is therefore positional rather than a numeric sequence interval: a newer summary sequence may occupy an older surface position. `shadowedSeqs` records the authoritative surface order. Manual mid-range compaction may leave multiple checkpoints.
 
 ### Approximate convergence invariant
 
@@ -85,7 +85,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 ### Checkpoint framing + incremental merge (backend-private)
 
-The landed `user/message` is not the raw summary: the backend wraps it in a checkpoint preamble (so a resuming model reads it as established background, not a fresh request) and `<compacted-summary>…</compacted-summary>` tags. The tags make a prior checkpoint detectable on the next cycle, and the summarization prompt then instructs the model to *merge it in place* (preserve still-true facts, drop stale) rather than re-summarize verbatim — a cheap incremental merge that needs no extra log/event machinery. The raw, unframed summary stays on the `compact/summary` provenance event. This framing is entirely a **backend HOW decision** — the contract only promises "a single replace `user/message` carries the (possibly framed) summary; the raw summary lives on `compact/summary`." A template or remote backend may frame differently or not at all.
+The basic backend wraps the summary as established checkpoint context and tags it for incremental merging on the next cycle. The raw summary remains on `compact/summary`. Framing is backend policy; the seam promises only that one replacement user message carries the possibly framed summary.
 
 ### Blocking via a log-recorded lock, plus a crash/recoverable failure taxonomy
 
@@ -121,7 +121,7 @@ Two failure paths, both documented:
 
 ## Testing
 
-- **Unit** (`dsh-compact-basic`): the whole-unit retention walk, the convergence-invariant throw, both failure paths (`compact/end` with/without `error`), head-anchoring producing a non-monotonic `shadowedRange`, decline-on-open-tail, crash-orphan inertness, and the **runaway-turn regression** — a single oversized open turn compacts its early closed steps (proven to fail on the layer-2 protection it replaced). Driven through the real `dsh-invariants` plugin and the real Loader/inject path.
-- **Loop** (`dsh-agent-loop`): `agent/pre-step` fires once per step, after `turn/start` and before `step/start`, awaited; a surface mutation in a `pre-step` listener lands outside the step and is reflected in the single derived request.
-- **With-key e2e** (`examples/coding-agent`): a real model + real bash session with a lowered `contextWindow`/`retainTokens` triggers compaction mid-session; the test verifies the WORLD (a `compact/start…end` pair landed, the surface shrank, the agent still completed the task after compaction). This is compaction's first real-world exercise and the runaway-survival net.
-- **Snapshot (deferred, named gap)**: a full-transcript snapshot of a runaway-turn compaction is NOT yet possible — `dsh-llm-replay` derives one model call per `(turn, step)` from `assistant/chunk` events, but the summarization call records no `assistant/chunk`s and carries no `sessionId` (it binds to the anonymous cursor and claims a non-existent extra script). Covering it needs net-new replay infrastructure (record/replay an interleaved summarization call) and is scheduled as a follow-up rather than discovered mid-build.
+- **Unit:** Real Loader and invariant plugins cover whole-unit retention, convergence failure, both `compact/end` outcomes, head anchoring, open-tail refusal, inert crash orphans, and compacting closed steps inside one oversized open turn.
+- **Loop:** Tests pin one awaited `agent/pre-step` per step between `turn/start` and `step/start`; a surface mutation there lands outside the step and appears in the single derived request.
+- **With-key e2e:** A real model and bash session with lowered limits triggers compaction, records a complete `compact/start…end` pair, shrinks the surface, and finishes the task.
+- **Snapshot gap:** Runaway-turn compaction cannot yet replay because the summarization call records no `assistant/chunk` events or `sessionId`; interleaved summarization-call replay remains follow-up work.

@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-Two gaps shared one root. First, provider KV caching (DeepSeek context caching) is prefix-based — a request pays full price only for the tokens after the longest stored prefix it matches — yet nothing in the request pipeline stated, checked, or measured prefix stability: every registered [`PromptSection`](../../../../packages/core/system-prompt/src/index.ts) happened to be static, the tool set happened not to change mid-session, no listener happened to rewrite requests. A single time-interpolating section would have silently multiplied context cost, and no test or metric would have moved. Second, and deeper: the session log — the system's single source of truth — could not actually answer *what the model saw*. It recorded every message but never the system prompt, the tool schemas, or even which model; the mutable `agent/request` waterfall handed listeners the whole `GenerateOptions` to rewrite per call; replay equivalence was therefore a property of the plugin population, not of the design.
+The request pipeline did not guarantee prefix stability for provider caching, and the session log could not reconstruct what the model saw. It omitted model, system prompt, and tool schemas while allowing per-call request rewrites. Cache behavior and replay equivalence therefore depended on whichever plugins happened to be loaded.
 
 The reference shape for the happy path is MiniCode's `LLMClient`: a stateful conversation client, appended to — never rebuilt — as the conversation advances, resetting only when the system prompt, tool set, or compaction genuinely changes what the model must see. The design question this RFC answers is how to get that discipline without giving up event-sourcing.
 
