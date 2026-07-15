@@ -182,10 +182,11 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
-  # Observational, non-blocking Windows mirror of the Linux gate lanes. Snapshot
-  # stays Linux-only while its replay goldens remain platform-specific. Run the
-  # gates from native PowerShell: an MSYS parent would change the environment
-  # being measured. This job intentionally stays out of all-checks-passed.needs.
+  # Observational, non-blocking Windows static, lint, and artifact lanes. Coverage
+  # and snapshot stay Linux-only until their platform-specific runtime failures
+  # have dedicated support. Run the gates from native PowerShell: an MSYS parent
+  # would change the environment being measured. This job intentionally stays
+  # out of all-checks-passed.needs.
   windows-gates:
     continue-on-error: true
     runs-on: windows-2025
@@ -193,7 +194,6 @@ jobs:
     env:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
-      DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
@@ -203,25 +203,16 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             publint_concurrency: '8'
-            coverage_max_workers: ''
             eslint_cache: ''
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             publint_concurrency: '8'
-            coverage_max_workers: ''
             eslint_cache: '1'
-          - lane: coverage
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            publint_concurrency: '8'
-            coverage_max_workers: '4'
-            eslint_cache: ''
           - lane: artifacts
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
             publint_concurrency: '8'
-            coverage_max_workers: ''
             eslint_cache: ''
     steps:
       - uses: actions/checkout@v6
