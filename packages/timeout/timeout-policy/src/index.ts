@@ -6,7 +6,6 @@
  */
 
 import type { Context } from 'cordis'
-import type { CallId } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
@@ -30,13 +29,11 @@ export const inject = ['tools']
  * is the model-facing message; `error.code` is the same {@link TOOL_TIMEOUT}
  * this plugin owns, so a retry/sandbox plugin (and replay) can route on it.
  *
- * @param callId - the timed-out call's id, carried onto the replacement result.
  * @param timeoutMs - the elapsed budget, rendered into the model-facing message.
  * @returns the `isError` {@link ToolExecutionResult} with a `TOOL_TIMEOUT` error.
  */
-export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecutionResult {
+function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
   return {
-    callId,
     content: [{ type: 'text', text: `Error: tool call timed out after ${timeoutMs}ms` }],
     isError: true,
     error: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT },
@@ -68,7 +65,7 @@ export function apply(ctx: Context): void {
       // quiescence; replace whatever it returned (its own abort result) with the
       // structured TOOL_TIMEOUT the model sees.
       if (timeoutOf(d.signal, TOOL_TIMEOUT) !== undefined) {
-        return toolTimeoutResult(exec.callId, timeoutMs)
+        return toolTimeoutResult(timeoutMs)
       }
       return result
     } finally {

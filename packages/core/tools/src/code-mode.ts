@@ -108,14 +108,13 @@ function renderValue(value: unknown): string {
 /** The run_code result's `meta` payload (JSON-serializable; `presentResult` narrows it back). */
 interface RunCodeMeta {
   logs: CodeRunResult['logs']
-  dispatches: number
 }
 
 /** Soft-narrow a result `meta` back to {@link RunCodeMeta} (replay may carry older shapes; presentation must not throw). */
 function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
   if (typeof meta !== 'object' || meta === null) return undefined
   const m = meta as Record<string, unknown>
-  if (!Array.isArray(m.logs) || typeof m.dispatches !== 'number') return undefined
+  if (!Array.isArray(m.logs) || !m.logs.every(log => typeof log === 'string')) return undefined
   return m as unknown as RunCodeMeta
 }
 
@@ -251,12 +250,12 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         }
 
         if (result.error) {
-          const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.map(entry => entry.text).join('\n')}` : ''
+          const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
           throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
         }
         const rendered = renderValue(result.value)
-        const parts = [result.logs.map(entry => entry.text).join('\n'), rendered].filter(part => part.length > 0)
-        const meta: RunCodeMeta = { logs: result.logs, dispatches }
+        const parts = [result.logs.join('\n'), rendered].filter(part => part.length > 0)
+        const meta: RunCodeMeta = { logs: result.logs }
         return {
           content: [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }],
           meta,
@@ -278,7 +277,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
     presentResult: (_args, result) => {
       const meta = asRunCodeMeta(result.meta)
       if (!meta) return undefined
-      const output = meta.logs.map(entry => entry.text).join('\n')
+      const output = meta.logs.join('\n')
       return {
         card: 'generic',
         ...output.length > 0 ? { content: [{ type: 'text' as const, text: output }] } : {},
