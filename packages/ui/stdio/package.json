@@ -29,6 +29,11 @@
     "@deepseek-ai/dsh-user-interaction": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-agent-loop": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "schemastery": "^3.18.0"
   },
