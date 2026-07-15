@@ -1,6 +1,6 @@
 # Translation prompt (pipeline asset)
 
-本文件是自动翻译流水线的 prompt 模板；自 `# Translation Prompt` 起的正文逐字进入模型请求，因此不参与双语配对（见 [README.md](README.md) 排除清单）。渲染时，[translation-rules.md](translation-rules.md) 全文填入 `{{translation_rules}}`，[terminology.md](terminology.md) 整表填入 `{{terminology}}`，避免模板另存一份会漂移的规则副本。[style-samples.md](style-samples.md) 定义文体，模板内嵌的 Examples 仅抽样问题类型；术语表、忠实性与结构规则优先于样例，样例在这些硬约束内决定文体。修改本文件即修改翻译行为，需按正常 PR 评审。
+本文件是自动翻译流水线使用的 prompt 模板；从 `# Translation Prompt` 开始的正文会逐字进入模型请求，因此本文件不参与双语配对（见 [README.md](README.md) 排除清单）。渲染时会把 [translation-rules.md](translation-rules.md) 全文填入 `{{translation_rules}}`，把 [terminology.md](terminology.md) 整表填入 `{{terminology}}`，以免模板另存一份规则而日后失去同步。[style-samples.md](style-samples.md) 定义文体，模板中的 Examples 只用于说明典型问题；术语表、忠实性和结构规则优先于样例，样例只在这些硬性约束内决定文体。修改本文件会改变翻译行为，需正常经过 PR 评审。
 
 ## 占位符契约
 
@@ -15,11 +15,13 @@
 | `{{source_filename}}` | 源文档的 basename（如 `foo.md` 或 `foo.zh.md`） | 由流水线从待译文件路径取得 |
 | `{{source_filename_zh}}` | 中文侧 basename（如 `foo.zh.md`） | 英文源追加 `.zh`；中文源使用自身 basename |
 
-流水线仅支持上表占位符，并按整篇文档翻译。它不支持 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 或 `%%` 分段协议。输出是一个以 `<dsh-translation-response>` 为根元素的 XML 文档，三个子元素的任意 Markdown 内容都放在 CDATA 中；内容出现 `]]>` 时写成 `]]]]><![CDATA[>`，XML 解析后仍得到原文。
+例如，英译中时若源文件是 `foo.md`，`{{source_filename}}` 填 `foo.md`，`{{source_filename_zh}}` 填 `foo.zh.md`；中译英时若源文件是 `foo.zh.md`，两个占位符都填 `foo.zh.md`。
+
+流水线只识别上表中的占位符，并且一次翻译整篇文档。它不支持 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}` 或 `%%` 分段协议。输出必须是一个以 `<dsh-translation-response>` 为根元素的 XML 文档；三个子元素中的 Markdown 内容都放在 CDATA 中。内容出现 `]]>` 时写成 `]]]]><![CDATA[>`，XML 解析后仍会还原为原文。
 
 ## Few-shot 金标
 
-流水线的 few-shot 是**整文档级**的中英对照，不是模板内嵌的句子级正误例。few-shot 集取自以下 5 组经人工评审的配对文档，以仓库当前版本为准、随仓库更新：
+流水线使用**整篇文档**的中英对照作为 few-shot，不是模板内嵌的句子级正误例。以下 5 组配对文档均经过人工评审，并以仓库当前版本为准，随仓库一同更新：
 
 - `README.md` ↔ `README.zh.md`
 - `docs/development.md` ↔ `docs/development.zh.md`
@@ -27,7 +29,7 @@
 - `docs/i18n/translation-rules.md` ↔ `docs/i18n/translation-rules.zh.md`
 - `docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md` ↔ 对应 `.zh.md`
 
-注入时按当前翻译方向选择每组的源侧与目标侧：user 消息为源文档全文，assistant 消息使用模板正文规定的同一 XML 协议；`translation` 与 `final` 都放目标文档全文，`review` 为 `- [None] No corrections.`。CDATA 使用上文的 `]]>` 拆分规则。上下文紧张时按上列顺序从后往前裁剪组数。这 5 组也是评审校准锚点；改动任何一组即改变流水线行为。
+注入时按当前翻译方向选择每组的源侧与目标侧：user 消息包含源文档全文，assistant 消息采用模板正文规定的 XML 协议；`translation` 与 `final` 都放入目标文档全文，`review` 填 `- [None] No corrections.`。CDATA 遵循上文的 `]]>` 拆分规则。上下文不足时，按上列顺序从后往前删减示例组数。这 5 组也是评审校准锚点；改动任何一组都会改变流水线行为。
 
 ## 模板正文
 

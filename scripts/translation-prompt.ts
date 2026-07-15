@@ -82,6 +82,10 @@ export function renderTranslationPrompt(document: string, input: TranslationProm
     source_filename_zh: sourceFilenameZh,
   }
   const template = extractTranslationPrompt(document)
+  const placeholderFreeTemplate = template.replace(PLACEHOLDER, '')
+  if (placeholderFreeTemplate.includes('{{') || placeholderFreeTemplate.includes('}}')) {
+    throw new Error('translation prompt: template contains malformed placeholder syntax')
+  }
   const names = [...template.matchAll(PLACEHOLDER)].map(match => match[1] ?? '')
   const unknown = names.filter(name => !TRANSLATION_PROMPT_PLACEHOLDERS.includes(name as TranslationPromptPlaceholder))
   if (unknown.length > 0) throw new Error(`translation prompt: unsupported placeholder(s): ${[...new Set(unknown)].join(', ')}`)

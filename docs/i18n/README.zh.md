@@ -26,7 +26,7 @@
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
 2. 任何已存在的配对——无论是否 required——都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
-4. 日期等于或晚于 manifest（元数据清单）中 `requiredSince` 分界日期的每篇日期命名文档（`yyyy-mm-dd-*.md`）都有完整配对——新增的日期命名 RFC 从创建起就要求双语齐备。
+4. 凡文件名符合 `yyyy-mm-dd-*.md` 且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，都必须有完整配对——新建的日期命名 RFC 从创建起便须配齐中英文。
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态——missing、out-of-sync 或 ok——是翻译批次的工作清单。它从不失败；它只报告。
 
@@ -49,4 +49,4 @@
 
 ## 分工
 
-这里的对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 产出、由人评审——在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁机械检查配对完整性、记录的 hash、切换行与文档所列的结构签名；翻译质量、术语以及签名未编码的结构要求仍由评审把关。prompt 契约可以直接执行：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 将规范真源渲染到两个翻译方向，并严格解析含三个字段的 XML 响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向、仓库内示例与 CDATA 拆分规则。
+对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 生成，再由人评审：在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁负责检查配对是否完整、记录的 hash、语言切换行以及本文列出的结构签名；翻译质量、术语和签名未涵盖的结构要求仍由评审把关。prompt 契约也有可执行实现：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 会把权威规则渲染到英译中或中译英的 prompt 中，并严格解析包含三个字段的 XML 响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向、仓库内示例与 CDATA 拆分规则。

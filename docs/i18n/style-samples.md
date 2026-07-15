@@ -16,7 +16,7 @@
 
 > This document covers **behavior**; type shapes live in [core-data-structures/](../core-data-structures/core.md), the per-event/service reference in the [generated catalog](../cordis-catalog/events.md), per-package contracts in the package READMEs ([map](../../packages/README.md)).
 
-本文档描述整体行为逻辑；类型定义存放于 [core-data-structures/](../core-data-structures/core.md)；各类事件、服务的详细参考见[生成目录](../cordis-catalog/events.md)；各 package 的对外契约写在对应 package 的 README（[索引](../../packages/README.md)）。
+本文档描述整体行为逻辑；类型定义存放于 [core-data-structures/](../core-data-structures/core.md)；各类事件、服务的详细参考见[生成目录](../cordis-catalog/events.md)；各包（package）的对外契约写在相应的 README 中（[索引](../../packages/README.md)）。
 
 ## ② 防御模式规则
 
@@ -26,11 +26,11 @@
 
 > **Dispose must reach quiescence, not just request it** — A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup async and await the children's exit (kill → await `done`), and close listener/notification registries BEFORE killing so late completions stay silent. Tests prove disposal waited (pid gone right after `await fiber.dispose()`), not merely that the process eventually dies.
 
-**dispose（资源释放）必须等待所有任务完全停稳，不能仅下发终止指令就返回**——若清理逻辑仅发送终止、中断信号，但不等任务停止就直接退出，会产生孤儿进程。清理逻辑需设为异步，等待所有子任务彻底退出（先下发终止信号，再等待执行完成）；在执行终止操作前先关闭监听器与通知注册表，让延迟到达的完成事件不再触发任何通知。测试要验证 dispose 确实完成等待：执行完 `await fiber.dispose()` 后进程 PID 立即消失，不能仅校验进程最终会自行消亡。
+**dispose（资源释放）必须等待所有任务完全停稳，不能仅下发终止指令就返回**：如果清理过程只发出终止或中断信号，却不等任务停止就返回，就会留下孤儿进程。清理应采用异步方式，等待所有子任务彻底退出（先发出终止信号，再等待退出）；发出信号前应先关闭监听器与通知注册表，使延迟到达的完成事件不再触发通知。测试要证明 dispose 的确等到清理完成：执行完 `await fiber.dispose()` 后进程 PID 立即消失，不能只检查进程最终会自行消亡。
 
 > **Async state is not synchronous state** — `agent.send()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) rather than counting actions you assume map 1:1 to turns.
 
-**异步状态不等同于同步瞬时状态**——调用 `agent.send()` 不会在返回前同步更新状态；后台任务完成时机与轮次边界存在竞态；调用 `reader.close()` 既可能是读到文件末尾，也可能是资源销毁触发。切勿根据刚刚请求切换的状态来控制流程；生命周期逻辑应基于真实触发的事件与 promise 驱动（`agent/status`、`task.done`），观测完整状态切换（先 `running`、再 `idle`），而非通过操作次数推断轮次是一一对应的。
+**异步状态不等同于同步瞬时状态**：调用 `agent.send()` 不会在返回前同步更新状态；后台任务的完成时间与轮次边界存在竞态；`reader.close()` 既会在读到文件末尾时触发，也会在资源释放时触发。切勿把刚刚发起的状态变更当成已经生效，据此控制流程；生命周期逻辑应以实际触发的事件和已完成的 promise（`agent/status`、`task.done`）为准，并观察完整的状态变化（先 `running`，再 `idle`），不要根据操作次数推断操作与轮次一一对应。
 
 ## ③ 测试政策清单
 
@@ -60,7 +60,7 @@
 
 > The gate's limit, stated plainly: a green gate means the pair was confirmed consistent at these exact contents, not that the confirmation was sound. It checks hashes and shape; it cannot judge whether the two sides actually say the same thing — that is the reviewer's half of the contract. A re-recorded pair with a sloppy counterpart passes the gate; it must not pass review.
 
-明确门禁校验边界：门禁校验通过，仅代表每侧文件的当前 blob hash 与伴随记录中的对应值一致，且两侧结构签名相符，不代表译文内容准确无误。门禁无法判断双语表意是否统一——译文质量把关是评审人的责任。即便译文粗糙、表意偏差，只要两侧当前 blob hash 各自匹配记录值，门禁就会放行，但这类 PR 绝不能通过人工评审。
+门禁的边界很明确：通过门禁只说明两侧文件当前的 blob hash 与伴随记录吻合，并且结构签名一致，也就是说，这组内容曾被确认一致；它不代表这次确认可靠。门禁无法判断两种语言是否真正表达了相同的意思；这部分契约要由评审人把关。即使译文粗糙、表意有误，重新记录配对后仍能通过门禁，但绝不能通过人工评审。
 
 ## ⑥ RFC 论证
 
@@ -72,7 +72,7 @@
 
 > **Rollout**: date-named RFCs don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named RFC is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
 
-**推进**：新增的日期命名 RFC 不再走批量翻译流程。若其标注日期等于或晚于 manifest（元数据清单）里的 `requiredSince` 分界时间，提交合入时必须配套双语文件，因此每篇新的日期命名 RFC 从创建起就要求双语齐备。针对存量旧文档：manifest 内的强制翻译列表只是当下执行红线，并非最终目标。（……）文档完成双语配对等同于一份长期约束承诺：后续只要修改任一版本，就必须同步更新对应另一语种文件。因此强制翻译范围的推进节奏，要匹配翻译评审实际可投入人力，切勿超前铺开。
+**推进**：日期命名的 RFC 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 RFC 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
 
 ## 从样例提炼的要点
 

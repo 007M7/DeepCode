@@ -40,6 +40,15 @@ describe('translation prompt rendering', () => {
       terminology: 'terms',
     })).toThrow('does not match source language Chinese')
   })
+
+  it('rejects malformed template placeholders before injecting rule contents', () => {
+    expect(() => renderTranslationPrompt(document.replace('{{source_lang}}', '{{source-lang}}'), {
+      sourceLanguage: 'English',
+      sourceFilename: 'guide.md',
+      translationRules: 'A literal {{source_lang}} in injected rules.',
+      terminology: '| English | 中文 |',
+    })).toThrow('template contains malformed placeholder syntax')
+  })
 })
 
 describe('translation response XML', () => {

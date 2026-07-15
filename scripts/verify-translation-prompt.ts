@@ -37,7 +37,6 @@ try {
     translationRules,
     terminology,
   })
-  if (englishSource.includes('{{') || chineseSource.includes('{{')) throw new Error('rendered prompt contains an unresolved placeholder')
   if (!englishSource.includes('[English](example.md) | 中文')) throw new Error('English-source render does not carry the Chinese switcher instruction')
   if (!chineseSource.includes('English | [中文](example.zh.md)')) throw new Error('Chinese-source render does not carry the English switcher instruction')
 
