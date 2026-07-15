@@ -140,7 +140,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:21`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:18`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -256,7 +256,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:49`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:35`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -608,6 +608,22 @@ export interface Config {
 
 Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-local/src/index.ts)
 
+## `@deepseek-ai/dsh-stdio`
+
+Requires: `agents` · `userInteraction`
+
+```ts config-catalog
+/** Serializable plugin configuration (cordis-native, schemastery). */
+export interface Config {
+  /** Banner printed once on start, before the first `> ` prompt. */
+  welcome?: string
+  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
+  agent?: string
+}
+```
+
+Source: [`packages/ui/stdio/src/index.ts:30`](../packages/ui/stdio/src/index.ts)
+
 ## `@deepseek-ai/dsh-stdio-agent`
 
 ```ts config-catalog
@@ -780,6 +796,22 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system-prompt/src/index.ts)
 
+## `@deepseek-ai/dsh-time-context`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Request-time clock formatting and refresh policy. Invalid values fail plugin load. */
+export interface Config {
+  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
+  timeZone?: string
+  /** Maximum age of a reading within one turn, in milliseconds (default 60,000; `0` refreshes every step). */
+  refreshIntervalMs?: number
+}
+```
+
+Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/time-context/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-cordis`
 
 Requires: `tools`
@@ -816,7 +848,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:31`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:22`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
@@ -951,7 +983,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:308`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:307`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1001,7 +1033,7 @@ export interface WebServiceConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:59`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -1016,10 +1048,8 @@ export interface Config {
   maxResponseBytes?: number
   /** Maximum decoded body length in characters. */
   maxBodyChars?: number
-  /** Default fetch timeout in milliseconds. */
+  /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
@@ -1027,7 +1057,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-fetch-local/src/index.ts:34`](../packages/web/web-fetch-local/src/index.ts)
+Source: [`packages/web/web-fetch-local/src/index.ts:36`](../packages/web/web-fetch-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
 
@@ -1123,7 +1153,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/workflow-workerthread/src/index.ts:36`](../packages/workflow/workflow-workerthread/src/index.ts)
+Source: [`packages/workflow/workflow-workerthread/src/index.ts:32`](../packages/workflow/workflow-workerthread/src/index.ts)
 
 ## Loadable plugins with no config
 
@@ -1162,6 +1192,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-agent` ([`packages/ui/jsonrpc-agent/src/index.ts`](../packages/ui/jsonrpc-agent/src/index.ts))
+- `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))

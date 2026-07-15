@@ -9,8 +9,8 @@
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
-import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult, WebProviderStatus } from '@deepseek-ai/dsh-web'
-import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from './policy.ts'
 
 /** Resolved provider limits (the plugin's schemastery Config supplies defaults). */
@@ -23,8 +23,6 @@ export interface LocalFetchLimits {
   maxBodyChars: number
   /** Default fetch timeout in milliseconds. */
   timeoutMs: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs: number
   /** Maximum number of (same-origin) redirect hops to follow. */
   maxRedirects: number
   /** `User-Agent` header sent on every request. */
@@ -41,17 +39,16 @@ export class LocalFetchProvider implements WebFetchProvider {
   constructor(private readonly limits: LocalFetchLimits) {}
 
   /** No credentials to check — an anonymous public fetcher is always usable. */
-  status(): WebProviderStatus {
-    return { available: true }
+  available(): boolean {
+    return true
   }
 
-  async fetch(request: WebFetchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebFetchResult> {
-    if (exec?.signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
-    const timeoutMs = clampTimeout(request.timeoutMs, this.limits.timeoutMs, this.limits.maxTimeoutMs)
+  async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult> {
+    if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
 
     // One signal stops both the request and body read. The deadline's TimeoutReason later
     // distinguishes this provider's timeout from caller or outer-deadline cancellation.
-    using d = deadline(exec?.signal, timeoutMs, 'WEB_FETCH_TIMEOUT')
+    using d = deadline(signal, this.limits.timeoutMs, 'WEB_FETCH_TIMEOUT')
     return await this.followAndRead(request.url, d.signal)
   }
 
@@ -142,7 +139,6 @@ export class LocalFetchProvider implements WebFetchProvider {
     const body: WebFetchBody = kind === 'html' ? { kind: 'html', content } : { kind: 'text', content }
 
     return {
-      providerId: this.id,
       url: finalUrl.toString(),
       statusCode: response.status,
       body,
