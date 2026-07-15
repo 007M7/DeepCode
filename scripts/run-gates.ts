@@ -335,8 +335,8 @@ function builtBinSmokeGate(): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
-    'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).
