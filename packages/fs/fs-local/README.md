@@ -19,7 +19,7 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 - **`writeText`** — atomic: writes to a temp file opened exclusively (`wx`, `0o600`) inside a randomly-named private staging dir (`0o700`) next to the target, fsyncs, then renames over the target. An existing file's mode is preserved, while new files default to `0o600`. The `expected` guard is OPTIONAL: omitting it unconditionally creates-or-overwrites; `createIfAbsent` creates a missing target and rejects an existing one (`FS_NOT_OBSERVED`); `replaceIfVersion` replaces only at the observed version (a missing target or mismatch is `FS_STALE_VERSION`).
 - **`editText`** — atomic literal read-modify-write over the same primitive, serialized per target by a mutation lock. The `expected` guard is OPTIONAL: when supplied it verifies the version BEFORE literal matching (a stale edit reports `FS_STALE_VERSION`, never `FS_EDIT_NOT_FOUND`/`FS_AMBIGUOUS_EDIT` against newer content); omitting it edits the current content unconditionally. A missing target reports `FS_STALE_VERSION` either way. LF-normalizes for matching, restores the file's dominant CRLF/LF style, and rejects empty `oldString` / zero matches (`FS_EDIT_NOT_FOUND`) or ambiguous multi-matches without `replace_all` (`FS_AMBIGUOUS_EDIT`).
 
-The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the thin service wiring.
+The package-root SDK surface is the default/named `LocalFileSystem` class plus `Config`. Raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the thin service wiring.
 
 ## Model Experience
 
