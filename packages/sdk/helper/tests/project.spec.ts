@@ -873,6 +873,12 @@ describe('extension points', () => {
         resource.kind === 'cordis-config-entry' && resource.entry.id === 'acp')
     expect(acpEntry?.entry.id).toBe('acp')
     expect(acpEntry?.validateConfig?.({ model: '' })).toHaveLength(1)
+    const stdioEntry = builtins.get(featureId('app')).contribution(selection('app', ['stdio']), profile).resources
+      .find((resource): resource is CordisConfigEntryResource =>
+        resource.kind === 'cordis-config-entry' && resource.entry.id === 'stdio')
+    expect(stdioEntry?.validateConfig?.({ welcome: 'ready', sessionId: 1 })).toEqual([
+      'sessionId must be a non-empty string',
+    ])
     const embedOption = app.options.find(option => option.id === 'embed')
     expect(embedOption?.markerConfigEntries(profile)).toEqual([])
     expect(embedOption?.contribution(profile, {}).resources.map(resource => resource.kind)).toEqual([
