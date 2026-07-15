@@ -419,9 +419,11 @@ describe('SdkProject and ProjectEditSession', () => {
     const edit = project.edit(registry)
     type Internals = {
       documents: Map<string, TextProjectFile>
+      states: Map<ReturnType<typeof featureId>, unknown>
       applyResource(resource: ProjectResource, previous: ProjectResource | undefined): void
       removeResource(resource: ProjectResource): void
       replaceContribution(previous: ProjectContribution | undefined, next: ProjectContribution): void
+      finalProfile(): ProjectProfile
       manifest(): unknown
       cordis(): unknown
       environment(path: '.env' | '.env.example'): unknown
@@ -508,6 +510,8 @@ describe('SdkProject and ProjectEditSession', () => {
       override readonly options = []
     }
     expect(() => { internals.state(new Foreign()) }).toThrow('not applicable')
+    internals.states.delete(featureId('app'))
+    expect(internals.finalProfile()).toBe(project.profile)
     const sourceDocuments = (project as unknown as { documents: Map<string, TextProjectFile> }).documents
     sourceDocuments.set('.env', new TextProjectFile('.env', 'bad'))
     expect(() => project.readEnvironment('.env', 'KEY')).toThrow('not an environment document')

@@ -289,6 +289,10 @@ describe('build profiles and invocation', () => {
     let called = false
     await runProjectBuild([], root, { run: async () => { called = true; return { exitCode: 0, signal: null } } })
     expect(called).toBe(false)
+    const unreadableManifest = await mkdtemp(join(tmpdir(), 'dsh-build-unreadable-manifest-'))
+    temporary.push(unreadableManifest)
+    await mkdir(join(unreadableManifest, 'package.json'))
+    await expect(runProjectBuild([], unreadableManifest)).rejects.toThrow()
     await expect(runSDK('index.js', { cwd: root })).rejects.toThrow('Run dsh-sdk build first')
   })
 
