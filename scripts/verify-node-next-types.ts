@@ -10,7 +10,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-const isWindows = process.platform === 'win32'
 const root = resolve(import.meta.dirname, '..')
 
 interface ExportTarget {
@@ -144,13 +143,13 @@ try {
     .join('\n')
   writeFileSync(resolve(tmp, 'index.ts'), `${imports}\n`)
 
-  // On Windows the bin shim is a .cmd file; recent Node (CVE-2024-27980)
-  // refuses to launch .cmd/.bat via execFileSync without shell:true.
-  const tscBin = isWindows ? resolve(root, 'node_modules/.bin/tsc.cmd') : resolve(root, 'node_modules/.bin/tsc')
-  execFileSync(tscBin, ['-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
+  // tsc's JS entry via the current node, not the .bin shim: the extensionless
+  // shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd variant needs
+  // shell:true, which space-joins args UNESCAPED (DEP0190) — a hazard for the
+  // temp tsconfig path. The JS entry behaves identically on every platform.
+  execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
     cwd: root,
     stdio: 'pipe',
-    shell: isWindows,
   })
   console.log(`verify-node-next-types: ${packages.length} workspace package declaration surface(s) compile under NodeNext.`)
 } catch (error: unknown) {
