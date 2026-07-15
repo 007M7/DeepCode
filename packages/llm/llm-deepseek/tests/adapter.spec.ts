@@ -159,7 +159,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       status,
       body: JSON.stringify({ error: { message: `failed with ${status}`, type: 't', code: 'c' } }),
     }
-    const server = await mockServer([behavior, behavior, behavior])
+    const server = await mockServer([behavior, behavior])
     const ctx = await harness(server.url)
     await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(`failed with ${status}`)
@@ -167,11 +167,6 @@ describe('DeepSeekAdapter against a mock server', () => {
       assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
         .catch((error: unknown) => (error as LlmError).code),
     ).resolves.toBe(code)
-    // The numeric HTTP status is carried on the error for explicit handling.
-    await expect(
-      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
-        .catch((error: unknown) => (error as LlmError).status),
-    ).resolves.toBe(status)
   })
 
   it('keeps the status-line message for JSON error bodies without a message', async () => {

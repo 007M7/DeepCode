@@ -57,6 +57,6 @@ Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK 
 
 - **`tool_choice` is not mapped** — same MVP contract as llm-deepseek.
 - **In-history `system`-role messages fold into `user`-role wire messages** — pi-ai exposes a single `systemPrompt` slot, diverging from the hand-rolled twin's `role: 'system'` passthrough.
-- **`LlmError.status` is never set** — pi-ai reports failures as in-stream events with no HTTP status, so error codes are regex-classified from the error text.
+- **Provider HTTP status is unavailable** — pi-ai reports failures as in-stream events, so stable error codes are regex-classified from the error text.
 - **`buildModel` hardcodes descriptor metadata** — `contextWindow: 128000`, `maxTokens: 64000`, zero cost, identically for every registered model name; not configurable.
 - **pi-ai's built-in retries are disabled (`maxRetries: 0`)** — failures surface immediately; retry policy belongs to `llm/stream` listeners.
