@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { globSync } from 'node:fs'
 
 export const rfcRoot = resolve(import.meta.dirname, '../docs/rfc')
@@ -58,7 +58,7 @@ export function walkRfcTree(): { rfcs: Rfc[]; errors: string[] } {
     }
   }
   for (const lifecycle of LIFECYCLES) {
-    for (const match of globSync(`${lifecycle}/**/*.md`, { cwd: rfcRoot }).sort()) {
+    for (const match of globSync(`${lifecycle}/**/*.md`, { cwd: rfcRoot }).map(path => path.split(sep).join('/')).sort()) {
       const segs = match.split('/')
       // Allowlisted file directly at the lifecycle root (e.g. implemented/AGENTS.md).
       if (segs.length === 2 && ROOT_ALLOWLIST.has(segs[1] ?? '')) continue
