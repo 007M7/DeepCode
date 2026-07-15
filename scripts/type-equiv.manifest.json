@@ -101,7 +101,6 @@
     { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunResult", "source": "packages/code-runtime/code-runtime/src/types.ts" },
     { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeBindingNamespace", "source": "packages/code-runtime/code-runtime/src/types.ts" },
     { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeBindingFunction", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeLogEntry", "source": "packages/code-runtime/code-runtime/src/types.ts" },
     { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunFailure", "source": "packages/code-runtime/code-runtime/src/types.ts" },
 
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTarget", "source": "packages/fs/fs/src/types.ts" },

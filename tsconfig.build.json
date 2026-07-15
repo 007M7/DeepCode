@@ -82,6 +82,7 @@
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
-    { "path": "./packages/hooks/hooks-codex" }
+    { "path": "./packages/hooks/hooks-codex" },
+    { "path": "./packages/mcp/mcp-client" }
   ]
 }
