@@ -24,8 +24,6 @@ export {
   EXA_DEFAULT_SEARCH_TYPE,
   EXA_PROVIDER_ID,
   ExaSearchProvider,
-  mapExaResponse,
-  mapExaResult,
 } from './provider.ts'
 export type { ExaSearchProviderOptions } from './provider.ts'
 

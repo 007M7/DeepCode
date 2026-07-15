@@ -25,7 +25,6 @@ function recordingBash(run: (spec: BashExecSpec) => Promise<BashRunResult>): {
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
-        owner: request.owner,
         sandboxMode: request.sandboxMode,
       }
     },
