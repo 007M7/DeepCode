@@ -2,7 +2,7 @@
 
 Runtime event-contract assertions intended for development diagnostics. This pure-listener plugin checks relationships among session events, agent states, scoped dispatches, and model requests; it does not own or change product behavior.
 
-The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-core`](../../core/agent-core/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
+The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
 
 Session itself owns immutable log storage in every composition: it takes one lossless JSON snapshot of each accepted event, deep-freezes that record, and exposes the log through immutable array snapshots. The invariants plugin checks the cross-record and cross-seam rules that storage immutability cannot express.
 

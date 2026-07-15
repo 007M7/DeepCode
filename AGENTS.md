@@ -11,7 +11,7 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 ```
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
 packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai/dsh-<pkg>
-  core/        product API spine: session, system-prompt, tools, agent, agent-loop, agent-core (the bundle)
+  core/        product API spine: session, system-prompt, tools, agent, agent-loop
   llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
@@ -26,11 +26,12 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP/stdio/JSON-RPC front doors; boot, approval, and interaction plugins
+  ui/          ACP/stdio/JSON-RPC bridges; boot, approval, interaction plugins
+  examples/    demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
-examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
+examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
 ```
@@ -78,7 +79,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.
