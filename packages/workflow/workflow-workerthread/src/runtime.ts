@@ -368,7 +368,7 @@ export class WorkflowExecution {
     for (const key of Object.keys(record)) {
       if (SUPPORTED_AGENT_OPTIONS.has(key)) continue
       if (DEFERRED_AGENT_OPTIONS.has(key)) {
-        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, model)`, 'UNSUPPORTED_OPTION')
+        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
       }
       throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
     }

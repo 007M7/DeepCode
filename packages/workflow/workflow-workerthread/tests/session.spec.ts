@@ -341,7 +341,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
       ["return await agent('p', { label: 3 })", '"label" must be a string'],
       ["return await agent('p', { get label() { throw new Error('read failed') } })", 'options must be plain JSON data'],
       ["return await agent('p', { bogus: true })", '"bogus" is not recognized'],
-      ["return await agent('p', { effort: 'high' })", '"effort" is deferred'],
+      ["return await agent('p', { effort: 'high' })", '"effort" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)'],
       ["return await agent('p', { schema: { type: 'object', oneOf: [] } })", 'outside the supported subset'],
       ['return await parallel([() => 1, () => 2, () => 3])', 'over the per-call cap (2)'],
       ['return await pipeline([1, 2, 3], (x) => x)', 'maxItemsPerCall'],

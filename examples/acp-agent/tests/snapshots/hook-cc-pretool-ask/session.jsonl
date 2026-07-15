@@ -55,8 +55,8 @@
 {"type":"tool/call","seq":53,"time":1783352172557,"data":{"turn":1,"step":1,"callId":"call_00_6k0oGSliVHxGSgqBmMEO4311","name":"bash","arguments":"{\"command\": \"echo HELLO\", \"description\": \"Echo HELLO\"}"}}
 {"type":"hook/invoked","seq":54,"time":1783352172558,"data":{"turn":1,"point":"PreToolUse","dialect":"claude","handlerId":"claude:PreToolUse:1","matcher":"bash"}}
 {"type":"hook/result","seq":55,"time":1783352172573,"data":{"turn":1,"point":"PreToolUse","handlerId":"claude:PreToolUse:1","decision":"ask","exitCode":0,"durationMs":14.113374999999905}}
-{"type":"approval/asked","seq":56,"time":1783962235813,"data":{"id":"efe463b8-0601-4607-a431-8eecfeb1b5f0","toolName":"bash","callId":"call_00_6k0oGSliVHxGSgqBmMEO4311","reason":"bash requires manual approval in this session"}}
-{"type":"approval/decided","seq":57,"time":1783962235813,"data":{"id":"efe463b8-0601-4607-a431-8eecfeb1b5f0","outcome":"rejected"}}
+{"type":"approval/asked","seq":56,"time":1783962235813,"data":{"id":"5ab08815-cec4-4615-88d4-2d5b519762e8","toolName":"bash","callId":"call_00_6k0oGSliVHxGSgqBmMEO4311","reason":"bash requires manual approval in this session"}}
+{"type":"approval/decided","seq":57,"time":1783962235813,"data":{"id":"5ab08815-cec4-4615-88d4-2d5b519762e8","outcome":"rejected"}}
 {"type":"tool/result","seq":58,"time":1783962235814,"data":{"turn":1,"step":1,"callId":"call_00_6k0oGSliVHxGSgqBmMEO4311","content":[{"type":"text","text":"Error: the user rejected tool \"bash\""}],"isError":true},"sourceEventSeqs":[53],"surfaceOp":"append"}
 {"type":"step/end","seq":59,"time":1783962235814,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":60,"time":1783962235814,"data":{"turn":1,"step":2}}

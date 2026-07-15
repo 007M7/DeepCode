@@ -36,7 +36,7 @@ export class BlockAssembler {
   private order: number[] = []
   private _usage: TokenUsage | undefined
   private _finish: FinishReason | undefined
-  private _replayState: unknown
+  private _replayState: unknown = undefined
 
   /**
    * Feed one chunk. Returns the completed block when the chunk closes one
