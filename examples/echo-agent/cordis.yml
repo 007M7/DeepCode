@@ -3,7 +3,7 @@
 # No API key: the `mock-echo` adapter never touches the network.
 
 # Hot-module reload for the dev/demo loop (a leaf entry, not baked into
-# dsh-stdio-agent — it needs `node --expose-internals`, which `demo:echo` passes).
+# dsh-stdio-demo — it needs `node --expose-internals`, which `demo:echo` passes).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
@@ -24,7 +24,7 @@
 
 # The app pre-creates `main` on the mock model and supplies logging, persistence, and readline UI.
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: mock-echo
     persona: 'You are echo-agent, a demo agent.'
