@@ -30,6 +30,22 @@ function fixture(files: Record<string, string>): string {
 const make = (content: string): string => fixture({ 'index.ts': content })
 
 describe('verify-export-jsdoc functions and consts', () => {
+  it('limits packages without src/* exports to declarations reachable from package entrypoints', () => {
+    const root = fixture({
+      'index.ts': "export { publicFn } from './internal.ts'\n",
+      'internal.ts': `
+export function publicFn(value: string): string { return value }
+export function hiddenFn(value: string): string { return value }
+`,
+    })
+    writeFileSync(join(root, 'packages/group/fix/package.json'), JSON.stringify({
+      exports: { '.': { types: './lib/types/index.d.ts', default: './lib/index.js' } },
+    }))
+    const violations = collectExportJsdocViolations(root)
+    expect(violations).toHaveLength(1)
+    expect(violations.every(violation => violation.includes('publicFn'))).toBe(true)
+  })
+
   it('accepts a fully documented surface', () => {
     expect(collectExportJsdocViolations(make(`
 /**
