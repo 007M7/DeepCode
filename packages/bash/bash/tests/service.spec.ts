@@ -34,7 +34,6 @@ class StubExecutor extends BashExecutor {
   start(spec: BashExecSpec): BashTask {
     const task: BashTask = {
       id: BashTaskId(`stub-${this.tasks.size + 1}`),
-      command: spec.command,
       status: 'running',
       exitCode: null,
       signal: null,
