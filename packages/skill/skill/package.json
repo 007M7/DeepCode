@@ -22,12 +22,12 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   }
 }

@@ -33,9 +33,9 @@
     "@deepseek-ai/dsh-app-boot": "workspace:^"
   },
   "peerDependencies": {
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   }
 }
