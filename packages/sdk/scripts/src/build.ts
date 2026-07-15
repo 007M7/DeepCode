@@ -54,7 +54,7 @@ function resolveTsdownBin(cwd: string): string {
   try {
     manifestPath = require.resolve('tsdown/package.json')
   } catch (error) {
-    throw new Error(`dsh build requires tsdown in this project: ${String(error)}`)
+    throw new Error(`dsh-sdk build requires tsdown in this project: ${String(error)}`)
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { bin?: unknown }
   const bin = typeof manifest.bin === 'string'

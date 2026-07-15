@@ -107,7 +107,7 @@ export function createAppProjectArtifacts(
 export function createAppPackageScripts(context: ProjectTemplateContext): Readonly<Record<'dev' | 'start', string>> {
   const modelArg = context.isStdio ? ` -- --model=${JSON.stringify(context.model)}` : ''
   return {
-    dev: `dsh dev index.ts${modelArg}`,
-    start: `dsh start index.js${modelArg}`,
+    dev: `dsh-sdk dev index.ts${modelArg}`,
+    start: `dsh-sdk start index.js${modelArg}`,
   }
 }

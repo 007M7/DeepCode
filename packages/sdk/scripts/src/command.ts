@@ -1,17 +1,17 @@
 /**
- * Internal dsh command composition used by the package bin.
+ * Internal dsh-sdk command composition used by the package bin.
  *
  * @module @deepseek-ai/dsh-scripts/command
  */
 
-import { parseDshArgs } from './args.ts'
+import { parseDshSdkArgs } from './args.ts'
 import { runProjectBuild } from './build.ts'
 import { runConfigCommand, type ConfigCommandContext } from './config.ts'
 import { runSDK } from './runtime.ts'
-import { DSH_TEMPLATES } from './templates/dsh-templates.ts'
+import { DSH_SDK_TEMPLATES } from './templates/dsh-sdk-templates.ts'
 
-/** Injectable process and command boundaries used by the dsh bin. */
-export interface DshCommandContext extends ConfigCommandContext {
+/** Injectable process and command boundaries used by the dsh-sdk bin. */
+export interface DshSdkCommandContext extends ConfigCommandContext {
   cwd: string
   stdin: NodeJS.ReadStream
   stdout: NodeJS.WriteStream
@@ -21,10 +21,10 @@ export interface DshCommandContext extends ConfigCommandContext {
   config?: typeof runConfigCommand
 }
 
-/** Run one parsed dsh command and return its process exit code. */
-export async function runDshCommand(
+/** Run one parsed dsh-sdk command and return its process exit code. */
+export async function runDshSdkCommand(
   argv: readonly string[] = process.argv.slice(2),
-  context: DshCommandContext = {
+  context: DshSdkCommandContext = {
     cwd: process.cwd(),
     stdin: process.stdin,
     stdout: process.stdout,
@@ -32,9 +32,9 @@ export async function runDshCommand(
   },
 ): Promise<number> {
   try {
-    const args = parseDshArgs(argv)
+    const args = parseDshSdkArgs(argv)
     if (args.help || !args.command) {
-      context.stdout.write(DSH_TEMPLATES.usage.render({}))
+      context.stdout.write(DSH_SDK_TEMPLATES.usage.render({}))
       return 0
     }
     const run = context.run ?? runSDK
@@ -52,7 +52,7 @@ export async function runDshCommand(
     }
     return 0
   } catch (error) {
-    context.stderr.write(`dsh: ${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`dsh-sdk: ${error instanceof Error ? error.message : String(error)}\n`)
     return 1
   }
 }

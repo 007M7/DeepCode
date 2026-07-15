@@ -68,7 +68,7 @@ async function registerDevRuntime(cwd: string = process.cwd()): Promise<void> {
     ({ register: registerTsx } = await import('tsx/esm/api'))
   } catch (error) {
     /* v8 ignore next -- tsx is a declared project NPM dependency; missing-package behavior is defensive */
-    throw new Error(`dsh dev requires the project's tsx NPM dependency: ${String(error)}`)
+    throw new Error(`dsh-sdk dev requires the project's tsx NPM dependency: ${String(error)}`)
   }
   registerTsx()
   const mappings = await localPluginMappings(resolve(cwd))
@@ -97,9 +97,9 @@ export async function startSDK(
   }
   const requested = source instanceof URL ? fileURLToPath(source) : source
   const absolute = resolveConfigPath(requested, undefined, cwd)
-  loadEnv('dsh', dirname(absolute))
-  installFailLoud('dsh')
-  return boot('dsh', absolute)
+  loadEnv('dsh-sdk', dirname(absolute))
+  installFailLoud('dsh-sdk')
+  return boot('dsh-sdk', absolute)
 }
 
 /**
@@ -120,12 +120,12 @@ export async function runSDK(
   try {
     await access(absolute)
   } catch (error) {
-    const hint = options.dev ? '' : ' Run dsh build first if this is a TypeScript project.'
+    const hint = options.dev ? '' : ' Run dsh-sdk build first if this is a TypeScript project.'
     throw new Error(`cannot start missing target ${target}.${hint} ${String(error)}`)
   }
   const module = await import(pathToFileURL(absolute).href) as { main?: (context: SdkBootContext) => unknown }
   if (typeof module.main !== 'function') {
-    throw new Error(`dsh target ${target} must export function main()`)
+    throw new Error(`dsh-sdk target ${target} must export function main()`)
   }
   const argv = [...options.argv ?? []]
   return module.main({

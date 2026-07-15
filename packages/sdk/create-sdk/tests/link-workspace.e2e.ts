@@ -93,8 +93,8 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
       })
       expect(existsSync(join(root, 'index.js'))).toBe(true)
       expect(existsSync(join(root, 'plugins/probe/lib/index.js'))).toBe(true)
-      const dsh = join(root, 'node_modules/@deepseek-ai/dsh-scripts/lib/bin.js')
-      const run = await execFileAsync(process.execPath, [dsh, 'dev', 'index.ts'], {
+      const dshSdk = join(root, 'node_modules/@deepseek-ai/dsh-scripts/lib/bin.js')
+      const run = await execFileAsync(process.execPath, [dshSdk, 'dev', 'index.ts'], {
         cwd: root,
         env: { ...commandEnvironment, DEEPSEEK_API_KEY: 'test-key' },
         encoding: 'utf8',

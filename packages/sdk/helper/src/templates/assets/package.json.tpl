@@ -5,9 +5,9 @@
   "description": {{description}},
   "type": "module",
   "scripts": {
-    "build": "dsh build",
+    "build": "dsh-sdk build",
     "typecheck": "tsc -b",
-    "config": "dsh config"
+    "config": "dsh-sdk config"
   },
   "dependencies": {{dependencies}},
   "devDependencies": {{devDependencies}}

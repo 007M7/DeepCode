@@ -106,7 +106,7 @@ async function baseProject(): Promise<SdkProject> {
   return (await edit.commit()).project
 }
 
-describe('dsh config terminal contract', () => {
+describe('dsh-sdk config terminal contract', () => {
   it('pins the feature tree and Review & Apply output', async () => {
     const project = await baseProject()
     const registry = createBuiltinRegistry(project.profile)

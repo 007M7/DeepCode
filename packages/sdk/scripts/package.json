@@ -7,7 +7,7 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "bin": {
-    "dsh": "lib/bin.js"
+    "dsh-sdk": "lib/bin.js"
   },
   "exports": {
     ".": {

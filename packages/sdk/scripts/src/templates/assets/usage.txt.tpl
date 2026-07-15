@@ -1,4 +1,4 @@
-Usage: dsh <command> [options]
+Usage: dsh-sdk <command> [options]
 
 Commands:
   start [target] [-- args...]  Import a built module, or boot cordis.yml

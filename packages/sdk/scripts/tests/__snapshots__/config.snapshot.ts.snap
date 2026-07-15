@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`dsh config terminal contract > pins the feature tree and Review & Apply output 1`] = `
+exports[`dsh-sdk config terminal contract > pins the feature tree and Review & Apply output 1`] = `
 {
   "committed": {
     "addedFeatures": [

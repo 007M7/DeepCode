@@ -32,12 +32,12 @@ Structured files are modified through document objects, while one-shot text arti
 | Package | Responsibility | Does not own |
 |---|---|---|
 | `@deepseek-ai/dsh-helper` | Edit sessions, feature configuration, project-template rendering, package-manager adaptation, and prompt interaction adaptation | Booting Cordis applications or deciding create/config terminal workflows |
-| `@deepseek-ai/dsh-scripts` | `dsh start/dev/build/config`, process lifecycle, project entry loading, the config workflow, and its terminal-copy templates | Interpreting feature definitions directly or modifying YAML/JSON ASTs |
+| `@deepseek-ai/dsh-scripts` | `dsh-sdk start/dev/build/config`, process lifecycle, project entry loading, the config workflow, and its terminal-copy templates | Interpreting feature definitions directly or modifying YAML/JSON ASTs |
 | `@deepseek-ai/create-sdk` | Arguments, question order, initial project creation, installation finish, and terminal-copy templates for `npm create @deepseek-ai/sdk` | Becoming a generated project's runtime npm dependency or providing a library API |
 
 `@deepseek-ai/create-sdk` is the only exception to the repository's `@deepseek-ai/dsh-*` naming rule. npm's scoped-initializer convention requires that package name for `npm create @deepseek-ai/sdk`. The exception is a repository architecture fact and does not add a third developer product entrypoint.
 
-The three packages export only the narrow entrypoints consumed by adjacent layers and provide no `src/*` deep imports. The scripts library entrypoint and build-config subpath serve generated code and project build configuration, while the developer product contract remains the `dsh` commands.
+The three packages export only the narrow entrypoints consumed by adjacent layers and provide no `src/*` deep imports. The scripts library entrypoint and build-config subpath serve generated code and project build configuration, while the developer product contract remains the `dsh-sdk` commands.
 
 ## Project aggregate and edit session
 
@@ -84,7 +84,7 @@ Templates use Handlebars strict mode and `noEscape` without custom processing. F
 
 ## Command and runtime boundary
 
-Scripts supports `dsh start/dev/build/config`. Start dynamically loads a module target and calls its named entrypoint. Dev adds TypeScript and local-workspace source resolution before following the same path. Build invokes the project's installed tsdown. Config opens one edit session and commits after Review & Apply. Generated projects run `tsc -b` directly for typechecking.
+Scripts supports `dsh-sdk start/dev/build/config`. Start dynamically loads a module target and calls its named entrypoint. Dev adds TypeScript and local-workspace source resolution before following the same path. Build invokes the project's installed tsdown. Config opens one edit session and commits after Review & Apply. Generated projects run `tsc -b` directly for typechecking.
 
 HMR is an explicit Cordis config entry loaded by dev and start. Its required `node-addon-require-builtin` package is supplied transitively by the scripts package and is absent from the generated project's `package.json`.
 
@@ -117,7 +117,7 @@ Link mode preserves the ordinary project file shape. `@deepseek-ai/*` points int
 - Adding an ordinary feature, feature option, or parameter extends only its typed spec or owning behavior object, without adding a central switch to create or config workflows
 - Helper owns the feature model, npm dependency and other resource configuration, and inconsistent-state detection
 - Structured files change through `*File` document objects; one-shot files and complete product copy come from package-owned Handlebars templates, and business decisions do not enter a template DSL
-- `dsh start/dev/build/config` is the runtime product surface, typecheck uses `tsc -b` directly, HMR is not injected by command mode, and only the scripts package transitively supplies `node-addon-require-builtin`
+- `dsh-sdk start/dev/build/config` is the runtime product surface, typecheck uses `tsc -b` directly, HMR is not injected by command mode, and only the scripts package transitively supplies `node-addon-require-builtin`
 - `--link-workspace` exists only as a hidden repository-development option and preserves one module identity under npm, pnpm, and Yarn
 
 ## Risks

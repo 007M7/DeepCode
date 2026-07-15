@@ -167,11 +167,11 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(index).toContain('agents.create')
     expect(index).toContain('boot.args.resume')
     expect(project.packageManifest().scripts).toEqual({
-      dev: 'dsh dev index.ts -- --model="deepseek-v4-flash"',
-      build: 'dsh build',
+      dev: 'dsh-sdk dev index.ts -- --model="deepseek-v4-flash"',
+      build: 'dsh-sdk build',
       typecheck: 'tsc -b',
-      start: 'dsh start index.js -- --model="deepseek-v4-flash"',
-      config: 'dsh config',
+      start: 'dsh-sdk start index.js -- --model="deepseek-v4-flash"',
+      config: 'dsh-sdk config',
     })
     expect(await readFile(join(project.root, '.env.example'), 'utf8')).toContain('EXA_API_KEY=')
     expect(project.cordis.entry('stdio')?.config).toMatchObject({ agent: 'main' })
@@ -255,8 +255,8 @@ describe('SdkProject and ProjectEditSession', () => {
     const acp = (await edit.commit()).project
     expect(acp.profile.runInterface).toBe('acp')
     expect(acp.packageManifest().scripts).toMatchObject({
-      dev: 'dsh dev index.ts',
-      start: 'dsh start index.js',
+      dev: 'dsh-sdk dev index.ts',
+      start: 'dsh-sdk start index.js',
     })
     expect(await readFile(join(acp.root, 'README.md'), 'utf8')).toContain('Run as an ACP server')
     expect(await readFile(join(acp.root, 'index.ts'), 'utf8')).not.toContain('agents.create')

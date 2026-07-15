@@ -30,4 +30,4 @@ Install NPM dependencies with `{{packageManager}} {{installArgs}}`, then use:
 - `start`: `{{packageManager}} start`
 - `config`: `{{packageManager}} run config`
 
-Edit `cordis.yml` to change the runtime plugin tree. Add or remove builtin features with `{{packageManager}} exec dsh config`.
+Edit `cordis.yml` to change the runtime plugin tree. Add or remove builtin features with `{{packageManager}} exec dsh-sdk config`.

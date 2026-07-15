@@ -1,17 +1,17 @@
 # `@deepseek-ai/dsh-scripts`
 
-The `dsh` launcher owns SDK project startup and configuration.
+The `dsh-sdk` launcher owns SDK project startup and configuration.
 
 | Command | Behavior |
 |---|---|
-| `dsh start [target] [-- args…]` | Import a module target and invoke `main(bootContext)`, or boot `cordis.yml` when omitted; arguments after `--` are forwarded |
-| `dsh dev [target] [-- args…]` | Register TypeScript and local-workspace source resolution, then use the start path |
-| `dsh build [args…]` | Invoke the project's installed tsdown with the project arguments |
-| `dsh config` | Open one interactive edit session, review accumulated changes, commit once, and install once when NPM dependencies changed |
+| `dsh-sdk start [target] [-- args…]` | Import a module target and invoke `main(bootContext)`, or boot `cordis.yml` when omitted; arguments after `--` are forwarded |
+| `dsh-sdk dev [target] [-- args…]` | Register TypeScript and local-workspace source resolution, then use the start path |
+| `dsh-sdk build [args…]` | Invoke the project's installed tsdown with the project arguments |
+| `dsh-sdk config` | Open one interactive edit session, review accumulated changes, commit once, and install once when NPM dependencies changed |
 
 `ProjectBuild(tsdownConfig)` and `PluginBuild(tsdownConfig)` are exported only from `@deepseek-ai/dsh-scripts/dev/tsdown-config`. Development and production read the same `cordis.yml`.
 
-Generated project scripts invoke `dsh` for dev, build, start, and config; typecheck runs `tsc -b` directly. HMR remains an explicit `cordis.yml` feature loaded by both dev and start.
+Generated project scripts invoke `dsh-sdk` for dev, build, start, and config; typecheck runs `tsc -b` directly. HMR remains an explicit `cordis.yml` feature loaded by both dev and start.
 
 The runtime library exports `startSDK(source)` to load `.env` and `cordis.yml` and return the live context, and `runSDK(target)` to import a project module and invoke its `main(bootContext)` (`runSDK()` without a target delegates to `startSDK('./cordis.yml')`). `SdkBootContext` carries the raw forwarded `argv`, generic `args`, the absolute launcher `cwd`, and the `start`/`dev` mode. The launcher declares no project options: Node `parseArgs()` runs with zero schema, so valued flags use `--key=value`, bare flags become booleans, `--no-cache` becomes `args.cache = false`, and option names retain Node's spelling (`--max-depth=3` → `args['max-depth']`).
 

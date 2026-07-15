@@ -25,9 +25,9 @@ import type {
   TextPromptRequest,
 } from '../../helper/src/questions/prompt-port.ts'
 import { runSDK, startSDK } from '@deepseek-ai/dsh-scripts'
-import { parseDshArgs, parseSdkBootArgs } from '../src/args.ts'
+import { parseDshSdkArgs, parseSdkBootArgs } from '../src/args.ts'
 import { PluginBuild, ProjectBuild, runProjectBuild } from '../src/build.ts'
-import { runDshCommand, type DshCommandContext } from '../src/command.ts'
+import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
 import { ConfigWorkflow } from '../src/config/config-workflow.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
@@ -62,7 +62,7 @@ function outputBuffer(): { stream: Writable; read: () => string } {
   }
 }
 
-function commandContext(cwd: string): DshCommandContext & { readStdout: () => string; readStderr: () => string } {
+function commandContext(cwd: string): DshSdkCommandContext & { readStdout: () => string; readStderr: () => string } {
   let stdout = ''
   let stderr = ''
   const stdin = Object.assign(new PassThrough(), { isTTY: true }) as unknown as NodeJS.ReadStream
@@ -117,22 +117,22 @@ async function committedProject(
 
 describe('Commander launcher arguments', () => {
   it('parses real subcommands and forwards arbitrary build options', () => {
-    expect(parseDshArgs([])).toMatchObject({ help: true })
-    expect(parseDshArgs(['start', 'index.js'])).toMatchObject({ command: 'start', target: 'index.js' })
-    expect(parseDshArgs(['dev'])).toEqual({ command: 'dev', forwarded: [], help: false })
-    expect(parseDshArgs(['build', '--watch', '--minify'])).toMatchObject({
+    expect(parseDshSdkArgs([])).toMatchObject({ help: true })
+    expect(parseDshSdkArgs(['start', 'index.js'])).toMatchObject({ command: 'start', target: 'index.js' })
+    expect(parseDshSdkArgs(['dev'])).toEqual({ command: 'dev', forwarded: [], help: false })
+    expect(parseDshSdkArgs(['build', '--watch', '--minify'])).toMatchObject({
       command: 'build', forwarded: ['--watch', '--minify'],
     })
-    expect(parseDshArgs(['start', 'index.js', '--', '--resume', 'session-1'])).toMatchObject({
+    expect(parseDshSdkArgs(['start', 'index.js', '--', '--resume', 'session-1'])).toMatchObject({
       command: 'start', target: 'index.js', forwarded: ['--resume', 'session-1'],
     })
-    expect(parseDshArgs(['config'])).toMatchObject({ command: 'config' })
-    expect(parseDshArgs(['start'])).toEqual({ command: 'start', forwarded: [], help: false })
-    expect(parseDshArgs(['dev', 'index.ts'])).toMatchObject({ command: 'dev', target: 'index.ts' })
-    expect(parseDshArgs(['-h'])).toMatchObject({ help: true })
-    expect(() => parseDshArgs(['unknown'])).toThrow()
-    expect(() => parseDshArgs(['config', 'extra'])).toThrow()
-    expect(() => parseDshArgs(['config', '--', 'extra'])).toThrow('does not accept forwarded')
+    expect(parseDshSdkArgs(['config'])).toMatchObject({ command: 'config' })
+    expect(parseDshSdkArgs(['start'])).toEqual({ command: 'start', forwarded: [], help: false })
+    expect(parseDshSdkArgs(['dev', 'index.ts'])).toMatchObject({ command: 'dev', target: 'index.ts' })
+    expect(parseDshSdkArgs(['-h'])).toMatchObject({ help: true })
+    expect(() => parseDshSdkArgs(['unknown'])).toThrow()
+    expect(() => parseDshSdkArgs(['config', 'extra'])).toThrow()
+    expect(() => parseDshSdkArgs(['config', '--', 'extra'])).toThrow('does not accept forwarded')
     expect(parseSdkBootArgs([
       '--model=mock', '--resume=session-1', '--custom=value', '--verbose', '--no-cache', '--max-depth=-1',
     ])).toEqual({
@@ -148,28 +148,28 @@ describe('Commander launcher arguments', () => {
     context.run = async (target, options) => { calls.push(['run', target, options]); return undefined }
     context.build = async (args, cwd) => { calls.push(['build', args, cwd]) }
     context.config = async () => { calls.push(['config']); return {} }
-    await expect(runDshCommand(['start', 'index.js', '--', '--resume', 'session-1'], context)).resolves.toBe(0)
-    await expect(runDshCommand(['dev', 'index.ts'], context)).resolves.toBe(0)
-    await expect(runDshCommand(['build', '--watch'], context)).resolves.toBe(0)
-    await expect(runDshCommand(['config'], context)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['start', 'index.js', '--', '--resume', 'session-1'], context)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['dev', 'index.ts'], context)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['build', '--watch'], context)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['config'], context)).resolves.toBe(0)
     expect(calls).toHaveLength(4)
     expect(calls[0]).toEqual(['run', 'index.js', { cwd: root, argv: ['--resume', 'session-1'] }])
     expect(calls[1]).toEqual(['run', 'index.ts', { cwd: root, dev: true, argv: [] }])
     context.config = async () => ({ installError: new Error('offline') })
-    await expect(runDshCommand(['config'], context)).resolves.toBe(1)
+    await expect(runDshSdkCommand(['config'], context)).resolves.toBe(1)
     context.config = async () => { throw 'broken' }
-    await expect(runDshCommand(['config'], context)).resolves.toBe(1)
+    await expect(runDshSdkCommand(['config'], context)).resolves.toBe(1)
     expect(context.readStderr()).toContain('broken')
-    await expect(runDshCommand(['unknown'], context)).resolves.toBe(1)
-    await expect(runDshCommand([], context)).resolves.toBe(0)
-    expect(context.readStdout()).toContain('Usage: dsh')
+    await expect(runDshSdkCommand(['unknown'], context)).resolves.toBe(1)
+    await expect(runDshSdkCommand([], context)).resolves.toBe(0)
+    expect(context.readStdout()).toContain('Usage: dsh-sdk')
 
     const defaults = commandContext(root)
     await writeFile(join(root, 'main.mjs'), 'export function main() { return "ok" }\n')
-    await expect(runDshCommand(['start', 'main.mjs'], defaults)).resolves.toBe(0)
-    await expect(runDshCommand(['build'], defaults)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['start', 'main.mjs'], defaults)).resolves.toBe(0)
+    await expect(runDshSdkCommand(['build'], defaults)).resolves.toBe(0)
     defaults.port = new QueuePort([[]])
-    await expect(runDshCommand(['config'], defaults)).resolves.toBe(1)
+    await expect(runDshSdkCommand(['config'], defaults)).resolves.toBe(1)
   })
 })
 
@@ -260,7 +260,7 @@ describe('build profiles and invocation', () => {
     let called = false
     await runProjectBuild([], root, { run: async () => { called = true; return { exitCode: 0, signal: null } } })
     expect(called).toBe(false)
-    await expect(runSDK('index.js', { cwd: root })).rejects.toThrow('Run dsh build first')
+    await expect(runSDK('index.js', { cwd: root })).rejects.toThrow('Run dsh-sdk build first')
   })
 
   it('invokes the target module main export and rejects passive modules', async () => {

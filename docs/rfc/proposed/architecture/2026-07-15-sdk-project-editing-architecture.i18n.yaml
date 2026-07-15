@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-15-sdk-project-editing-architecture.md: 0a3751d9641e6d4c56d14b8d81ed578905c48c73
-2026-07-15-sdk-project-editing-architecture.zh.md: 6f6ec656bf0734cf81d6c69d9c0e163fb78a33b5
+2026-07-15-sdk-project-editing-architecture.md: 985cc22c159c68801b78262aa96c7422bdfa1318
+2026-07-15-sdk-project-editing-architecture.zh.md: 6a194e8e5f193e62bfc283fd93a5fde0367fe196

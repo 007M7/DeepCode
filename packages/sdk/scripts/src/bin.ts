@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Self-executing dsh launcher.
+ * Self-executing dsh-sdk launcher.
  *
  * @module @deepseek-ai/dsh-scripts/bin
  */
 
-import { runDshCommand } from './command.ts'
+import { runDshSdkCommand } from './command.ts'
 
-process.exitCode = await runDshCommand()
+process.exitCode = await runDshSdkCommand()

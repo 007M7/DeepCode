@@ -32,12 +32,12 @@ SDK 使用一个共享的面向对象工程模型。`SdkProject` 是只读快照
 | Package | 责任 | 不负责 |
 |---|---|---|
 | `@deepseek-ai/dsh-helper` | 编辑会话、功能配置、工程模板渲染、包管理适配和 prompt 交互适配 | 启动 Cordis 应用或决定 create/config 的终端流程 |
-| `@deepseek-ai/dsh-scripts` | `dsh start/dev/build/config`、进程生命周期、项目入口加载、config 流程和所属终端文案模板 | 直接解释功能定义或修改 YAML/JSON AST |
+| `@deepseek-ai/dsh-scripts` | `dsh-sdk start/dev/build/config`、进程生命周期、项目入口加载、config 流程和所属终端文案模板 | 直接解释功能定义或修改 YAML/JSON AST |
 | `@deepseek-ai/create-sdk` | `npm create @deepseek-ai/sdk` 的参数、问题顺序、首次工程创建、安装收尾和所属终端文案模板 | 成为生成工程的运行时 NPM 依赖或提供库 API |
 
 `@deepseek-ai/create-sdk` 是仓库 `@deepseek-ai/dsh-*` 命名规则的唯一例外；npm scoped initializer 约定要求 `npm create @deepseek-ai/sdk` 对应这个 package 名。该例外是仓库架构事实，不增加第三个开发者产品入口。
 
-三个 package 只导出相邻层实际使用的最小入口，不提供 `src/*` 深路径。scripts 的库入口与构建配置子路径服务生成代码和项目构建配置，但开发者产品合同仍由 `dsh` 命令承担。
+三个 package 只导出相邻层实际使用的最小入口，不提供 `src/*` 深路径。scripts 的库入口与构建配置子路径服务生成代码和项目构建配置，但开发者产品合同仍由 `dsh-sdk` 命令承担。
 
 ## 工程聚合与编辑会话
 
@@ -84,7 +84,7 @@ helper 提供通用的数据类型化 `TextTemplate` 模板渲染器，调用 pa
 
 ## 命令与运行边界
 
-scripts 支持 `dsh start/dev/build/config`。start 动态加载模块 target 并调用其命名入口；dev 在同一路径前增加 TypeScript 与本地 workspace 源码解析；build 调用工程安装的 tsdown；config 打开一个编辑会话并在 Review & Apply 后提交。typecheck 由生成工程直接执行 `tsc -b`。
+scripts 支持 `dsh-sdk start/dev/build/config`。start 动态加载模块 target 并调用其命名入口；dev 在同一路径前增加 TypeScript 与本地 workspace 源码解析；build 调用工程安装的 tsdown；config 打开一个编辑会话并在 Review & Apply 后提交。typecheck 由生成工程直接执行 `tsc -b`。
 
 HMR 作为显式 Cordis 配置项由 dev 和 start 加载；它所需的 `node-addon-require-builtin` 由 scripts package 传递提供，不写入开发者工程的 `package.json`。
 
@@ -117,7 +117,7 @@ create-sdk 保留隐藏的 `--link-workspace` 选项供 Harness 仓库开发和 
 - 新增普通功能、功能选项或参数只扩展类型化 spec 或所属行为对象，create/config 流程不增加中央 switch
 - 功能模型、NPM 依赖与其他资源配置、不一致检测由 helper 统一实现
 - 结构化文件通过 `*File` 文档对象修改；一次性文件和完整产品文案通过所属 package 的 Handlebars 模板生成，业务决策不进入模板 DSL
-- `dsh start/dev/build/config` 是运行产品面，typecheck 直接使用 `tsc -b`，HMR 不通过命令隐式注入，`node-addon-require-builtin` 只由 scripts package 传递提供
+- `dsh-sdk start/dev/build/config` 是运行产品面，typecheck 直接使用 `tsc -b`，HMR 不通过命令隐式注入，`node-addon-require-builtin` 只由 scripts package 传递提供
 - `--link-workspace` 只作为隐藏的仓库开发选项存在，并对 npm、pnpm 和 Yarn 保持单一模块身份
 
 ## 风险

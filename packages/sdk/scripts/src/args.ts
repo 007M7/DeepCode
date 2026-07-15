@@ -1,5 +1,5 @@
 /**
- * Commander adapter for the dsh subcommand surface.
+ * Commander adapter for the dsh-sdk subcommand surface.
  *
  * @module @deepseek-ai/dsh-scripts/args
  */
@@ -7,12 +7,12 @@
 import { parseArgs as parseNodeArgs } from 'node:util'
 import { Command } from 'commander'
 
-/** Commands implemented by the dsh launcher. */
-type DshCommand = 'start' | 'dev' | 'build' | 'config'
+/** Commands implemented by the dsh-sdk launcher. */
+type DshSdkCommand = 'start' | 'dev' | 'build' | 'config'
 
-/** Parsed dsh invocation. */
-export interface DshArgs {
-  command?: DshCommand
+/** Parsed dsh-sdk invocation. */
+export interface DshSdkArgs {
+  command?: DshSdkCommand
   target?: string
   forwarded: readonly string[]
   help: boolean
@@ -29,16 +29,16 @@ export function parseSdkBootArgs(argv: readonly string[]): Record<string, string
 }
 
 /** Parse one launcher invocation through real Commander subcommands. */
-export function parseDshArgs(argv: readonly string[]): DshArgs {
+export function parseDshSdkArgs(argv: readonly string[]): DshSdkArgs {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
     return { forwarded: [], help: true }
   }
   const separator = argv.indexOf('--')
   const launcherArgv = separator === -1 ? argv : argv.slice(0, separator)
   const passthrough = separator === -1 ? [] : argv.slice(separator + 1)
-  let parsed: DshArgs | undefined
+  let parsed: DshSdkArgs | undefined
   const program = new Command()
-    .name('dsh')
+    .name('dsh-sdk')
     .helpOption(false)
     .showHelpAfterError(false)
     .exitOverride()
@@ -62,9 +62,9 @@ export function parseDshArgs(argv: readonly string[]): DshArgs {
   })
   program.parse([...launcherArgv], { from: 'user' })
   /* v8 ignore next -- every registered Commander action above assigns parsed or Commander throws */
-  if (!parsed) throw new Error('dsh command did not resolve')
+  if (!parsed) throw new Error('dsh-sdk command did not resolve')
   if (parsed.command === 'config' && passthrough.length > 0) {
-    throw new Error('dsh config does not accept forwarded arguments')
+    throw new Error('dsh-sdk config does not accept forwarded arguments')
   }
   return { ...parsed, forwarded: [...parsed.forwarded, ...passthrough] }
 }

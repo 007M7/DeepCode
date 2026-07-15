@@ -13,9 +13,9 @@ const scriptsBin = join(repoRoot, 'packages/sdk/scripts/lib/bin.js')
 describe.skipIf(!existsSync(createBin) || !existsSync(scriptsBin))(
   'SDK built artifacts',
   () => {
-    it('runs the published dsh bin help path under plain Node', async () => {
+    it('runs the published dsh-sdk bin help path under plain Node', async () => {
       const result = await execFileAsync(process.execPath, [scriptsBin, '--help'], { encoding: 'utf8' })
-      expect(result.stdout).toContain('Usage: dsh <command>')
+      expect(result.stdout).toContain('Usage: dsh-sdk <command>')
       expect(result.stderr).toBe('')
     })
 

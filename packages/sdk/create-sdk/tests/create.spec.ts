@@ -261,11 +261,11 @@ describe('CreateWizard and scaffolder', () => {
     const manifest = parseGeneratedPackageManifest(await readFile(join(target, 'package.json'), 'utf8'))
     expect(tsconfig.compilerOptions.types).toEqual(['node'])
     expect(manifest.scripts).toEqual({
-      dev: 'dsh dev index.ts',
-      build: 'dsh build',
+      dev: 'dsh-sdk dev index.ts',
+      build: 'dsh-sdk build',
       typecheck: 'tsc -b',
-      start: 'dsh start index.js',
-      config: 'dsh config',
+      start: 'dsh-sdk start index.js',
+      config: 'dsh-sdk config',
     })
     expect(manifest.dependencies).not.toHaveProperty('node-addon-require-builtin')
     expect(manifest.devDependencies?.['@types/node']).toBe('^22.20.0')

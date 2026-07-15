@@ -19,7 +19,7 @@ import {
   type PromptPort,
   type SdkProject,
 } from '@deepseek-ai/dsh-helper'
-import { DSH_TEMPLATES } from '../templates/dsh-templates.ts'
+import { DSH_SDK_TEMPLATES } from '../templates/dsh-sdk-templates.ts'
 
 /** Config result, including an install failure that happened after commit. */
 export interface ConfigWorkflowResult {
@@ -144,7 +144,7 @@ export class ConfigWorkflow {
     } catch (error) {
       const installError = error instanceof Error ? error : new Error(String(error))
       const manager = project.profile.packageManager
-      this.output.write(DSH_TEMPLATES.configInstallFailure.render({
+      this.output.write(DSH_SDK_TEMPLATES.configInstallFailure.render({
         error: installError.message,
         packageManager: manager.name,
         installArgs: manager.installCommand().join(' '),

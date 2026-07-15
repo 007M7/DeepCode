@@ -16,7 +16,7 @@ DeepSeek Harness 通过 Cordis 插件对功能进行组合，但从空目录开�
 
 SDK 创建一个普通、显式且归开发者所有的 TypeScript/Cordis 工程。`cordis.yml` 是唯一的运行时插件树；开发和生产读取同一份文件。工程中的 `package.json`、`cordis.yml`、TypeScript 入口、构建配置和 `plugins/*` 均可直接编辑，SDK 不把它们封装成不可见的 preset。
 
-开发者产品入口只有 `npm create @deepseek-ai/sdk` 和 `dsh` 命令。前者负责首次创建，`dsh config` 在创建后管理 SDK 能识别的内置功能，`dsh dev`、`dsh build` 与 `dsh start` 负责开发、构建和启动；本期不提供 `dsh create`。create 与 config 使用同一份人工编写的功能定义，因此一项功能的功能选项、NPM 依赖、Cordis 配置项、相关文件和识别规则只有一个来源。功能、功能选项等名词由 [SDK 工程编辑架构](../architecture/2026-07-15-sdk-project-editing-architecture.md) 的术语表定义。
+开发者产品入口只有 `npm create @deepseek-ai/sdk` 和 `dsh-sdk` 命令。前者负责首次创建，`dsh-sdk config` 在创建后管理 SDK 能识别的内置功能，`dsh-sdk dev`、`dsh-sdk build` 与 `dsh-sdk start` 负责开发、构建和启动；本期不提供 `dsh-sdk create`。create 与 config 使用同一份人工编写的功能定义，因此一项功能的功能选项、NPM 依赖、Cordis 配置项、相关文件和识别规则只有一个来源。功能、功能选项等名词由 [SDK 工程编辑架构](../architecture/2026-07-15-sdk-project-editing-architecture.md) 的术语表定义。
 
 SDK 只为功能选择和有限功能选项提供交互，不尝试把任意 Cordis 插件配置变成通用表单。功能选项所需的少量专用输入由所属功能收集；其余 Cordis 插件配置留在 `cordis.yml` 中，并通过注释指明常用改法，由开发者直接修改。
 
@@ -27,10 +27,10 @@ SDK 只为功能选择和有限功能选项提供交互，不尝试把任意 Cor
 ```sh
 npm create @deepseek-ai/sdk my-agent
 cd my-agent
-npm exec dsh dev index.ts
-npm exec dsh config
-npm exec dsh build
-npm exec dsh start index.js
+npm exec dsh-sdk dev index.ts
+npm exec dsh-sdk config
+npm exec dsh-sdk build
+npm exec dsh-sdk start index.js
 ```
 
 create 拒绝任何已经存在的目标路径。工程文件提交成功后，CLI 询问是否安装 NPM 依赖并构建；安装或构建失败时保留生成结果，并打印可以重新执行的命令。
@@ -94,31 +94,31 @@ my-agent/
 
 `.env.example` 始终存在，并由 SDK 根据当前功能维护占位。收集到 secret 或开发者确认稍后填写空凭据时，同时生成 gitignored `.env`。SDK 只向 `.env` 追加尚不存在的不同名变量，绝不覆盖或删除已有内容；切换功能选项可以清理 `.env.example` 中不再需要的占位，但旧凭据仍留在 `.env` 中供开发者自行处理。pnpm 和 Yarn 工程增加各自所需的 workspace 配置文件，但运行时插件树和 TypeScript 入口不分叉。
 
-生成的 `package.json` 提供以下 scripts；其中 `dev`、`build`、`start` 与 `config` 调用 `dsh`，`typecheck` 直接调用 TypeScript：
+生成的 `package.json` 提供以下 scripts；其中 `dev`、`build`、`start` 与 `config` 调用 `dsh-sdk`，`typecheck` 直接调用 TypeScript：
 
 | script | 行为 |
 |---|---|
-| `dev` | 运行 `dsh dev index.ts`，为 TypeScript 和本地 workspace 插件注册开发期解析 |
-| `build` | 运行 `dsh build`，调用工程安装的 tsdown 构建根入口和 `plugins/*` package |
+| `dev` | 运行 `dsh-sdk dev index.ts`，为 TypeScript 和本地 workspace 插件注册开发期解析 |
+| `build` | 运行 `dsh-sdk build`，调用工程安装的 tsdown 构建根入口和 `plugins/*` package |
 | `typecheck` | 直接运行 `tsc -b` |
-| `start` | 运行 `dsh start index.js`，启动已构建入口且不隐式构建 |
-| `config` | 运行 `dsh config`，修改当前工程功能树 |
+| `start` | 运行 `dsh-sdk start index.js`，启动已构建入口且不隐式构建 |
+| `config` | 运行 `dsh-sdk config`，修改当前工程功能树 |
 
-`dsh start` 与 `dsh dev` 可以接收模块 target，并把 `--` 后的参数原样转发给工程入口。通用参数解析使用 Node `parseArgs()` 的零 schema 模式：带值 flag 采用 `--key=value`，bare flag 转换为 `true`，`--no-*` 转换为 `false`。
+`dsh-sdk start` 与 `dsh-sdk dev` 可以接收模块 target，并把 `--` 后的参数原样转发给工程入口。通用参数解析使用 Node `parseArgs()` 的零 schema 模式：带值 flag 采用 `--key=value`，bare flag 转换为 `true`，`--no-*` 转换为 `false`。
 
 - stdio 工程通过 `--model=<name>` 传入所选 model，并根据可选的 `--resume=<session-id>` 创建或恢复 agent；
 - acp 使用协议 `session/load`
 - embed 使用生成代码中的 model。
 
-每个功能拥有的 Cordis 配置项在 `cordis.yml` 中保留自己的可编辑 Cordis 插件配置和说明注释；`dsh config` 修改其他功能时必须保留未知字段、未修改节点的格式和注释。HMR（热模块替换）是普通叶子配置项：选择该功能后，dev 和 start 加载同一个 watcher，命令不隐式改变插件树。
+每个功能拥有的 Cordis 配置项在 `cordis.yml` 中保留自己的可编辑 Cordis 插件配置和说明注释；`dsh-sdk config` 修改其他功能时必须保留未知字段、未修改节点的格式和注释。HMR（热模块替换）是普通叶子配置项：选择该功能后，dev 和 start 加载同一个 watcher，命令不隐式改变插件树。
 
 ## 创建后的配置
 
-`dsh config` 只要求当前目录具有可读的根 `package.json` 与 `cordis.yml`。它检查标准功能及其当前功能选项，以一棵功能树表达最终目标状态，并在 Review & Apply 前展示功能变化和受影响文件。
+`dsh-sdk config` 只要求当前目录具有可读的根 `package.json` 与 `cordis.yml`。它检查标准功能及其当前功能选项，以一棵功能树表达最终目标状态，并在 Review & Apply 前展示功能变化和受影响文件。
 
-`dsh config` 可以安装缺失功能、启停已安装功能和切换有限功能选项。required 功能不能取消。改变 NPM 依赖后只运行一次项目包管理器安装；安装失败不回滚已经提交的工程文件。
+`dsh-sdk config` 可以安装缺失功能、启停已安装功能和切换有限功能选项。required 功能不能取消。改变 NPM 依赖后只运行一次项目包管理器安装；安装失败不回滚已经提交的工程文件。
 
-SDK 只修改功能明确拥有的 Cordis 配置项、配置键、NPM 依赖、`.env.example` 占位和独占文件。同一功能选项的更新保留 Cordis 配置项中的未知配置键；手写或第三方插件只支持按稳定 ID 启停。已知功能被手改成不完整、歧义或无法读取的形状时，`dsh config` 显示诊断并拒绝自动修改，直到开发者手工修复。
+SDK 只修改功能明确拥有的 Cordis 配置项、配置键、NPM 依赖、`.env.example` 占位和独占文件。同一功能选项的更新保留 Cordis 配置项中的未知配置键；手写或第三方插件只支持按稳定 ID 启停。已知功能被手改成不完整、歧义或无法读取的形状时，`dsh-sdk config` 显示诊断并拒绝自动修改，直到开发者手工修复。
 
 一次 config 会话在内存工作区上累计全部修改。Apply 前完成功能关系、资源冲突和文件形状校验，并比较受影响文件与会话打开时的原文；校验失败或检测到外部修改时不写盘。实际写盘开始后不提供跨文件事务回滚。
 
@@ -128,7 +128,7 @@ Builtin 支持集由 SDK 人工策划，不根据 NPM 依赖名称或目录约�
 
 ## 后续工作
 
-- `dsh add [package-spec]`：统一本地插件创建与外部 Cordis 插件接入；未指定 package 或仓库来源时创建本地 plugin/tool，指定来源时增加 NPM 依赖和 `cordis.yml` 配置项，来源模型为 GitHub 仓库等扩展保留空间
+- `dsh-sdk add [package-spec]`：统一本地插件创建与外部 Cordis 插件接入；未指定 package 或仓库来源时创建本地 plugin/tool，指定来源时增加 NPM 依赖和 `cordis.yml` 配置项，来源模型为 GitHub 仓库等扩展保留空间
 - 非交互 create/config：本期两个流程都要求 TTY，不提供供自动化调用的完整输入合同
 - 更多功能专用参数输入：本期产品只展示有限功能选项、secret 和少量专用值，不为 Cordis 插件配置提供通用参数界面
 
@@ -144,7 +144,7 @@ Builtin 支持集由 SDK 人工策划，不根据 NPM 依赖名称或目录约�
 
 **使用私有协议发现本地插件。** 普通 package manager workspace、根 NPM 依赖、TypeScript references 和 Cordis 配置项已能表达完整关系；额外发现协议会创造只能由 SDK 理解的隐藏状态。
 
-**在现有工程中提供 `dsh create`。** create 已能生成一种可编辑的本地插件骨架，后续插件可以沿用普通 workspace 和 Cordis 机制手工添加；再提供同构命令会增加第二条脚手架产品面，却不增加新的组合功能。
+**在现有工程中提供 `dsh-sdk create`。** create 已能生成一种可编辑的本地插件骨架，后续插件可以沿用普通 workspace 和 Cordis 机制手工添加；再提供同构命令会增加第二条脚手架产品面，却不增加新的组合功能。
 
 **把每个新 Cordis 插件自动暴露为 builtin。** package 无法说明多个插件如何组合成一项产品功能，也无法推导互斥关系、功能依赖、secret、接口适用性和安全限制；支持集需要人工策划，自动化只适合检查候选是否完成分类。
 
@@ -153,8 +153,8 @@ Builtin 支持集由 SDK 人工策划，不根据 NPM 依赖名称或目录约�
 - `npm create @deepseek-ai/sdk` 按本文顺序收集项目身份、provider、interface、功能、可选本地插件、包管理器和安装选择，并在取消时保持目标路径不存在
 - 默认 npm 工程具有本文目录树和 `dev`、`build`、`typecheck`、`start`、`config` scripts，且 dev/start 使用同一份 `cordis.yml`
 - create 展示本文功能及功能选项；`bash` 的 local/sandbox 二选一且默认 local，sandbox Cordis 配置项保留可编辑的注释配置示例；HMR 默认选中并同时由 dev/start 加载
-- create 的 `plugin` 或 `tool` 选择至多生成一个固定名称的本地插件，并原子更新插件文件与根工程关系；本期不提供 `dsh create`
-- `dsh config` 从现有工程读取同一支持集，能够安装、启停和切换支持的功能选项，保留未知配置与注释，并拒绝修改不一致配置
+- create 的 `plugin` 或 `tool` 选择至多生成一个固定名称的本地插件，并原子更新插件文件与根工程关系；本期不提供 `dsh-sdk create`
+- `dsh-sdk config` 从现有工程读取同一支持集，能够安装、启停和切换支持的功能选项，保留未知配置与注释，并拒绝修改不一致配置
 - `.env.example` 反映当前功能所需变量；`.env` 只追加缺失的不同名变量，从不覆盖或清理已有内容
 - npm、pnpm 和 Yarn 生成的 workspace 能安装、构建和启动；本地插件在 dev 中使用源码，在 start 中使用构建产物
 
