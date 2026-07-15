@@ -22,7 +22,7 @@
 {"type":"assistant/message","seq":20,"time":0,"data":{"turn":1,"step":2,"content":[{"type":"tool-call","id":"advanced-code","name":"run_code","arguments":"{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"}],"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[15,16,17,18,19],"surfaceOp":"append"}
 {"type":"tool/call","seq":21,"time":0,"data":{"turn":1,"step":2,"callId":"advanced-code","name":"run_code","arguments":"{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"}}
 {"type":"tool/code-dispatch","seq":22,"time":0,"data":{"parentCallId":"advanced-code","subCallId":"advanced-code:code:1","name":"snapshot_double","arguments":{"value":21},"isError":false,"resultSummary":"42"}}
-{"type":"tool/result","seq":23,"time":0,"data":{"turn":1,"step":2,"callId":"advanced-code","content":[{"type":"text","text":"42"}],"isError":false,"meta":{"logs":[],"dispatches":1}},"sourceEventSeqs":[21],"surfaceOp":"append"}
+{"type":"tool/result","seq":23,"time":0,"data":{"turn":1,"step":2,"callId":"advanced-code","content":[{"type":"text","text":"42"}],"isError":false,"meta":{"logs":[]}},"sourceEventSeqs":[21],"surfaceOp":"append"}
 {"type":"step/end","seq":24,"time":0,"data":{"turn":1,"step":2}}
 {"type":"step/start","seq":25,"time":0,"data":{"turn":1,"step":3}}
 {"type":"assistant/chunk","seq":26,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
