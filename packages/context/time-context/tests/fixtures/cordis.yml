@@ -9,7 +9,7 @@
   name: '@deepseek-ai/dsh-time-context'
 
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: mock-echo
     persona: 'Test the time-context plugin.'
