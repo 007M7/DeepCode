@@ -368,6 +368,24 @@ export interface Config {
   })[]
 }
 
+/** Reject self-contained identity conflicts before any configured agent starts. */
+function validateConfiguredAgents(agents: Config['agents']): void {
+  const exactIdentities = new Map<SessionId, string>()
+  for (const { id, sessionId, resumeSessionId } of agents) {
+    const hasResumeId = resumeSessionId !== undefined && resumeSessionId !== ''
+    if (sessionId !== undefined && hasResumeId) {
+      throw new Error(`agent "${id}": sessionId and resumeSessionId are mutually exclusive`)
+    }
+    const exactIdentity = hasResumeId ? resumeSessionId : sessionId
+    if (exactIdentity === undefined) continue
+    const firstId = exactIdentities.get(exactIdentity)
+    if (firstId !== undefined) {
+      throw new Error(`agents "${firstId}" and "${id}" use duplicate exact session identity "${exactIdentity}"`)
+    }
+    exactIdentities.set(exactIdentity, id)
+  }
+}
+
 /** Concrete agent factory and driver service. */
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
@@ -389,6 +407,7 @@ export class AgentLoop extends Service implements AgentFactory {
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentLoop')
+    validateConfiguredAgents(config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
     ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')
@@ -410,9 +429,6 @@ export class AgentLoop extends Service implements AgentFactory {
           this.ownership.trackStartup(startup)
         }
         continue
-      }
-      if (sessionId !== undefined) {
-        throw new Error(`agent "${id}": sessionId and resumeSessionId are mutually exclusive`)
       }
       ctx.effect(() => {
         const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
