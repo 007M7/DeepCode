@@ -63,7 +63,7 @@ function spawnAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawn
       // A dummy key lets the deepseek adapter boot keyless (presence-checked at
       // apply, used only on a real model call); the with-key tests carry the
       // real key, so the fallback is inert there.
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
+      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   )
@@ -115,15 +115,16 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
     expect(sessionId.length).toBeGreaterThan(0)
   }, 30_000)
 
-  it('advertises the Permissions select and honors a switch end to end (no key, no model)', async () => {
+  it('advertises model and Permissions selects and honors a permission switch without a model call', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
     spawned = spawnAcpAgent(workdir, 'reject-once')
     const { client } = spawned
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const created = await client.newSession({ cwd: workdir, mcpServers: [] })
     const advertised = created.configOptions ?? []
+    const modelValue = JSON.stringify(['deepseek', 'deepseek-v4-flash'])
     expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'workspace-write']])
+      .toEqual([['model', modelValue], ['permission', 'workspace-write']])
     const afterFullAccess = await client.setSessionConfigOption({
       sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
     })
@@ -133,7 +134,7 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
       sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
     })
     expect((again.configOptions ?? []).map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'danger-full-access']])
+      .toEqual([['model', modelValue], ['permission', 'danger-full-access']])
     await expect(client.setSessionConfigOption({
       sessionId: created.sessionId, configId: 'permission', value: 'plan',
     })).rejects.toThrow(/unknown permission value/)
