@@ -26,7 +26,7 @@ Amend the session-surface and reconstructable-request RFCs where they describe t
 
 ## Acceptance criteria
 
-- `SurfaceManager.nodes` is one ordered seq array with no `SurfaceNode`, link fields, or seq-to-node map; incremental append processing and the internal replace-generation signal remain, while the separate public `invalidate()` deletion stays owned by the dead-surface RFC.
+- `SurfaceManager.nodes` is one ordered seq array with no `SurfaceNode`, link fields, or seq-to-node map; incremental append processing and the internal replace-generation signal remain.
 - Replaying full changed-header snapshots reconstructs exactly the same requests; no header-delta event/type/codec remains.
 - A v0 seed or persisted log containing legacy `request/header-delta` is rejected before replay, with coverage for JSONL and SQLite load paths.
 - New-shape v0 JSONL/SQLite replay, provenance, crash repair, compaction, snapshots, invariants, typecheck, coverage, doc-sync, build, and hygiene pass.

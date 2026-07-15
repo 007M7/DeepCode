@@ -983,7 +983,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:308`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:307`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

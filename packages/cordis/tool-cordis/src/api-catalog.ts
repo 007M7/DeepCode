@@ -979,7 +979,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolExecutionToken',
