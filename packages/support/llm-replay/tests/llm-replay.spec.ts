@@ -90,6 +90,19 @@ describe('parseSessionLog', () => {
     const ev = chunkEvent(1, 1, 1, TEXT_CHUNKS[0] as StreamChunk)
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
   })
+
+  it('expands a packed chunk row into its events (a fixture recorded with packChunks on)', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const row = JSON.stringify({
+      type: 'text-chunks', seq0: 1, time0: 0,
+      data: { turn: 1, step: 1, index: 0, dt: [0, 0], texts: ['a', 'b', 'c'] },
+    })
+    expect(parseSessionLog(`${header}\n${row}\n`)).toEqual([
+      chunkEvent(1, 1, 1, { type: 'text-delta', index: 0, text: 'a' }),
+      chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'b' }),
+      chunkEvent(3, 1, 1, { type: 'text-delta', index: 0, text: 'c' }),
+    ])
+  })
 })
 
 describe('deriveReplayScript', () => {

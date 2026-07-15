@@ -39,6 +39,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
 }
@@ -57,6 +59,7 @@ export const Config: z<Config> = z.object({
   // TODO(single-default-literal): share this schema default and the defensive
   // apply() fallback through one named constant while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
+  packChunks: z.boolean().default(false),
   skills: agentCore.SkillConfigSchema,
 })
 /* jscpd:ignore-end */
@@ -76,6 +79,9 @@ export function apply(ctx: Context, config: Config): void {
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? './.sessions',
+    ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
+  })
   ctx.plugin(acp, { model: config.model })
 }

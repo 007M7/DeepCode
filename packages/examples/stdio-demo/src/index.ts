@@ -44,6 +44,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -67,6 +69,7 @@ export const Config: z<Config> = z.object({
   // TODO(single-default-literal): share these schema defaults and defensive
   // apply() fallbacks through named constants while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
+  packChunks: z.boolean().default(false),
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,
   resumeSessionId: z.string(),
@@ -93,7 +96,10 @@ export function apply(ctx: Context, config: Config): void {
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},
   })
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? './.sessions',
+    ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
+  })
   ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
   ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })

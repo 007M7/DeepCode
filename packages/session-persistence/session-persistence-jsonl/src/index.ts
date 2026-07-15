@@ -16,10 +16,10 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
 } from './format.ts'
 
-/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
+/** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
@@ -27,6 +27,15 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
    */
   root: string
+  /**
+   * Write runs of consecutive `assistant/chunk` delta events as packed
+   * `text-chunks`/`reasoning-chunks`/`tool-call-chunks` rows (lossless,
+   * ~60% smaller logs measured on a real session). Off by default while
+   * snapshot fixtures stay in the one-event-per-line layout: recording with
+   * packing on rewrites every golden `session.jsonl`. READING packed rows is
+   * unconditional — a log's layout never depends on this switch.
+   */
+  packChunks?: boolean
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -44,6 +53,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   static Config: z<Config> = z.object({
     root: z.string().required(),
+    packChunks: z.boolean().default(false),
   })
 
   /**
@@ -54,12 +64,16 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   override readonly name = 'session-persistence-jsonl'
 
   private root: string
+  private packChunks: boolean
   private coordinator: PersistenceCoordinator<number>
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
+    // schemastery (static Config) applied the default before construction;
+    // the cast records that runtime fact for exactOptionalPropertyTypes.
+    this.packChunks = (config as Required<Config>).packChunks
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
 
@@ -168,7 +182,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       throw new Error(`refusing to materialize "${meta.id}": a log already exists on disk (load/resume it instead)`)
     }
     const header = JSON.stringify(toHeaderLine(meta))
-    const body = events.map(eventLine).join('\n')
+    const body = eventLines(events, this.packChunks)
     const content = header + '\n' + body + '\n'
 
     const tmp = `${finalPath}.${randomBytes(6).toString('hex')}.tmp`
@@ -223,7 +237,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     try {
       const { size: before } = await handle.stat()
       try {
-        await handle.writeFile(events.map(eventLine).join('\n') + '\n')
+        await handle.writeFile(eventLines(events, this.packChunks) + '\n')
         await handle.sync()
       } catch (error) {
         // Roll back whatever bytes landed so a retry starts from a clean EOF.

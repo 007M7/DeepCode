@@ -31,6 +31,7 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `packChunks` | `false` | write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`) |
 
 The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor.
 

@@ -50,6 +50,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
 }
@@ -417,7 +419,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:306`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:308`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -567,7 +569,7 @@ Source: [`packages/sandbox/sandbox-local/src/index.ts:20`](../packages/sandbox/s
 Requires: `sessions`
 
 ```ts config-catalog
-/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
+/** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
@@ -575,6 +577,15 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
    */
   root: string
+  /**
+   * Write runs of consecutive `assistant/chunk` delta events as packed
+   * `text-chunks`/`reasoning-chunks`/`tool-call-chunks` rows (lossless,
+   * ~60% smaller logs measured on a real session). Off by default while
+   * snapshot fixtures stay in the one-event-per-line layout: recording with
+   * packing on rewrites every golden `session.jsonl`. READING packed rows is
+   * unconditional — a log's layout never depends on this switch.
+   */
+  packChunks?: boolean
 }
 ```
 
@@ -699,6 +710,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
