@@ -20,7 +20,7 @@ export default defineConfig({
   // through the root tsconfig paths map; the native option cannot do this.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['examples/*/tests/**/*.snapshot.ts'],
+    include: ['examples/*/tests/**/*.snapshot.ts', 'packages/sdk/*/tests/**/*.snapshot.ts'],
     // Each test boots a subprocess; give it room, and run files one at a time
     // (a record run hits the live API, and replay subprocess boot is heavy).
     testTimeout: 120_000,
