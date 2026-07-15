@@ -350,8 +350,9 @@ export class TaskService extends Service {
    * Register a completion listener, called exactly once per terminal task
    * record with its snapshot and exact lifecycle owner (or `undefined` for an
    * unowned task). Effect-scoped (disposed with the calling fiber); per-listener
-   * containment (one throwing listener is logged, never starves the rest);
-   * never fires after this service is disposed.
+   * containment (one throwing or rejecting listener is logged, never starves
+   * the rest); returned promises are observed but not awaited; never fires
+   * after this service is disposed.
    * @param listener - called with each terminal snapshot and its exact owner.
    * @returns the disposer that unregisters the listener.
    */
@@ -440,7 +441,10 @@ export class TaskService extends Service {
       const snapshot = this.snapshot(task)
       for (const listener of this.listeners) {
         try {
-          listener(snapshot, task.owner)
+          const returned = listener(snapshot, task.owner)
+          void Promise.resolve(returned).catch((error: unknown) => {
+            this.selfCtx.logger.warn(`tasks: onTaskDone listener rejected for ${task.id}: ${String(error)}`)
+          })
         } catch (error: unknown) {
           this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
         }

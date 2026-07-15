@@ -181,6 +181,10 @@ export interface TaskRead {
 /**
  * Completion callback registered via {@link TaskService.onTaskDone}.
  * `owner` is the exact lifecycle instance supplied at start, not a registry
- * lookup by reusable agent or session id; it is absent for unowned tasks.
+ * lookup by reusable agent or session id; it is absent for unowned tasks. A
+ * returned promise is observed for rejection but does not delay settlement.
  */
-export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void
+export type TaskDoneListener = (
+  snapshot: TaskSnapshot,
+  owner: Agent | undefined,
+) => void | PromiseLike<void>

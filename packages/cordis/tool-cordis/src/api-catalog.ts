@@ -939,7 +939,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskDoneListener',
-    declaration: 'export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void;',
+    declaration: 'export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
   },
   {
     name: 'TaskHooks',

@@ -75,7 +75,7 @@ class TaskService extends Service {           // ctx.tasks
   read(id: TaskId, caller?: Agent): TaskRead               // delta (stream kinds, consuming) or final output (final kinds, idempotent) + snapshot
   kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal'
   wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
-  onTaskDone(listener: (snapshot: TaskSnapshot, owner: Agent | undefined) => void): () => void   // exact lifecycle owner; effect-scoped, contained
+  onTaskDone(listener: (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>): () => void   // exact owner; effect-scoped, contained
   attachSurface(name: string): () => void     // the misconfiguration fence, below
 }
 ```
@@ -97,6 +97,8 @@ class TaskService extends Service {           // ctx.tasks
 One system-prompt section (order 106, next to `tool:bash`) teaches the cross-call habit the per-tool descriptions cannot: track every returned task id; you are notified in-session when a task finishes, so do not busy-poll or sleep on one — keep working on independent steps and do not duplicate a running task's work; do not produce a final answer while a relevant task still runs — call `task_output` (with `wait` when blocked) to collect it first; `task_kill` tasks that stopped mattering. The do-not-poll and do-not-duplicate sentences are near-verbatim convergent across Claude Code, Kimi Code, and OpenCode — they are the two failure modes every peer engineered against.
 
 Completion notices stay durable context, not a wake-up (`agent.inject()` appends a logged `context/message` the next model request sees; it does not run the model): on `onTaskDone`, `dsh-tool-tasks` injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` through the exact owner captured at start, never a replacement found through a reused agent/session id, with the disposed-race contained. Notices are deduplicated the way Claude Code and Kimi Code both learned to: a task the model explicitly killed, or whose terminal state a read/wait already returned (including a wait pending at the moment of settlement), is marked `reported` and its notice suppressed — never a redundant "finished" for work the model just collected or ended. The model-visible ⟺ logged invariant holds with no new session event type.
+
+Completion listeners are observation-only: each synchronous throw and returned promise rejection is logged independently, later listeners still run, and listener promises are not awaited before waiters or task teardown continue.
 
 ## Producer opt-in and schema exposure
 

@@ -155,6 +155,23 @@ describe('TaskService reads and settlement', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('listener boom'))
   })
 
+  it('contains a rejecting onTaskDone listener without starving later listeners', async () => {
+    const ctx = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const seen: TaskId[] = []
+    ctx.tasks.onTaskDone(async () => { throw new Error('async listener boom') })
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot.id))
+
+    const p = producer()
+    const id = ctx.tasks.start(p.spec)
+    p.settle({ status: 'completed' })
+    await tick()
+
+    expect(seen).toEqual([id])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('onTaskDone listener rejected'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('async listener boom'))
+  })
+
   it('contains a rejecting done as a failed outcome (producer contract violation)', async () => {
     const ctx = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
