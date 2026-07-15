@@ -38,7 +38,7 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 
 ## The bin
 
-`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages) through its internal module loader, which is only active under that flag. The `demo:echo` / `demo:repl` scripts invoke it that way.
+`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The `demo:echo` / `demo:repl` scripts use `--expose-internals`.
 
 ## Example leaf `cordis.yml`
 
