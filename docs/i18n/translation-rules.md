@@ -6,27 +6,27 @@ How to translate between the two sides of a documentation pair in this repo. Bot
 
 ## Faithfulness
 
-- The counterpart MUST say what the authored side says — no added behavior, prerequisites, warnings, version claims, or examples, and no dropped ones. If the pair disagrees on substance, neither language wins by default: fix the side that is wrong, then bring the other along in the same change.
-- The counterpart SHOULD read as natural technical writing in its own language, not word-by-word gloss. Translate meaning, restructure sentences where the target grammar wants it, and keep the author's register — terse stays terse.
+- The counterpart *MUST* say what the authored side says — no added behavior, prerequisites, warnings, version claims, or examples, and no dropped ones. If the pair disagrees on substance, neither language wins by default: fix the side that is wrong, then bring the other along in the same change.
+- The counterpart *SHOULD* read as natural technical writing in its own language, not word-by-word gloss. Translate meaning, restructure sentences where the target grammar wants it, and keep the author's register — terse stays terse.
 - Do not translate the untranslatable: if a sentence resists natural rendering because it leans on an idiom of the source language, translate the idea, not the idiom.
 
 ## Voice
 
-- The register is calibrated by [style-samples.md](style-samples.md) — human-approved gold pairs, one per document genre. The counterpart MUST match the register of the nearest sample; where a sample and a prose rule here disagree, the sample wins. The target is institutional technical Chinese: complete sentences, declarative, neither chatty nor academic.
+- The register is calibrated by [style-samples.md](style-samples.md) — human-approved gold pairs, one per document genre. The counterpart MUST match the target-language side of the nearest sample; where its voice and a prose voice rule disagree, the sample wins. Chinese targets use institutional technical Chinese; English targets use concise professional developer prose.
 - Write as a native technical author restating the content, not as a translator transposing sentences. Then verify against the source clause by clause: nothing added, nothing dropped — fluency never justifies losing a clause.
-- Give sentences an explicit agent: where the English uses a passive or an abstract subject, name the actor (系统、门禁、评审人).
-- Prefer established Chinese engineering idiom over calques (误报／漏检 for false positive/negative, 执行红线 for enforcement frontier); localize metaphors instead of transplanting them, and unpack English noun chains into verb clauses.
+- Give sentences an explicit actor when the target language would otherwise obscure it; for Chinese, replace vague passives or abstract subjects with the actual actor (系统、门禁、评审人).
+- Prefer established target-language engineering idiom over calques (误报／漏检 for false positive/negative, 执行红线 for enforcement frontier); localize metaphors instead of transplanting them, and unpack noun chains where the target language requires it.
 - Split long paragraphs by semantic unit — one idea per paragraph. Paragraph boundaries MAY differ from the source; the structural signature does not count paragraphs.
-- Category nouns render in Chinese with a first-mention English annotation (实操手册（cookbook）); literal directory or file references stay code-formatted English.
+- When translating into Chinese, category nouns use Chinese with a first-mention English annotation (实操手册（cookbook）); when translating into English, use the conventional English category name. Literal directory or file references stay code-formatted English.
 
 ## Structure preservation
 
-Shape is enforced by the pairing gate, so the writer never trades fluency against it — write naturally inside the frame. The paired files MUST match one to one in:
+The pairing gate checks heading depths, fenced code blocks, table row and column counts, list kinds, ordered-list starts, list item counts, and link targets. Preserve the rest of the frame manually; the paired files MUST match one to one in:
 
 - heading hierarchy (same levels, same order — heading TEXT is translated),
 - list shape and numbering,
 - tables (same columns, same row order; header cells translated per terminology),
-- fenced code blocks — **byte-identical, including comments**; code is part of the verified surface (` ```ts ` blocks compile under `doc-typecheck`), and an edited comment is drift the fence-count gate cannot see,
+- fenced code blocks — **byte-identical, including comments**; the pairing signature compares their info strings and contents, and ` ```ts ` blocks compile under `doc-typecheck`,
 - inline code spans (commands, flags, config keys, file paths, event names, API names, version numbers) — verbatim, never translated or reformatted,
 - links and anchors: every relative link MUST point at the same target in both files — by convention the `.md` path, not the `.zh.md` sibling — so links never dangle when one pair lands before its neighbors. The ONLY zh-specific link is the language switcher. Link TEXT is translated; the target is not.
 
@@ -34,9 +34,9 @@ The repo's Markdown conventions apply to `.zh.md` files unchanged: one physical 
 
 ## Terminology
 
-- [terminology.md](terminology.md) is the source of truth in both directions. Before translating, load it; while translating, every term it lists MUST be rendered exactly as it specifies, including its first-occurrence annotations (e.g. `agent（智能体）` on first mention, plain `agent` after) and its "不要译作" prohibitions. When the Chinese side is authored first, the English counterpart uses the table's English column the same way.
-- A technical term NOT in the table MAY be translated only when a major Chinese-language OSS or vendor doc has an established rendering for it (K8s/Vue/MDN Chinese docs, 微软简中风格指南, big-tech project docs). Cite the precedent in the PR.
-- A term with NO established precedent MUST stay in English in the translation and MUST be listed in the PR description under 「待定术语」(pending terms) with a suggested rendering for the reviewer to decide. MUST NOT invent a Chinese rendering inline — an unprecedented translation creates exactly the ambiguity the terminology table exists to prevent. Decided terms then land in [terminology.md](terminology.md) in the same PR or a follow-up.
+- [terminology.md](terminology.md) is the source of truth in both directions. Before translating, load it; every listed term MUST follow its row and its "不要译作" prohibitions. A Chinese target uses the "中文" column and its "首次出现" annotation; an English target uses the "English" column without adding a Chinese gloss.
+- For a Chinese target, an unlisted technical term MAY use an established rendering from a major Chinese-language OSS or vendor source (K8s/Vue/MDN Chinese docs, 微软简中风格指南, big-tech project docs), cited in the PR. Without such precedent it MUST stay in English and be listed under 「待定术语」(pending terms) with a suggested rendering.
+- For an English target, use the established English technical term. If the source term has no unambiguous established equivalent, preserve it with a short explanatory gloss and list it under pending terms. Neither direction may invent a rendering inline; a decided term enters [terminology.md](terminology.md) in the same PR or a follow-up.
 
 ## Typography
 
@@ -44,6 +44,7 @@ These rules govern the Chinese side; the English side follows the repo's normal 
 
 - MUST put one half-width space between Chinese text and Latin words, and between Chinese text and numerals: `每个 plugin 注册 3 个 tool`。No space between a full-width punctuation mark and anything.
 - MUST use full-width (Chinese) punctuation in Chinese prose: `，。：；？！（）「」`. Half-width punctuation stays inside code spans, inside complete English sentences quoted as-is, and in numbers (`3.5`, `1,024`).
+- Chinese prose *SHOULD* prefer colons, periods, commas, or parentheses over em dashes. Keep an em dash only when no other punctuation preserves the sentence naturally.
 - Enumeration commas: a Chinese list of parallel items uses 顿号（、）, not commas.
 - MUST NOT use full-width digits or full-width Latin letters — `１２３` never, `123` always.
 - Proper nouns keep their canonical casing: GitHub, TypeScript, DeepSeek — never `github`/`Github` unless quoting code.
@@ -54,7 +55,7 @@ These rules govern the Chinese side; the English side follows the repo's normal 
 
 - A pair is done when a bilingual engineer reading either file alone gets everything a reader of the other gets — same facts, same caveats, same tone — and nothing extra.
 - Before handing off, self-check the result against this file and re-read the counterpart ALONE, without the source side by side; awkward phrasing is easier to hear without the source anchoring you.
-- The mechanical contract (consistency record, switcher, structure, wrap, links) is checked by `pnpm run verify-translation-pairing` and the rest of `doc-sync` — run them; do not hand-verify what a gate covers.
+- Run `pnpm run verify-translation-pairing` and the rest of `doc-sync` for records, switchers, heading depths, code blocks, table row and column counts, list kinds, ordered-list starts, list item counts, links, and repository Markdown rules. Manually verify list and table order, noncanonical list numbering, inline code, emphasis, meaning, terminology, and tone.
 
 ## References
 
