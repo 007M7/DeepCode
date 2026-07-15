@@ -14,6 +14,7 @@ import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import { scopedSubjectResolverFor } from './scoped-events.generated.ts'
 
 export const name = 'invariants'
 export const inject = ['sessions']
@@ -73,17 +74,6 @@ interface SessionTraceTransition {
     | { kind: 'replace'; start: number; count: number }
   /** The committed event sequence to add to the known-sequence set. */
   seq: number
-}
-
-/** Event payload prefix for scoped seams whose first argument names its agent. */
-interface AgentSubject {
-  agent: Agent
-}
-
-/** Structural subject fields used without coupling this dev plugin to owning services. */
-interface ScopedSubjectFields {
-  agent?: Agent
-  scope?: object
 }
 
 /** Assert that a step-scoped event names the currently open turn and step. */
@@ -410,40 +400,12 @@ export function apply(ctx: Context): void {
   // (agent-scoped listeners over-hear foreign agents), and a mis-keyed one
   // delivers to the wrong agent's listeners. `internal/dispatch` fires
   // synchronously before listener delivery, so a violation throws at the
-  // dispatching call site. The table maps each family to how its subject is
-  // read from the event arguments; `null` = the subject is not recoverable
-  // from the arguments (session events key by the OWNING agent; subagent
-  // lifecycle events key by the delegating parent), so only carrier
-  // PRESENCE is asserted there.
-  const scopedSubject: Record<string, ((args: unknown[]) => unknown) | null> = {
-    'agent/created': args => args[0],
-    'agent/disposed': args => args[0],
-    'agent/status': args => args[0],
-    'agent/queued': args => args[0],
-    'agent/session-start': args => args[0],
-    'agent/pre-step': args => args[0],
-    'agent/prompt-submit': args => args[0],
-    'agent/request': args => args[0],
-    'agent/session-prefix': args => args[0],
-    'agent/step-result': args => args[0],
-    'agent/turn-continuation': args => args[0],
-    'agent/turn-stop': args => args[0],
-    'agent/error': args => args[0],
-    'approval/request': args => (args[0] as AgentSubject).agent,
-    'tools/pre-execute': args => (args[0] as ScopedSubjectFields).agent,
-    'tools/execute': args => (args[0] as ScopedSubjectFields).agent,
-    'tools/post-execute': args => (args[0] as ScopedSubjectFields).agent,
-    'tools/result': args => (args[0] as ScopedSubjectFields).agent,
-    'system-prompt/assemble': args => (args[1] as ScopedSubjectFields).scope,
-    'session/created': null,
-    'session/disposed': null,
-    'session/event': null,
-    'session/flush': null,
-    'subagent/start': null,
-    'subagent/end': null,
-  }
+  // dispatching call site. The generated table maps each family to the unique
+  // payload path whose Program type matches the real scopeTarget routing key;
+  // `null` means the key is external to the payload, so only carrier presence
+  // can be asserted.
   ctx.on('internal/dispatch', (_mode, name, args, thisArg) => {
-    const subjectOf = scopedSubject[name]
+    const subjectOf = scopedSubjectResolverFor(name)
     if (subjectOf === undefined) return
     if (!isScopeCarrier(thisArg)) {
       throw new InvariantError(

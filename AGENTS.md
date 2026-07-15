@@ -18,6 +18,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
+  context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
@@ -34,7 +35,7 @@ docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see 
 scripts/     repo gates and generators
 ```
 
-Per-package map: the group READMEs, indexed from [packages/README.md](packages/README.md).
+Package groups: [packages/README.md](packages/README.md).
 
 ## Commands
 
@@ -84,14 +85,14 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests
 
 ## Secrets / .env
 
-Real-API tests and demos read `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` from the environment or a gitignored root `.env` loaded by `process.loadEnvFile()`. cordis.yml uses `!!js` (never `!js`) for env vars. Never commit credentials. CI e2e self-skips without a key; [docs/testing.md](docs/testing.md) owns the with-key policy.
+Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, and root `.env`. cordis.yml allows `!!js` (never `!js`) only under plugin `config`; Loader metadata is static, so conditional composition uses overlays ([primer](docs/cordis-primer.md#loader-configuration)). Never commit credentials. CI e2e skips without a key; [testing.md](docs/testing.md) owns key policy.
 
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
 - ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; builds are for outside consumers only.
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
-- **Typed events use declaration merging**; extensible unions use merge-extensible maps. Event JSDoc needs `@mode` and payload `@param` tags; public service methods document parameters and non-void returns. Catalog gates enforce this.
+- **Typed events use declaration merging** and merge-extensible maps. Event JSDoc needs `@mode` and payload `@param`; scoped keys absent from payloads need `@dshScopeScan unsupported`. Public service methods document parameters and non-void returns.
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
