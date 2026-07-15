@@ -46,8 +46,6 @@ export const LINK_MAP: Record<string, string> = {
   BashExecRequest: 'bash.md',
   BashExecSpec: 'bash.md',
   BashRunResult: 'bash.md',
-  BashTask: 'bash.md',
-  BashTaskRead: 'bash.md',
   ConfinedArgv: 'sandbox.md',
   SandboxMode: 'sandbox.md',
   SandboxPolicy: 'sandbox.md',
