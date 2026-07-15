@@ -25,7 +25,7 @@
     "@deepseek-ai/dsh-bash": "^0.0.1",
     "@deepseek-ai/dsh-bash-local": "^0.0.1",
     "@deepseek-ai/dsh-sandbox": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
@@ -36,6 +36,6 @@
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "node-addon-landlock-run": "0.0.0-test.0",
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   }
 }
