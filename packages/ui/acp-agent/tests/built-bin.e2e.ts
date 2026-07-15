@@ -147,11 +147,11 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, 
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
-    // A nonexistent directory prevents even the include plugin import. Loader logs the failure and
-    // leaves no fiber; boot's settled-entry guard must convert that state into non-zero exit.
+    // boot() pre-resolves the bootstrap include to an absolute URL, so a nonexistent config
+    // directory cannot break its import; the include plugin's own read must fail loud instead.
     const { code, stderr } = await runBinExpectingExit('/nonexistent/dir/cordis.yml')
     expect(code).not.toBe(0)
-    expect(stderr).toContain('failed to load')
+    expect(stderr).toContain('config file not found')
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a missing config file in a real directory', async () => {

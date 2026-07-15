@@ -8,7 +8,6 @@
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type {
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -33,7 +32,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface ExaSearchProviderOptions {
-  /** Exa API key. Empty/absent → `status()` reports `missing-credential`. */
+  /** Exa API key. Empty/absent makes the provider unavailable. */
   apiKey: string
   /** Endpoint base; `/search` is appended. */
   baseURL: string
@@ -68,18 +67,17 @@ export function mapExaResult(result: ExaResult): WebSearchSource | undefined {
 /**
  * Map an Exa response envelope to a normalized search result.
  *
- * @param query - the original request query, echoed on the result.
  * @param response - the parsed `POST /search` response body.
  * @returns the normalized result; snippet-less entries are dropped
  *   ({@link mapExaResult}).
  */
-export function mapExaResponse(query: string, response: ExaSearchResponse): WebSearchResult {
+export function mapExaResponse(response: ExaSearchResponse): WebSearchResult {
   const sources = (response.results ?? [])
     .map(mapExaResult)
     .filter((source): source is WebSearchSource => source !== undefined)
   // Exa returns no generated answer, so `content` is omitted. The seam owns the
   // final `maxResults` truncation, so this provider reports `truncated: false`.
-  return { providerId: EXA_PROVIDER_ID, query, sources, truncated: false }
+  return { sources, truncated: false }
 }
 
 /** The Exa-backed search provider. */
@@ -88,15 +86,14 @@ export class ExaSearchProvider implements WebSearchProvider {
 
   constructor(private readonly options: ExaSearchProviderOptions) {}
 
-  status(): WebProviderStatus {
-    if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
-    if (!isValidBaseUrl(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
-    if (!isPositiveInteger(this.options.highlightsPerResult)) return { available: false, reason: 'misconfigured' }
-    if (this.options.numResults !== undefined && !isPositiveInteger(this.options.numResults)) return { available: false, reason: 'misconfigured' }
-    return { available: true }
+  available(): boolean {
+    return this.options.apiKey.length > 0
+      && isValidBaseUrl(this.options.baseURL)
+      && isPositiveInteger(this.options.highlightsPerResult)
+      && (this.options.numResults === undefined || isPositiveInteger(this.options.numResults))
   }
 
-  async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     // A per-request bound wins over the configured default; either may be absent.
     const numResults = request.maxResults ?? this.options.numResults
     let response: Response
@@ -115,7 +112,7 @@ export class ExaSearchProvider implements WebSearchProvider {
           contents: { highlights: { highlightsPerUrl: this.options.highlightsPerResult } },
           ...numResults !== undefined ? { numResults } : {},
         }),
-        ...exec?.signal ? { signal: exec.signal } : {},
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
@@ -143,7 +140,7 @@ export class ExaSearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as ExaSearchResponse
-      return mapExaResponse(request.query, payload)
+      return mapExaResponse(payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
       throw new WebError(`Exa returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
