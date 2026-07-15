@@ -34,17 +34,22 @@ class StubCompactService extends CompactService {
   ): Promise<CompactionResult> {
     this.lastSignal = signal
     const session = agent.session
+    const summary = [{ type: 'text' as const, text: 'stub' }]
     // Minimal stub honoring the lock + log-only event contract.
-    session.append('compact/start', { turn: 0 })
-    session.append('compact/summary', {
-      summary: [{ type: 'text', text: 'stub' }],
+    const startEvent = session.append('compact/start', { turn: 0 })
+    const summaryEvent = session.append('compact/summary', {
+      summary,
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
       model: 'stub',
     })
-    session.append('compact/end', { turn: 0 })
+    const endEvent = session.append('compact/end', { turn: 0 })
     return {
+      startSeq: startEvent.seq,
+      summarySeq: summaryEvent.seq,
+      endSeq: endEvent.seq,
+      summary,
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
@@ -92,6 +97,9 @@ describe('CompactService seam', () => {
     // verify the runtime value is absent.
     const raw = startEvent as unknown as { surfaceOp?: unknown }
     expect(raw.surfaceOp).toBeUndefined()
+    expect(result.summary).toEqual([{ type: 'text', text: 'stub' }])
+    expect(result.summarySeq).toBeGreaterThan(result.startSeq)
+    expect(result.endSeq).toBeGreaterThan(result.summarySeq)
     expect(result.shadowedRange).toEqual({ start: 0, end: 0 })
     expect(session.events.filter(e => e.type.startsWith('compact/')).map(e => e.type))
       .toEqual(['compact/start', 'compact/summary', 'compact/end'])
