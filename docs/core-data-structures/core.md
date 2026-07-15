@@ -157,17 +157,8 @@ interface GenerateOptions {
   stop?: string[]
   signal?: AbortSignal
   /**
-   * The id of the session this request belongs to — stamped by the agent loop
-   * from `agent.session.id`. Adapters ignore it; it lets an `llm/stream` listener
-   * route a call by WHICH session issued it (the replay adapter keys its per-call
-   * cursor by session, so a parent and its in-process subagent — each with its
-   * own session on one context — replay from their own recorded scripts).
-   *
-   * Typed as `Branded<'SessionId'>` rather than importing `SessionId` from
-   * `dsh-session`: that package imports `Message` from here, so importing its
-   * `SessionId` back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a
-   * real session id assigns with no cast. (A future ids package could own the
-   * brand and dissolve this note.)
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
 }
@@ -354,7 +345,9 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging. Persona is not an agent option: the `dsh-system-prompt` config supplies the global default, and an agent-scoped `deployment:persona` section may shadow it. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, serial `agent/pre-step`/`agent/turn-stop` checkpoints, and the `agent/prompt-submit`/`agent/request`/`agent/session-prefix`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `AgentId` is branded. `AgentOptions` is merge-extensible and currently includes `model?`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+
+The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
 ## Interception decisions
 
@@ -397,7 +390,7 @@ type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 
-`agent/session-prefix` composes the session prefix — a plain `Message[]`, no dedicated payload type. Fired ONCE per loop instance, lazily on its first request: the composed list is deep-frozen, recorded as the header's `messagePrefix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and placed in front of the ENTIRE derived history on every request the instance sends — the home for session-stable openers like a skills catalog or an AGENTS.md digest, never returned by `deriveMessages()`. Reuse is structural, so the prefix cannot drift mid-session (resume = a new instance = a recompose); content that changes mid-session goes through the append-only history channels instead (`agent.inject()`, `tools/post-execute` / prompt-submit `additionalContext`). Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself.
+`agent/session-prefix` composes a `Message[]` once per loop instance. The deep-frozen result is recorded in the request header and prepended to every derived history, making it the home for session-stable openers. A resumed instance recomposes; mid-session changes use append-only context channels. The waterfall returns content directly because it contributes rather than decides.
 
 ## `ToolDefinition`
 
