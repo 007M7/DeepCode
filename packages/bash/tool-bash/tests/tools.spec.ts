@@ -288,9 +288,17 @@ describe('bash tool', () => {
 
   it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
     const ctx = await setup()
+    ctx.systemPrompt.section({ name: 'test:before-bash', order: 104, text: 'before' })
+    ctx.systemPrompt.section({ name: 'test:after-bash', order: 106, text: 'after' })
     const assembly = await ctx.systemPrompt.assemble()
     const section = assembly.sections.find(s => s.name === 'tool:bash')
-    expect(section?.order).toBe(105)
+    expect(assembly.sections.map(s => s.name)).toEqual([
+      'harness:identity',
+      'deployment:persona',
+      'test:before-bash',
+      'tool:bash',
+      'test:after-bash',
+    ])
     expect(section?.text).toContain('[exit code: N]')
   })
 

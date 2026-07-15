@@ -328,7 +328,7 @@ describe('the run_code dispatch bridge', () => {
       const tools = request.bindings[0]!.functions
       const first = await tools.echo!({ value: 'one' })
       const second = await tools.echo!({ value: 'two' })
-      return { logs: [{ source: 'console', level: 'log', text: `saw ${String(first)}` }], value: second }
+      return { logs: [`saw ${String(first)}`], value: second }
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
@@ -339,7 +339,7 @@ describe('the run_code dispatch bridge', () => {
       { parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo', arguments: { value: 'one' }, isError: false, resultSummary: 'echo:one' },
       { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
     ])
-    expect(result.meta).toEqual({ logs: [{ source: 'console', level: 'log', text: 'saw echo:one' }], dispatches: 2 })
+    expect(result.meta).toEqual({ logs: ['saw echo:one'] })
   })
 
   it('exposes only an opaque parent token to nested result observers', async () => {
@@ -503,7 +503,7 @@ describe('the run_code dispatch bridge', () => {
   it('converts a failed run into a structured isError result carrying kind, message, and captured logs', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: [{ source: 'console', level: 'log', text: 'got this far' }],
+      logs: ['got this far'],
       error: { kind: 'timeout', message: 'compute budget exhausted (300ms busy)' },
     })
     const result = await runCode(ctx, 'program')
@@ -627,7 +627,7 @@ describe('the run_code dispatch bridge', () => {
     const view = tool.presentResult?.({ code: 'return 1' }, {
       content: [{ type: 'text', text: 'model-facing' }],
       isError: false,
-      meta: { logs: [{ source: 'console', level: 'log', text: 'printed' }], dispatches: 1 },
+      meta: { logs: ['printed'] },
     })
     // The result omits the title — an update replaces only provided fields,
     // so the pending card's program title persists through completion.
@@ -636,9 +636,10 @@ describe('the run_code dispatch bridge', () => {
       content: [{ type: 'text', text: 'printed' }],
     })
     // No captured output → no content either; everything pending persists.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [], dispatches: 2 } }))
+    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [] } }))
       .toEqual({ card: 'generic' })
     // Replay with an unrecognizable meta falls back to the generic rendering.
+    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [{ text: 'legacy' }], dispatches: 1 } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()
   })

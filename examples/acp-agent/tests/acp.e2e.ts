@@ -23,7 +23,7 @@ import {
  */
 
 // The child runs from a temp cwd, so its bin and config path are absolute.
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 // Resolve tsx absolutely because the subprocess runs outside the repo.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
