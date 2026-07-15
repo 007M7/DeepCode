@@ -185,6 +185,8 @@ export class BashEnvRegistry extends Service {
     return Object.freeze(Object.fromEntries(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))))
   }
 
+  // TODO(bash-env-list-builtins): Include registry-owned built-ins before diagnostics,
+  // prompt, or UI code treats list() as an exhaustive environment catalog.
   /**
    * Enumerate plugin-contributed variables without executing their resolvers.
    * @returns declarations sorted by environment variable name.

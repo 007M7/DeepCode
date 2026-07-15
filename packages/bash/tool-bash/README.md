@@ -32,6 +32,8 @@ Every foreground and background model bash call receives a newly collected trust
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-tool-bash'
 
+export const inject = ['bashEnv']
+
 export function apply(ctx: Context): void {
   ctx.bashEnv.register({
     name: 'deployment-region',

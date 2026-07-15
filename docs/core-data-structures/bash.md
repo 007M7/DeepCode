@@ -4,6 +4,18 @@ The bash execution seam — the canonical [capability seam](../rfc/implemented/a
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
+## Managed environment vocabulary
+
+The exported `DSH_ENV_PREFIX` constant is `'DSH_'`, the namespace reserved for harness-owned child-process facts. `DshEnvironmentKey` restricts managed keys to that namespace, and `DshEnvironment` is the immutable per-execution snapshot carried separately from ordinary environment overrides.
+
+```ts type-equiv
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
 ## Request vs. spec: the `resolve()` split
 
 The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
