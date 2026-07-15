@@ -123,7 +123,7 @@ def _current_platform_tag() -> str:
 def _node_launch_args() -> tuple[str, str]:
     node_root = bundled_package_dir() / "runtime" / "node"
     bin_js = (
-        node_root / "node_modules" / "@deepseek-ai" / "dsh-jsonrpc-agent" / "lib" / "bin.js"
+        node_root / "node_modules" / "@deepseek-ai" / "dsh-jsonrpc-demo" / "lib" / "bin.js"
     )
     if not bin_js.is_file():
         raise FileNotFoundError(
