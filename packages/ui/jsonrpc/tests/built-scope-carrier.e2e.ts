@@ -33,7 +33,7 @@ const [
   { SessionId },
 ] = await Promise.all([
   load("vendor/cordis/lib/index.js"),
-  load("packages/core/agent-core/lib/index.js"),
+  load("packages/examples/agent-spine-demo/lib/index.js"),
   load("packages/subagent/subagent/lib/index.js"),
   load("packages/session-persistence/session-persistence-jsonl/lib/index.js"),
   load("packages/ui/jsonrpc/lib/index.js"),
