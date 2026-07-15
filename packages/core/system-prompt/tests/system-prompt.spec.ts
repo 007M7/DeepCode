@@ -21,9 +21,9 @@ describe('SystemPrompt', () => {
       await ctx.plugin(SystemPrompt, { persona: 'You are DeepSeek Harness SDK.' })
 
       const assembly = await ctx.systemPrompt.assemble()
-      expect(assembly.sections.map(s => [s.name, s.order])).toEqual([
-        ['harness:identity', -100],
-        ['deployment:persona', 0],
+      expect(assembly.sections.map(s => s.name)).toEqual([
+        'harness:identity',
+        'deployment:persona',
       ])
       expect(renderPrompt(assembly)).toBe(`${IDENTITY}\n\nYou are DeepSeek Harness SDK.`)
       // The names are reserved by the plugin — one owner per section.
@@ -183,7 +183,7 @@ describe('SystemPrompt', () => {
     const contexts: AssembleContext[] = []
     ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, context, next) => {
       contexts.push(context)
-      assembly.sections.push({ name: 'from-a', order: 100, text: 'a' })
+      assembly.sections.push({ name: 'from-a', text: 'a' })
       return next()
     })
     // Listener B (registered later, runs after A) sees A's contribution.
@@ -235,8 +235,8 @@ describe('SystemPrompt', () => {
   it('filters out empty section text from renderPrompt', () => {
     const result = renderPrompt({
       sections: [
-        { name: 'empty', order: 0, text: '' },
-        { name: 'real', order: 1, text: 'content' },
+        { name: 'empty', text: '' },
+        { name: 'real', text: 'content' },
       ],
       tools: [],
       variables: {},
@@ -356,13 +356,13 @@ describe('SystemPrompt', () => {
     })
 
     it('names "(none)" when no variables are registered at all', () => {
-      expect(() => renderPrompt({ sections: [{ name: 's', order: 0, text: '{{x}}' }], tools: [], variables: {} }))
+      expect(() => renderPrompt({ sections: [{ name: 's', text: '{{x}}' }], tools: [], variables: {} }))
         .toThrow('unknown prompt variable "{{x}}" in section "s"; registered variables: (none)')
     })
 
     it('throws when a referenced variable has no value for this assembly', () => {
       expect(() => renderPrompt({
-        sections: [{ name: 'persona', order: 0, text: 'in {{cwd}}' }],
+        sections: [{ name: 'persona', text: 'in {{cwd}}' }],
         tools: [],
         variables: { cwd: undefined },
       })).toThrow('prompt variable "{{cwd}}" has no value for this assembly (section "persona")')
@@ -370,7 +370,7 @@ describe('SystemPrompt', () => {
 
     it('throws on a malformed complete reference, e.g. inner spaces', () => {
       expect(() => renderPrompt({
-        sections: [{ name: 's', order: 0, text: 'on {{ model }}' }],
+        sections: [{ name: 's', text: 'on {{ model }}' }],
         tools: [],
         variables: { model: 'm' },
       })).toThrow('malformed prompt variable reference "{{ model }}" in section "s"')
@@ -378,7 +378,7 @@ describe('SystemPrompt', () => {
 
     it('leaves a lone {{ verbatim only when NO }} follows anywhere after it', () => {
       const text = renderPrompt({
-        sections: [{ name: 's', order: 0, text: 'shell ${X:-{{fallback} stays' }],
+        sections: [{ name: 's', text: 'shell ${X:-{{fallback} stays' }],
         tools: [],
         variables: {},
       })
@@ -390,7 +390,7 @@ describe('SystemPrompt', () => {
       { text: 'x {{a{b}} y {{model}}', label: 'nested brace inside a would-be group' },
     ])('throws on a mangled reference with a }} still following ($label)', ({ text }) => {
       expect(() => renderPrompt({
-        sections: [{ name: 's', order: 0, text }],
+        sections: [{ name: 's', text }],
         tools: [],
         variables: { model: 'm' },
       })).toThrow('malformed prompt variable reference at')
@@ -400,7 +400,7 @@ describe('SystemPrompt', () => {
       // `in` would find Object.prototype.constructor and splice function
       // source into the prompt; Object.hasOwn must reject it instead.
       expect(() => renderPrompt({
-        sections: [{ name: 's', order: 0, text: 'on {{constructor}}' }],
+        sections: [{ name: 's', text: 'on {{constructor}}' }],
         tools: [],
         variables: { model: 'm' },
       })).toThrow('unknown prompt variable "{{constructor}}"')
@@ -416,7 +416,7 @@ describe('SystemPrompt', () => {
 
     it('never re-scans substituted values (a value containing {{sneaky}} stays literal)', () => {
       const text = renderPrompt({
-        sections: [{ name: 's', order: 0, text: 'v = {{model}}!' }],
+        sections: [{ name: 's', text: 'v = {{model}}!' }],
         tools: [],
         variables: { model: 'literal {{sneaky}} inside' },
       })

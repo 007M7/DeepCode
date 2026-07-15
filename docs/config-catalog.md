@@ -207,7 +207,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:24`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:21`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -847,7 +847,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:143`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
