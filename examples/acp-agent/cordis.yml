@@ -53,7 +53,7 @@
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
-    contextWindow: 128000
+    contextWindow: 256000
     thresholdRatio: 0.8
     retainTokens: 20480
     summarizationModel: ''
