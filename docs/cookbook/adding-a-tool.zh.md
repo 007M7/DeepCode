@@ -45,9 +45,9 @@ export function apply(ctx: Context) {
 
 ## 长时间运行的工作
 
-遵循 tool-bash 的后台模式：`run_in_background` 标志立即返回一个 task id；配套工具增量轮询和终止；完成通知通过 `agent.inject()` 到达。限定缓冲区大小，将完整输出溢写到磁盘，避免静默丢失。
+通过 producer 配置控制 `run_in_background`，拒绝已预先中止的调用，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。
 
-> TODO: 目前每个工具都手动重新实现这套后台模式。未来需要一个通用的长时间运行工具层，统一处理 task id、增量轮询、终止和完成通知。
+producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。返回 id 后，应使用 task 自有的取消信号，而不是 `exec.signal`。流式 producer 的示例和完整契约见[后台 task 运行时 RFC](../rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
 
 ## 执行策略与观测
 
