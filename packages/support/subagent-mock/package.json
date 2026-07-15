@@ -25,7 +25,7 @@
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-subagent": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
@@ -34,7 +34,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-subagent": "workspace:^",
-    "@cordisjs/plugin-loader": "^1.0.0-rc.4",
-    "cordis": "^4.0.0-rc.6"
+    "@cordisjs/plugin-loader": "^1.0.0-rc.5",
+    "cordis": "^4.0.0-rc.7"
   }
 }
