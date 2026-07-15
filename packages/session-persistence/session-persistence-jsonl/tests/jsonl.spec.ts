@@ -20,6 +20,19 @@ function mutableHeader(header: SessionHeader): MutableSessionHeader {
   return header
 }
 
+async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError)
+    const [cause] = (error as AggregateError).errors as unknown[]
+    expect(cause).toBeInstanceOf(Error)
+    expect((cause as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected parallel flush to reject')
+}
+
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
   dirs.push(dir)
@@ -665,7 +678,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)
     backend.materialize = () => Promise.reject(new Error('disk full'))
-    await expect(ctx2.parallel('session/flush', session)).rejects.toThrow(/disk full/)
+    await expectParallelFlushError(ctx2.parallel('session/flush', session), /disk full/)
     // The events are STILL buffered (not silently dropped): a retry persists them.
     backend.materialize = origMat
     await ctx2.parallel('session/flush', session)
