@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-jsonrpc
 
-Stdio JSON-RPC plugin for out-of-process SDK clients such as Python `deepseek_harness`. [`HarnessSdkServer`](src/server.ts) handles `initialize` → `session/prompt` → `shutdown` plus session and subagent notifications over [`JsonRpcLineTransport`](src/transport.ts). This package owns the protocol; [`jsonrpc-agent`](../jsonrpc-agent/README.md) boots the external `cordis.yml` that chooses the surrounding runtime. See the [single-executable RFC](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) for the distribution design.
+Stdio JSON-RPC plugin for out-of-process SDK clients such as Python `deepseek_harness`. [`HarnessSdkServer`](src/server.ts) handles `initialize` → `session/prompt` → `shutdown` plus session and subagent notifications over [`JsonRpcLineTransport`](src/transport.ts). This package owns the protocol; [`jsonrpc-agent`](../../examples/jsonrpc-demo/README.md) boots the external `cordis.yml` that chooses the surrounding runtime. See the [single-executable RFC](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) for the distribution design.
 
 ## Wiring
 

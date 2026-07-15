@@ -11,7 +11,7 @@ The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, approval an
 
 ## stdout is the protocol
 
-This example loads **no stdout logger** — `stdout` carries the JSON-RPC frames, and any other write corrupts them. `@deepseek-ai/dsh-acp-agent` includes no logger entry, so this leaf has none to get wrong by default; do not add one (use a stderr exporter if you need logs).
+This example loads **no stdout logger** — `stdout` carries the JSON-RPC frames, and any other write corrupts them. `@deepseek-ai/dsh-acp-demo` includes no logger entry, so this leaf has none to get wrong by default; do not add one (use a stderr exporter if you need logs).
 
 ## Zed configuration
 

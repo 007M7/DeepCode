@@ -9,7 +9,7 @@
     path: ./cordis.yml
     patches:
       - id: stdio-agent
-        name: '@deepseek-ai/dsh-stdio-agent'
+        name: '@deepseek-ai/dsh-stdio-demo'
         config:
           provider: deepseek
           model: deepseek-v4-flash
