@@ -22,11 +22,13 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
+import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
@@ -111,14 +113,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash'],
-    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
     note:
-      'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
+      'The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
@@ -177,6 +179,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-tasks',
+    dir: 'tool-tasks',
+    source: 'packages/tasks/tool-tasks/src/index.ts',
+    requires: ['ctx.tools', 'ctx.tasks', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
+    async mount(ctx) {
+      await ctx.plugin(TaskService)
+      await ctx.plugin(ToolTasks)
+    },
+    note:
+      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

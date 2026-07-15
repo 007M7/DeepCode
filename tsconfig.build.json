@@ -74,6 +74,8 @@
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
+    { "path": "./packages/tasks/tasks" },
+    { "path": "./packages/tasks/tool-tasks" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-workerthread" },
     { "path": "./packages/workflow/tool-workflow" },
