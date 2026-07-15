@@ -59,7 +59,7 @@ pnpm run demo:cordis    # self-referential demo: the agent modifies its own runt
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
 
-### Run the CI gates locally before marking a PR ready
+### Run CI gates locally before marking a PR ready
 
 Run narrow checks during implementation and this CI-equivalent sequence before marking a PR ready. Fresh worktrees need `pnpm run build` before publint and NodeNext inspect `lib/`:
 
