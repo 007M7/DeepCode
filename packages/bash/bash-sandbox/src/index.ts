@@ -3,14 +3,14 @@
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
  * mode, enforcement, and denial facts. Runner failure means the command never
  * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
- * tasks carry `runnerFailed`. The tool owns approval and passes per-call modes.
+ * processes carry `runnerFailed`. The tool owns approval and passes per-call modes.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
 import { resolve } from 'node:path'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -20,7 +20,7 @@ import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
  * Plugin config: the local executor's knobs plus the sandbox policy. All
  * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
  * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is NOT configured here: which platform
+ * explicitly). The runner choice is not configured here: which platform
  * backend confines the command is the `ctx.sandbox` provider's config.
  */
 export interface Config extends LocalConfig {
@@ -70,10 +70,8 @@ export function classifyRunnerFailure(result: BashRunResult, signatures: readonl
 }
 
 /**
- * The classifier core shared by foreground results and settled background
- * tasks: failed AND signature present. Lowercases BOTH sides — the seam
- * declares its signatures case-insensitive, and producers compose them from
- * runtime data of any case (an `argv0` path, `No such file or directory`).
+ * Shared classifier for failed runs. Signatures are case-insensitive and may
+ * include runtime values such as an executable path.
  */
 function matchesSignature(exitCode: number | null, stderr: string, signatures: readonly string[]): boolean {
   if (exitCode === null || exitCode === 0) return false
@@ -104,11 +102,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
   /**
-   * Per-task mode and wrap facts retained until settlement. Overlapping tasks
-   * may use different modes or provider facts, so one latest-wrap field would
-   * misclassify earlier completions.
+   * Per-process confinement facts retained until settlement. Providers may
+   * vary enforcement and diagnostic dialect between overlapping calls, so a
+   * shared latest-wrap value would classify a process against the wrong facts.
+   * Unconfined processes have no entry.
    */
-  private readonly taskFacts = new Map<BashTaskId, {
+  private readonly processFacts = new Map<BashProcess, {
     mode: ConfinedSandboxMode
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
@@ -117,10 +116,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
-    // schemastery (static Config) already filled the defaulted fields — the
-    // cast records that runtime fact (mirrors LocalBashExecutor's config
-    // cast). `workspaceRoot` and `cwd` have NO schema default, so their
-    // fallback chain is real branching.
+    // Schemastery fills mode before construction; workspaceRoot and cwd retain runtime fallbacks.
     this.mode = config.mode as SandboxMode
     this.workspaceRoot = resolve(config.workspaceRoot ?? config.cwd ?? process.cwd())
   }
@@ -158,39 +154,36 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
 
-  override start(spec: BashExecSpec): BashTask {
+  override start(spec: BashExecSpec): BashProcess {
     // Same stamped-by-resolve invariant as run().
     const mode = spec.sandboxMode as SandboxMode
     if (mode === 'danger-full-access') return super.start(spec)
-    // Classification needs settled stderr. Store facts synchronously after
-    // spawn, before the earliest process completion can be observed.
+    // Install facts synchronously; promise settlement cannot run before start() returns.
     const confined = this.confine(spec.command, mode)
-    const task = super.start({ ...spec, command: confined.command })
+    const proc = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined
-    this.taskFacts.set(task.id, { mode, enforcement, denialSignatures, runnerFailureSignatures })
-    return task
+    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureSignatures })
+    return proc
   }
 
   /**
-   * Stamp per-task sandbox facts before completion listeners and `done` settle.
-   * Full-access tasks have no facts; signal deaths are not denials.
+   * Stamp per-process sandbox facts before `done` settles. Full-access processes
+   * have no facts; signal deaths are not denials.
    */
-  protected override notifyTaskDone(task: BashTask): void {
-    const facts = this.taskFacts.get(task.id)
+  protected override onProcessDone(proc: BashProcess, stderr: string): void {
+    const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
-      this.taskFacts.delete(task.id)
-      const stderr = this.collectedStderr(task.id)
-      // Runner failure outranks denial. Background settlement has no throw
-      // channel, so this fact is its counterpart to the foreground exception.
-      const runnerFailed = matchesSignature(task.exitCode, stderr, facts.runnerFailureSignatures)
-      task.sandbox = {
+      this.processFacts.delete(proc)
+      // Runner failure outranks denial because its diagnostics may contain denial terms.
+      const runnerFailed = matchesSignature(proc.exitCode, stderr, facts.runnerFailureSignatures)
+      proc.sandbox = {
         mode: facts.mode,
-        denied: !runnerFailed && matchesSignature(task.exitCode, stderr, facts.denialSignatures),
+        denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
         enforcement: facts.enforcement,
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
-    super.notifyTaskDone(task)
+    super.onProcessDone(proc, stderr)
   }
 
   /**

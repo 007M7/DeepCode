@@ -132,7 +132,7 @@ describe('danger-full-access', () => {
     const task = bash.start(bash.resolve({ command: 'echo free-bg' }))
     await task.done
     expect(task.sandbox).toBeUndefined()
-    expect(bash.readOutput(task.id).delta).toContain('free-bg')
+    expect(task.readOutput().delta).toContain('free-bg')
     expect(calls).toHaveLength(0)
   })
 })
@@ -184,7 +184,7 @@ describe('per-call sandboxMode override (the escalation mechanism)', () => {
     const task = bash.start(bash.resolve({ command: 'echo bg-free', sandboxMode: 'danger-full-access' }))
     await task.done
     expect(task.sandbox).toBeUndefined()
-    expect(bash.readOutput(task.id).delta).toContain('bg-free')
+    expect(task.readOutput().delta).toContain('bg-free')
     expect(calls).toHaveLength(0)
   })
 })
@@ -243,6 +243,20 @@ describe('result facts', () => {
 })
 
 describe('background sandbox facts', () => {
+  it('stamps facts and releases accounting when background spawn fails', async () => {
+    const { bash } = await setup()
+    const missingWorkdir = join(mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-')), 'missing')
+    const task = bash.start(bash.resolve({ command: 'true', workdir: missingWorkdir }))
+
+    await task.done
+
+    expect(task.status).toBe('killed')
+    expect(task.readOutput().delta).toContain('spawn failed:')
+    expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
+    expect(accounting.size).toBe(0)
+  })
+
   it('stamps a settled denial: nonzero exit + permission stderr under a confined mode', async () => {
     const { bash } = await setup()
     const task = bash.start(bash.resolve({ command: 'echo "x: Permission denied" >&2; exit 1' }))
@@ -273,15 +287,6 @@ describe('background sandbox facts', () => {
     expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full', runnerFailed: true })
   })
 
-  it('completion listeners already see the stamped facts (stamp precedes notify)', async () => {
-    const { ctx, bash } = await setup({}, argv => ({ argv: [...argv], enforcement: 'partial', denialSignatures: UNIX_SIGNATURES, runnerFailureSignatures: RUNNER_FAILURE }))
-    const seen: unknown[] = []
-    ctx.bash.onTaskDone((task) => { seen.push(task.sandbox) })
-    const task = bash.start(bash.resolve({ command: 'echo "x: Permission denied" >&2; exit 1' }))
-    await task.done
-    expect(seen).toEqual([{ mode: 'read-only', denied: true, enforcement: 'partial' }])
-  })
-
   it('overlapping background tasks keep their OWN wrap facts (per-task, not latest-wrap)', async () => {
     // Facts belong to each wrap and may vary between calls. The slow task settles after the
     // quick task starts; a shared latest-wrap field would classify and stamp it with the wrong
@@ -308,8 +313,8 @@ describe('background sandbox facts', () => {
     const task = bash.start(bash.resolve({ command: 'echo "Permission denied" >&2; sleep 30' }))
     // Let the stderr land before the kill so the classifier sees the
     // signature and must still refuse it on the null exit code alone.
-    await vi.waitFor(() => { expect(bash.readOutput(task.id).delta).toContain('Permission denied') })
-    bash.kill(task.id)
+    await vi.waitFor(() => { expect(task.readOutput().delta).toContain('Permission denied') })
+    task.kill()
     await task.done
     expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
   })
