@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -245,12 +245,12 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     dbNewer.close()
     expect(() => openDatabase(path, 'wal')).toThrow(/incompatible with this build/)
 
-    // A stale OLDER version (e.g. a pre-summary-drop v1 DB) is also rejected —
-    // we do not migrate (unreleased software, no backward-compat).
+    // The immediately preceding layout lacks the required store identity and is
+    // rejected rather than migrated (unreleased software, no backward-compat).
     const olderPath = await freshDbPath()
     openDatabase(olderPath, 'wal').close()
     const dbOlder = openDatabase(olderPath, 'wal')
-    dbOlder.exec('PRAGMA user_version = 1')
+    dbOlder.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`)
     dbOlder.close()
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
@@ -337,8 +337,46 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await fiber2.dispose()
   })
 
+  it('source-qualifies revisions across stores while preserving same-file reopen identity', async () => {
+    const pathA = await freshDbPath()
+    const pathB = await freshDbPath()
+    const m = meta('revision-source')
+    const a = await backend(pathA)
+    await a.ctx.sessionPersistence.create(m)
+    await a.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionA = (await a.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await a.dispose()
+
+    const probeA = openDatabase(pathA, 'wal')
+    const storeIdA = (probeA.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeA.close()
+
+    const aliasA = `${pathA}.alias`
+    await symlink(pathA, aliasA)
+    const reopenedA = await backend(aliasA)
+    expect((await reopenedA.ctx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revisionA)
+    await reopenedA.dispose()
+
+    const b = await backend(pathB)
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionB = (await b.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    const probeB = openDatabase(pathB, 'wal')
+    const storeIdB = (probeB.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeB.close()
+    expect(storeIdB).not.toBe(storeIdA)
+    expect(revisionB).not.toBe(revisionA)
+    expect(String(revisionA)).toMatch(/:revision:1$/)
+    expect(String(revisionB)).toMatch(/:revision:1$/)
+    await b.dispose()
+  })
+
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(5)
+    expect(SCHEMA_VERSION).toBe(6)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {
@@ -354,6 +392,17 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('rejects and closes a current-schema database with an invalid store identity', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    db.exec("UPDATE persistence_state SET store_id = '' WHERE singleton = 1")
+    db.close()
+
+    const b = await backend(path)
+    await expect(b.ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/no valid store identity/)
+    await expect(b.dispose()).resolves.toBeUndefined()
+  })
+
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')

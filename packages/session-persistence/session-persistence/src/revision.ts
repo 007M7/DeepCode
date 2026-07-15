@@ -2,7 +2,10 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
-/** Backend-owned token that changes whenever one persisted session log changes. */
+/**
+ * Backend-owned token that identifies both one storage source and one revision
+ * of a persisted session log.
+ */
 export type SessionPersistenceRevision = Branded<'SessionPersistenceRevision'>
 
 /**

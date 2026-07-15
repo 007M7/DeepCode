@@ -19,6 +19,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
@@ -84,6 +85,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   override readonly name = 'session-persistence-sqlite'
 
   private db!: DatabaseSync
+  private storeIdentity!: string
   private ready: Promise<void>
   private coordinator: PersistenceCoordinator<number>
 
@@ -98,12 +100,29 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   private async openDb(path: string, journalMode: JournalMode): Promise<void> {
-    if (path !== ':memory:') {
-      const abs = resolve(path)
-      await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
-      this.db = openDatabase(abs, journalMode)
-    } else {
-      this.db = openDatabase(path, journalMode)
+    const actual = path === ':memory:' ? path : resolve(path)
+    if (actual !== ':memory:') await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+    this.db = openDatabase(actual, journalMode)
+    try {
+      const row = this.db.prepare(
+        'SELECT store_id FROM persistence_state WHERE singleton = 1',
+      ).get() as { store_id: string } | undefined
+      /* v8 ignore next -- openDatabase inserts the singleton before returning. */
+      if (row === undefined) {
+        throw new Error(`session database at "${actual}" has no store identity`)
+      }
+      if (row.store_id.length === 0) {
+        throw new Error(`session database at "${actual}" has no valid store identity`)
+      }
+      if (actual !== ':memory:') {
+        const identity = statSync(actual, { bigint: true })
+        this.storeIdentity = `file:${identity.dev}:${identity.ino}:${identity.birthtimeNs}:store:${row.store_id}`
+      } else {
+        this.storeIdentity = `memory:store:${row.store_id}`
+      }
+    } catch (error: unknown) {
+      this.db.close()
+      throw error
     }
   }
 
@@ -234,13 +253,13 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return rows.map(rowToMeta)
   }
 
-  /** List metadata with an append-only event-count revision per session. */
+  /** List metadata with a source-qualified monotonic revision per session. */
   async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
     await this.ready
     const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
     return rows.map(row => ({
       header: rowToMeta(row),
-      revision: SessionPersistenceRevision(`revision:${row.revision}`),
+      revision: SessionPersistenceRevision(`${this.storeIdentity}:revision:${row.revision}`),
     }))
   }
 

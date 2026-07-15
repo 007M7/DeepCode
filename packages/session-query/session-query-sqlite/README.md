@@ -12,7 +12,7 @@ All three surfaces (`current`, `shadowed`, and `log-only`) are searchable by def
 
 ## Source and index lifecycle
 
-The service requires `ctx.sessions` and observes optional `ctx.sessionPersistence` dynamically. One serialized state machine compares lightweight durable snapshot revisions, loads only new or changed logs, extracts shared semantic documents, reconciles changes transactionally, and runs the query. Repeated queries and unchanged reopen load no full durable logs; new, changed, deleted, or load-repaired sources reconcile on the next stable observation. Source or transaction failure commits nothing, and the next search retries.
+The service requires `ctx.sessions` and observes optional `ctx.sessionPersistence` dynamically. One serialized state machine compares source-qualified lightweight durable snapshot revisions, loads only new or changed logs, extracts shared semantic documents, reconciles changes transactionally, and runs the query. Repeated queries and unchanged same-store reopen load no full durable logs; switching stores, or observing new, changed, deleted, or load-repaired sources, reconciles on the next stable observation. Source or transaction failure commits nothing, and the next search retries.
 
 Persisted FTS rows live in a dedicated derived database. Connection-local TEMP tables hold live rows, which shadow the durable base for the same session and reveal it when the live owner disappears. Unmounting persistence hides durable rows without discarding the cache; remounting reconciles it. Closing or reopening the database drops every live overlay while retaining persisted rows.
 

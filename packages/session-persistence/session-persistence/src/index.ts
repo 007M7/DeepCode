@@ -34,7 +34,7 @@ export { SessionPersistenceRevision } from './revision.ts'
 export interface SessionPersistenceSnapshot {
   /** Detached metadata for one materialized session. */
   header: SessionHeader
-  /** Opaque token that changes whenever this stored log changes. */
+  /** Opaque source-qualified token that changes whenever this stored log changes. */
   revision: SessionPersistenceRevision
 }
 
@@ -172,6 +172,8 @@ export abstract class SessionPersistence extends Service {
    *
    * Repeated observations of an unchanged log return the same revision. A
    * successful mutating {@link load} repair changes the next listed revision.
+   * Revisions also distinguish independently backed stores so backend-local
+   * counters cannot compare equal across different persistence sources.
    * @returns one header and opaque revision per materialized session without loading full logs.
    */
   abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>

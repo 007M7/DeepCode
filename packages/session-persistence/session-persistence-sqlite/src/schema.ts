@@ -1,12 +1,14 @@
 /**
  * Schema + load-time helpers for the SQLite session-persistence backend: the
- * DDL (a `sessions` metadata table and a 1:1 `events` row per `SessionEvent`),
- * the database open/configure step, and the last-`turn/end` cut that gives the
- * SQLite backend the SAME crash-tail-on-load semantics as the JSONL backend.
+ * DDL (a store-identity row, `sessions` metadata, and a 1:1 `events` row per
+ * `SessionEvent`), the database open/configure step, and the last-`turn/end`
+ * cut that gives the SQLite backend the SAME crash-tail-on-load semantics as
+ * the JSONL backend.
  *
  * @module dsh-session-persistence-sqlite/schema
  */
 
+import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepseek-ai/dsh-session'
 
@@ -15,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -70,14 +72,25 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * current one (written by a different, incompatible build — older or newer) is
  * REJECTED rather than opened against a layout this build does not understand.
  * There are no migrations: an incompatible layout is rejected. The current
- * sessions row carries every header field plus its monotonic snapshot revision;
- * the events row carries the complete surface metadata.
+ * persistence-state row carries an immutable random store id, the sessions row
+ * carries every header field plus its monotonic snapshot revision, and the
+ * events row carries the complete surface metadata.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - the journal pragma to apply — a closed in-code union, validated by the plugin Config.
- * @returns the open handle with pragmas applied and both tables ensured.
+ * @returns the open handle with pragmas applied and all three tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
+  try {
+    configureDatabase(db, path, journalMode)
+    return db
+  } catch (error: unknown) {
+    db.close()
+    throw error
+  }
+}
+
+function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
   db.exec('PRAGMA foreign_keys = ON')
   // journalMode is a closed in-code union (validated by the plugin Config), not
   // user-controlled SQL — safe to interpolate (PRAGMA takes no bound params).
@@ -85,7 +98,6 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
   if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
-    db.close()
     throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
   if (onDisk === 0) {
@@ -94,6 +106,15 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
     // constant (SCHEMA_VERSION is a trusted in-code number, not user input).
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
   }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS persistence_state (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      store_id  TEXT NOT NULL
+    ) STRICT
+  `)
+  db.prepare(
+    'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
+  ).run(randomUUID())
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id             TEXT PRIMARY KEY,
@@ -117,7 +138,6 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
       PRIMARY KEY (session_id, seq)
     ) STRICT
   `)
-  return db
 }
 
 /**

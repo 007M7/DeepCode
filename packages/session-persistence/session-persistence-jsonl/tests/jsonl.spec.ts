@@ -147,6 +147,29 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
   })
 
+  it('source-qualifies revisions across roots while preserving same-log reopen identity', async () => {
+    const m = meta('revision-source')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revision = (await ctx.sessionPersistence.listSnapshots())[0]?.revision
+
+    const reopenedCtx = new Context()
+    await reopenedCtx.plugin(SessionStore)
+    await reopenedCtx.plugin(SessionPersistenceJsonl, { root })
+    expect((await reopenedCtx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revision)
+
+    const otherRoot = await freshRoot()
+    const otherCtx = new Context()
+    await otherCtx.plugin(SessionStore)
+    await otherCtx.plugin(SessionPersistenceJsonl, { root: otherRoot })
+    await otherCtx.sessionPersistence.create(m)
+    await otherCtx.sessionPersistence.append(m.id, oneTurnLog())
+    expect((await otherCtx.sessionPersistence.listSnapshots())[0]?.revision).not.toBe(revision)
+
+    await reopenedCtx.fiber.dispose()
+    await otherCtx.fiber.dispose()
+  })
+
   it('persists a forked child seed through the existing session write path', async () => {
     const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source)
