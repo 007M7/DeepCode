@@ -610,10 +610,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
   },
   {
-    name: 'CodeLogEntry',
-    declaration: 'export interface CodeLogEntry {\n    source: \'console\' | \'stdout\' | \'stderr\';\n    level?: \'log\' | \'info\' | \'warn\' | \'error\' | \'debug\';\n    text: string;\n}',
-  },
-  {
     name: 'CodeRunFailure',
     declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
   },
@@ -623,7 +619,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: CodeLogEntry[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
