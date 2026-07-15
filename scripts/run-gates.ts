@@ -47,13 +47,23 @@ interface RunningGate {
   promise: Promise<GateResult>
 }
 
+interface ConcurrencyDefault {
+  workers: number
+  source: string
+}
+
 const root = resolve(import.meta.dirname, '..')
 const mode = parseMode(process.argv[2])
 const gates = gatesForMode(mode)
-const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', defaultConcurrency(gates.length))
+const concurrencyDefault = defaultConcurrency(mode, gates.length)
+const concurrencyOverride = process.env.DSH_GATE_CONCURRENCY
+const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', concurrencyDefault.workers)
 const startedAt = performance.now()
 
-console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s).`)
+const concurrencySource = concurrencyOverride === undefined || concurrencyOverride === ''
+  ? concurrencyDefault.source
+  : '$DSH_GATE_CONCURRENCY'
+console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s) from ${concurrencySource}.`)
 
 const results = await runGates(gates, maxConcurrency)
 printSummary(results, performance.now() - startedAt)
@@ -78,8 +88,15 @@ function parseMode(raw: string | undefined): Mode {
   }
 }
 
-function defaultConcurrency(total: number): number {
-  return Math.min(total, Math.max(4, availableParallelism()))
+function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
+  const available = availableParallelism()
+  const modeLimit = selectedMode === 'pre-push' ? Math.min(4, available) : available
+  return {
+    workers: Math.min(total, modeLimit),
+    source: selectedMode === 'pre-push'
+      ? `${available} available CPU(s), pre-push cap 4`
+      : `${available} available CPU(s)`,
+  }
 }
 
 function concurrencyFromEnv(name: string, fallback: number): number {
@@ -162,7 +179,10 @@ function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('snapshot', 'test:snapshot'),
         pnpmScript('build', 'build'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
-        ...docSyncLeafGates(),
+        ...docSyncLeafGates({
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
   }
@@ -275,9 +295,15 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
   ]
 }
 
-function docSyncLeafGates(): Gate[] {
+function docSyncLeafGates(options: {
+  docTypecheckNeeds?: string[]
+  docTypecheckEnv?: Record<string, string | undefined>
+} = {}): Gate[] {
+  const docTypecheckOptions: Partial<Gate> = {}
+  if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
+  if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
   return [
-    pnpmScript('doc-typecheck', 'doc-typecheck'),
+    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
