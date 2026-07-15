@@ -89,7 +89,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -147,7 +147,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent registry',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-demo', 'invariants'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'stdio-demo', 'invariants'],
     note: 'Owns live Agent handles and the create/resume factory seam.',
   },
   {
@@ -426,6 +426,8 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
   if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>pre-created main agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
@@ -452,7 +454,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }

@@ -344,6 +344,7 @@ function builtBinSmokeGate(): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node

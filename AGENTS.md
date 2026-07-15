@@ -43,8 +43,8 @@ Package groups: [packages/README.md](packages/README.md).
 ```sh
 pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
-pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
-pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
+pnpm run test:coverage  # gate: per-file 100% on packages/*/*/src
+pnpm run test:e2e       # real API; skips without key
 pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
@@ -54,9 +54,10 @@ pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run demo:echo      # mock-model REPL, no key needed
-pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
-pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:repl      # real coding REPL (needs key)
+pnpm run demo:cli -- "task" # one-shot agent (needs key)
+pnpm run demo:cordis    # self-modifying runtime demo (needs key)
+pnpm run demo:acp       # ACP server (needs key)
 ```
 
 ### Run the CI gates locally before marking a PR ready
@@ -79,7 +80,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.

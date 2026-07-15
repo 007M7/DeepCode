@@ -1,6 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-demo`](../packages/examples/stdio-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo)) and the [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-demo`](../packages/examples/stdio-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo)) and the [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
 
 ## echo-agent
 
@@ -17,7 +17,7 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-demo` app. The UI is a terminal readline REPL.
 
-Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run interactively with `pnpm run demo:repl`, or run one headless task with `pnpm run demo:cli -- "task"` (both need `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
 Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](coding-agent/README.md#code-mode) for its composition and a sample task.
 

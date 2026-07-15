@@ -1,6 +1,6 @@
 /**
  * Shared subprocess harness for keyless example smokes that boot a real
- * `cordis.yml` through the stdio-agent bin and Cordis Loader.
+ * `cordis.yml` through an app bin and Cordis Loader.
  *
  * @module @deepseek-ai/dsh-loader-smoke
  */
@@ -23,10 +23,12 @@ export interface LoaderSmokeOptions {
   readonly label: string
   /** Prefix for the isolated temporary process cwd. */
   readonly tempDirPrefix: string
-  /** Absolute stdio-agent bin path. */
+  /** Absolute app-bin path. */
   readonly binScript: string
-  /** Absolute real Loader config path. */
+  /** Absolute real Loader config path, passed as the sole bin argument by default. */
   readonly configPath: string
+  /** Complete argv after the bin path; overrides the default `[configPath]`. */
+  readonly binArgs?: readonly string[]
   /** Absolute repo tsconfig path used for unbuilt workspace-package resolution. */
   readonly tsconfigPath: string
   /** Environment overrides layered over the parent and isolated DSH homes. */
@@ -35,6 +37,10 @@ export interface LoaderSmokeOptions {
   readonly stdinLines?: readonly string[]
   /** Process deadline override for harness tests. */
   readonly processTimeoutMs?: number
+  /** Optional world-state setup run in the isolated cwd before process start. */
+  readonly prepare?: (cwd: string) => Promise<void> | void
+  /** Optional world-state assertion run in the isolated cwd before cleanup. */
+  readonly inspect?: (cwd: string) => Promise<void> | void
 }
 
 /** Captured output from a Loader smoke that exited successfully. */
@@ -56,10 +62,11 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
   const cwd = await mkdtemp(join(tmpdir(), options.tempDirPrefix))
   const processTimeoutMs = options.processTimeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS
   try {
-    return await new Promise((resolve, reject) => {
+    await options.prepare?.(cwd)
+    const result = await new Promise<LoaderSmokeResult>((resolve, reject) => {
       const child = spawn(
         process.execPath,
-        ['--expose-internals', '--import', TSX_LOADER, options.binScript, options.configPath],
+        ['--expose-internals', '--import', TSX_LOADER, options.binScript, ...(options.binArgs ?? [options.configPath])],
         {
           cwd,
           env: {
@@ -111,6 +118,8 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
 
       child.stdin.end((options.stdinLines ?? []).map(line => `${line}\n`).join(''))
     })
+    await options.inspect?.(cwd)
+    return result
   } finally {
     await rm(cwd, { recursive: true, force: true })
   }

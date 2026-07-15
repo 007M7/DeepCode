@@ -1,6 +1,6 @@
 # coding-agent
 
-The REPL agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + stdio chat + JSONL persistence, loaded from `cordis.yml`. The UI is a terminal readline REPL.
+Coding-agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + workflows + `todo_write` + JSONL persistence. `cordis.yml` runs the terminal readline REPL; `cli.cordis.yml` keeps the same coding capabilities behind a headless one-shot CLI.
 
 ## Run it
 
@@ -17,9 +17,23 @@ Type a coding task. The agent works through the `read`/`write`/`edit` filesystem
 > fix the failing test in /path/to/project
 [main turn 1] (reasoning…)
   [tool call] bash({"command": "node --test", "workdir": "/path/to/project"})
-  [tool result] … [exit code: 1]
+[tool result] … [exit code: 1]
   …
 ```
+
+### One-shot CLI
+
+Run one task through all model and tool steps, flush its fresh session, print the final result, and exit:
+
+```sh
+pnpm run demo:cli -- "fix the failing test in this workspace"
+pnpm run demo:cli --output-format json -- "summarize the current implementation"
+pnpm run demo:cli --output-format stream-json -- "run the focused tests"
+```
+
+The root command supplies `cli.cordis.yml`, which disables HMR and the REPL app and inserts [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo). Exactly one quoted positional task is required; there is no `-p` flag. `text` prints the last text-bearing assistant message, `json` prints one DSH-native result record, and `stream-json` emits the parent `main` session's canonical task-turn events before that record. Non-completed turns retain partial output but exit nonzero; argument and boot failures leave stdout empty.
+
+This is non-interactive automation with the same local bash, filesystem, skill, subagent, workflow, and todo capabilities as the REPL. It can mutate the launch workspace and spend provider tokens. No prompt, approval, resume, further turn, or stdin context is available in v1; see the [CLI package contract](../../packages/examples/cli-demo/README.md).
 
 ### Resuming a prior session
 
@@ -55,7 +69,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash`/`bash_output`/`bash_kill` tool schemas (`tool-bash`) come from `agent-core`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the REPL app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |
@@ -69,4 +83,4 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 - `tests/compaction.e2e.ts` — the compaction smoke: a real multi-step bash task runs with a deliberately tiny context window so the auto-compaction listener fires MID-SESSION. Verifies the WORLD — a `compact/start…end` pair landed in the real log, the surface shrank (a replace node shadowed older nodes), and the agent still produced a correct final answer after compaction.
 - `tests/todo-write.e2e.ts` — a real model drives the real `todo_write` tool and the test verifies the resulting `todo/write` session event.
 
-These self-skip without `DEEPSEEK_API_KEY`. `tests/code-mode.e2e.ts` is the with-key Code Mode proof — a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back. The keyless boot smokes run in the default e2e gate: `tests/keyless-smoke.e2e.ts` (the full real tree, dummy key, no prompt → no model call) and `tests/code-mode-keyless-smoke.e2e.ts` (the same guard for the Code Mode overlay).
+These self-skip without `DEEPSEEK_API_KEY`. `tests/code-mode.e2e.ts` is the with-key Code Mode proof — a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back. `tests/cli.e2e.ts` runs the one-shot bin with a real model and verifies its temporary file externally. The keyless Loader smokes run in the default e2e gate: `tests/keyless-smoke.e2e.ts`, `tests/code-mode-keyless-smoke.e2e.ts`, and `tests/cli-keyless-smoke.e2e.ts`; the CLI smoke mocks only the LLM boundary and asserts a real bash round trip plus persisted stream output.

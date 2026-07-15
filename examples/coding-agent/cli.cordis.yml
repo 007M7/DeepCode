@@ -1,0 +1,24 @@
+# One-shot headless overlay: keep the coding capabilities from `cordis.yml`,
+# replace its REPL app with the stdout-pure CLI app, and disable dev-only HMR.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: hmr
+        name: '@cordisjs/plugin-hmr'
+        disabled: true
+      - id: stdio-agent
+        name: '@deepseek-ai/dsh-stdio-demo'
+        disabled: true
+      - insert:
+          - id: cli-agent
+            name: '@deepseek-ai/dsh-cli-demo'
+            config:
+              model: deepseek-v4-flash
+              persistenceRoot: './.sessions'
+              persona: |
+                You are coding-agent, a coding assistant powered by the {{model}} model.
+
+                Verify your work by running the code or tests. Keep answers brief and
+                factual.

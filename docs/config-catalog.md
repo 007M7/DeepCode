@@ -169,6 +169,30 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-
 
 Source: [`packages/bash/bash-sandbox/src/index.ts:26`](../packages/bash/bash-sandbox/src/index.ts)
 
+## `@deepseek-ai/dsh-cli-demo`
+
+```ts config-catalog
+/** App config forwarded to the spine, pre-created agent, and JSONL backend. */
+export interface Config {
+  /** Model name for the `main` agent; a matching adapter must be registered. */
+  model: string
+  /** Deployment persona forwarded to the system-prompt plugin. */
+  persona?: string
+  /** Explicit model-facing tool order forwarded to the system-prompt plugin. */
+  toolOrder?: string[]
+  /** Tool-registry presentation config forwarded through agent-spine-demo. */
+  tools?: ToolsConfig
+  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  persistenceRoot?: string
+  /** Skill registry, local-provider, and model-facing consumer config. */
+  skills?: agentCore.SkillConfig
+}
+```
+
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/examples/cli-demo/src/index.ts:21`](../packages/examples/cli-demo/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
