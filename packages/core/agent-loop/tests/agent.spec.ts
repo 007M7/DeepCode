@@ -401,8 +401,7 @@ describe('Agent', () => {
     // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
     // disposing the OWNING fiber runs the agent's listener disposers, which would
     // have dropped a ctx.on-based waiter before the 'disposed' transition and
-    // hung the promise. With internal waiters, the fiber disposer still settles
-    // it. Regression for the round-3 whenIdle finding.
+    // hung the promise. With internal waiters, the fiber disposer still settles it.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: Agent

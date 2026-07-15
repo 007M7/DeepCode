@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-The plugin injects `agents`, `sessions`, `sessionPersistence`, `tools`, and `userInteraction`, never the concrete loop. Persistence backs `session/load`; tool definitions own presentation; user interaction maps agent questions to ACP forms.
+The plugin injects `agents`, `sessionPersistence`, `tools`, and `userInteraction`, never the concrete loop. Persistence backs `session/load`; tool definitions own presentation; user interaction maps agent questions to ACP forms.
 
 ### Config
 
@@ -36,7 +36,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 
 ## Multi-session
 
-Forward and reverse indexes route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md).
+One id-keyed record map plus exact agent-object checks route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md).
 
 ## Session config options
 
