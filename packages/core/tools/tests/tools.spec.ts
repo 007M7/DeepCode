@@ -80,7 +80,7 @@ describe('ToolRegistry', () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
   it('threads a tool-attached meta (object return form) onto the result', async () => {
@@ -94,7 +94,6 @@ describe('ToolRegistry', () => {
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'ok' }],
       isError: false,
       meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
@@ -111,7 +110,7 @@ describe('ToolRegistry', () => {
       },
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
     expect('meta' in result).toBe(false)
   })
 
@@ -178,13 +177,12 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('ToolNotFoundError carries the tool name and a stable code', async () => {
+  it('ToolNotFoundError carries a stable message and code', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     const err = new ToolNotFoundError('ghost')
     expect(err).toBeInstanceOf(HarnessError)
     expect(err.name).toBe('ToolNotFoundError')
     expect(err.code).toBe('UNKNOWN_TOOL')
-    expect(err.toolName).toBe('ghost')
     expect(err.message).toBe('unknown tool "ghost"')
   })
 
@@ -425,7 +423,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
     // The around seam wraps dispatch; pre gates before it, post runs over its result.
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
   })
@@ -526,8 +524,8 @@ describe('ToolRegistry', () => {
       async execute() { dispatched = true; return [] },
     })
 
-    ctx.on('tools/execute', async (exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
-      ({ callId: exec.callId, content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+    ctx.on('tools/execute', async (_exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
+      ({ content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
     expect(dispatched).toBe(false) // returning without next() skips core dispatch
@@ -537,8 +535,7 @@ describe('ToolRegistry', () => {
   it('preserves additionalContext supplied by an around-dispatch result', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async exec => ({
-      callId: exec.callId,
+    ctx.on('tools/execute', async () => ({
       content: [{ type: 'text', text: 'short-circuited with context' }],
       isError: false,
       additionalContext: {
@@ -556,20 +553,6 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('normalizes a tools/execute result with the wrong call id', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async () => ({ callId: CallId('other'), content: [], isError: false }))
-
-    const result = await ctx.tools.execute({
-      callId: CallId('malformed-shape'), name: 'echo', arguments: {},
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({
-      text: 'Error: tools/execute returned callId "other" for authoritative call "malformed-shape"',
-    })
-  })
-
   it('returns an isError result when a tools/execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -577,7 +560,6 @@ describe('ToolRegistry', () => {
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: wrapper broke' }],
       isError: true,
     })
@@ -593,7 +575,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
       isError: true,
     })
@@ -609,7 +590,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: post hook broke' }],
       isError: true,
     })
@@ -625,7 +605,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toMatchObject({
-      callId: CallId('c1'),
       isError: true,
       error: { name: 'HarnessError', code: 'DENIED' },
     })
@@ -703,16 +682,9 @@ describe('ToolRegistry', () => {
   })
 
   it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
-    // The registry-disposer convention (set by agents.register): the returned
-    // function IS the cordis effect disposer, so a composite (generator)
-    // effect that yields it has the unregistration run at that yield's LIFO
-    // position on owner unload. A wrapper would leave the inner effect
-    // disposing as a CONCURRENT SIBLING of the composite; the async probe
-    // below (disposed first, LIFO) yields the event loop exactly like the
-    // agent factory's stop-and-drain link, and a sibling unregistration fires
-    // in that window — the probe would observe the tool already gone. Pins
-    // the convention for the whole register-method family (system-prompt
-    // registrars, registerProvider, setFactory share the same return).
+    // Registry methods return the exact Cordis effect disposer so a composite yield places
+    // unregistration at its LIFO position. A wrapper would create a concurrent sibling; this async
+    // probe yields during earlier teardown and would then observe the tool already removed.
     const ctx = await setup()
     const order: string[] = []
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -999,20 +971,18 @@ describe('schema DSL edge cases', () => {
         port: { type: 'number' },
       },
     })
-    // no 'required' key in the nested object because nothing is required
     const config = jsonSchema.properties['config'] as Record<string, unknown>
     expect('required' in config).toBe(false)
   })
 })
 
-describe('schema DSL regressions (Codex review round 2)', () => {
+describe('schema DSL optional and nested contracts', () => {
   it('InferArgs makes non-required keys genuinely optional (omittable)', () => {
     type Args = InferArgs<{
       path: { type: 'string'; required: true }
       limit: { type: 'number' }
     }>
     expectTypeOf<Args>().toEqualTypeOf<{ path: string; limit?: number }>()
-    // omitting the optional key is assignable — the actual regression
     const omitted: Args = { path: '/tmp' }
     expect(omitted.limit).toBeUndefined()
   })
@@ -1263,7 +1233,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
       },
     }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'read /x' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'read /x' }], isError: false })
   })
 
   it('ToolArgsError carries a stable code and the violation list', () => {

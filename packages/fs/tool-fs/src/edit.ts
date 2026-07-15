@@ -1,14 +1,7 @@
 /**
- * The model-facing `edit` tool: update an existing UTF-8 text file by replacing
- * literal text, requiring a unique match by default. The tool is the executor:
- * it dispatches the `fs/edit-intent` waterfall to obtain the optional
- * version guard, calls `ctx.fs.editText` directly, and emits `fs/observed`. The
- * default thunk returns `undefined` (unconditional edit of the current content
- * — the bare provider); a policy plugin (`@deepseek-ai/dsh-fs-policy`)
- * occupies the single decision slot, returning `{ version: vObserved }` or
- * throwing `FS_NOT_OBSERVED` for an unread file. The tool stats ZERO times
- * either way; a missing target is reported by the provider as `FS_STALE_VERSION`.
- *
+ * Model-facing literal edit, unique-match by default. It obtains an optional guard from the
+ * single intent slot, calls `ctx.fs.editText` without a separate stat, then records the observed
+ * version; no policy means an unconditional atomic edit.
  * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
 
@@ -96,22 +89,16 @@ export function applyEditTool(ctx: Context): void {
       )
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // The result-time applied-hunk diff (before→after with context lines). An
-      // edit always changes content (parseEditArgs requires old_string to differ
-      // and editText matches at least once), so there is always at least one hunk.
-      // The bridge renders these as an inline diff that supersedes the call-time
-      // snippet; the display path is the model-facing `file_path` (the bridge
-      // relativizes it).
+      // An edit necessarily changes content, so result metadata carries at least one applied hunk.
       const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
       return {
         content: [{ type: 'text', text: formatEditOutput(target.displayPath, input.replaceAll) }],
         meta: { diffs },
       }
     },
-    // Pure display: a diff card of the literal replacement (old_string →
-    // new_string), derived from the call args. `oldText: old_string || null`
-    // matches claude-agent-acp's Edit arm; new_string is a required arg here, so
-    // it maps straight to newText. A follow-along location points at the file.
+    // Pure display: a diff card of the literal replacement (old_string → new_string), derived
+    // from the call args. `oldText: old_string || null` matches claude-agent-acp's Edit arm;
+    // new_string is a required arg here, so it maps straight to newText.
     presentCall(args): DiffCallView {
       return {
         card: 'diff',
@@ -120,10 +107,8 @@ export function applyEditTool(ctx: Context): void {
         locations: [{ path: args.file_path }],
       }
     },
-    // Result-time display: the applied contextual-diff hunks carried on `meta`.
-    // On success with diffs, a `diff` result card supersedes the call-time
-    // snippet; on error (nothing applied) or malformed meta, fall through to the
-    // generic "updated successfully" rendering.
+    // Applied metadata replaces the call-time snippet; errors or malformed replay metadata use
+    // the generic result rendering.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)

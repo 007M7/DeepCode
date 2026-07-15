@@ -1,27 +1,12 @@
 name: Build single-exe
 
-# Single-file executable (single-exe) builds of the DeepSeek Harness SDK
-# runtime. The build pipeline and target platforms are specified in
-# docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md:
-# each target is built natively on a runner of its own platform (no
-# cross-compilation) by scripts/build-exe-for-python-sdk.ts, which deploys
-# the dsh-jsonrpc-agent-pkg closure manifest with @yao-pkg/pkg into
-# dist-exe/.
-#
-# The run retains exactly the four wheels that make up one Python release:
-# one platform-independent SDK wheel plus one native runtime wheel for each
-# supported platform. The matrix still exercises the bare executable and
-# source tree, but they are intermediate test inputs rather than artifacts.
-#
-# Two explicit triggers, deliberately no per-commit CI: the exe is a
-# release-style deliverable, and the build (full pnpm build + pnpm deploy +
-# pkg across a 3-platform matrix, ~100MB per artifact) is far too expensive
-# to run on every push. Either dispatch it from the Actions tab, or put the
-# `build-exe` label on a pull request to build that PR's merge result
-# (remove and re-apply the label to rerun); any other label leaves the jobs
-# skipped. There is no `ref` input on purpose: actions/checkout already
-# checks out the ref the run was triggered on — the dispatched branch/tag,
-# or the PR merge ref.
+# Native builds for the release targets; see
+# docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
+# A full target run retains one SDK wheel and three runtime wheels; subset
+# dispatch retains the SDK wheel and selected runtime wheels. Bare executables
+# and source closures are test inputs. Run manually or label a PR
+# `build-exe` (remove and reapply to rerun). Checkout uses the triggering ref,
+# so dispatch needs no separate ref input.
 on:
   workflow_dispatch:
     inputs:
@@ -36,24 +21,16 @@ on:
   pull_request:
     types: [labeled]
 
-# Runs on the same ref supersede each other (per branch/tag for dispatch,
-# per PR merge ref for label runs).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Least privilege: the jobs only read the repo; artifact upload needs no
-# extra scope.
 permissions:
   contents: read
 
 jobs:
-  # Turn the `targets` input into the build matrix. The `matrix` context is
-  # not available in a job-level `if:` (jobs.<job_id>.if only sees
-  # github/needs/vars/inputs), so target selection happens here instead of
-  # skipping matrix legs; an unknown target name fails the whole run loudly
-  # instead of being silently ignored. The label gate lives here too: `build`
-  # needs this job, so skipping it skips the whole run.
+  # Job-level conditions cannot inspect `matrix`, so validate target names and
+  # construct the matrix before the dependent jobs.
   plan:
     name: plan targets
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
@@ -79,8 +56,7 @@ jobs:
       - name: Compute matrix from targets input
         id: plan
         env:
-          # Empty on label runs and on dispatch with the input left blank —
-          # both mean "all three targets".
+          # Label runs and blank dispatch inputs build all targets.
           TARGETS: ${{ inputs.targets || 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64' }}
         run: |
           set -euo pipefail
@@ -89,10 +65,8 @@ jobs:
           for raw in "${targets[@]}"; do
             t="$(echo "$raw" | xargs)" # trim surrounding whitespace
             [ -z "$t" ] && continue
-            # Native builds only — each target maps to a runner of its own
-            # platform: linux-arm64 uses GitHub's hosted arm64 label
-            # ubuntu-24.04-arm (there is no ubuntu-latest-arm), macos-arm64
-            # uses macos-latest (Apple Silicon since macos-14).
+            # Native-only: hosted arm64 Linux uses ubuntu-24.04-arm, while
+            # macos-latest is Apple Silicon.
             case "$t" in
               node24-linux-x64)   runner=ubuntu-latest ;;
               node24-linux-arm64) runner=ubuntu-24.04-arm ;;
@@ -168,8 +142,7 @@ jobs:
         id: pnpm-store
         run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-      # Unlike ci.yml (x64-only), this matrix spans two Linux architectures
-      # that share runner.os, so runner.arch is part of the key.
+      # Linux architectures share runner.os, so the cache key includes arch.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
@@ -177,12 +150,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-node-24-pnpm-
 
-      # The first run per target has pkg-fetch download yao-pkg's patched
-      # Node binary into ~/.pkg-cache; cache it so later runs skip the
-      # download. The target string pins Node major + platform + arch;
-      # pnpm-lock.yaml rolls the key when @yao-pkg/pkg (and with it the
-      # pinned patched-binary version) is bumped, with restore-keys still
-      # seeding from the previous cache.
+      # Cache pkg's target Node binary; lockfile changes roll the
+      # exact key while the restore prefix can seed its replacement.
       - uses: actions/cache@v4
         with:
           path: ~/.pkg-cache
@@ -193,8 +162,6 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      # The script runs the whole pipeline itself (pnpm run build → pnpm
-      # deploy --prod → pkg) and writes its output to dist-exe/ by default.
       - name: Build single-exe
         run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
 

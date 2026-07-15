@@ -139,14 +139,8 @@ describe('dsh-acp-agent composition', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
-    // Postmortem 0001 guard: a stray `export default apply` makes the Loader's
-    // `unwrapExports` (`exports.default ?? exports`) collapse the module to the
-    // bare `apply` function, DROPPING the named `name`/`Config`. This package has
-    // no `inject` export, so that collapse would NOT crash at load (the keyless
-    // bin smoke would still answer `initialize`) — it would silently lose its
-    // config schema. So guard the shape directly here: assert no `default`
-    // export, and that the real `unwrapExports` leaves `name`/`Config`/`apply`
-    // intact. Adding `export default` to src/index.ts fails this test.
+    // A default export would make `unwrapExports` collapse this inject-less namespace and silently
+    // drop `name`/`Config` while the app still boots. Guard the postmortem-0001 shape directly.
     expect('default' in acpAgent).toBe(false)
     expect(typeof acpAgent.apply).toBe('function')
 

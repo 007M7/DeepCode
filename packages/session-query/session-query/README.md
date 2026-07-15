@@ -2,8 +2,6 @@
 
 Session-history query contracts and provider-independent helpers. The concrete `ctx.sessionQuery` service presents live `ctx.sessions` and an optional, dynamically mounted `ctx.sessionPersistence` as one logical corpus for exact reads and semantic scans. The abstract `ctx.sessionSearch` service defines full-text search without introducing a provider registry.
 
-This is trusted context-wide infrastructure. It performs no caller authorization; a future model tool or UI must constrain which sessions its caller may inspect.
-
 ## Reads
 
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
@@ -34,4 +32,11 @@ The package has no provider coordinator or registration protocol. A concrete bac
 |---|---:|---|
 | `readWindowMax` | `50` | Maximum `before` or `after` raw-event count. |
 
-The package deliberately has no lineage/provenance traversal, extractor registry, search-provider registry, index synchronization, caller authorization, or model-facing tool. The SQLite ownership and tokenizer decisions are recorded in the [implemented search RFC](../../../docs/rfc/implemented/feature/2026-07-10-sqlite-session-query-provider.md).
+## Model Experience
+
+None, as this trusted query service returns cloned session records only to its callers and registers no model-facing prompt, schema, tool, or message.
+
+## Known Limitations and Deferred Work
+
+- **No caller authorization** — this is trusted context-wide infrastructure; a future model tool or UI must constrain which sessions its caller may inspect.
+- **No traversal or provider registry** — lineage/provenance traversal, extractor and search-provider registries, index synchronization, and a model-facing tool are absent. SQLite ownership and tokenizer decisions are recorded in the [implemented search RFC](../../../docs/rfc/implemented/feature/2026-07-10-sqlite-session-query-provider.md).

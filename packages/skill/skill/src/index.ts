@@ -119,23 +119,6 @@ declare module 'cordis' {
   interface Context {
     skills: SkillService
   }
-
-  interface Events {
-    /**
-     * A skill provider became resolvable in the `ctx.skills` registry.
-     * Consumers can observe this instead of depending on Cordis plugin load
-     * order, which is concurrent for sibling plugins.
-     * @param provider - the provider that just registered.
-     * @mode emit
-     */
-    'skill/provider-added'(provider: SkillProvider): void
-    /**
-     * A skill provider left the registry because its plugin fiber was disposed.
-     * @param name - the registry name that no longer resolves.
-     * @mode emit
-     */
-    'skill/provider-removed'(name: string): void
-  }
 }
 
 interface IndexedCandidate {
@@ -175,14 +158,9 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a skill provider synchronously during the provider plugin's
-   * `apply()`. Throws if another provider already owns the same provider name,
-   * including the reserved runtime provider name. Providers that need remote
-   * initialization do that work inside `list()` after registration. Providers
-   * are readonly same-process registrations: the registry borrows the provider
-   * object and invokes its methods directly. Effect-scoped and HMR-safe:
-   * disposing the caller's fiber unregisters the provider and invalidates
-   * cached catalogs.
+   * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
+   * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
+   * the provider and invalidates catalog caches.
    * @param provider - the provider to register by `provider.name`.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
@@ -196,35 +174,27 @@ export class SkillService extends Service {
       throw new Error(`a skill provider named "${name}" is already registered`)
     }
     const providers = this.providers
-    const ctx = this.ctx
     const order = this.nextProviderOrder
     const invalidateCache = (): void => { this.invalidateCache() }
     this.nextProviderOrder += 1
-    const dispose = ctx.effect(function* () {
+    const dispose = this.ctx.effect(function* () {
       providers.set(name, { provider, order })
       invalidateCache()
       yield () => {
         providers.delete(name)
         invalidateCache()
-        ctx.emit('skill/provider-removed', name)
       }
-      ctx.emit('skill/provider-added', provider)
     }, 'skills.registerProvider()')
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
   /**
-   * Register a runtime skill contribution. Runtime registrations are treated as
-   * embedded provider entries with project-over-user priority. Same-name runtime
-   * registrations are first-wins: a duplicate logs a warning and gets a no-op
-   * disposer so it cannot remove the active contribution. Runtime definitions
-   * are readonly same-process registrations; the registry borrows their nested
-   * resource metadata.
+   * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
+   * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
+   * receives a no-op disposer so it cannot remove the winner.
    * @param skill - the complete skill definition to expose for discovery.
-   * @returns the exact Cordis effect disposer that removes this runtime
-   *   contribution and invalidates caches; composite effects may yield it
-   *   directly to preserve teardown ordering.
+   * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
     validateRuntimeSkill(skill)
@@ -266,12 +236,9 @@ export class SkillService extends Service {
   }
 
   /**
-   * Load one full skill definition by name. The provider receives the winning
-   * candidate it returned during discovery, including its opaque locator, and
-   * the registry returns the provider's definition after validating it.
-   * Cancellation is rechecked after catalog
-   * selection (including a cache hit), and provider loading is raced against the
-   * same signal so an uncooperative provider cannot hang the caller.
+   * Load and validate the winning candidate, passing its opaque discovery locator back to the
+   * provider. Cancellation is rechecked after selection, including cache hits, and raced against
+   * loading so an uncooperative provider cannot hang the caller.
    * @param name - kebab-case skill name.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
    * @returns the full skill, including body content, or `undefined`.

@@ -38,7 +38,7 @@ describe('Exa result mapping', () => {
   })
 
   it('maps a response to a result with no content and filtered sources', () => {
-    const result = mapExaResponse('q', {
+    const result = mapExaResponse({
       results: [
         { url: 'https://a.test', highlights: ['one'] },
         { url: 'https://b.test' },
@@ -46,8 +46,6 @@ describe('Exa result mapping', () => {
       ],
     })
     expect(result).toEqual({
-      providerId: EXA_PROVIDER_ID,
-      query: 'q',
       sources: [
         { url: 'https://a.test', snippet: 'one' },
         { url: 'https://c.test', title: 'C', snippet: 'three' },
@@ -58,36 +56,31 @@ describe('Exa result mapping', () => {
   })
 
   it('tolerates a missing results array', () => {
-    expect(mapExaResponse('q', {}).sources).toEqual([])
+    expect(mapExaResponse({}).sources).toEqual([])
   })
 
 })
 
-describe('ExaSearchProvider status', () => {
+describe('ExaSearchProvider availability', () => {
   it('is unavailable without a key', () => {
-    expect(new ExaSearchProvider({ ...options, apiKey: '' }).status())
-      .toEqual({ available: false, reason: 'missing-credential' })
+    expect(new ExaSearchProvider({ ...options, apiKey: '' }).available()).toBe(false)
   })
 
   it('is available with a key', () => {
-    expect(new ExaSearchProvider(options).status()).toEqual({ available: true })
+    expect(new ExaSearchProvider(options).available()).toBe(true)
   })
 
   it('is misconfigured when the base URL is unparseable', () => {
-    expect(new ExaSearchProvider({ ...options, baseURL: 'not a url' }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new ExaSearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
   it('is misconfigured when highlightsPerResult is not a positive integer', () => {
-    expect(new ExaSearchProvider({ ...options, highlightsPerResult: 0 }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
-    expect(new ExaSearchProvider({ ...options, highlightsPerResult: 1.5 }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new ExaSearchProvider({ ...options, highlightsPerResult: 0 }).available()).toBe(false)
+    expect(new ExaSearchProvider({ ...options, highlightsPerResult: 1.5 }).available()).toBe(false)
   })
 
   it('is misconfigured when numResults is set but not a positive integer', () => {
-    expect(new ExaSearchProvider({ ...options, numResults: -1 }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new ExaSearchProvider({ ...options, numResults: -1 }).available()).toBe(false)
   })
 })
 
@@ -139,7 +132,7 @@ describe('ExaSearchProvider request mapping', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
-    await new ExaSearchProvider(options).search({ query: 'q' }, { signal: controller.signal })
+    await new ExaSearchProvider(options).search({ query: 'q' }, controller.signal)
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(init.signal).toBe(controller.signal)
   })
@@ -209,7 +202,7 @@ describe('web-search-exa plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
     const fiber = await ctx.plugin(exaPlugin, { apiKey: 'exa-key' })
-    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: EXA_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ sources: [], truncated: false })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))

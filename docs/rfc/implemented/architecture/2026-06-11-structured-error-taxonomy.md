@@ -6,8 +6,6 @@ Status: implemented
 
 Failures crossed seams as bare strings. A tool error flattened to a text block — name, code, and stack lost — so a future sandbox/retry plugin couldn't tell ENOENT from EACCES, and the model got less actionable feedback than it could. A non-Error throw degraded further: the loop wrapped it in `new Error(String(x))`, dropping any code. And `LlmError` was the only typed error in the system, with no shared base, so there was nothing for a consumer to `instanceof` against generically.
 
-This is the last of the runtime-validation / error-taxonomy pieces and the one the user was most skeptical of, so it was deliberately built **last and in isolation**: the earlier PRs (arg validation, dev invariants) threw plain `Error`s with a `code` field, decoupled from any shared base, so this change is a pure upgrade and is independently revertible without unpicking them.
-
 ## Decision
 
 A single `HarnessError extends Error` base in `dsh-llm` (the leaf package every other imports — no new dependency edge): a stable `code` distinct from `message`, `cause` chaining via `ErrorOptions`, and `name` defaulting to the subclass. `isHarnessError` narrows at seams.
@@ -21,6 +19,6 @@ A single `HarnessError extends Error` base in `dsh-llm` (the leaf package every 
 - Errors are machine-routable end-to-end: a plugin can branch on `error.code` rather than substring-matching a message.
 - One base class is imported widely, but it lives in the package everyone already depends on, so the cost is a single import, not a new edge.
 - `deriveMessages` does not surface `error` into model history — the model still sees the text block; the structured field is for code and replay.
-- Reverting this PR returns the earlier errors to plain `Error`+`code` form; nothing else in the stack depends on the shared base.
+- Argument validation and dev invariants retain their existing codes and behavior; the shared base adds cross-seam routing metadata without changing model-facing text.
 
 <!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

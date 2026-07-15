@@ -108,7 +108,7 @@ interface BashExecSpec {
 
 The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
 
-`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+Trusted in-process plugins use `stdin` and `env` for hook payloads and hook-specific variables. The model-facing bash tool constructs requests from its named schema fields and exposes neither input because shell syntax already provides equivalent power; tests guard against a future `...args` spread. This is request-shape discipline, not a security boundary: `dsh-bash-local` scrubs ambient credentials regardless of these fields, then overlays explicit values already held by the caller. See [the bash stdin/env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
 Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
 
@@ -154,7 +154,7 @@ interface CollectedOutput {
 
 ## File sandbox: `BashSandboxInfo`
 
-A sandbox-consuming executor (`dsh-bash-sandbox`) exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each agent session's durable `bash/sandbox-mode` override, stamps the effective mode onto the request, states it in the per-agent prompt, and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned and cataloged by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md), whose provider wraps the executor's argv; modes govern FILE effects only, not network or process visibility.
+A sandbox-consuming executor (`dsh-bash-sandbox`) exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each agent session's durable `bash/sandbox-mode` override, stamps the effective mode onto the request, and may replace it for one user-approved strictly wider call. It deliberately neither states the standing mode nor narrates switches; a denial result names the mode that command actually ran under. The mode/enforcement vocabulary is owned and cataloged by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md), whose provider wraps the executor's argv; modes govern FILE effects only, not network or process visibility.
 
 A sandboxed run always reports the facts it executed under on `BashRunResult.sandbox`: `denied` is the executor's conservative classification of a failure as sandbox-caused (a failed exit whose stderr carries a filesystem-permission signature — never a clean exit or a signal kill), read from the collected stderr tail; `enforcement` reports how completely the selected backend governs the mode's file effects (`SandboxEnforcement = 'full' | 'partial'` — `partial` when an older Landlock ABI governs only a subset of the requested accesses; absent under `danger-full-access`, where nothing is confined); `runnerFailed` marks the opposite of a denial — the sandbox RUNNER itself failed and the command never ran (stamped only on settled background tasks; a foreground run surfaces the same condition as the thrown `SANDBOX_UNAVAILABLE` error):
 
@@ -193,7 +193,7 @@ interface BashSandboxInfo {
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model sees the current effective mode in the prompt, receives denial/runner facts in results, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model receives denial/runner facts in results, learns the effective mode only when a denial marker names it, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
 
 ## Background tasks: `BashTask`
 
@@ -202,7 +202,6 @@ A long-running command started with `start()` is tracked as a `BashTask`. `BashT
 ```ts type-equiv
 interface BashTask {
   readonly id: BashTaskId
-  readonly command: string
   status: BashTaskStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null

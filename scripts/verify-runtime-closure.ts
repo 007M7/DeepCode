@@ -1,10 +1,7 @@
 /**
- * Verify that the Python single-exe deploy manifest explicitly supplies every
- * required workspace peer of every workspace package in its dependency graph.
- *
- * `pnpm deploy --config.auto-install-peers=false` cannot repair an incomplete
- * runtime root. Keeping the peer at the root also prevents a successful build
- * from producing an executable that fails only when Cordis loads the plugin.
+ * Verify that the executable deploy manifest supplies every required workspace
+ * peer in its dependency graph. With auto peer installation disabled, a missing
+ * root peer can otherwise fail only when Cordis loads the packaged plugin.
  */
 import { readFile, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'

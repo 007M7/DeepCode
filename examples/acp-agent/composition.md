@@ -10,8 +10,14 @@ flowchart LR
   cfg["examples/acp-agent<br/>cordis.yml"]
   plugin_acp_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_acp_llm_deepseek
-  plugin_acp_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
+  plugin_acp_sandbox["sandbox<br/>@deepseek-ai/dsh-sandbox-local"]
+  cfg --> plugin_acp_sandbox
+  plugin_acp_bash["bash<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_acp_bash
+  plugin_acp_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
+  cfg --> plugin_acp_approval
+  plugin_acp_permission["permission<br/>@deepseek-ai/dsh-permission"]
+  cfg --> plugin_acp_permission
   plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-agent"]
   cfg --> plugin_acp_acp_agent
   plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
@@ -39,12 +45,6 @@ flowchart LR
   cfg --> plugin_acp_tool_todo
   plugin_acp_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
   cfg --> plugin_acp_repeat_tool_guard
-  plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
-  cfg --> plugin_acp_fs_local
-  plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
-  cfg --> plugin_acp_fs_policy
-  plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
-  cfg --> plugin_acp_tool_fs
   plugin_acp_hooks_claude["hooks-claude<br/>@deepseek-ai/dsh-hooks-claude"]
   cfg --> plugin_acp_hooks_claude
   plugin_acp_hooks_codex["hooks-codex<br/>@deepseek-ai/dsh-hooks-codex"]
@@ -54,7 +54,10 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
-| `bash` | `@deepseek-ai/dsh-bash-local` |
+| `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
+| `bash` | `@deepseek-ai/dsh-bash-sandbox` |
+| `approval` | `@deepseek-ai/dsh-user-approval` |
+| `permission` | `@deepseek-ai/dsh-permission` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-agent` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
@@ -65,9 +68,6 @@ flowchart LR
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
-| `fs-local` | `@deepseek-ai/dsh-fs-local` |
-| `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
-| `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `hooks-claude` | `@deepseek-ai/dsh-hooks-claude` |
 | `hooks-codex` | `@deepseek-ai/dsh-hooks-codex` |
 

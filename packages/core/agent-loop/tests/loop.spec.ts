@@ -183,11 +183,7 @@ describe('agent loop', () => {
   })
 
   it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
-    // A persona claiming {{cwd}} on a session with NO cwd is a deployment
-    // authoring error — renderPrompt throws, the turn ends with an error, and
-    // the same agent must then RUN a later turn to completion (not merely
-    // report idle status): a rescue listener supplies the variable and the
-    // follow-up prompt reaches the model.
+    // A missing cwd variable must fail one turn without preventing a later valid turn.
     const adapter = new MockAdapter([textResponse('ok after rescue')])
     const ctx = await harness(adapter, 'In {{cwd}}.')
     const errors: Error[] = []
@@ -522,9 +518,8 @@ describe('agent loop', () => {
   })
 
   it('agent/pre-step fires BEFORE the step it precedes opens (events land outside the step)', async () => {
-    // A listener appending a surface node in pre-step lands it BEFORE step/start
-    // in the log — proving the seam fires outside the step. The node is still in
-    // the derived request for that step (derive happens after step/start).
+    // The append lands before step/start, yet derive happens afterwards and the
+    // same step's request must include it.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -557,10 +552,8 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener ends the turn (error), not the loop', async () => {
-    // The seam fires before step/start, so a throw escapes to runTurn's outer
-    // catch: the not-yet-open step closes as a no-op, the failure surfaces via
-    // agent/error, and the turn ends `error` (recorded on the durable turn/end).
-    // The loop survives and a follow-up prompt still runs.
+    // Before step/start, a pre-step throw reaches the turn catch: no step needs
+    // closing, the turn records error, and the loop remains available.
     const adapter = new MockAdapter([textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -627,16 +620,14 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // and the reason is recorded in the log's turn/end event
+    // Assert the durable row, not only the live listener.
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
     expect(turnEnd!.data.reason).toEqual({ kind: 'max-tokens' })
   })
 
   it('a max-tokens step earlier in a turn still surfaces as max-tokens after a later completed step', async () => {
-    // Step 1 is cut off (max-tokens, no tool calls → would stop by default), so
-    // continuation must be FORCED to reach step 2 which finishes normally
-    // (stop). The rule "any max-tokens step surfaces as max-tokens" means the
-    // turn ends max-tokens even though the LAST step completed cleanly.
+    // Step 1 is cut off (max-tokens, no tool calls → would stop by default), so continuation
+    // must be FORCED to reach step 2 which finishes normally (stop).
     const adapter = new MockAdapter([
       maxTokensResponse('first half'),
       textResponse('second half'),
@@ -718,11 +709,8 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // No-data-loss: a max-tokens step whose only content was a dropped tool call
-    // has EMPTY assistant content, but its usage must still be represented. It
-    // rides on an (empty-content) assistant/message — there is no standalone
-    // usage event — and that empty message is skipped by deriveMessages(), so
-    // the derived history above is NOT corrupted by a spurious assistant turn.
+    // Empty content still needs an assistant/message to carry usage; derivation
+    // skips that host so it does not create a spurious assistant turn.
     const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
     expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
       turn: 1, step: 1, content: [], usage: { inputTokens: 10, outputTokens: 5 },
@@ -730,10 +718,9 @@ describe('agent loop', () => {
   })
 
   it('appends no assistant/message for a max-tokens step with empty content and no usage', async () => {
-    // A max-tokens step truncated to a dropped tool call AND with no usage chunk
-    // has nothing to record: empty content and no accounting → no assistant/message
-    // (the empty-content host exists only to carry usage). The turn still ends
-    // max-tokens.
+    // A max-tokens step truncated to a dropped tool call AND with no usage chunk has nothing to
+    // record: empty content and no accounting → no assistant/message (the empty-content host
+    // exists only to carry usage).
     const callId = CallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },

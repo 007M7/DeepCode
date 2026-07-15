@@ -23,6 +23,10 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/context/time-context": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
@@ -38,6 +42,11 @@
     },
     "packages/support/acp-snapshot": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["cordis"]
+    },
+    "packages/support/loader-smoke": {
+      "entry": ["tests/**/*.spec.ts", "tests/fixtures/*.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
@@ -85,6 +94,10 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/ui/stdio": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/ui/jsonrpc-agent": {
       "project": ["src/**/*.ts"]
     },
@@ -104,6 +117,11 @@
     "packages/fs/tool-fs": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/mcp/mcp-client": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["@modelcontextprotocol/server-everything", "@modelcontextprotocol/server-filesystem"]
     }
   }
 }

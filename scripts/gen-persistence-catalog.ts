@@ -1,45 +1,9 @@
 /**
- * Generate (and verify) the persistence log event catalog in
- * docs/persistence-catalog.md.
- *
- * The catalog is the ON-DISK-vocabulary reference: every event type that can
- * appear in a session's durable event log — every member of the
- * merge-extensible `SessionEventMap`, across the owning declaration in
- * `@deepseek-ai/dsh-session` and every plugin declaration merge. It complements
- * the cordis events/services catalog (the live bus wiring — a log event is NOT
- * a cordis event; it reaches listeners via the single `session/event` emit) and
- * the core-data-structures session page (the `SessionEvent` envelope and
- * derivation semantics): this page is the RECORDS a persisted log can contain.
- *
- *   `tsx scripts/gen-persistence-catalog.ts`          → write the catalog
- *   `tsx scripts/gen-persistence-catalog.ts --check`  → exit 1 if the committed
- *                                                       file is stale (CI /
- *                                                       pre-push gate)
- *
- * Like its AST sibling `gen-cordis-catalog.ts` (and unlike the boot-based
- * `gen-tool-catalog.ts`), this is a pure source pass: every log event is a
- * string-literal-named property with a static type annotation, so the AST is
- * the whole truth and a brand-new event (core or merged) appears in the next
- * regenerate — an un-regenerated file fails `--check`. The walk enforces JSDoc
- * COMPLETENESS on the whole vocabulary: every member carries description prose
- * (it becomes the catalog entry), and an `@mode` tag on a member is a hard
- * error — dispatch modes belong to cordis bus events, and a log event has none
- * (see docs/rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
- * Structural holes are hard errors for the same reason: a member that is not a
- * property signature with an explicit payload type, an `extends` clause on a
- * declaration, a top-level `interface SessionEventMap` that is not the single
- * exported declaration in the owning package, and a duplicate declaration of
- * one event would each let something join (or impersonate)
- * `keyof SessionEventMap` without a truthful catalog row. Violations aggregate
- * into ONE error listing every offender.
- *
- * The surface/log-only badge is parsed from the `SurfaceEventType` union in the
- * owning package (never hand-listed here), and every union member must name a
- * collected event — a stale union member is a hard error.
- *
- * Payload fences use the ` ```ts persistence-catalog ` info string:
- * doc-typecheck recognizes it and skips compilation (a bare payload fragment is
- * not standalone-compilable), excluded from the opt-out ratio.
+ * Generate `docs/persistence-catalog.md` from every `SessionEventMap` merge and
+ * the owning `SurfaceEventType` union. This is the durable-record vocabulary,
+ * not the live Cordis bus. Event declarations must be unique, explicitly typed,
+ * documented, inheritance-free, and free of Cordis-only `@mode` tags; every
+ * surface-union member must resolve to one. `--check` verifies the artifact.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -57,14 +21,7 @@ const FENCE = 'ts persistence-catalog'
 /** The package whose module id plugin merges augment (`declare module '…'`). */
 const SESSION_MODULE = '@deepseek-ai/dsh-session'
 
-/**
- * Cross-link map: a type name that appears in a payload → the
- * core-data-structures page that documents it (path relative to OUT's folder).
- * Hand-curated and catalog-owned, same policy as the cordis catalog's map: each
- * name resolves to exactly one PRIMARY page. A payload type with no
- * core-data-structures home (e.g. `HookDialect`, documented in its package)
- * simply gets no link.
- */
+/** Primary core-data-structures page for linked payload types. */
 const LINK_MAP: Record<string, string> = {
   CallId: 'core.md',
   ContentBlock: 'core.md',
@@ -99,12 +56,9 @@ export interface AnnotatedLogEventEntry extends LogEventEntry {
 const printer = ts.createPrinter({ removeComments: true })
 
 /**
- * One-line payload text for a member's type annotation. Printed through the
- * TypeScript printer (not sliced from source text): the printer emits `;`
- * member separators regardless of how the source separated them, so a
- * multi-line newline-separated type literal still collapses to a VALID
- * single-line fragment. The trailing `;` the printer puts before every `}` is
- * dropped to match the repo's inline-literal style.
+ * Render a member type on one line through the TypeScript printer, which adds
+ * semicolon separators. Drop its trailing semicolon before `}` to match the
+ * repository's inline-literal style.
  */
 function payloadText(type: ts.TypeNode, sf: ts.SourceFile): string {
   return printer.printNode(ts.EmitHint.Unspecified, type, sf)
@@ -155,16 +109,8 @@ function packageNameFor(rel: string, scanRoot: string): string | null {
 }
 
 /**
- * Walk every `SessionEventMap` declaration (the owning interface plus every
- * plugin declaration merge) and extract its events, hard-erroring (aggregated)
- * on any completeness violation: a member without description prose, an
- * `@mode` tag (a category error — log events have no dispatch mode), a member
- * that is not a property signature with an explicit payload type, a
- * non-literal member name, an `extends` clause (inherited keys would join
- * `keyof SessionEventMap` without a catalog row), a top-level declaration that
- * is not the single exported one in the owning package, or the same event
- * declared twice.
- * `scanRoot` defaults to the repo root; tests pass a fixture dir.
+ * Collect every `SessionEventMap` merge, rejecting inherited, non-literal,
+ * untyped, undocumented, duplicate, or incorrectly owned members in one report.
  */
 export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
   const entries: LogEventEntry[] = []
@@ -179,11 +125,9 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
     for (const { decl, topLevel } of sessionEventMapDecls(sf)) {
       const declSrc = pointer(rel, sf, decl)
       if (topLevel) {
-        // The top-level form is the OWNING vocabulary, and it has exactly one
-        // home: the single EXPORTED declaration in the owning package. A
-        // same-named interface anywhere else — another package, a non-exported
-        // local, a second exported copy — is a different type that must not be
-        // catalogued as on-disk events.
+        // The top-level form has one home: the single exported declaration in
+        // the owning package. Same-named interfaces elsewhere are different
+        // types and must not enter the on-disk catalog.
         const pkg = packageNameFor(rel, scanRoot)
         if (pkg !== SESSION_MODULE) {
           violations.push(`top-level interface SessionEventMap (${declSrc}) is outside ${SESSION_MODULE} (package ${pkg ?? 'unknown'}). Rename the interface, or contribute events via declare module '${SESSION_MODULE}'.`)

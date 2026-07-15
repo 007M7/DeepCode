@@ -33,3 +33,14 @@ The database is disposable but reset is guarded: a recognized incompatible searc
 The index uses FTS5 `unicode61`. In the implementation experiment it supported the two-character query `AI` and produced an index about 2.1× smaller than the trigram alternative. The trade-off is token/phrase recall rather than arbitrary substring recall: `AI` does not match the token `BRAID`. Use `ctx.sessionQuery.filterEvents()` with a `text` clause when a literal whitespace-flexible substring scan is required. NUL is rejected in queries; reserved highlight markers and NUL in documents are normalized before indexing so presentation markers cannot collide with source text.
 
 Abort signals stop queued work and caller waits around asynchronous source observation. Node's synchronous `DatabaseSync` API cannot interrupt a MATCH statement already executing on the JavaScript thread; the signal is checked immediately before and after the serialized observation/reconciliation boundary.
+
+## Model Experience
+
+None, as this trusted search backend returns hits only to callers and registers no model-facing prompt, schema, tool, or message.
+
+## Known Limitations and Deferred Work
+
+- **No caller authorization** — this is a trusted context-wide service; a model tool or UI must enforce its own access policy.
+- **Synchronous query execution** — `DatabaseSync` blocks the JavaScript thread during MATCH execution and cannot interrupt a statement already running.
+- **Token recall, not arbitrary substrings** — the `unicode61` tokenizer does not match substrings inside a larger token; use `filterEvents()` for literal scans.
+- **Single-owner derived index** — one service in one process must own each index path; external writers and multi-process sharing are unsupported.

@@ -22,8 +22,10 @@
     { "path": "./packages/session-query/session-query-sqlite" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
+    { "path": "./packages/context/time-context" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
+    { "path": "./packages/ui/permission" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/skill/skill" },
     { "path": "./packages/skill/skill-local" },
@@ -60,9 +62,11 @@
     { "path": "./packages/ui/app-boot" },
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/ui/jsonrpc-agent" },
+    { "path": "./packages/ui/stdio" },
     { "path": "./packages/ui/stdio-agent" },
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/support/acp-snapshot" },
+    { "path": "./packages/support/loader-smoke" },
     { "path": "./packages/subagent/subagent" },
     { "path": "./packages/support/subagent-mock" },
     { "path": "./packages/subagent/tool-subagent" },
@@ -79,6 +83,7 @@
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
-    { "path": "./packages/hooks/hooks-codex" }
+    { "path": "./packages/hooks/hooks-codex" },
+    { "path": "./packages/mcp/mcp-client" }
   ]
 }
