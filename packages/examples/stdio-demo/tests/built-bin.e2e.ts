@@ -116,7 +116,8 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
 let consumer: string | undefined
 
 afterEach(async () => {
-  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true })
+  // Windows can briefly retain released handles after exit; retry removal.
+  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   consumer = undefined
 })
 
