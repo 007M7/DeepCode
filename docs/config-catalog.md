@@ -419,6 +419,57 @@ export interface Config {
 
 Source: [`packages/support/llm-replay/src/index.ts:306`](../packages/support/llm-replay/src/index.ts)
 
+## `@deepseek-ai/dsh-mcp-client`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Discriminated union of all supported MCP transport configurations. */
+export type Config = StdioConfig | StreamableHttpConfig
+
+/** Config for connecting to an MCP server via a spawned child process over stdio. */
+export interface StdioConfig {
+  /** Transport type: spawn a child process and communicate over stdio. */
+  transport: 'stdio'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** Executable to spawn. */
+  command: string
+  /** Arguments passed to the command. */
+  args: string[]
+  /** Extra env vars merged on top of scrubbed ambient env. */
+  env: Record<string, string>
+  /** Working directory for the child process. */
+  cwd: string
+  /** Timeout per callTool invocation (ms). */
+  toolCallTimeoutMs: number
+}
+
+/** Config for connecting to an MCP server over Streamable HTTP (SSE). */
+export interface StreamableHttpConfig {
+  /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
+  transport: 'streamable-http'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** MCP server URL. */
+  url: string
+  /** Extra headers (e.g. auth tokens). */
+  headers: Record<string, string>
+  /** Timeout per callTool invocation (ms). */
+  toolCallTimeoutMs: number
+}
+```
+
+Source: [`packages/mcp/mcp-client/src/index.ts:91`](../packages/mcp/mcp-client/src/index.ts)
+
 ## `@deepseek-ai/dsh-permission`
 
 Requires: `bash` · `approval`
