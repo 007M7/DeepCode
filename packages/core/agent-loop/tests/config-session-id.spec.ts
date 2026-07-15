@@ -64,6 +64,25 @@ describe('config-driven session id', () => {
     await conflicting.fiber.dispose()
   })
 
+  it('rejects duplicate exact ids before asynchronous configured startup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-duplicate-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+
+    const outcome = await ctx.plugin(AgentLoop, {
+      agents: [
+        { id: 'first', sessionId: SessionId('shared'), model: 'mock' },
+        { id: 'second', sessionId: SessionId('shared'), model: 'mock' },
+      ],
+    }).then(() => undefined, (error: unknown) => error)
+    const published = ctx.agents.get(SessionId('shared'))
+    await ctx.fiber.dispose()
+
+    expect(outcome).toEqual(new Error('agents "first" and "second" use duplicate exact session identity "shared"'))
+    expect(published).toBeUndefined()
+  })
+
   it('restores a materialized exact id across an AgentLoop-only reload', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-reload-'))
     dirs.push(root)
