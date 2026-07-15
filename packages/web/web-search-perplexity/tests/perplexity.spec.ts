@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe('Perplexity response mapping', () => {
   it('maps the answer and prefers structured search_results', () => {
-    const result = mapPerplexityResponse('q', {
+    const result = mapPerplexityResponse({
       choices: [{ message: { content: 'the answer' } }],
       search_results: [
         { url: 'https://a.test', title: 'A', snippet: 'snip', date: '2026-02-02' },
@@ -29,8 +29,6 @@ describe('Perplexity response mapping', () => {
       citations: ['https://ignored.test'],
     })
     expect(result).toEqual({
-      providerId: PERPLEXITY_PROVIDER_ID,
-      query: 'q',
       content: 'the answer',
       sources: [
         { url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-02-02' },
@@ -41,7 +39,7 @@ describe('Perplexity response mapping', () => {
   })
 
   it('falls back to URL-only citations when search_results is absent', () => {
-    const result = mapPerplexityResponse('q', {
+    const result = mapPerplexityResponse({
       choices: [{ message: { content: 'answer' } }],
       citations: ['https://a.test', 'https://b.test'],
     })
@@ -49,43 +47,39 @@ describe('Perplexity response mapping', () => {
   })
 
   it('omits content when the answer is empty or missing', () => {
-    expect(mapPerplexityResponse('q', { citations: [] }).content).toBeUndefined()
-    expect(mapPerplexityResponse('q', { choices: [{ message: { content: '' } }] }).content).toBeUndefined()
-    expect(mapPerplexityResponse('q', { choices: [{ message: { content: null } }] }).content).toBeUndefined()
+    expect(mapPerplexityResponse({ citations: [] }).content).toBeUndefined()
+    expect(mapPerplexityResponse({ choices: [{ message: { content: '' } }] }).content).toBeUndefined()
+    expect(mapPerplexityResponse({ choices: [{ message: { content: null } }] }).content).toBeUndefined()
   })
 
   it('omits null/empty optional source fields', () => {
-    const result = mapPerplexityResponse('q', {
+    const result = mapPerplexityResponse({
       search_results: [{ url: 'https://a.test', title: null, snippet: '', date: null }],
     })
     expect(result.sources).toEqual([{ url: 'https://a.test' }])
   })
 
   it('yields no sources when neither search_results nor citations are present', () => {
-    expect(mapPerplexityResponse('q', { choices: [{ message: { content: 'a' } }] }).sources).toEqual([])
+    expect(mapPerplexityResponse({ choices: [{ message: { content: 'a' } }] }).sources).toEqual([])
   })
 })
 
-describe('PerplexitySearchProvider status', () => {
+describe('PerplexitySearchProvider availability', () => {
   it('is unavailable without a key', () => {
-    expect(new PerplexitySearchProvider({ ...options, apiKey: '' }).status())
-      .toEqual({ available: false, reason: 'missing-credential' })
+    expect(new PerplexitySearchProvider({ ...options, apiKey: '' }).available()).toBe(false)
   })
 
   it('is available with a key', () => {
-    expect(new PerplexitySearchProvider(options).status()).toEqual({ available: true })
+    expect(new PerplexitySearchProvider(options).available()).toBe(true)
   })
 
   it('is misconfigured when the base URL is unparseable', () => {
-    expect(new PerplexitySearchProvider({ ...options, baseURL: 'not a url' }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new PerplexitySearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
   it('is misconfigured when maxTokens is not a positive integer', () => {
-    expect(new PerplexitySearchProvider({ ...options, maxTokens: 0 }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
-    expect(new PerplexitySearchProvider({ ...options, maxTokens: 1.5 }).status())
-      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new PerplexitySearchProvider({ ...options, maxTokens: 0 }).available()).toBe(false)
+    expect(new PerplexitySearchProvider({ ...options, maxTokens: 1.5 }).available()).toBe(false)
   })
 })
 
@@ -114,7 +108,7 @@ describe('PerplexitySearchProvider request mapping', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ citations: [] }))
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
-    await new PerplexitySearchProvider(options).search({ query: 'q' }, { signal: controller.signal })
+    await new PerplexitySearchProvider(options).search({ query: 'q' }, controller.signal)
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(init.signal).toBe(controller.signal)
   })
@@ -190,7 +184,7 @@ describe('web-search-perplexity plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: PERPLEXITY_PROVIDER_ID })
     const fiber = await ctx.plugin(perplexityPlugin, { apiKey: 'pplx-key' })
-    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: PERPLEXITY_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'a', sources: [] })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
