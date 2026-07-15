@@ -426,9 +426,13 @@ export class BasicCompactService extends CompactService {
       // compact/start and here leaves a detectable orphaned lock (a compact/start
       // with no matching compact/end) rather than a compact/end that falsely
       // claims compaction finished before the surface replacement landed.
-      session.append('compact/end', { turn: openTurn })
+      const endEvent = session.append('compact/end', { turn: openTurn })
 
       return {
+        startSeq: startEvent.seq,
+        summarySeq: summaryEvent.seq,
+        endSeq: endEvent.seq,
+        summary,
         shadowedRange: { start, end },
         shadowedSeqs,
         shadowedTokenCount,
