@@ -192,7 +192,7 @@ describe('task_kill', () => {
     expect(p.cancels).toEqual(['superseded'])
   })
 
-  it('reports an already-terminal task without consuming its pending delta', async () => {
+  it('reports an already-finished task without consuming its pending delta', async () => {
     const { ctx } = await setup()
     let delta = 'unread tail'
     const p = producer({ readOutput: () => { const d = delta; delta = ''; return d } })

@@ -136,7 +136,7 @@ export function apply(ctx: Context, config: Config): void {
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
       const result = ctx.tasks.kill(id, exec.agent, args.reason)
-      if (result === 'already-terminal') {
+      if (result === 'already-finished') {
         // A snapshot describes terminal state without consuming pending output.
         const snapshot = ctx.tasks.get(id, exec.agent)
         return Promise.resolve([{ type: 'text', text: `task ${id} had already finished ${statusLine(snapshot)}` }])

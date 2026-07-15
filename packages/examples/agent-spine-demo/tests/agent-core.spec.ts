@@ -9,6 +9,12 @@ import * as agentCore from '../src/index.ts'
 import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 
+declare module '@deepseek-ai/dsh-tasks' {
+  interface TaskKindMap {
+    probe: 'probe'
+  }
+}
+
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = { session: { header: { cwd } } } as unknown as Agent
   const empty: Message[] = []

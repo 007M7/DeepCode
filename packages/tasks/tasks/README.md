@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tasks
 
-The process-local background task registry (`ctx.tasks`). It gives long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup. The service is concrete; a durable backend can introduce an interface when its different lifecycle is specified.
+The process-local background task registry (`ctx.tasks`). It gives long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup. Producer plugins extend `TaskKindMap` with their opaque id namespace.
 
 ## Service API
 
@@ -29,6 +29,7 @@ Indirectly, through producer plugins and [`dsh-tool-tasks`](../tool-tasks/README
 ## Known Limitations and Deferred Work
 
 - **Tasks are process-local** — durable or cross-restart execution needs a separate lifecycle.
+- **The service and implementation are not split** — a second backend must define the lifecycle that shapes that boundary.
 - **Stream output has one consuming cursor** — independent observers need a cursor or snapshot API.
 - **Foreground work cannot be promoted** — producers choose foreground or background before starting.
 - **A silently ineffective cancel can stall teardown** — only an explicit throw can be force-failed safely.

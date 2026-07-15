@@ -4,7 +4,13 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
-import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
+import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
+
+declare module '@deepseek-ai/dsh-tasks' {
+  interface TaskKindMap {
+    workflow: 'workflow'
+  }
+}
 
 const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 
@@ -81,7 +87,7 @@ describe('TaskService.start', () => {
 
   it('rejects an empty kind and an empty label', async () => {
     const ctx = await harness()
-    expect(() => ctx.tasks.start(producer({ kind: '' }).spec)).toThrow('invalid task kind')
+    expect(() => ctx.tasks.start(producer({ kind: '' as TaskKind }).spec)).toThrow('invalid task kind')
     expect(() => ctx.tasks.start(producer({ label: '' }).spec)).toThrow('invalid task label')
   })
 
@@ -90,6 +96,7 @@ describe('TaskService.start', () => {
     expect(ctx.tasks.start(producer().spec)).toBe('bash-1')
     expect(ctx.tasks.start(producer().spec)).toBe('bash-2')
     expect(ctx.tasks.start(producer({ kind: 'subagent' }).spec)).toBe('subagent-1')
+    expect(ctx.tasks.start(producer({ kind: 'workflow' }).spec)).toBe('workflow-1')
   })
 })
 
@@ -222,13 +229,13 @@ describe('TaskService.kill', () => {
     expect(seen[0]).toMatchObject({ id, status: 'killed', reported: true })
   })
 
-  it('reports an already-terminal task instead of failing', async () => {
+  it('reports an already-finished task instead of failing', async () => {
     const ctx = await harness()
     const p = producer()
     const id = ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
-    expect(ctx.tasks.kill(id)).toBe('already-terminal')
+    expect(ctx.tasks.kill(id)).toBe('already-finished')
   })
 
   it('propagates a throwing producer cancel and leaves the task untouched', async () => {
@@ -254,7 +261,7 @@ describe('TaskService.kill', () => {
     expect(seen[0]).toMatchObject({ id, reported: false }) // notice would still fire
 
     broken = false
-    expect(ctx.tasks.kill(id)).toBe('already-terminal')
+    expect(ctx.tasks.kill(id)).toBe('already-finished')
   })
 })
 
@@ -299,7 +306,7 @@ describe('TaskService.wait', () => {
     expect(ctx.tasks.get(id).status).toBe('running')
   })
 
-  it('returns immediately for an already-terminal task', async () => {
+  it('returns immediately for an already-finished task', async () => {
     const ctx = await harness()
     const p = producer()
     const id = ctx.tasks.start(p.spec)

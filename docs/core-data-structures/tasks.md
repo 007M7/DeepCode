@@ -4,7 +4,16 @@ Types shared by long-running producers, `ctx.tasks`, and task control surfaces. 
 
 ## Ids and status
 
-`TaskId` is a [branded id](core.md#branded-ids) generated as `<kind>-N`. Access control relies on owner authorization, not id secrecy. `TaskStatus` is `'running' | 'stopping' | 'completed' | 'killed' | 'failed'`; producer-specific facts belong in `TaskSnapshot.detail`.
+`TaskId` is a [branded id](core.md#branded-ids) generated as `<kind>-N`. Access control relies on owner authorization, not id secrecy. `TaskKind` derives from a merge-extensible map; the registry treats kinds as opaque id namespaces.
+
+```ts type-equiv
+interface TaskKindMap {
+  bash: 'bash'
+  subagent: 'subagent'
+}
+```
+
+`TaskStatus` is `'running' | 'stopping' | 'completed' | 'killed' | 'failed'`; producer-specific facts belong in `TaskSnapshot.detail`.
 
 ## Producer contract
 
@@ -12,17 +21,17 @@ Types shared by long-running producers, `ctx.tasks`, and task control surfaces. 
 
 ```ts type-equiv
 interface TaskStart {
-  /** Producer kind — also the id prefix (`bash`, `subagent`, …). Non-empty. */
-  kind: string
+  /** Producer kind — also the id prefix (`bash`, `subagent`, …). */
+  kind: TaskKind
   /** One-line model-facing label (the command; the delegation description). */
   label: string
   /**
    * Owning live agent. Access is fenced by its session id, and agent disposal
    * cancels and awaits the task. The instance must be the one currently
-   * registered under its agent id. `undefined` creates an unowned task, open to
-   * any caller until service disposal.
+   * registered under its agent id. Omitting the owner creates an unowned task,
+   * open to any caller until service disposal.
    */
-  owner?: Agent | undefined
+  owner?: Agent
   /**
    * Start the work after preflight and synchronously return its hooks. Called
    * once; a throw leaves nothing registered, and the producer must clean up any
@@ -77,7 +86,7 @@ interface TaskSnapshot {
   /** The registry-issued id (`<kind>-N`). */
   id: TaskId
   /** The producer kind the task was registered with. */
-  kind: string
+  kind: TaskKind
   /** The producer-supplied one-line label. */
   label: string
   /**

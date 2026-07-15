@@ -29,6 +29,18 @@ export function TaskId(id: string): TaskId {
  */
 export type TaskStatus = 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
 
+/**
+ * Producer-defined task kinds. Plugins extend this map by declaration merging;
+ * the registry treats every value as an opaque id namespace.
+ */
+export interface TaskKindMap {
+  bash: 'bash'
+  subagent: 'subagent'
+}
+
+/** The merge-extensible union of registered producer kind names. */
+export type TaskKind = TaskKindMap[keyof TaskKindMap]
+
 /** Terminal result supplied by a producer through {@link TaskHooks.done}. */
 export interface TaskOutcome {
   /** How the task ended: finished (`completed`), cancelled (`killed`), or broke (`failed`). */
@@ -45,17 +57,17 @@ export interface TaskOutcome {
  * execution resources while the runtime owns identity and lifecycle state.
  */
 export interface TaskStart {
-  /** Producer kind — also the id prefix (`bash`, `subagent`, …). Non-empty. */
-  kind: string
+  /** Producer kind — also the id prefix (`bash`, `subagent`, …). */
+  kind: TaskKind
   /** One-line model-facing label (the command; the delegation description). */
   label: string
   /**
    * Owning live agent. Access is fenced by its session id, and agent disposal
    * cancels and awaits the task. The instance must be the one currently
-   * registered under its agent id. `undefined` creates an unowned task, open to
-   * any caller until service disposal.
+   * registered under its agent id. Omitting the owner creates an unowned task,
+   * open to any caller until service disposal.
    */
-  owner?: Agent | undefined
+  owner?: Agent
   /**
    * Start the work after preflight and synchronously return its hooks. Called
    * once; a throw leaves nothing registered, and the producer must clean up any
@@ -94,7 +106,7 @@ export interface TaskSnapshot {
   /** The registry-issued id (`<kind>-N`). */
   id: TaskId
   /** The producer kind the task was registered with. */
-  kind: string
+  kind: TaskKind
   /** The producer-supplied one-line label. */
   label: string
   /**

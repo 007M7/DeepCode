@@ -17,7 +17,7 @@ The `tasks/` package group owns background-task semantics:
 
 Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
 
-`TaskService` is a concrete service. There is one in-process implementation, so an interface/backend package split would be speculative. A durable or remote implementation can introduce that seam when its lifecycle requirements are known.
+`TaskService` is a concrete, process-local service. TODO(task-service-backend): separate its public contract from the implementation when a second backend defines the required lifecycle; a systemd-backed runtime is one plausible driver, but this PR does not speculate about its durability, reconnect, ownership, or observation semantics.
 
 ## Runtime contract
 
@@ -29,7 +29,7 @@ The producer hooks define three responsibilities:
 - `done` never rejects and settles only after the producer has released the task's resources.
 - Optional `readOutput()` returns the next consuming output delta. Omitting it declares a final-output task whose terminal result comes from `TaskOutcome.output`.
 
-Statuses are `running`, `stopping`, `completed`, `killed`, and `failed`. Producer-specific information such as an exit code or stop reason belongs in `detail`; the registry does not interpret it. Task ids are branded and generated as `<kind>-N`, with a counter per kind.
+Statuses are `running`, `stopping`, `completed`, `killed`, and `failed`. Producer-specific information such as an exit code or stop reason belongs in `detail`; the registry does not interpret it. Task kinds form a merge-extensible string union, and task ids are branded and generated as `<kind>-N`, with a counter per kind.
 
 The runtime attaches one continuation to `done`, records the first terminal outcome, resolves waiters, and invokes completion listeners with per-listener error containment. First-wins settlement matters during teardown: if `cancel` throws, the runtime force-fails the record and warns that work may be orphaned rather than waiting forever for a promise that may never settle. A later producer outcome cannot overwrite that diagnosis or notify twice. A `cancel` that returns without eventually settling `done` still blocks teardown because the runtime cannot distinguish it from a slow, valid stop.
 
@@ -95,9 +95,9 @@ For background subagents, `dsh-tool-subagent` creates a task-owned `AbortControl
 
 Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, notification, and guidance while increasing the model's schema and protocol burden. One runtime keeps execution-specific behavior in producers without cloning the task lifecycle.
 
-### An abstract task-runtime backend
+### An immediate abstract task-runtime backend
 
-No second backend exists. Durable work also changes owner and restart semantics, so its design should extract an interface from concrete requirements rather than preserve this implementation speculatively.
+The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so extracting an interface before a second implementation exists would freeze the wrong boundary.
 
 ### Consumer-owned authorization or cleanup events
 

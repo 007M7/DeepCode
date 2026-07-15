@@ -216,7 +216,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'list(caller?: Agent): TaskSnapshot[]',
       'get(id: TaskId, caller?: Agent): TaskSnapshot',
       'read(id: TaskId, caller?: Agent): TaskRead',
-      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-terminal\'',
+      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
       'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
       'onTaskDone(listener: TaskDoneListener): () => void',
       'attachSurface(name: string): () => void',
@@ -934,6 +934,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TaskId = Branded<\'TaskId\'>;',
   },
   {
+    name: 'TaskKind',
+    declaration: 'export type TaskKind = TaskKindMap[keyof TaskKindMap];',
+  },
+  {
+    name: 'TaskKindMap',
+    declaration: 'export interface TaskKindMap {\n    bash: \'bash\';\n    subagent: \'subagent\';\n}',
+  },
+  {
     name: 'TaskOutcome',
     declaration: 'export interface TaskOutcome {\n    status: \'completed\' | \'killed\' | \'failed\';\n    detail?: string;\n    output?: string;\n}',
   },
@@ -943,11 +951,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: string;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',
-    declaration: 'export interface TaskStart {\n    kind: string;\n    label: string;\n    owner?: Agent | undefined;\n    run(): TaskHooks;\n}',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
   },
   {
     name: 'TaskStatus',

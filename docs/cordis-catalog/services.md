@@ -251,7 +251,7 @@ start(spec: TaskStart): TaskId
 list(caller?: Agent): TaskSnapshot[]
 get(id: TaskId, caller?: Agent): TaskSnapshot
 read(id: TaskId, caller?: Agent): TaskRead
-kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal'
+kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
 async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 onTaskDone(listener: TaskDoneListener): () => void
 attachSurface(name: string): () => void
@@ -259,7 +259,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:72`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

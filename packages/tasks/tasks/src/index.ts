@@ -13,12 +13,14 @@ import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
-import type { TaskDoneListener, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from './types.ts'
+import type { TaskDoneListener, TaskKind, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from './types.ts'
 
 export { TaskId } from './types.ts'
 export type {
   TaskDoneListener,
   TaskHooks,
+  TaskKind,
+  TaskKindMap,
   TaskOutcome,
   TaskRead,
   TaskSnapshot,
@@ -38,7 +40,7 @@ export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
 /** The registry's mutable per-task record (never handed out — see {@link TaskService.snapshot}). */
 interface TrackedTask {
   id: TaskId
-  kind: string
+  kind: TaskKind
   label: string
   /** Exact lifecycle owner; session-id authorization is derived from it. */
   owner: Agent | undefined
@@ -69,6 +71,8 @@ function isTerminal(status: TaskStatus): boolean {
  * The `tasks` service: the runtime-global background task registry. See the
  * module doc for the ownership, isolation, and lifecycle contracts.
  */
+// TODO(task-service-backend): Separate the service contract from this
+// process-local implementation when a second backend defines its lifecycle.
 export class TaskService extends Service {
   private store = new Map<TaskId, TrackedTask>()
   private counters = new Map<string, number>()
@@ -191,14 +195,14 @@ export class TaskService extends Service {
    * @param id - task to cancel.
    * @param caller - killing agent checked against the owner.
    * @param reason - logged reason forwarded to the producer.
-   * @returns `requested` for live work, otherwise `already-terminal`.
+   * @returns `requested` for live work, otherwise `already-finished`.
    */
-  kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal' {
+  kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished' {
     const task = this.expect(id)
     this.assertAccess(task, caller)
     if (isTerminal(task.status)) {
       task.reported = true
-      return 'already-terminal'
+      return 'already-finished'
     }
     // Cancel first so a throw leaves both lifecycle and notice state unchanged.
     task.cancel(reason)
