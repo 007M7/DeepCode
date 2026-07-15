@@ -146,12 +146,12 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
-    // A nonexistent directory prevents even the include plugin import. Loader leaves no fiber, and
-    // boot's settled-entry guard must turn that state into a clear non-zero failure.
+    // boot() pre-resolves the bootstrap include to an absolute URL, so a nonexistent config
+    // directory cannot break its import; the include plugin's own read must fail loud instead.
     consumer = await makeConsumer('unused')
     const { code, stderr } = await runBuiltBin(consumer, '/nonexistent/dir/cordis.yml', '')
     expect(code).not.toBe(0)
-    expect(stderr).toContain('failed to load')
+    expect(stderr).toContain('config file not found')
   }, 30_000)
 
   it('fails LOUD (non-zero exit + stderr) on a missing config file in a real directory', async () => {
