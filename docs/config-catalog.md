@@ -608,6 +608,22 @@ export interface Config {
 
 Source: [`packages/skill/skill-local/src/index.ts:39`](../packages/skill/skill-local/src/index.ts)
 
+## `@deepseek-ai/dsh-stdio`
+
+Requires: `agents` · `userInteraction`
+
+```ts config-catalog
+/** Serializable plugin configuration (cordis-native, schemastery). */
+export interface Config {
+  /** Banner printed once on start, before the first `> ` prompt. */
+  welcome?: string
+  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
+  agent?: string
+}
+```
+
+Source: [`packages/ui/stdio/src/index.ts:30`](../packages/ui/stdio/src/index.ts)
+
 ## `@deepseek-ai/dsh-stdio-agent`
 
 ```ts config-catalog
