@@ -72,6 +72,7 @@
     { "path": "./packages/ui/app-boot" },
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/ui/jsonrpc-agent" },
+    { "path": "./packages/ui/stdio" },
     { "path": "./packages/ui/stdio-agent" },
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/support/acp-snapshot" },
