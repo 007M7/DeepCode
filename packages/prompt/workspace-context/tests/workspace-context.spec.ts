@@ -802,7 +802,6 @@ describe('workspace context request injection', () => {
         arguments: { file_path: 'pkg/file.txt' },
         agent: stubAgent('/virtual/repo'),
       }), {
-        callId: CallId('no-fs-post-execute'),
         isError: false,
         content: [{ type: 'text', text: 'file content' }],
       }, async () => ({
@@ -839,7 +838,6 @@ describe('workspace context request injection', () => {
         agent,
       })
       const result = {
-        callId: CallId('read-blocked-post-execute'),
         isError: false,
         content: [{ type: 'text' as const, text: 'hello' }],
       }
@@ -1661,7 +1659,6 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       const pending = ctx.waterfall('tools/post-execute', exec, {
-        callId: exec.callId,
         content: [{ type: 'text', text: 'ok' }],
         isError: false,
       }, () => Promise.resolve({ kind: 'accept' as const }))

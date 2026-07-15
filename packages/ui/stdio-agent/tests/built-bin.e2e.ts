@@ -24,6 +24,7 @@ const dshPackages = [
   'bash/tool-bash', 'prompt/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/stdio-agent', 'util/paths',
+  'ui/stdio', 'ui/tool-ask-user', 'ui/user-interaction',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',

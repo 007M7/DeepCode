@@ -80,7 +80,7 @@ describe('ToolRegistry', () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
   it('threads a tool-attached meta (object return form) onto the result', async () => {
@@ -94,7 +94,6 @@ describe('ToolRegistry', () => {
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'ok' }],
       isError: false,
       meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
@@ -111,7 +110,7 @@ describe('ToolRegistry', () => {
       },
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
     expect('meta' in result).toBe(false)
   })
 
@@ -178,13 +177,12 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('ToolNotFoundError carries the tool name and a stable code', async () => {
+  it('ToolNotFoundError carries a stable message and code', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     const err = new ToolNotFoundError('ghost')
     expect(err).toBeInstanceOf(HarnessError)
     expect(err.name).toBe('ToolNotFoundError')
     expect(err.code).toBe('UNKNOWN_TOOL')
-    expect(err.toolName).toBe('ghost')
     expect(err.message).toBe('unknown tool "ghost"')
   })
 
@@ -496,7 +494,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
     // The around seam wraps dispatch; pre gates before it, post runs over its result.
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
   })
@@ -597,8 +595,8 @@ describe('ToolRegistry', () => {
       async execute() { dispatched = true; return [] },
     })
 
-    ctx.on('tools/execute', async (exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
-      ({ callId: exec.callId, content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+    ctx.on('tools/execute', async (_exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
+      ({ content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
     expect(dispatched).toBe(false) // returning without next() skips core dispatch
@@ -608,8 +606,7 @@ describe('ToolRegistry', () => {
   it('preserves additionalContexts supplied by an around-dispatch result', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async exec => ({
-      callId: exec.callId,
+    ctx.on('tools/execute', async () => ({
       content: [{ type: 'text', text: 'short-circuited with context' }],
       isError: false,
       additionalContexts: [{
@@ -627,20 +624,6 @@ describe('ToolRegistry', () => {
     }])
   })
 
-  it('normalizes a tools/execute result with the wrong call id', async () => {
-    const ctx = await setup()
-    ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async () => ({ callId: CallId('other'), content: [], isError: false }))
-
-    const result = await ctx.tools.execute({
-      callId: CallId('malformed-shape'), name: 'echo', arguments: {},
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({
-      text: 'Error: tools/execute returned callId "other" for authoritative call "malformed-shape"',
-    })
-  })
-
   it('returns an isError result when a tools/execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -648,7 +631,6 @@ describe('ToolRegistry', () => {
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: wrapper broke' }],
       isError: true,
     })
@@ -664,7 +646,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
       isError: true,
     })
@@ -680,7 +661,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: post hook broke' }],
       isError: true,
     })
@@ -696,7 +676,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toMatchObject({
-      callId: CallId('c1'),
       isError: true,
       error: { name: 'HarnessError', code: 'DENIED' },
     })
@@ -1325,7 +1304,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
       },
     }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'read /x' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'read /x' }], isError: false })
   })
 
   it('ToolArgsError carries a stable code and the violation list', () => {
