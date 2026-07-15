@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
@@ -154,6 +154,13 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'done' }]
       },
     }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContext: {
+        content: [{ type: 'text', text: 'accepted result context after abort' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+    }))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -163,9 +170,65 @@ describe('abort during tool execution ends the turn', () => {
       .filter(event => event.type === 'tool/result' || event.type === 'context/message'
         || event.type === 'step/end' || event.type === 'turn/end')
       .map(event => event.type))
-      .toEqual(['tool/result', 'context/message', 'step/end', 'turn/end'])
+      .toEqual(['tool/result', 'context/message', 'context/message', 'step/end', 'turn/end'])
+    expect(events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before abort' }],
+        [{ type: 'text', text: 'accepted result context after abort' }],
+      ])
+  })
+
+  it('records post-tool context when a later call aborts the batch', async () => {
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'first', arguments: '{}' } },
+      { type: 'block-start', index: 1, blockType: 'tool-call' },
+      { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'aborter', arguments: '{}' } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ] satisfies StreamChunk[]])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-later-abort-context'), { model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'first',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'first done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'aborted' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.callId !== CallId('c1')) return next()
+      return {
+        kind: 'accept',
+        additionalContext: {
+          content: [{ type: 'text', text: 'accepted after first result' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        },
+      }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'tool/result', 'context/message', 'step/end', 'turn/end'])
     expect(events.find(event => event.type === 'context/message')?.data.content)
-      .toEqual([{ type: 'text', text: 'accepted before abort' }])
+      .toEqual([{ type: 'text', text: 'accepted after first result' }])
   })
 
   it('drains deferred context before disposal reaches quiescence', async () => {
@@ -192,13 +255,25 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'done' }]
       },
     }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContext: {
+        content: [{ type: 'text', text: 'accepted result context during disposal' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+    }))
 
     send(agent, 'go')
     await started.promise
     await fiber.dispose()
 
-    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
-      .toEqual([{ type: 'text', text: 'accepted before disposal' }])
+    expect(agent.session.events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before disposal' }],
+        [{ type: 'text', text: 'accepted result context during disposal' }],
+      ])
     expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
       .toEqual({ kind: 'disposed' })
   })

@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentId, AgentOptions, AgentStatus, HookContext, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -288,11 +288,21 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  /** Run one tool-call batch and drain its deferred context before resolving or rejecting. */
-  private async withToolBatch<T>(run: () => Promise<T>): Promise<T> {
+  /**
+   * Run one tool-call batch and drain its deferred context before settlement.
+   * The loop-owned acceptor remains valid after public disposal begins because
+   * the interrupted turn stays open until this batch settles.
+   */
+  private async withToolBatch<T>(
+    run: (acceptContext: (context: HookContext) => void) => Promise<T>,
+  ): Promise<T> {
     this.toolBatchActive = true
+    const acceptContext = (context: HookContext): void => {
+      const accepted = this.acceptMessage(context.content, { source: context.source })
+      this.deferredInjections.push(accepted)
+    }
     try {
-      return await run()
+      return await run(acceptContext)
     } finally {
       this.toolBatchActive = false
       this.drainDeferredInjections()

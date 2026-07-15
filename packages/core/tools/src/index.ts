@@ -238,8 +238,8 @@ export interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Model-facing context for the next request, separate from this tool result.
-   * The loop buffers it until all step results are logged, preserving pairing.
+   * Model-facing context for the next request, separate from this tool result. The loop
+   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
    */
   additionalContext?: HookContext
   /**
@@ -843,7 +843,7 @@ export class ToolRegistry extends Service {
    * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
    * `content` when given), `block` turns it into an `isError` whose content is
    * the corrective `feedback`. Either decision may attach `additionalContext`,
-   * which is ferried on the returned result for the loop's per-step buffer.
+   * which is ferried on the returned result for the loop's active-batch FIFO.
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {

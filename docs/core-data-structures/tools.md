@@ -151,10 +151,11 @@ interface ToolExecutionResult {
    * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
    * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
    * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * multiple tool calls, so the loop accepts every call's `additionalContext`
+   * into the active-batch FIFO and appends it only when that batch settles. A
+   * successful batch places context AFTER all its `tool/result`s; an interrupted
+   * batch places it after every recorded result and before turn close. Carried
+   * on the result purely to ferry it from `execute()` up to that FIFO.
    */
   additionalContext?: HookContext
   /**

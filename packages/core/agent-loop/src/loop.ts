@@ -85,8 +85,8 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
-  /** Run an active tool-call batch and drain deferred context before resolving or rejecting. */
-  readonly withToolBatch: <T>(run: () => Promise<T>) => Promise<T>
+  /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
+  readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
 }
 
 /**
@@ -559,9 +559,7 @@ async function runStep(
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
-  return handle.withToolBatch(async () => {
-    // Buffer context until all results are appended to preserve call/result adjacency.
-    const pendingContext: HookContext[] = []
+  return handle.withToolBatch(async (acceptContext) => {
     for (const call of toolCalls) {
       /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
       if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -591,17 +589,14 @@ async function runStep(
         // Persist tool-owned presentation data for replay.
         ...result.meta !== undefined ? { meta: result.meta } : {},
       }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-      if (result.additionalContext) pendingContext.push(result.additionalContext)
+      // Accept into the batch FIFO immediately; it remains deferred until every
+      // result settles and survives abort, cancellation, or disposal afterward.
+      if (result.additionalContext) acceptContext(result.additionalContext)
       // The signal may flip while the tool is awaited.
       /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
       /* v8 ignore stop */
-    }
-
-    // Append buffered context after the complete result batch.
-    for (const context of pendingContext) {
-      agent.inject(context.content, { source: context.source })
     }
 
     return { hadToolCalls: true, finish: assembler.finish }
