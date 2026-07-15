@@ -74,7 +74,7 @@ export default tseslint.config(
 
   // --- tests: same rules, minus the friction that fights test ergonomics --
   {
-    files: ['packages/*/*/tests/**/*.ts', 'examples/*/tests/**/*.ts'],
+    files: ['packages/*/*/tests/**/*.ts', 'examples/*/tests/**/*.ts', 'scripts/**/*.spec.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
