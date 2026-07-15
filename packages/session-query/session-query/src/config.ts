@@ -1,4 +1,4 @@
-/** Public configuration and typed failures for session-query. */
+/** Public configuration and typed failures for session-query and search. */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
@@ -11,14 +11,21 @@ export interface Config {
   readWindowMax?: number
 }
 
-/** Stable machine-routable failure taxonomy for exact session reads. */
+/** Stable machine-routable failure taxonomy for session reads and search. */
 export type SessionQueryErrorCode =
+  | 'SESSION_QUERY_ABORTED'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
+  | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_CURSOR'
+  | 'SESSION_QUERY_INVALID_FILTER'
+  | 'SESSION_QUERY_INVALID_LIMIT'
+  | 'SESSION_QUERY_INVALID_QUERY'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
+  | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'
 
 /** Typed session-query failure whose `code` is one closed taxonomy member. */

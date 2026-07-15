@@ -157,6 +157,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       'listSessions(): Promise<SessionRecord[]>',
       'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+      'async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>',
       'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
     ],
   },
@@ -172,6 +173,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'get(id: SessionId): Session | undefined',
       'list(): Session[]',
       'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
+    ],
+  },
+  {
+    key: 'sessionSearch',
+    summary: 'Abstract full-text search service implemented by one concrete backend.',
+    methods: [
+      'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+      'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
     ],
   },
   {
@@ -788,6 +797,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SendOptions {\n    source?: MessageSource;\n}',
   },
   {
+    name: 'SessionAvailability',
+    declaration: 'export type SessionAvailability = \'live\' | \'persisted\';',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
@@ -796,12 +809,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: E /* …truncated — full shape in source */',
   },
   {
+    name: 'SessionEventMetadataFilter',
+    declaration: 'export type SessionEventMetadataFilter = Exclude<SessionEventResultFilter, {\n    kind: \'text\';\n}>;',
+  },
+  {
     name: 'SessionEventReadRequest',
     declaration: 'export interface SessionEventReadRequest {\n    sessionId: SessionId;\n    seq: number;\n    before?: number;\n    after?: number;\n}',
   },
   {
     name: 'SessionEventRecord',
     declaration: 'export interface SessionEventRecord {\n    sessionId: SessionId;\n    seq: number;\n    type: SessionEventType;\n    time: number;\n    surface: SessionEventSurface;\n}',
+  },
+  {
+    name: 'SessionEventResultFilter',
+    declaration: 'export type SessionEventResultFilter = ({\n    kind: \'seq\';\n} & SessionResultRange) | ({\n    kind: \'time\';\n} & SessionResultRange) | {\n    kind: \'type\';\n    values: readonly SessionEventType[];\n} | {\n    kind: \'surface\';\n    values: readonly SessionEventSurface[];\n} | {\n    kind: \'text\';\n    text: string;\n};',
+  },
+  {
+    name: 'SessionEventSearchDocument',
+    declaration: 'export interface SessionEventSearchDocument extends SessionEventRecord {\n    text: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchHit',
+    declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchRequest',
+    declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: string;\n}',
   },
   {
     name: 'SessionEventSurface',
@@ -830,6 +863,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
+  },
+  {
+    name: 'SessionResultFilter',
+    declaration: 'export type SessionResultFilter = {\n    kind: \'id\';\n    values: readonly SessionId[];\n} | {\n    kind: \'cwd\';\n    values: readonly (string | null)[];\n} | ({\n    kind: \'created-at\';\n} & SessionResultRange) | {\n    kind: \'parent\';\n    values: readonly (SessionId | null)[];\n} | {\n    kind: \'availability\';\n    values: readonly SessionAvailability[];\n};',
+  },
+  {
+    name: 'SessionResultRange',
+    declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
+  },
+  {
+    name: 'SessionSearchExecContext',
+    declaration: 'export interface SessionSearchExecContext {\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionSearchHit',
+    declaration: 'export interface SessionSearchHit extends SessionRecord {\n    bestMatch: SessionEventSearchHit;\n}',
+  },
+  {
+    name: 'SessionSearchPage',
+    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: string;\n}',
+  },
+  {
+    name: 'SessionSearchRequest',
+    declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: string;\n}',
   },
   {
     name: 'SkillCandidate',

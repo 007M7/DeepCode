@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-query
 
-Exact session-history retrieval through `ctx.sessionQuery`. The service presents live `ctx.sessions` and an optional, dynamically mounted `ctx.sessionPersistence` as one logical corpus. Matching ids produce one record: live events win, while `live` and `persisted` report both source availabilities. Conflicting immutable headers fail with `SESSION_QUERY_SOURCE_CONFLICT`.
+Session-history query contracts and provider-independent helpers. The concrete `ctx.sessionQuery` service presents live `ctx.sessions` and an optional, dynamically mounted `ctx.sessionPersistence` as one logical corpus for exact reads and semantic scans. The abstract `ctx.sessionSearch` service defines full-text search without introducing a provider registry.
 
 This is trusted context-wide infrastructure. It performs no caller authorization; a future model tool or UI must constrain which sessions its caller may inspect.
 
@@ -8,11 +8,24 @@ This is trusted context-wide infrastructure. It performs no caller authorization
 
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
 - `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
+- `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
 - `readEvent(request)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
 
 Persistence is optional and may mount or unmount dynamically. A cross-corpus list fails with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A read targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory history unreadable. Persisted exact reads list before loading, and reject a metadata mismatch rather than combining inconsistent observations.
 
-`SessionQueryError.code` is a closed union: `SESSION_QUERY_EVENT_NOT_FOUND`, `SESSION_QUERY_INVALID_CONFIG`, `SESSION_QUERY_INVALID_SURFACE`, `SESSION_QUERY_INVALID_WINDOW`, `SESSION_QUERY_PERSISTENCE_FAILED`, `SESSION_QUERY_SESSION_NOT_FOUND`, and `SESSION_QUERY_SOURCE_CONFLICT`.
+## Filtering and extraction
+
+`SessionResultFilter` covers id, nullable cwd, created-at range, nullable parent, and source availability. `SessionEventResultFilter` covers seq/time ranges, event type, surface, and semantic text. Filter arrays are ANDed; values within one list clause are ORed. Empty list values match nothing, ranges are inclusive, and malformed ranges or closed-union values fail with `SESSION_QUERY_INVALID_FILTER`.
+
+The text clause is deliberately independent of FTS providers: caller text is escaped into a Unicode, case-insensitive regular expression, and each whitespace run matches one or more whitespace characters. It is a literal semantic-text scan, not a full-text query. `extractSessionEventText()` and `buildSessionEventSearchDocuments()` define the shared first-party document projection; structural boundaries, stream chunks, request headers, and unknown declaration-merged variants produce no document.
+
+## Full-text seam
+
+`SessionSearchService` owns the independent `ctx.sessionSearch` key. `searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. Both return opaque cursor pages, accept optional cancellation, and expose snippets without provider-specific numeric scores. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
+
+The package has no provider coordinator or registration protocol. A concrete backend owns observation, reconciliation, ranking, cursor generations, and query execution as one lifecycle; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
+
+`SessionQueryError.code` is a closed union covering request validation, missing targets, malformed surfaces, source conflicts, persistence/index failures, cancellation, and invalid or stale cursors; the exact literals are defined in [`src/config.ts`](src/config.ts).
 
 ## Configuration
 
@@ -20,4 +33,4 @@ Persistence is optional and may mount or unmount dynamically. A cross-corpus lis
 |---|---:|---|
 | `readWindowMax` | `50` | Maximum `before` or `after` raw-event count. |
 
-This phase deliberately has no filters, lineage/provenance traversal, extraction registry, search-provider protocol, index synchronization, or model-facing tool. Full-text search belongs beside its first real implementation; the proposed SQLite package and its single transaction/reconciliation owner are described in the [phase-two RFC](../../../docs/rfc/proposed/feature/2026-07-10-sqlite-session-query-provider.md).
+The package deliberately has no lineage/provenance traversal, extractor registry, search-provider registry, index synchronization, caller authorization, or model-facing tool. The SQLite ownership and tokenizer decisions are recorded in the [implemented search RFC](../../../docs/rfc/implemented/feature/2026-07-10-sqlite-session-query-provider.md).

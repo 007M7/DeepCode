@@ -35,6 +35,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus and exact-event reads |
+| `ctx.sessionSearch` | [`session-query/`](../packages/session-query/README.md) | SQLite full-text search |
 
 ## Event
 

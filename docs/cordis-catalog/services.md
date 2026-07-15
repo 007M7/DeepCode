@@ -208,10 +208,11 @@ Live-preferred logical-corpus and exact-event read service.
 ```ts cordis-catalog
 listSessions(): Promise<SessionRecord[]>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:83`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -231,6 +232,19 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 ```
 
 Source: [`packages/core/session/src/index.ts:590`](../../packages/core/session/src/index.ts)
+
+## `ctx.sessionSearch` — `SessionSearchService` (abstract seam)
+
+Abstract full-text search service implemented by one concrete backend.
+
+The implementation owns source observation, reconciliation, cursor generations, ranking, and query execution as one lifecycle.
+
+```ts cordis-catalog
+abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
+```
+
+Source: [`packages/session-query/session-query/src/index.ts:54`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

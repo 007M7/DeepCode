@@ -590,6 +590,31 @@ export interface Config {
 
 Source: [`packages/session-query/session-query/src/config.ts:9`](../packages/session-query/session-query/src/config.ts)
 
+## `@deepseek-ai/dsh-session-query-sqlite`
+
+Requires: `sessions`
+
+```ts config-catalog
+/** SQLite session-search configuration. */
+export interface Config {
+  /** Dedicated derived-index path; `:memory:` is supported for tests. */
+  path: string
+  /** SQLite journal mode. Defaults to `wal`. */
+  journalMode?: JournalMode
+  /** Page size when a request omits `limit`. Defaults to 20. */
+  defaultLimit?: number
+  /** Largest accepted page size. Defaults to 100. */
+  maxLimit?: number
+  /** Maximum snippet length in Unicode code points. Defaults to 240. */
+  snippetChars?: number
+}
+
+/** Supported SQLite journal modes. */
+export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
+```
+
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:58`](../packages/session-query/session-query-sqlite/src/index.ts)
+
 ## `@deepseek-ai/dsh-skill`
 
 ```ts config-catalog

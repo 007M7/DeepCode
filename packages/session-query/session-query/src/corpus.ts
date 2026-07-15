@@ -5,6 +5,7 @@ import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type { SessionRecord } from './types.ts'
 import { SessionQueryError } from './config.ts'
+import { assertSessionHeadersCompatible } from './sources.ts'
 
 /** Detached source selected for one exact read. */
 export interface LogicalSession {
@@ -45,7 +46,7 @@ export class SessionCorpus {
     }
     for (const session of this._ctx.sessions.list()) {
       const durable = records.get(session.id)
-      if (durable !== undefined) assertCompatibleHeaders(session.header, durable.header)
+      if (durable !== undefined) assertSessionHeadersCompatible(session.header, durable.header)
       records.set(session.id, {
         header: structuredClone(session.header),
         live: true,
@@ -80,7 +81,7 @@ export class SessionCorpus {
         { cause: error },
       )
     }
-    assertCompatibleHeaders(loaded.meta, listed)
+    assertSessionHeadersCompatible(loaded.meta, listed)
     return {
       header: structuredClone(loaded.meta),
       events: loaded.events.map(event => structuredClone(event)),
@@ -104,22 +105,6 @@ function snapshotLive(session: Session): LogicalSession {
   return {
     header: structuredClone(session.header),
     events: session.events.map(event => structuredClone(event)),
-  }
-}
-
-function assertCompatibleHeaders(a: SessionHeader, b: SessionHeader): void {
-  if (
-    a.version !== b.version
-    || a.id !== b.id
-    || a.createdAt !== b.createdAt
-    || a.cwd !== b.cwd
-    || a.parentSession !== b.parentSession
-    || a.seedLength !== b.seedLength
-  ) {
-    throw new SessionQueryError(
-      `live and persisted headers conflict for session "${a.id}"`,
-      'SESSION_QUERY_SOURCE_CONFLICT',
-    )
   }
 }
 

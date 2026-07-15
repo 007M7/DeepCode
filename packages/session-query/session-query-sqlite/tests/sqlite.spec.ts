@@ -1,0 +1,594 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { DatabaseSync } from 'node:sqlite'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
+import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
+import SessionSearchSqlite, {
+  SESSION_QUERY_SQLITE_APPLICATION_ID,
+  SESSION_QUERY_SQLITE_SCHEMA_VERSION,
+} from '@deepseek-ai/dsh-session-query-sqlite'
+import type { SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
+
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+async function temporaryPath(name = 'search.db'): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-session-search-'))
+  temporaryDirectories.push(directory)
+  return join(directory, name)
+}
+
+function header(id: string, createdAt = 1, extra: Partial<SessionHeader> = {}): SessionHeader {
+  return { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt, ...extra }
+}
+
+function messageEvents(text: string, time = 1): SessionEvent[] {
+  return [{
+    type: 'user/message',
+    seq: 0,
+    time,
+    data: { content: [{ type: 'text', text }], source: { kind: 'user' } },
+    surfaceOp: 'append',
+  }]
+}
+
+function expectCode(code: SessionQueryErrorCode): Error {
+  return expect.objectContaining({ code }) as Error
+}
+
+class TestPersistence extends SessionPersistence {
+  static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
+  static listGate: Promise<void> | undefined
+  static listStarted: (() => void) | undefined
+  static failure: unknown
+
+  static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
+    this.entries = new Map(entries.map(entry => [entry.meta.id, structuredClone(entry)]))
+    this.listGate = undefined
+    this.listStarted = undefined
+    this.failure = undefined
+  }
+
+  create(meta: SessionHeader): Promise<void> {
+    TestPersistence.entries.set(meta.id, { meta: structuredClone(meta), events: [] })
+    return Promise.resolve()
+  }
+
+  append(id: SessionIdType, events: readonly SessionEvent[]): Promise<void> {
+    const entry = TestPersistence.entries.get(id)
+    if (entry === undefined) return Promise.reject(new Error('missing test session'))
+    entry.events.push(...structuredClone(events))
+    return Promise.resolve()
+  }
+
+  async load(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    if (TestPersistence.failure !== undefined) throw TestPersistence.failure
+    const entry = TestPersistence.entries.get(id)
+    if (entry === undefined) throw new Error('missing test session')
+    return structuredClone(entry)
+  }
+
+  async list(): Promise<SessionHeader[]> {
+    TestPersistence.listStarted?.()
+    await TestPersistence.listGate
+    if (TestPersistence.failure !== undefined) throw TestPersistence.failure
+    return [...TestPersistence.entries.values()].map(entry => structuredClone(entry.meta))
+  }
+}
+
+async function liveContext(config: ConstructorParameters<typeof SessionSearchSqlite>[1] = { path: ':memory:' }): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionSearchSqlite, config)
+  return ctx
+}
+
+describe('SQLite session search', () => {
+  it('searches two-character Unicode61 tokens in live-only sessions', async () => {
+    const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
+    const session = ctx.sessions.create(SessionId('live'), { meta: { cwd: '/work', createdAt: 10, seedLength: 1 } })
+    session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: session.id, query: 'AI' }))
+      .resolves.toMatchObject({ items: [{ sessionId: session.id, seq: 0, snippet: 'An AI helper' }] })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'AI' }))
+      .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
+  })
+
+  it('searches all surfaces by default and applies metadata before ranking', async () => {
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 20 })
+    const parent = SessionId('parent')
+    const events: SessionEvent[] = [
+      { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'needle raw' } } },
+      { type: 'user/message', seq: 2, time: 12, data: { content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: { op: 'replace', start: 0, end: 0 } },
+      { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'needle failure' } } },
+    ]
+    ctx.sessions.create(SessionId('a'), { seed: events, meta: { cwd: '/a', parentSession: parent, createdAt: 20 } })
+    ctx.sessions.create(SessionId('b'), { seed: messageEvents('needle peer', 12), meta: { createdAt: 20 } })
+
+    const all = await ctx.sessionSearch.searchEvents({ sessionId: SessionId('a'), query: 'needle' })
+    expect(new Set(all.items.map(item => item.surface))).toEqual(new Set(['current', 'shadowed', 'log-only']))
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: SessionId('a'),
+      query: 'needle',
+      filters: [
+        { kind: 'seq', from: 2, to: 2 },
+        { kind: 'time', from: 12, to: 12 },
+        { kind: 'type', values: ['user/message'] },
+        { kind: 'surface', values: ['current'] },
+      ],
+    })).resolves.toMatchObject({ items: [{ seq: 2, surface: 'current' }] })
+
+    const grouped = await ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      sessionFilters: [
+        { kind: 'id', values: [SessionId('a')] },
+        { kind: 'cwd', values: ['/a'] },
+        { kind: 'created-at', from: 20, to: 20 },
+        { kind: 'parent', values: [parent] },
+        { kind: 'availability', values: ['live'] },
+      ],
+      eventFilters: [{ kind: 'surface', values: ['shadowed'] }],
+    })
+    expect(grouped.items).toHaveLength(1)
+    expect(grouped.items[0]).toMatchObject({
+      header: { id: SessionId('a'), cwd: '/a', parentSession: parent },
+      live: true,
+      persisted: false,
+      bestMatch: { seq: 0, surface: 'shadowed' },
+    })
+  })
+
+  it('uses literal phrase tokens, stable ties, and bounded Unicode snippets', async () => {
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 10, snippetChars: 5 })
+    ctx.sessions.create(SessionId('a'), { seed: messageEvents('😀😀 alpha beta BRAID 😀😀', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('b'), { seed: messageEvents('alpha beta', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('c'), { seed: messageEvents('alpha middle beta', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('d'), { seed: messageEvents('alpha beta', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('operator'), { seed: messageEvents('needle OR absent', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('only'), { seed: messageEvents('needle only', 10), meta: { createdAt: 1 } })
+    ctx.sessions.create(SessionId('quote'), { seed: messageEvents('say "needle" exactly', 10), meta: { createdAt: 1 } })
+
+    const phrase = await ctx.sessionSearch.searchSessions({ query: 'alpha beta' })
+    expect(phrase.items.map(item => item.header.id)).toEqual([SessionId('b'), SessionId('d'), SessionId('a')])
+    expect(phrase.items.every(item => Array.from(item.bestMatch.snippet).length <= 5)).toBe(true)
+    await expect(ctx.sessionSearch.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle OR absent' }))
+      .resolves.toMatchObject({ items: [{ header: { id: SessionId('operator') } }] })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'say "needle"' }))
+      .resolves.toMatchObject({ items: [{ header: { id: SessionId('quote') } }] })
+    await expect(ctx.sessionSearch.searchSessions({ query: '*' })).resolves.toEqual({ items: [] })
+  })
+
+  it('binds cursors to requests and only invalidates within-session pages for target changes', async () => {
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 1, maxLimit: 5 })
+    const target = ctx.sessions.create(SessionId('target'), {
+      seed: [
+        ...messageEvents('needle one', 10),
+        { ...messageEvents('needle two', 11)[0]!, seq: 1 },
+        { ...messageEvents('needle three', 12)[0]!, seq: 2 },
+      ],
+    })
+    ctx.sessions.create(SessionId('other'), { seed: messageEvents('needle other', 10) })
+
+    const eventPage = await ctx.sessionSearch.searchEvents({ sessionId: target.id, query: 'needle', limit: 1 })
+    const sessionPage = await ctx.sessionSearch.searchSessions({ query: 'needle', limit: 1 })
+    expect(eventPage.nextCursor).toEqual(expect.any(String))
+    expect(sessionPage.nextCursor).toEqual(expect.any(String))
+    if (eventPage.nextCursor === undefined || sessionPage.nextCursor === undefined) throw new Error('expected cursors')
+
+    const eventKeys = eventPage.items.map(item => `${item.sessionId}:${item.seq}`)
+    let eventCursor: string | undefined = eventPage.nextCursor
+    while (eventCursor !== undefined) {
+      const next = await ctx.sessionSearch.searchEvents({
+        sessionId: target.id,
+        query: 'needle',
+        limit: 1,
+        cursor: eventCursor,
+      })
+      eventKeys.push(...next.items.map(item => `${item.sessionId}:${item.seq}`))
+      eventCursor = next.nextCursor
+    }
+    expect(eventKeys).toHaveLength(3)
+    expect(new Set(eventKeys).size).toBe(eventKeys.length)
+
+    const sessionIds = sessionPage.items.map(item => item.header.id)
+    let sessionCursor: string | undefined = sessionPage.nextCursor
+    while (sessionCursor !== undefined) {
+      const next = await ctx.sessionSearch.searchSessions({ query: 'needle', limit: 1, cursor: sessionCursor })
+      sessionIds.push(...next.items.map(item => item.header.id))
+      sessionCursor = next.nextCursor
+    }
+    expect(sessionIds).toHaveLength(2)
+    expect(new Set(sessionIds).size).toBe(sessionIds.length)
+
+    ctx.sessions.create(SessionId('unrelated'), { seed: messageEvents('needle unrelated', 20) })
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: target.id,
+      query: 'needle',
+      limit: 1,
+      cursor: eventPage.nextCursor,
+    })).resolves.toMatchObject({ items: [{ sessionId: target.id }] })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle', limit: 1, cursor: sessionPage.nextCursor }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_STALE_CURSOR'))
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: target.id,
+      query: 'different',
+      limit: 1,
+      cursor: eventPage.nextCursor,
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
+
+    target.append('user/message', { content: [{ type: 'text', text: 'needle four' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: target.id,
+      query: 'needle',
+      limit: 1,
+      cursor: eventPage.nextCursor,
+    })).rejects.toThrow(expectCode('SESSION_QUERY_STALE_CURSOR'))
+  })
+
+  it('rejects invalid requests, filters, cursors, and direct config', async () => {
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 2, maxLimit: 3 })
+    const session = ctx.sessions.create(SessionId('valid'), { seed: messageEvents('needle') })
+    for (const request of [
+      { sessionId: session.id, query: '' },
+      { sessionId: session.id, query: 'needle', limit: 0 },
+      { sessionId: session.id, query: 'needle', limit: 4 },
+      { sessionId: session.id, query: 'needle', filters: [{ kind: 'seq', from: 2, to: 1 }] },
+      { sessionId: session.id, query: 'needle', filters: [{ kind: 'surface', values: ['future'] }] },
+    ] as const) {
+      await expect(ctx.sessionSearch.searchEvents(request as never)).rejects.toBeInstanceOf(Error)
+    }
+    await expect(ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      sessionFilters: [{ kind: 'availability', values: ['remote' as never] }],
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: session.id, query: 'needle', cursor: 'not-json' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: SessionId('absent'), query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
+
+    for (const config of [
+      { path: '' },
+      { path: ':memory:', defaultLimit: 0 },
+      { path: ':memory:', maxLimit: 0 },
+      { path: ':memory:', snippetChars: 0 },
+      { path: ':memory:', defaultLimit: 3, maxLimit: 2 },
+      { path: ':memory:', journalMode: 'memory' },
+    ]) {
+      const direct = new Context()
+      await direct.plugin(SessionStore)
+      expect(() => new SessionSearchSqlite(direct, config as never))
+        .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
+    }
+  })
+})
+
+describe('SQLite reconciliation and source lifecycle', () => {
+  it('mounts persistence dynamically, shadows with TEMP live rows, reveals, and hides on unmount', async () => {
+    const shared = header('shared', 10, { cwd: '/work' })
+    const durable = header('durable', 5)
+    TestPersistence.reset([
+      { meta: shared, events: messageEvents('persisted needle') },
+      { meta: durable, events: messageEvents('durable needle') },
+    ])
+    const ctx = await liveContext()
+    await expect(ctx.sessionSearch.searchSessions({ query: 'durable' })).resolves.toEqual({ items: [] })
+    const persistenceFiber = await ctx.plugin(TestPersistence)
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'durable' }))
+      .resolves.toMatchObject({ items: [{ header: durable, live: false, persisted: true }] })
+    const live = ctx.sessions.prepare(shared.id, { meta: { createdAt: 10, cwd: '/work' } })
+    live.append('user/message', { content: [{ type: 'text', text: 'live needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const detach = ctx.sessions.enter(live)
+    ctx.sessions.announce(live)
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'persisted' })).resolves.toEqual({ items: [] })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'live' }))
+      .resolves.toMatchObject({ items: [{ header: shared, live: true, persisted: true }] })
+    detach()
+    await expect(ctx.sessionSearch.searchSessions({ query: 'persisted' }))
+      .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
+
+    await persistenceFiber.dispose()
+    await expect(ctx.sessionSearch.searchSessions({ query: 'durable' })).resolves.toEqual({ items: [] })
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: durable.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
+  })
+
+  it('restarts observation when persistence unmounts during an asynchronous list', async () => {
+    const durable = header('racing')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    const persistenceFiber = await ctx.plugin(TestPersistence)
+    let release!: () => void
+    TestPersistence.listGate = new Promise<void>((resolve) => { release = resolve })
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    TestPersistence.listStarted = () => {
+      TestPersistence.listStarted = undefined
+      markStarted()
+    }
+
+    const search = ctx.sessionSearch.searchSessions({ query: 'needle' })
+    await started
+    await persistenceFiber.dispose()
+    release()
+    await expect(search).resolves.toEqual({ items: [] })
+  })
+
+  it('rejects immutable header conflicts between live and persisted sources', async () => {
+    const shared = header('conflict', 10)
+    TestPersistence.reset([{ meta: shared, events: messageEvents('persisted needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    ctx.sessions.create(shared.id, { seed: messageEvents('live needle'), meta: { createdAt: 11 } })
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+  })
+
+  it('preserves unchanged persisted generations while reconciling new, changed, and deleted rows', async () => {
+    const path = await temporaryPath()
+    const unchanged = header('unchanged')
+    const changed = header('changed')
+    const deleted = header('deleted')
+    TestPersistence.reset([
+      { meta: unchanged, events: messageEvents('unchanged needle') },
+      { meta: changed, events: messageEvents('old needle') },
+      { meta: deleted, events: messageEvents('deleted needle') },
+    ])
+    const first = new Context()
+    await first.plugin(SessionStore)
+    const firstPersistence = await first.plugin(TestPersistence)
+    const firstSearch = await first.plugin(SessionSearchSqlite, { path })
+    await first.sessionSearch.searchSessions({ query: 'needle' })
+    await firstSearch.dispose()
+    await firstPersistence.dispose()
+
+    const beforeDb = new DatabaseSync(path)
+    const beforeRows = beforeDb.prepare('SELECT id, generation FROM persisted_sessions ORDER BY id').all() as Array<{ id: string; generation: number }>
+    beforeDb.close()
+    const before = new Map(beforeRows.map(row => [row.id, row.generation]))
+
+    const added = header('added')
+    TestPersistence.entries.delete(deleted.id)
+    TestPersistence.entries.set(changed.id, { meta: changed, events: messageEvents('changed needle') })
+    TestPersistence.entries.set(added.id, { meta: added, events: messageEvents('added needle') })
+    const second = new Context()
+    await second.plugin(SessionStore)
+    const secondPersistence = await second.plugin(TestPersistence)
+    const secondSearch = await second.plugin(SessionSearchSqlite, { path })
+    const result = await second.sessionSearch.searchSessions({ query: 'needle' })
+    expect(result.items.map(item => item.header.id).sort()).toEqual([added.id, changed.id, unchanged.id].sort())
+    await secondSearch.dispose()
+    await secondPersistence.dispose()
+
+    const afterDb = new DatabaseSync(path)
+    const afterRows = afterDb.prepare('SELECT id, generation FROM persisted_sessions ORDER BY id').all() as Array<{ id: string; generation: number }>
+    afterDb.close()
+    const after = new Map(afterRows.map(row => [row.id, row.generation]))
+    expect(after.get(unchanged.id)).toBe(before.get(unchanged.id))
+    expect(after.get(changed.id)).toBeGreaterThan(before.get(changed.id)!)
+    expect(after.has(deleted.id)).toBe(false)
+    expect(after.has(added.id)).toBe(true)
+  })
+
+  it('drops connection-local live overlays on reopen and retains persistent bases', async () => {
+    const path = await temporaryPath()
+    const shared = header('shared', 10)
+    TestPersistence.reset([{ meta: shared, events: messageEvents('persisted needle') }])
+    const first = new Context()
+    await first.plugin(SessionStore)
+    const persistence = await first.plugin(TestPersistence)
+    const live = first.sessions.create(shared.id, { seed: messageEvents('live needle'), meta: { createdAt: 10 } })
+    const search = await first.plugin(SessionSearchSqlite, { path })
+    await expect(first.sessionSearch.searchEvents({ sessionId: live.id, query: 'live' })).resolves.toMatchObject({ items: [{}] })
+    await search.dispose()
+    await persistence.dispose()
+
+    const second = new Context()
+    await second.plugin(SessionStore)
+    const persistenceAgain = await second.plugin(TestPersistence)
+    const searchAgain = await second.plugin(SessionSearchSqlite, { path })
+    await expect(second.sessionSearch.searchSessions({ query: 'live' })).resolves.toEqual({ items: [] })
+    await expect(second.sessionSearch.searchSessions({ query: 'persisted' }))
+      .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
+    await searchAgain.dispose()
+    await persistenceAgain.dispose()
+  })
+
+  it('recovers on the next search after source and SQLite transaction failures', async () => {
+    TestPersistence.reset([{ meta: header('durable'), events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.failure = 'offline'
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+    const signal = new AbortController().signal
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }, { signal }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+    TestPersistence.failure = new Error('still offline')
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }, { signal }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+    TestPersistence.failure = undefined
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' })).resolves.toMatchObject({ items: [{}] })
+
+    const live = ctx.sessions.create(SessionId('live'), { seed: messageEvents('base') })
+    await ctx.sessionSearch.searchEvents({ sessionId: live.id, query: 'base' })
+    const db = (ctx.sessionSearch as unknown as { _db: DatabaseSync })._db
+    db.exec('PRAGMA query_only = ON')
+    live.append('user/message', { content: [{ type: 'text', text: 'retry needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: live.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    db.exec('PRAGMA query_only = OFF')
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: live.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ seq: 1 }] })
+  })
+})
+
+describe('SQLite schema, cancellation, and real persistence integration', () => {
+  it('resets a recognized incompatible derived schema but refuses a foreign database', async () => {
+    const stalePath = await temporaryPath('stale.db')
+    const stale = new DatabaseSync(stalePath)
+    stale.exec(`PRAGMA application_id = ${SESSION_QUERY_SQLITE_APPLICATION_ID}`)
+    stale.exec('PRAGMA user_version = 999')
+    stale.exec('CREATE TABLE stale(value TEXT)')
+    stale.close()
+    const staleCtx = await liveContext({ path: stalePath })
+    staleCtx.sessions.create(SessionId('live'), { seed: messageEvents('needle') })
+    await staleCtx.sessionSearch.searchSessions({ query: 'needle' })
+    await (staleCtx.sessionSearch as SessionSearchSqlite).close()
+    const rebuilt = new DatabaseSync(stalePath)
+    expect((rebuilt.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
+      .toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
+    expect(rebuilt.prepare("SELECT name FROM sqlite_master WHERE name = 'stale'").get()).toBeUndefined()
+    rebuilt.close()
+
+    const foreignPath = await temporaryPath('foreign.db')
+    const foreign = new DatabaseSync(foreignPath)
+    foreign.exec('CREATE TABLE canonical(value TEXT)')
+    foreign.exec("INSERT INTO canonical VALUES ('safe')")
+    foreign.close()
+    const foreignCtx = await liveContext({ path: foreignPath })
+    await expect(foreignCtx.sessionSearch.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    const stillForeign = new DatabaseSync(foreignPath)
+    expect(stillForeign.prepare('SELECT value FROM canonical').get()).toEqual({ value: 'safe' })
+    stillForeign.close()
+
+    const otherAppPath = await temporaryPath('other-app.db')
+    const otherApp = new DatabaseSync(otherAppPath)
+    otherApp.exec('PRAGMA application_id = 123')
+    otherApp.close()
+    const otherAppCtx = await liveContext({ path: otherAppPath })
+    await expect(otherAppCtx.sessionSearch.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+  })
+
+  it('cancels both queued and in-flight source waits without committing them', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+
+    const boundaryController = new AbortController()
+    const boundary = ctx.sessionSearch.searchSessions({ query: 'needle' }, { signal: boundaryController.signal })
+    queueMicrotask(() => { boundaryController.abort() })
+    await expect(boundary).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+
+    const readyController = new AbortController()
+    readyController.abort()
+    const internals = ctx.sessionSearch as unknown as {
+      _ensureReady(signal: AbortSignal): Promise<void>
+    }
+    await expect(internals._ensureReady(readyController.signal))
+      .rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+
+    let releaseBlocking!: () => void
+    TestPersistence.listGate = new Promise<void>((resolve) => { releaseBlocking = resolve })
+    let markBlockingStarted!: () => void
+    const blockingStarted = new Promise<void>((resolve) => { markBlockingStarted = resolve })
+    TestPersistence.listStarted = () => {
+      TestPersistence.listStarted = undefined
+      markBlockingStarted()
+    }
+    const blocking = ctx.sessionSearch.searchSessions({ query: 'needle' })
+    await blockingStarted
+
+    const queuedController = new AbortController()
+    const queued = ctx.sessionSearch.searchSessions({ query: 'needle' }, { signal: queuedController.signal })
+    queuedController.abort()
+    await expect(queued).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+
+    releaseBlocking()
+    await expect(blocking).resolves.toEqual({ items: [] })
+
+    TestPersistence.entries.set(SessionId('uncommitted'), {
+      meta: header('uncommitted'),
+      events: messageEvents('durable needle'),
+    })
+    let releaseActive!: () => void
+    TestPersistence.listGate = new Promise<void>((resolve) => { releaseActive = resolve })
+    let markActiveStarted!: () => void
+    const activeStarted = new Promise<void>((resolve) => { markActiveStarted = resolve })
+    TestPersistence.listStarted = () => {
+      TestPersistence.listStarted = undefined
+      markActiveStarted()
+    }
+    const activeController = new AbortController()
+    const active = ctx.sessionSearch.searchSessions({ query: 'needle' }, { signal: activeController.signal })
+    await activeStarted
+    activeController.abort()
+    await expect(active).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    releaseActive()
+
+    const db = (ctx.sessionSearch as unknown as { _db: DatabaseSync })._db
+    expect(db.prepare('SELECT COUNT(*) AS count FROM persisted_sessions').get()).toEqual({ count: 0 })
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ header: { id: SessionId('uncommitted') } }] })
+  })
+
+  it('rejects queued and future work when close waits for an accepted operation', async () => {
+    TestPersistence.reset()
+    let release!: () => void
+    TestPersistence.listGate = new Promise<void>((resolve) => { release = resolve })
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    TestPersistence.listStarted = () => {
+      TestPersistence.listStarted = undefined
+      markStarted()
+    }
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const search = ctx.sessionSearch as SessionSearchSqlite
+    const accepted = search.searchSessions({ query: 'needle' })
+    await started
+    const queued = search.searchSessions({ query: 'needle' })
+    const closing = search.close()
+    release()
+
+    await expect(accepted).resolves.toEqual({ items: [] })
+    await expect(queued).rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    await closing
+    await expect(search.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    await search.close()
+  })
+
+  it('combines the real SQLite persistence backend with the real search service keylessly', async () => {
+    const persistencePath = await temporaryPath('canonical.db')
+    const searchPath = await temporaryPath('derived.db')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const persistence = await ctx.plugin(SessionPersistenceSqlite, { path: persistencePath })
+    const search = await ctx.plugin(SessionSearchSqlite, { path: searchPath })
+    const meta = header('real', 10, { cwd: '/work' })
+    await ctx.sessionPersistence.create(meta)
+    await ctx.sessionPersistence.append(meta.id, messageEvents('real SQLite needle'))
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'SQLite needle' }))
+      .resolves.toMatchObject({ items: [{ header: meta, persisted: true, live: false }] })
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: meta.id, query: 'SQLite needle' }))
+      .resolves.toMatchObject({ items: [{ sessionId: meta.id, seq: 0 }] })
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: SessionId('absent'), query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
+    await search.dispose()
+    await expect(ctx.sessionPersistence.load(meta.id)).resolves.toMatchObject({ meta, events: [{ seq: 0 }] })
+    await persistence.dispose()
+  })
+})

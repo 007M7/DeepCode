@@ -6,13 +6,20 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { foldSurface } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
+  SessionEventResultFilter,
   SessionEventReadRequest,
   SessionEventRecord,
+  SessionEventSearchHit,
+  SessionEventSearchDocument,
+  SessionEventSearchRequest,
   SessionEventWindow,
   SessionRecord,
+  SessionSearchExecContext,
+  SessionSearchHit,
+  SessionSearchPage,
+  SessionSearchRequest,
 } from './types.ts'
 import {
   SESSION_QUERY_READ_WINDOW_MAX,
@@ -20,15 +27,56 @@ import {
   type Config,
 } from './config.ts'
 import { SessionCorpus } from './corpus.ts'
+import { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
+import { filterSessionEventDocuments } from './filters.ts'
 
 export type * from './types.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
 export { SESSION_QUERY_READ_WINDOW_MAX, SessionQueryError } from './config.ts'
+export { extractSessionEventText } from './extraction.ts'
+export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
+export { compileSessionTextFilter, filterSessionEventDocuments, filterSessionResults } from './filters.ts'
+export { assertSessionHeadersCompatible } from './sources.ts'
 
 declare module 'cordis' {
   interface Context {
     sessionQuery: SessionQueryService
+    sessionSearch: SessionSearchService
   }
+}
+
+/**
+ * Abstract full-text search service implemented by one concrete backend.
+ *
+ * The implementation owns source observation, reconciliation, cursor
+ * generations, ranking, and query execution as one lifecycle.
+ */
+export abstract class SessionSearchService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'sessionSearch')
+  }
+
+  /**
+   * Search the live-preferred logical corpus and group by session.
+   * @param request - query text, metadata filters, page size, and cursor.
+   * @param exec - optional cancellation control.
+   * @returns session hits ranked by their strongest matching event.
+   */
+  abstract searchSessions(
+    request: SessionSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>>
+
+  /**
+   * Search events within one live-preferred logical session.
+   * @param request - target session, query text, filters, page size, and cursor.
+   * @param exec - optional cancellation control.
+   * @returns matching event hits in deterministic relevance order.
+   */
+  abstract searchEvents(
+    request: SessionEventSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionEventSearchHit>>
 }
 
 /** Live-preferred logical-corpus and exact-event read service. */
@@ -68,7 +116,22 @@ export class SessionQueryService extends Service {
    */
   async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]> {
     const loaded = await this._corpus.load(sessionId)
-    return eventRecords(sessionId, loaded.events)
+    return buildSessionEventRecords(sessionId, loaded.events)
+  }
+
+  /**
+   * Scan first-party semantic event documents with provider-independent filters.
+   * @param sessionId - live-preferred session id to scan.
+   * @param filters - ANDed metadata and literal-text predicates.
+   * @returns matching semantic documents in ascending seq order.
+   */
+  async filterEvents(
+    sessionId: SessionId,
+    filters: readonly SessionEventResultFilter[],
+  ): Promise<SessionEventSearchDocument[]> {
+    const loaded = await this._corpus.load(sessionId)
+    const documents = buildSessionEventSearchDocuments(sessionId, loaded.events)
+    return filterSessionEventDocuments(documents, filters)
   }
 
   /**
@@ -108,29 +171,6 @@ export class SessionQueryService extends Service {
     }
     return value
   }
-}
-
-function eventRecords(sessionId: SessionId, events: readonly SessionEvent[]): SessionEventRecord[] {
-  let folded: ReturnType<typeof foldSurface>
-  try {
-    folded = foldSurface(events)
-  } catch (error: unknown) {
-    throw new SessionQueryError(
-      /* v8 ignore next -- foldSurface throws Error instances */
-      `invalid session surface: ${error instanceof Error ? error.message : 'unknown error'}`,
-      'SESSION_QUERY_INVALID_SURFACE',
-      { cause: error },
-    )
-  }
-  const current = new Set(folded.nodes.map(node => node.seq))
-  const shadowed = new Set(folded.replacements.flatMap(replacement => replacement.shadowedSeqs))
-  return events.map(event => ({
-    sessionId,
-    seq: event.seq,
-    type: event.type,
-    time: event.time,
-    surface: current.has(event.seq) ? 'current' : shadowed.has(event.seq) ? 'shadowed' : 'log-only',
-  }))
 }
 
 export default SessionQueryService

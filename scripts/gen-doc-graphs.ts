@@ -93,7 +93,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -102,7 +102,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp', 'session-query'],
+    consumers: ['agent-loop', 'acp', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
   },
   {
@@ -110,7 +110,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session-query',
     title: 'Exact session-history reads',
     mode: 'seam',
-    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads and semantic scans.',
+  },
+  {
+    key: 'sessionSearch',
+    pkg: 'session-query',
+    title: 'Full-text session search',
+    mode: 'seam',
+    implementations: ['session-query-sqlite'],
+    note: 'The concrete backend owns source reconciliation, ranking, snippets, and cursor generations as one lifecycle.',
   },
   {
     key: 'systemPrompt',
