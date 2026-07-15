@@ -34,7 +34,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact reads and relationship traces |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
 
 ## Event
 
@@ -110,7 +110,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow same-named globals, receive only that agent's dispatches, and unwind with the agent. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are documented [separately](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow same-named globals, receive only that agent's dispatches, and unwind with the agent. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. The [semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md) defines typed resolvers that derive carrier checks from merged `Events` signatures and `scopeTarget`, eliminating the handwritten event table. See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md); subagent composition controls are documented [separately](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
 ## State
 

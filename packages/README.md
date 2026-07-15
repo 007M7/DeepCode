@@ -1,6 +1,6 @@
 # Packages
 
-Harness packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis plugin: a default `Service` subclass or functional plugin declaring ctx keys/events through declaration merging and contributing through `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring conventions: [AGENTS.md](AGENTS.md) and root [AGENTS.md](../AGENTS.md) § Conventions.
+Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass or function plugin; contributions use `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring rules: [package](AGENTS.md) and [root](../AGENTS.md#conventions).
 
 ## Hierarchy
 
@@ -16,6 +16,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
+| [`context/`](context/README.md) | Opt-in request-context enrichment | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
