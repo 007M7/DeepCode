@@ -1,150 +1,83 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { BashExecutor, BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 
-/** Minimal concrete executor: records calls, lets tests drive completions. */
+/**
+ * Minimal concrete executor: canned foreground results, a hand-built process
+ * handle. The seam is TASK-FREE (start returns a {@link BashProcess} handle;
+ * task semantics live in `ctx.tasks`), so this stub is all an implementation
+ * owes the abstract class.
+ */
 class StubExecutor extends BashExecutor {
-  tasks = new Map<BashTaskId, BashTask>()
-  private owners = new Map<BashTaskId, OwnerToken | undefined>()
-
   resolve(request: BashExecRequest): BashExecSpec {
     return {
       command: request.command,
       workdir: request.workdir ?? '/stub',
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
-      owner: request.owner,
       sandboxMode: request.sandboxMode,
     }
   }
 
-  async run(_spec: BashExecSpec): Promise<BashRunResult> {
+  async run(spec: BashExecSpec): Promise<BashRunResult> {
     return {
       exitCode: 0,
       signal: null,
       timedOut: false,
       aborted: false,
-      timeoutMs: 1000,
+      timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
     }
   }
 
-  start(spec: BashExecSpec): BashTask {
-    const task: BashTask = {
-      id: BashTaskId(`stub-${this.tasks.size + 1}`),
+  start(): BashProcess {
+    const proc: BashProcess = {
       status: 'running',
       exitCode: null,
       signal: null,
       done: Promise.resolve(),
+      readOutput: (): BashProcessRead => ({ delta: '', lossy: false }),
+      kill: (): boolean => {
+        if (proc.status !== 'running') return false
+        proc.status = 'killed'
+        return true
+      },
     }
-    this.tasks.set(task.id, task)
-    this.owners.set(task.id, spec.owner)
-    return task
+    return proc
   }
-
-  get(id: BashTaskId): BashTask | undefined {
-    return this.tasks.get(id)
-  }
-
-  ownerOf(id: BashTaskId): OwnerToken | undefined {
-    return this.owners.get(id)
-  }
-
-  list(): BashTask[] {
-    return [...this.tasks.values()]
-  }
-
-  readOutput(id: BashTaskId): BashTaskRead {
-    const task = this.tasks.get(id)
-    if (!task) throw new Error(`unknown bash task "${id}"`)
-    return { task, delta: '', lossy: false }
-  }
-
-  kill(id: BashTaskId): boolean {
-    const task = this.tasks.get(id)
-    if (!task) throw new Error(`unknown bash task "${id}"`)
-    if (task.status !== 'running') return false
-    task.status = 'killed'
-    return true
-  }
-
-  /** Expose the protected notifier for tests. */
-  fire(task: BashTask): void {
-    this.notifyTaskDone(task)
-  }
-}
-
-async function setup() {
-  const ctx = new Context()
-  await ctx.plugin(StubExecutor)
-  // ctx.bash resolves to the registered implementation.
-  const bash = ctx.bash as StubExecutor
-  return { ctx, bash }
 }
 
 describe('BashExecutor service seam', () => {
-  it('registers as ctx.bash and serves the abstract API', async () => {
-    const { bash } = await setup()
-    const task = bash.start(bash.resolve({ command: 'sleep 1' }))
-    expect(bash.get(task.id)).toBe(task)
-    expect(bash.list()).toEqual([task])
-    expect(bash.kill(task.id)).toBe(true)
-    expect(bash.kill(task.id)).toBe(false)
-    const result = await bash.run(bash.resolve({ command: 'true' }))
-    expect(result.exitCode).toBe(0)
-  })
-
-  it('reports no default sandbox mode (composition truth: the base never confines)', async () => {
-    const { bash } = await setup()
-    expect(bash.sandboxMode).toBeUndefined()
-  })
-
-  it('onTaskDone delivers completions to registered listeners', async () => {
-    const { bash } = await setup()
-    const seen: string[] = []
-    bash.onTaskDone(task => void seen.push(task.id))
-    const task = bash.start(bash.resolve({ command: 'x' }))
-    bash.fire(task)
-    expect(seen).toEqual([task.id])
-  })
-
-  it('onTaskDone disposer unsubscribes the listener', async () => {
-    const { bash } = await setup()
-    const listener = vi.fn()
-    const dispose = bash.onTaskDone(listener)
-    dispose()
-    bash.fire(bash.start(bash.resolve({ command: 'x' })))
-    expect(listener).not.toHaveBeenCalled()
-  })
-
-  it('listeners registered from a fiber are removed on dispose (HMR safety)', async () => {
-    const { ctx, bash } = await setup()
-    const listener = vi.fn()
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.bash.onTaskDone(listener)
-    }, { inject: ['bash'] }))
-    bash.fire(bash.start(bash.resolve({ command: 'one' })))
-    expect(listener).toHaveBeenCalledTimes(1)
-
-    await fiber.dispose()
-    bash.fire(bash.start(bash.resolve({ command: 'two' })))
-    expect(listener).toHaveBeenCalledTimes(1)
-  })
-
-  it('silences listeners once the service fiber is disposed', async () => {
+  it('a concrete subclass registers as ctx.bash and serves the abstract API', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(Object.assign(async (inner: Context) => {
-      await inner.plugin(StubExecutor)
-    }, {}))
-    const bash = ctx.bash as StubExecutor
-    const listener = vi.fn()
-    bash.onTaskDone(listener)
-    const task = bash.start(bash.resolve({ command: 'x' }))
+    await ctx.plugin(StubExecutor)
+    const spec = ctx.bash.resolve({ command: 'echo hi' })
+    expect(spec).toEqual({ command: 'echo hi', workdir: '/stub', timeoutMs: 1000, sandboxMode: undefined })
 
-    await fiber.dispose()
-    bash.fire(task)
-    expect(listener).not.toHaveBeenCalled()
+    const result = await ctx.bash.run(spec)
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.text).toBe('ok')
+
+    const proc = ctx.bash.start(spec)
+    expect(proc.status).toBe('running')
+    expect(proc.readOutput()).toEqual({ delta: '', lossy: false })
+    expect(proc.kill()).toBe(true)
+    expect(proc.kill()).toBe(false) // already settled → no-op
+    await proc.done
+  })
+
+  it('reports no default sandbox mode from the task-free base seam', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubExecutor)
+    expect(ctx.bash.sandboxMode).toBeUndefined()
+  })
+
+  it('loading a second implementation throws (one bash service per context — cordis standard)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubExecutor)
+    class SecondExecutor extends StubExecutor {}
+    await expect(ctx.plugin(SecondExecutor)).rejects.toThrow(/service "bash" has been registered/)
   })
 })
