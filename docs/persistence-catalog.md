@@ -57,7 +57,7 @@ Raw stream chunk — token-level replay fidelity.
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:287`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:208`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -69,7 +69,7 @@ Assembled assistant message for one step (derived history uses this). Carries th
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
 
 ### `bash/*`
 
@@ -129,7 +129,7 @@ In-session context injection (file-change notices, subdir AGENTS.md, skill conte
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -169,7 +169,7 @@ Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src
 
 #### `prompt/blocked` — log-only
 
-A queued prompt an `agent/prompt-submit` listener VETOED — the durable record of a blocked prompt and why. Appended in place of the `user/message` the prompt would have become, so the block survives replay even in a MIXED batch where another queued prompt is allowed (there the turn does not end `rejected`, so the boundary reason alone would not preserve it). `content` is the original prompt the listener rejected; `reason` is the veto text (PromptDecision `block.reason`). NOT a SurfaceEventType: a blocked prompt produces no LLM message and never reaches `deriveMessages()`.
+Durable record of a prompt veto and its reason. It is log-only: the blocked prompt never enters the model-visible surface, including in a mixed batch.
 
 ```ts persistence-catalog
 'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
@@ -177,19 +177,19 @@ A queued prompt an `agent/prompt-submit` listener VETOED — the durable record 
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
 #### `request/header` — log-only
 
-Full snapshot of the EpochHeader the NEXT request is built under, with the RequestHeaderReason it was recorded whole. Appended by the loop inside the step, before dispatch, on a loop instance's first request-building step (`'initial'`/`'resume'`) or when a later request's header changes (`'change'`); always records what the request actually used, post-`agent/request`. Reconstruction reads the latest snapshot. NOT a SurfaceEventType: it produces no LLM message — it is the request envelope, logged so every request is a pure function of the session log (the reconstructability RFC).
+Full header for the next request, appended inside its step before dispatch. It is log-only; the latest snapshot reconstructs the request header.
 
 ```ts persistence-catalog
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:338`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
 
 ### `steering/*`
 
@@ -203,7 +203,7 @@ Steering content injected between steps of a running turn.
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:312`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:233`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -215,7 +215,7 @@ Closes step `step` of turn `turn`.
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -225,15 +225,13 @@ Opens step `step` of turn `turn` — one model call plus the tool executions it 
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:191`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
 #### `todo/write` — log-only
 
-The agent's whole todo list, carried as a full snapshot and replaced wholesale on each write — the current list is the most recent `todo/write` (last-write-wins on replay, no fold). Appended by an owning agent via `session.append('todo/write', { todos })`.
-
-NOT a SurfaceEventType: it produces no LLM message and never reaches `deriveMessages()`, so it carries no `surfaceOp` and stays off the surface — it is durable, replayable UI state, distinct from the conversation history. It is a `SessionEventMap` member riding the existing `session/event` emit, not a first-class Cordis `interface Events` notification, so it has no cordis-catalog row.
+Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history.
 
 ```ts persistence-catalog
 'todo/write': { todos: TodoItem[] }
@@ -241,7 +239,7 @@ NOT a SurfaceEventType: it produces no LLM message and never reaches `deriveMess
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:326`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -255,7 +253,7 @@ The model requested one tool invocation: `name` with the raw `arguments` JSON st
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:300`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:221`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -279,7 +277,7 @@ A completed tool call's model-facing result, plus an optional tool-private `meta
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:310`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -293,7 +291,7 @@ Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awai
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:189`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -305,7 +303,7 @@ Opens turn `turn`. `trigger` records what started it — a drained message batch
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:183`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -319,4 +317,4 @@ A user-visible prompt (queued message drained at turn start).
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
