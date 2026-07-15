@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -612,7 +612,6 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
     await waitForIdle(ctx, handle.agent as ReactLoopAgent)
 
     expect(existsSync(marker)).toBe(true) // the marker landed in the SESSION dir
-    const { readFileSync } = await import('node:fs')
     const where = readFileSync(marker, 'utf8').trim()
     // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
     expect(where.endsWith(sessionDir.split('/').pop()!)).toBe(true)
@@ -643,9 +642,10 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
     const childHandle = await ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { model: 'mock' } })
     ctx.emit('subagent/end', { provider: 'inproc', id: childHandle.agent.id, stopReason: 'completed' })
 
-    await waitFor(() => existsSync(marker))
+    // Redirection creates the marker before `pwd` writes it, so wait for the
+    // trailing newline that marks the command's complete output.
+    await waitFor(() => existsSync(marker) && readFileSync(marker, 'utf8').endsWith('\n'))
     expect(existsSync(marker)).toBe(true) // the marker landed in the CHILD dir
-    const { readFileSync } = await import('node:fs')
     const where = readFileSync(marker, 'utf8').trim()
     // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
     expect(where.endsWith(childDir.split('/').pop()!)).toBe(true)
