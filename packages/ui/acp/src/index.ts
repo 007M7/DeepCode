@@ -359,10 +359,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // await and NOT install a record (which would resurrect a live agent/listeners
   // after the bridge closed). Checked after every load await.
   let closed = false
-  // Whether the client advertised the Zed `_meta.terminal_output` capability in
-  // `initialize`. When true, a tool's terminal presentation is rendered as a
-  // terminal card (content + `_meta.terminal_*`); when false, the bridge uses
-  // the tool's text fallback. Set once in `initialize`, read on every tool event.
+  // Connection-level terminal capability from the latest `initialize`; false
+  // before initialization. Each `session/new` or `session/load` snapshots it in
+  // `SessionRecord.terminalEnabled`, so later initialization affects only future
+  // sessions.
   let terminalOutputCap = false
 
   // Assigned at the bottom, before any agent event can fire (a session only
