@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+adding-a-vendored-package.md: d7b5b93b59fb39d8369be6eb42fb0a8b977c68b4
+adding-a-vendored-package.zh.md: 86b1e6c959180ba15b6fcb56b6dfe5a3be791b47

@@ -1,6 +1,6 @@
 /**
  * Derived-message cache contract against a scratch oracle: project new nodes
- * once, rebuild on surface generation changes, return fresh arrays over shared
+ * once, rebuild on surface replacements, return fresh arrays over shared
  * frozen messages, and remain value-equal to replay at every step.
  */
 
@@ -61,16 +61,6 @@ describe('derived-message cache', () => {
     expect(Object.isFrozen(first[0])).toBe(true)
   })
 
-  it('rebuilds after surface.invalidate() (the generation covers wholesale rebuilds too)', () => {
-    const session = new Session(SessionId('cache-invalidate'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    userText(session, 'one')
-    const before = session.deriveMessages()
-    session.surface.invalidate()
-    const after = session.deriveMessages()
-    expect(after).toEqual(before)
-    expect(after[0]).not.toBe(before[0])
-  })
 })
 
 describe('Session.deriveEventMessage — the per-event projection', () => {

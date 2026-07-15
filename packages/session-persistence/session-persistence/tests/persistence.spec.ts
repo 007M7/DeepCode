@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  SessionPersistence, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
+  SessionPersistence, PersistenceCoordinator,
   type PersistenceBackend, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
@@ -51,11 +51,6 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
 
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.load(id)
-  }
-
-  /** White-box accessor: await a specific session's onCreated init. */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
   }
 
   // --- PersistenceBackend hooks (the Map storage primitives) ---
@@ -155,40 +150,5 @@ describe('SessionPersistence service registration', () => {
     await expect(ctx.sessionPersistence.create(invalid))
       .rejects.toThrow('session metadata must be losslessly JSON-serializable')
     await fiber.dispose()
-  })
-})
-
-describe('shared persistence helpers', () => {
-  it('accepts a seed that reproduces the persisted prefix exactly', () => {
-    const log = oneTurnLog()
-    expect(seedCoversPrefix(log, log.slice(0, 3))).toBe(true)
-    expect(seedCoversPrefix(log, [])).toBe(true)
-  })
-
-  it('rejects a prefix longer than the seed', () => {
-    const log = oneTurnLog()
-    expect(seedCoversPrefix(log.slice(0, 2), log)).toBe(false)
-  })
-
-  it('rejects a same-envelope event with mutated data', () => {
-    const log = oneTurnLog()
-    const tampered = structuredClone(log)
-    const event = tampered[1]!
-    tampered[1] = {
-      ...event,
-      data: { ...event.data, content: [{ type: 'text', text: 'tampered' }] },
-    } as SessionEvent
-    expect(seedCoversPrefix(tampered, log.slice(0, 2))).toBe(false)
-  })
-
-  it('accepts JSON-serializable event data', () => {
-    expect(() => { assertSerializable(oneTurnLog()) }).not.toThrow()
-  })
-
-  it('rejects a batch containing non-JSON-serializable event data', () => {
-    const bad = [
-      { type: 'user/message', seq: 0, time: 1, data: { content: 1n } },
-    ] as unknown as SessionEvent[]
-    expect(() => { assertSerializable(bad) }).toThrow(/batch is not losslessly JSON-serializable/)
   })
 })
