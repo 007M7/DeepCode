@@ -8,7 +8,7 @@ import { Context } from 'cordis'
 import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
 import { SessionId } from '@deepseek-ai/dsh-session'
-import * as agentCore from '@deepseek-ai/dsh-agent-core'
+import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
