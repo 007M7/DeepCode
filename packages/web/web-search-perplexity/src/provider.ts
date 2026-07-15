@@ -8,7 +8,6 @@
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type {
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -36,7 +35,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface PerplexitySearchProviderOptions {
-  /** Perplexity API key. Empty/absent → `status()` reports `missing-credential`. */
+  /** Perplexity API key. Empty/absent makes the provider unavailable. */
   apiKey: string
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
@@ -68,18 +67,15 @@ export function mapPerplexityResult(result: PerplexitySearchResult): WebSearchSo
  * structured `search_results[]`; falls back to URL-only `citations[]` (those
  * sources carry just a `url`) only when `search_results` is absent.
  *
- * @param query - the original request query, echoed on the result.
  * @param response - the parsed chat-completions response body.
  * @returns the normalized result; `content` is omitted when the answer is empty.
  */
-export function mapPerplexityResponse(query: string, response: PerplexityResponse): WebSearchResult {
+export function mapPerplexityResponse(response: PerplexityResponse): WebSearchResult {
   const content = response.choices?.[0]?.message?.content
   const sources: WebSearchSource[] = response.search_results !== undefined
     ? response.search_results.map(mapPerplexityResult)
     : (response.citations ?? []).map(url => ({ url }))
   return {
-    providerId: PERPLEXITY_PROVIDER_ID,
-    query,
     ...content != null && content.length > 0 ? { content } : {},
     sources,
     truncated: false,
@@ -95,15 +91,14 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   // Availability checks stay beside each provider's distinct config contract;
   // a shared base class would obscure which fields make this backend usable.
   /* jscpd:ignore-start */
-  status(): WebProviderStatus {
-    if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
-    if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
-    if (!isPositiveInteger(this.options.maxTokens)) return { available: false, reason: 'misconfigured' }
-    return { available: true }
+  available(): boolean {
+    return this.options.apiKey.length > 0
+      && URL.canParse(this.options.baseURL)
+      && isPositiveInteger(this.options.maxTokens)
   }
   /* jscpd:ignore-end */
 
-  async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/chat/completions`, {
@@ -120,7 +115,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
           messages: [{ role: 'user', content: request.query }],
           ...this.options.searchRecency !== undefined ? { search_recency_filter: this.options.searchRecency } : {},
         }),
-        ...exec?.signal ? { signal: exec.signal } : {},
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
@@ -148,7 +143,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as PerplexityResponse
-      return mapPerplexityResponse(request.query, payload)
+      return mapPerplexityResponse(payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
       throw new WebError(`Perplexity returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })

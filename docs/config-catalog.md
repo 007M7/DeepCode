@@ -1054,7 +1054,7 @@ export interface WebServiceConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:59`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -1069,10 +1069,8 @@ export interface Config {
   maxResponseBytes?: number
   /** Maximum decoded body length in characters. */
   maxBodyChars?: number
-  /** Default fetch timeout in milliseconds. */
+  /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
@@ -1080,7 +1078,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-fetch-local/src/index.ts:34`](../packages/web/web-fetch-local/src/index.ts)
+Source: [`packages/web/web-fetch-local/src/index.ts:36`](../packages/web/web-fetch-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
 
