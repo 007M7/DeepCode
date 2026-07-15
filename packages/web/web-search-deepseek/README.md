@@ -16,8 +16,8 @@ It reuses `$DEEPSEEK_API_KEY` (no new secret) but **not** `$DEEPSEEK_BASE_URL`: 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `apiKey` | `$DEEPSEEK_API_KEY` | DeepSeek API key. Empty/absent → provider `status()` reports `missing-credential`. Sent as both `x-api-key` and `Authorization: Bearer` (official vs Anthropic-compatible proxy). |
-| `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic-compatible endpoint base; `/messages` is appended. Use a separate env var such as `$DEEPSEEK_SEARCH_BASE_URL` when overriding it; do not reuse `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions LLM adapter. An unparseable value makes `status()` report `misconfigured`. |
+| `apiKey` | `$DEEPSEEK_API_KEY` | DeepSeek API key. Empty/absent makes the provider unavailable. Sent as both `x-api-key` and `Authorization: Bearer` (official vs Anthropic-compatible proxy). |
+| `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic-compatible endpoint base; `/messages` is appended. Use a separate env var such as `$DEEPSEEK_SEARCH_BASE_URL` when overriding it; do not reuse `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions LLM adapter. An unparseable value makes the provider unavailable. |
 | `model` | `deepseek-v4-flash` | Anthropic-format model name. |
 | `apiVersion` | `2023-06-01` | `anthropic-version` header value. |
 | `maxTokens` | `4096` | Positive-integer upper bound on generated tokens for the Messages request. |

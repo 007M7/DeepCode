@@ -548,7 +548,6 @@ describe('scoped execution dispatch', () => {
 
     expect(reads).toBe(1)
     expect(result).toEqual({
-      callId: CallId('unstable-arguments'),
       content: [{ type: 'text', text: 'ran:t' }],
       isError: false,
     })
@@ -564,10 +563,9 @@ describe('scoped execution dispatch', () => {
     ctx.on('internal/dispatch', (mode, name) => {
       if (name === 'tools/result') dispatchModes.push(mode)
     })
-    ctx.on('tools/execute', async (exec, next) => {
+    ctx.on('tools/execute', async (_exec, next) => {
       await next()
       return {
-        callId: exec.callId,
         content: [{ type: 'text', text: 'outer failure' }],
         isError: true,
       }
