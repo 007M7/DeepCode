@@ -171,6 +171,8 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(index).toContain('const sessionId = SessionId(resume ?? `main-session-${randomUUID()}`)')
     expect(index).toContain('process.env.DSH_SDK_SESSION_ID = sessionId')
     expect(index).toContain('resumeSessionId: sessionId')
+    expect(index).toContain('await ctx.fiber.dispose()')
+    expect(index).toContain("new AggregateError([error, disposeError], 'stdio startup and cleanup failed')")
     expect(project.packageManifest().scripts).toEqual({
       dev: 'dsh-sdk dev index.ts -- --model="deepseek-v4-flash"',
       build: 'dsh-sdk build',
