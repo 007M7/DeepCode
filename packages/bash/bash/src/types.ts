@@ -215,7 +215,6 @@ export type BashTaskStatus = 'running' | 'completed' | 'killed'
 /** A tracked background task handle. */
 export interface BashTask {
   readonly id: BashTaskId
-  readonly command: string
   status: BashTaskStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null

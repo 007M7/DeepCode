@@ -834,7 +834,7 @@ describe('scoped-dispatch invariants', () => {
 
   it('accepts a matching carrier and rejects a mismatched one for EVERY agent-subject event', async () => {
     const ctx = await scopedCtx()
-    // Real Session objects: the session-start tracker WeakSet-keys them.
+    // Real Session objects keep the synthetic Agent handles structurally valid.
     const agent = { id: 'a1', session: new Session(SessionId('a1-s')) } as unknown as Agent
     const other = { id: 'a2', session: new Session(SessionId('a2-s')) } as unknown as Agent
     // One dispatch per table row keeps every subject extractor covered: the
@@ -855,9 +855,9 @@ describe('scoped-dispatch invariants', () => {
       ['agent/error', [agent, 1, 0, new Error('x')]],
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
-      ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ callId: 'c', content: [], isError: false })]],
-      ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
-      ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }]],
+      ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
+      ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
+      ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }]],
     ]
     for (const [event, args] of rows) {
       const subject = agent

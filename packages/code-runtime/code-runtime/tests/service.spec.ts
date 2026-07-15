@@ -55,7 +55,7 @@ describe('CodeRuntime service seam', () => {
   it('reports a failed run as an error field on a resolved result, never a rejection', async () => {
     const { runtime } = await setup()
     runtime.nextResult = {
-      logs: [{ source: 'console', level: 'error', text: 'boom' }],
+      logs: ['boom'],
       error: { kind: 'exception', message: 'boom' },
     }
     const result = await runtime.run({ program: 'throw new Error("boom")', bindings: [] })
