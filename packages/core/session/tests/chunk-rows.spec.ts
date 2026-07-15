@@ -106,6 +106,22 @@ describe('packChunkRuns', () => {
     expect(packChunkRuns(events)).toStrictEqual(events)
   })
 
+  it('breaks a run on a time gap beyond safe-integer range (subtraction would round)', () => {
+    // Both endpoints are safe integers, but their true difference (~2^54)
+    // exceeds exact double range: b - a rounds, so a + (b - a) !== b and a
+    // packed row would decode to a different timestamp.
+    const a = Number.MIN_SAFE_INTEGER
+    const b = Number.MAX_SAFE_INTEGER - 1
+    expect(a + (b - a)).not.toBe(b) // the rounding this guard exists for
+    const events = [
+      chunkEvent(0, a, { type: 'text-delta', index: 0, text: 'x' }),
+      chunkEvent(1, b, { type: 'text-delta', index: 0, text: 'y' }),
+      chunkEvent(2, b + 1, { type: 'text-delta', index: 0, text: 'z' }),
+    ]
+    expect(packChunkRuns(events)).toStrictEqual(events) // split at the gap; halves too short
+    expect(decodeAll(packChunkRuns(events))).toStrictEqual(events)
+  })
+
   it('stores a delta with an off-whitelist data envelope verbatim (parsed-fixture shapes)', () => {
     const mk = (seq: number, data: unknown): SessionEvent =>
       ({ type: 'assistant/chunk', seq, time: 1000, data } as SessionEvent)
@@ -144,11 +160,15 @@ describe('decodeStorageRecord', () => {
     ['an envelope with extra keys', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] }, extra: 1 }],
     ['a negative seq0', { type: 'text-chunks', seq0: -1, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] } }],
     ['a non-finite time0', { type: 'text-chunks', seq0: 0, time0: Infinity, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] } }],
+    ['a fractional time0', { type: 'text-chunks', seq0: 0, time0: 1.5, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] } }],
     ['a data shape mismatch', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], args: ['a'] } }],
     ['a non-string member', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: [7] } }],
     ['an empty member list', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: [] } }],
     ['a dt arity mismatch', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 2], texts: ['a', 'b'] } }],
     ['a non-finite dt gap', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [NaN], texts: ['a', 'b'] } }],
+    ['a fractional dt gap', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [0.5], texts: ['a', 'b'] } }],
+    ['a member seq leaving safe range', { type: 'text-chunks', seq0: Number.MAX_SAFE_INTEGER, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [0, 0], texts: ['a', 'b', 'c'] } }],
+    ['a member time leaving safe range', { type: 'text-chunks', seq0: 0, time0: Number.MAX_SAFE_INTEGER, data: { turn: 1, step: 1, index: 0, dt: [1], texts: ['a', 'b'] } }],
     ['a non-numeric turn', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 'x', step: 1, index: 0, dt: [], texts: ['a'] } }],
     ['a tool-call row without id', { type: 'tool-call-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], args: ['a'] } }],
     ['a tool-call row with non-string id', { type: 'tool-call-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, id: 7, dt: [], args: ['a'] } }],
@@ -183,11 +203,19 @@ const boundaryChunkArb: fc.Arbitrary<StreamChunk> = fc.oneof(
   fc.record({ type: fc.constant<'finish'>('finish'), reason: fc.constant({ kind: 'stop' as const }) }),
 )
 
-/** Batches with contiguous seqs, arbitrary gaps in time, mixed chunk kinds and turn/step placement. */
+/**
+ * Batches with contiguous seqs, arbitrary timestamps, mixed chunk kinds and
+ * turn/step placement. Times draw from the FULL safe-integer range (not just
+ * realistic clocks) so the property exercises the gap-overflow guard: two safe
+ * endpoints can differ by more than a double subtracts exactly.
+ */
 const batchArb: fc.Arbitrary<SessionEvent[]> = fc.array(
   fc.record({
     chunk: fc.oneof({ weight: 4, arbitrary: deltaChunkArb }, { weight: 1, arbitrary: boundaryChunkArb }),
-    gap: fc.integer({ min: -5, max: 200 }),
+    time: fc.oneof(
+      { weight: 4, arbitrary: fc.integer({ min: 995, max: 9000 }) },
+      { weight: 1, arbitrary: fc.integer({ min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER }) },
+    ),
     turn: fc.nat(1),
     step: fc.nat(1),
   }),
@@ -196,7 +224,7 @@ const batchArb: fc.Arbitrary<SessionEvent[]> = fc.array(
   // plain objects real log events are (the log is JSON), so equality compares
   // values, not prototypes.
 ).map(entries => JSON.parse(JSON.stringify(
-  entries.map((entry, k) => chunkEvent(k, 1000 + entry.gap * k, entry.chunk, entry.turn, entry.step)),
+  entries.map((entry, k) => chunkEvent(k, entry.time, entry.chunk, entry.turn, entry.step)),
 )) as SessionEvent[])
 
 describe('chunk-row codec properties', () => {

@@ -135,6 +135,12 @@ function indexOf(event: DeltaEvent): number {
 /** Whether `next` extends a run ending in `prev` (same kind already checked by the caller). */
 function continues(prev: DeltaEvent, next: DeltaEvent, kind: DeltaKind): boolean {
   if (next.seq !== prev.seq + 1) return false
+  // Two safe-integer times can sit further apart than a double subtracts
+  // exactly (2^53-1 and its negation differ by ~2^54); a rounded gap would
+  // decode to a different timestamp. The check is exact in both directions: a
+  // true gap within safe range subtracts without rounding and passes, while a
+  // true gap beyond it rounds to a value that is itself beyond and fails.
+  if (!Number.isSafeInteger(next.time - prev.time)) return false
   if (next.data.turn !== prev.data.turn || next.data.step !== prev.data.step) return false
   if (indexOf(next) !== indexOf(prev)) return false
   if (kind !== 'tool-call-delta') return true
@@ -219,8 +225,8 @@ function malformed(tag: string, why: string): never {
   throw new Error(`malformed ${tag} storage row: ${why}`)
 }
 
-/** Validate the shared run-data fields and the payload/dt arity. */
-function validateRunData(tag: string, data: Record<string, unknown>, payloadKey: 'texts' | 'args'): void {
+/** Validate the shared run-data fields and the payload/dt arity; returns the member payload. */
+function validateRunData(tag: string, data: Record<string, unknown>, payloadKey: 'texts' | 'args'): string[] {
   if (typeof data.turn !== 'number' || typeof data.step !== 'number' || typeof data.index !== 'number') {
     malformed(tag, 'turn/step/index must be numbers')
   }
@@ -229,12 +235,13 @@ function validateRunData(tag: string, data: Record<string, unknown>, payloadKey:
     malformed(tag, `${payloadKey} must be a non-empty string array`)
   }
   const dt = data.dt
-  if (!Array.isArray(dt) || dt.some(gap => typeof gap !== 'number' || !Number.isFinite(gap))) {
-    malformed(tag, 'dt must be an array of finite numbers')
+  if (!Array.isArray(dt) || dt.some(gap => !Number.isSafeInteger(gap))) {
+    malformed(tag, 'dt must be an array of safe integers')
   }
   if (dt.length !== payload.length - 1) {
     malformed(tag, `dt length ${dt.length} does not match ${payload.length} members`)
   }
+  return payload as string[]
 }
 
 /** Validate a row-tagged parsed value's envelope and data, throwing on any malformation. */
@@ -245,11 +252,12 @@ function validateRow(value: Record<string, unknown>, tag: ChunkRow['type']): Chu
   if (!Number.isSafeInteger(value.seq0) || (value.seq0 as number) < 0) {
     malformed(tag, 'seq0 must be a non-negative safe integer')
   }
-  if (typeof value.time0 !== 'number' || !Number.isFinite(value.time0)) {
-    malformed(tag, 'time0 must be a finite number')
+  if (!Number.isSafeInteger(value.time0)) {
+    malformed(tag, 'time0 must be a safe integer')
   }
   const data = value.data
   if (!isRecord(data)) malformed(tag, 'data must be an object')
+  let payload: string[]
   if (tag === 'tool-call-chunks') {
     const withName = hasExactKeys(data, ['turn', 'step', 'index', 'id', 'name', 'dt', 'args'])
     if (!withName && !hasExactKeys(data, ['turn', 'step', 'index', 'id', 'dt', 'args'])) {
@@ -258,12 +266,25 @@ function validateRow(value: Record<string, unknown>, tag: ChunkRow['type']): Chu
     if (typeof data.id !== 'string' || (withName && typeof data.name !== 'string')) {
       malformed(tag, 'id (and name when present) must be strings')
     }
-    validateRunData(tag, data, 'args')
+    payload = validateRunData(tag, data, 'args')
   } else {
     if (!hasExactKeys(data, ['turn', 'step', 'index', 'dt', 'texts'])) {
       malformed(tag, 'data must be exactly {turn, step, index, dt, texts}')
     }
-    validateRunData(tag, data, 'texts')
+    payload = validateRunData(tag, data, 'texts')
+  }
+  // Reconstruction bounds. The encoder only packs runs whose member seqs and
+  // times are all safe integers, so a running value that leaves safe range is
+  // outside any encoder's image: float arithmetic would round it to a
+  // different number than exact arithmetic, a silent corruption. Within safe
+  // range every step is exact, so the first departure is always caught.
+  if (!Number.isSafeInteger((value.seq0 as number) + payload.length - 1)) {
+    malformed(tag, 'member seqs must stay safe integers')
+  }
+  let time = value.time0 as number
+  for (const gap of data.dt as number[]) {
+    time += gap
+    if (!Number.isSafeInteger(time)) malformed(tag, 'member times must stay safe integers')
   }
   return value as unknown as ChunkRow
 }
