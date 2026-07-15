@@ -85,6 +85,8 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
+  /** Append context that arrived while an assistant tool-call batch was awaiting its results. */
+  readonly drainDeferredInjections: () => void
 }
 
 /**
@@ -348,6 +350,10 @@ async function runTurn(
         }
         break
       }
+
+      // A successful tool step has committed its complete result batch. Context
+      // accepted while that batch was pending can now join the open turn.
+      if (stepOutcome.hadToolCalls) handle.drainDeferredInjections()
 
       // Preserve max-token completion unless a later disposal, abort, or error wins.
       const stepReason = stepFinishReason(stepOutcome.finish)

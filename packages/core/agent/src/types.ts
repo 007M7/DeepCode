@@ -103,10 +103,11 @@ export interface Agent {
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Append model-facing context without running the model. Idle injection uses
-   * a one-shot turn and durability checkpoint, while injection during an open
-   * turn joins it at the current log position. Disposal awaits idle checkpoints;
-   * flush failures are reported through `agent/error`, not thrown to the caller.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless tool results are pending,
+   * in which case it waits FIFO until the complete result batch is logged. Idle
+   * injection uses a one-shot turn and durability checkpoint. Disposal awaits
+   * idle checkpoints; flush failures report through `agent/error`.
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
