@@ -89,6 +89,7 @@ flowchart TD
     pkg_acp_snapshot["acp-snapshot"]
     pkg_invariants["invariants"]
     pkg_llm_replay["llm-replay"]
+    pkg_loader_smoke["loader-smoke"]
     pkg_subagent_mock["subagent-mock"]
   end
   subgraph group_ui["packages/ui"]
@@ -346,6 +347,7 @@ flowchart TD
 | [`skill`](../packages/skill/skill) | `skill` | — |
 | [`subagent-subprocess`](../packages/subagent/subagent-subprocess) | `subagent` | — |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
+| [`loader-smoke`](../packages/support/loader-smoke) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`jsonrpc-agent`](../packages/ui/jsonrpc-agent) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
