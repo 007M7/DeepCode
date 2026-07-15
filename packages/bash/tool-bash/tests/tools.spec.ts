@@ -19,7 +19,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
-import { renderResult } from '@deepseek-ai/dsh-tool-bash'
+import { renderResult } from '../src/render.ts'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
@@ -114,7 +114,6 @@ abstract class TestBashExecutor extends BashExecutor {
 class LossyReadBashExecutor extends TestBashExecutor {
   private readonly task: BashTask = {
     id: BashTaskId('bash-lossy'),
-    command: 'fake',
     status: 'running',
     exitCode: null,
     signal: null,
@@ -1034,7 +1033,6 @@ describe('sandbox rendering', () => {
     class FactsOnlyExecutor extends TestBashExecutor {
       private readonly task: BashTask = {
         id: BashTaskId('bash-facts'),
-        command: 'fake',
         status: 'completed',
         exitCode: 1,
         signal: null,

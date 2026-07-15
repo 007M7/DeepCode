@@ -1,6 +1,6 @@
 # RFC: Drop unconsumed skill provider events
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -10,23 +10,18 @@ Skill discovery reads the current provider map on demand, provider registration 
 
 `tools/change` and `system-prompt/change` are explicitly outside this proposal. Existing simplification decisions retain them as intentional observation points for live tool and prompt UIs, and self-referential mounted plugins already use `tools/change`. This proposal also leaves `subagent/provider-added`/`removed` unchanged because `tool-subagent` has a production lifecycle consumer.
 
-## Proposal
+## Decision
 
-Delete the two skill-provider declarations and every emit path, rollback-order branch, test, and generated catalog/matrix row that exists only for them. Remove the corresponding skill-registry README/JSDoc contract. Where tests used an event to observe cleanup, assert provider lookup or collected output instead.
+The skill registry declares and emits no provider-membership events. Provider registration and disposal remain direct effect-owned state changes that synchronously invalidate completed catalogs; lookup and discovery read the current provider map on demand. Tests observe cleanup through provider lookup and collected output rather than lifecycle notifications.
 
-Amend the skill-system RFC and package documentation so provider registration is described as direct effect-owned state with cache invalidation, not as a lifecycle notification contract.
+The generated event catalog, API catalog, and producer/consumer matrix omit the deleted notifications. The skill-system RFC and package documentation describe registration through its direct effect-owned state and cache-invalidation contract.
 
 ## Alternatives considered
 
 **Keep skill-provider notifications for future plugins.** A third-party plugin could observe provider availability, but direct provider registration and on-demand lookup are the extension contract; no current consumer needs a push signal. If a future sibling-load race appears, it can introduce a notification with the identity and readiness semantics that consumer requires, as the subagent registry did.
 
-## Acceptance criteria
+## Consequences
 
-- The generated event matrix contains no row for `skill/provider-added` or `skill/provider-removed`.
-- Skill discovery, direct runtime registration, provider effect rollback/disposal, cache invalidation, and registry lookup cleanup behave unchanged; listener-triggered rollback disappears with the events.
-- `tools/change`, `system-prompt/change`, and the real subagent provider lifecycle consumer remain documented and covered.
-- Typecheck, coverage, snapshots, doc-sync, module-graph verification, build, and hygiene pass.
+The generated event matrix contains no row for `skill/provider-added` or `skill/provider-removed`. Skill discovery, direct runtime registration, provider effect rollback/disposal, cache invalidation, and registry lookup cleanup remain; listener-triggered rollback disappears with the events. `tools/change`, `system-prompt/change`, and the consumed subagent provider lifecycle events are unchanged.
 
-## Risks
-
-This removes pre-release skill-provider observation points while retaining both ways third-party plugins contribute skills: direct runtime registration and provider registration. A future consumer that needs live provider availability must add a purpose-built notification rather than relying on these generic events.
+Pre-release consumers lose skill-provider observation points while retaining both ways to contribute skills: direct runtime registration and provider registration. A future consumer that needs live provider availability must add a purpose-built notification with the identity and readiness semantics it actually requires.
