@@ -45,6 +45,11 @@
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
+    "packages/support/loader-smoke": {
+      "entry": ["tests/**/*.spec.ts", "tests/fixtures/*.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["cordis"]
+    },
     "packages/core/agent-loop": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
