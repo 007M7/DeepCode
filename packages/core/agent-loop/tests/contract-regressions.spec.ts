@@ -370,7 +370,7 @@ describe('disposed status is part of the agent/status contract', () => {
   })
 })
 
-describe('misc registry and config fixes', () => {
+describe('registration, request routing, and queued-input ownership contracts', () => {
   it('duplicate adapter registration is rejected', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
