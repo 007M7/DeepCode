@@ -4,7 +4,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json`); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. **Each group README is the canonical per-package map** — package roles, ctx keys, and the product-vs-support split live there, next to the code.
+Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -18,6 +18,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`context/`](context/README.md) | Opt-in request-context enrichment | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
@@ -32,7 +33,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`support/`](support/README.md) | Support infrastructure (invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
 
-The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and this table).
+Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
 ## Dependencies
 

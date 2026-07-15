@@ -64,6 +64,8 @@ const GROUP_ORDER = [
   'skill',
   'compact',
   'subagent',
+  'tasks',
+  'workflow',
   'web',
   'todo',
   'cordis',
@@ -230,6 +232,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-mock'],
     consumers: ['tool-subagent'],
     note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
+  },
+  {
+    key: 'tasks',
+    pkg: 'tasks',
+    title: 'Background task registry',
+    mode: 'core',
+    consumers: ['tool-bash', 'tool-subagent', 'tool-tasks'],
+    note: 'Producers (tool-bash background commands, tool-subagent background delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
   },
   {
     key: 'web',
