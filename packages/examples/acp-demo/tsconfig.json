@@ -1,0 +1,42 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../ui/app-boot"
+    },
+    {
+      "path": "../../ui/acp"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../ui/tool-ask-user"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
+    }
+  ]
+}
