@@ -255,7 +255,7 @@ describe('toPiContext', () => {
           { type: 'text', text: 'calling' },
           { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
         ],
-        provenance: { provider: 'deepseek', model: 'old-model', replayState: state },
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
       }],
     })
 
@@ -302,7 +302,7 @@ describe('toPiContext', () => {
       messages: [{
         role: 'assistant',
         content: [{ type: 'reasoning', text: 'done' }],
-        provenance: { provider: 'deepseek', model: 'old', replayState: state },
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
       }],
     })).toThrow(/block 0 does not match assistant content/)
   })
@@ -315,7 +315,7 @@ describe('toPiContext', () => {
       messages: [{
         role: 'assistant',
         content: [{ type: 'text', text: 'done' }],
-        provenance: { provider: 'deepseek', model: 'old', replayState: state },
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
       }],
     })).toThrow(/block count does not match assistant content/)
   })
@@ -329,6 +329,28 @@ describe('toPiContext', () => {
     stopReason: 'stop',
     blocks: [{ type: 'text' }],
   }
+
+  it.each([
+    ['provider', { ...validReplay, provider: 'openai' }],
+    ['model', { ...validReplay, model: 'deepseek-v4-pro' }],
+  ])('rejects replay metadata whose %s differs from assistant provenance', (field, replayState) => {
+    try {
+      toPiContext({
+        provider: 'deepseek',
+        model: 'next-model',
+        messages: [{
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+        }],
+      })
+      expect.fail('expected invalid replay state')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(LlmError)
+      expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
+      expect((error as Error).message).toContain(`${field} does not match assistant provenance`)
+    }
+  })
 
   it.each([
     ['number state', 1, 'expected an object'],
@@ -355,7 +377,7 @@ describe('toPiContext', () => {
       messages: [{
         role: 'assistant',
         content: [{ type: 'text', text: 'done' }],
-        provenance: { provider: 'deepseek', model: 'old', replayState },
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
       }],
     })).toThrow(message)
   })

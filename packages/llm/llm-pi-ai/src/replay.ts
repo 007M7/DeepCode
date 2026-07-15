@@ -156,6 +156,9 @@ function foreignAssistant(message: Message): AssistantMessage {
 /** Recombine durable Harness content with validated pi-ai replay metadata. */
 function replayedAssistant(message: Message, rawState: unknown): AssistantMessage {
   const state = readReplayState(rawState)
+  const provenance = message.provenance
+  if (state.provider !== provenance?.provider) return invalidReplay('provider does not match assistant provenance')
+  if (state.model !== provenance.model) return invalidReplay('model does not match assistant provenance')
   if (state.blocks.length !== message.content.length) return invalidReplay('block count does not match assistant content')
   const content: AssistantMessage['content'] = message.content.map((block, index) => {
     const replay = state.blocks[index]
