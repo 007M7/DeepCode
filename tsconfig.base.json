@@ -61,7 +61,9 @@
         "./packages/session-persistence/*/src",
         "./packages/session-query/*/src",
         "./packages/ui/*/src",
+        "./packages/examples/*/src",
         "./packages/util/*/src",
+        "./packages/mcp/*/src",
         "./packages/support/*/src"
       ]
     }
