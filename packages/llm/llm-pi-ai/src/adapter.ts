@@ -53,6 +53,16 @@ function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
   }
 }
 
+/** Merge deployment headers while removing case-insensitive attribution collisions. */
+function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+  const attribution = attributionHeaders()
+  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
+  return {
+    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+    ...attribution,
+  }
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Model descriptors are resolved for each
  * request, so models need not be registered during the Cordis lifecycle.
@@ -103,7 +113,7 @@ export class PiAiAdapter extends LlmAdapter {
         signal: controller.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
-        headers: { ...profile.headers, ...attributionHeaders() },
+        headers: requestHeaders(profile.headers),
       })
       yield* toStreamChunks(events)
     } finally {

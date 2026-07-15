@@ -6,7 +6,7 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
@@ -529,20 +529,22 @@ async function runStep(
 
   if (assembler.finish.kind === 'max-tokens') {
     const assembled = assembler.message()
+    const assembledContent = structuredClone(assembled.content)
     let message: Message = withoutToolCalls(assembled)
     message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
     // Preserve usage even when max-token truncation produced no content.
-    recordAssistantMessage(session, turn, step, header.config, assembled, message, assembler, chunkSeqs)
+    recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
   const assembled = assembler.message()
+  const assembledContent = structuredClone(assembled.content)
   let message: Message = assembled
   message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
 
   // Empty messages exist only to carry usage; the helper also omits empty chunk provenance.
-  recordAssistantMessage(session, turn, step, header.config, assembled, message, assembler, chunkSeqs)
+  recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
@@ -600,7 +602,7 @@ function recordAssistantMessage(
   turn: number,
   step: number,
   config: LlmCallConfig,
-  assembled: Message,
+  assembledContent: ContentBlock[],
   message: Message,
   assembler: BlockAssembler,
   chunkSeqs: number[],
@@ -615,7 +617,7 @@ function recordAssistantMessage(
       provenance: assistantProvenance(
         config,
         assembler.replayState,
-        isDeepStrictEqual(message.content, assembled.content),
+        isDeepStrictEqual(message.content, assembledContent),
       ),
       ...assembler.usage === undefined ? {} : { usage: assembler.usage },
     },

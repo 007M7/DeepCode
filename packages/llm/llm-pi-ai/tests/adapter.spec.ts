@@ -90,7 +90,7 @@ describe('PiAiAdapter provider routing', () => {
   it('merges profile headers with Harness attribution winning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
-      headers: { 'x-company': 'private', 'user-agent': 'wrong' },
+      headers: { 'x-company': 'private', 'User-Agent': 'wrong' },
     })
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.['x-company']).toBe('private')
@@ -219,7 +219,21 @@ describe('provider profile lifecycle', () => {
     expect(() => resolveProfiles([{ provider: 'not-real' }])).toThrow(/unknown/)
     expect(() => resolveProfiles([{ provider: 'openai' }, { provider: 'openai' }])).toThrow(/duplicate/)
     expect(() => resolveProfiles([{ provider: 'openai', apiKey: '' }])).toThrow(/empty apiKey/)
+    expect(() => resolveProfiles([{ provider: 'openai', apiKey: '  ' }])).toThrow(/empty apiKey/)
     expect(() => resolveProfiles([{ provider: 'openai', baseURL: '' }])).toThrow(/empty baseURL/)
+  })
+
+  it('rejects negative or fractional stream tunables at schema validation', () => {
+    const invalid = [
+      { timeoutMs: -1 },
+      { websocketConnectTimeoutMs: -1 },
+      { maxRetries: -1 },
+      { maxRetries: 0.5 },
+      { maxRetryDelayMs: -1 },
+    ]
+    for (const entry of invalid) {
+      expect(() => new LlmPiAi.Config({ providers: [{ provider: 'openai', ...entry }] })).toThrow()
+    }
   })
 
   it('constructs the adapter directly and rejects routes it does not own', async () => {

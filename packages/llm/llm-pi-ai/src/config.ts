@@ -58,10 +58,10 @@ const profile = z.object({
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),
-  timeoutMs: z.number(),
-  websocketConnectTimeoutMs: z.number(),
-  maxRetries: z.number(),
-  maxRetryDelayMs: z.number(),
+  timeoutMs: z.natural(),
+  websocketConnectTimeoutMs: z.natural(),
+  maxRetries: z.natural(),
+  maxRetryDelayMs: z.natural(),
 })
 
 /** Runtime schema for {@link Config}. */
@@ -83,7 +83,7 @@ export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): PiAiP
     if (source.provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (!supported.has(source.provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${source.provider}"`)
     if (seen.has(source.provider)) throw new Error(`llm-pi-ai: duplicate provider profile "${source.provider}"`)
-    if (source.apiKey !== undefined && source.apiKey.length === 0) {
+    if (source.apiKey !== undefined && source.apiKey.trim().length === 0) {
       throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty apiKey; omit it to use ambient authentication`)
     }
     if (source.baseURL !== undefined && source.baseURL.length === 0) {

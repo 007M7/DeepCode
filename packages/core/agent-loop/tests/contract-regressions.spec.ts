@@ -110,6 +110,26 @@ describe('session log records what agent/step-result actually produced', () => {
       provider: 'mock', model: 'next-model', replayState,
     })
   })
+
+  it('drops adapter replay state when step-result mutates assembled content in place', async () => {
+    const response = textResponse('original')
+    response[response.length - 1] = { type: 'finish', reason: { kind: 'stop' }, replayState: { private: 'state' } }
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    ctx.on('agent/step-result', async (_agent, _turn, _step, message) => {
+      const block = message.content[0]
+      if (block?.type === 'text') block.text = 'mutated'
+      return message
+    })
+    const agent = ctx.agentLoop.create(AgentId('mutated-replay-state'), { provider: 'mock', model: 'next-model' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const recorded = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(recorded?.type === 'assistant/message' && recorded.data.content).toEqual([{ type: 'text', text: 'mutated' }])
+    expect(recorded?.type === 'assistant/message' && recorded.data.provenance.replayState).toBeUndefined()
+  })
 })
 
 describe('abort during tool execution ends the turn', () => {
