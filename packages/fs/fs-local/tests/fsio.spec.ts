@@ -20,8 +20,8 @@ import {
   restoreLineEndings,
   streamWholeText,
   writeFileAtomic,
-} from '@deepseek-ai/dsh-fs-local'
-import type { LocalTarget } from '@deepseek-ai/dsh-fs-local'
+} from '../src/fsio.ts'
+import type { LocalTarget } from '../src/fsio.ts'
 import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 
 let dir: string

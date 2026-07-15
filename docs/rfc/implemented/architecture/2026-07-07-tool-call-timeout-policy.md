@@ -57,9 +57,8 @@ Signal replacement is by **in-place mutation of `exec.signal`**, not by passing 
 `timeout-policy` owns both uses of the `TOOL_TIMEOUT` code: the internal deadline code passed to `deadline()`/`timeoutOf()` (scoped so a nested outer deadline reads as an ordinary cancel) and the structured tool-result error code. Its replacement result is:
 
 ```ts ignore-check
-function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecutionResult {
+function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
   return {
-    callId,
     content: [{ type: 'text', text: `Error: tool call timed out after ${timeoutMs}ms` }],
     isError: true,
     error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
