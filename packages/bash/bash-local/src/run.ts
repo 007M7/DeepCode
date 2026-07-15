@@ -184,27 +184,6 @@ export class OutputCollector {
     writeSync(this.spillFd, chunk)
   }
 
-  // TODO(snapshot-scope): `snapshot()` has one internal caller (`finalize()` at
-  // the bottom of this file) and `totalBytes` is read only by a test. The live
-  // background-poll path goes through `readFrom()`, so inline snapshot() into
-  // finalize() and drop or privatize the totalBytes getter.
-  /**
-   * Read the collected tail without finalizing (the final-result snapshot).
-   * @returns the retained tail text, the truncation flag, and the spill path when one was created.
-   */
-  snapshot(): CollectedOutput {
-    return {
-      text: Buffer.concat(this.chunks).toString('utf8'),
-      truncated: this.dropped,
-      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
-    }
-  }
-
-  /** Total bytes ever pushed (including bytes dropped from memory). */
-  get totalBytes(): number {
-    return this.total
-  }
-
   /**
    * Incremental read in whole-stream byte coordinates: returns everything
    * pushed since `fromByte`. When `fromByte` has already slid out of the
@@ -243,7 +222,11 @@ export class OutputCollector {
       }
       this.spillFd = undefined
     }
-    return this.snapshot()
+    return {
+      text: Buffer.concat(this.chunks).toString('utf8'),
+      truncated: this.dropped,
+      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
+    }
   }
 }
 

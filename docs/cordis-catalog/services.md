@@ -275,7 +275,7 @@ The web access service. Registered as `ctx.web` (one instance per context).
 
 Selection semantics (resolved at execution time, never order-dependent):
 
-- A configured id that is registered and `status().available` → that provider.
+- A configured id that is registered and `available()` → that provider.
 - A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
 - A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
 - No id configured, exactly one registered usable provider → that provider.
@@ -285,11 +285,11 @@ Selection semantics (resolved at execution time, never order-dependent):
 ```ts cordis-catalog
 registerSearchProvider(provider: WebSearchProvider): () => void
 registerFetchProvider(provider: WebFetchProvider): () => void
-async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
-async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
+async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:78`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts)
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
 
