@@ -578,7 +578,8 @@ async function runStep(
     })
     session.append('tool/result', {
       turn, step,
-      // Preserve transcript pairing even if a post-execute listener returns another id.
+      // Correlation comes from the immutable execution input; the result does
+      // not duplicate this authoritative transcript identity.
       callId: call.id,
       content: result.content,
       isError: result.isError,

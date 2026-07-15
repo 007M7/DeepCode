@@ -14,6 +14,19 @@ import { runCoordinatorContract, type CoordinatorFixture } from '../../session-p
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
 
+async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError)
+    const [cause] = (error as AggregateError).errors as unknown[]
+    expect(cause).toBeInstanceOf(Error)
+    expect((cause as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected parallel flush to reject')
+}
+
 async function freshDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-'))
   dirs.push(dir)
@@ -405,7 +418,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     }, { inject: ['sessions'] }))
     session.append('turn/start', { turn: 9, trigger: { kind: 'message', source: { kind: 'user' } } })
     await ctx.plugin(SessionPersistenceSqlite, { path })
-    await expect(ctx.parallel('session/flush', session)).rejects.toThrow(/id collision/)
+    await expectParallelFlushError(ctx.parallel('session/flush', session), /id collision/)
     await ctx.fiber.dispose()
   })
 })
