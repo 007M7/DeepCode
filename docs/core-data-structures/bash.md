@@ -202,7 +202,6 @@ A long-running command started with `start()` is tracked as a `BashTask`. `BashT
 ```ts type-equiv
 interface BashTask {
   readonly id: BashTaskId
-  readonly command: string
   status: BashTaskStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null

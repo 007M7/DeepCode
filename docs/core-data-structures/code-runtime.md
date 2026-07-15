@@ -39,8 +39,8 @@ interface CodeRunResult {
    * or value-less run leaves this absent.
    */
   value?: unknown
-  /** Everything the program emitted, in order (capped by the implementation). */
-  logs: CodeLogEntry[]
+  /** Text the program emitted, in order (capped by the implementation). */
+  logs: string[]
   /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
   error?: CodeRunFailure
 }
@@ -65,18 +65,7 @@ type CodeBindingFunction = (args: unknown) => Promise<unknown>
 
 ## Captured output and the failure taxonomy
 
-Logs arrive in emission order, attributed to their channel (the runtime's `console` shim, or stray writes to the underlying streams):
-
-```ts type-equiv
-interface CodeLogEntry {
-  /** Which channel produced the text. */
-  source: 'console' | 'stdout' | 'stderr'
-  /** The console method used; present only when `source` is `'console'`. */
-  level?: 'log' | 'info' | 'warn' | 'error' | 'debug'
-  /** The captured text (possibly truncated by the implementation's caps, marked in-band). */
-  text: string
-}
-```
+Logs are plain strings in emission order. The runtime captures the program's console and stream output, but channel and console-method metadata are not part of the seam because consumers render only the text. Implementations cap the aggregate output and mark truncation in-band.
 
 Failure kinds are **orthogonal outcomes reported independently** (per [defensive-patterns](../defensive-patterns.md)): a budget expiry is not an exception, an abort is not a timeout, and a substrate death (e.g. OOM) is neither:
 

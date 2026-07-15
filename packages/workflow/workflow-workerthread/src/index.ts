@@ -18,11 +18,7 @@ import { validateMeta } from './meta.ts'
 import type { WorkerInit, WorkerLimits } from './types.ts'
 
 export { validateMeta } from './meta.ts'
-export { HostToWorkerType, WorkerToHostType } from './protocol.ts'
-export type { HostToWorkerMessage, HostToWorkerPayloads, WorkerToHostMessage, WorkerToHostPayloads } from './protocol.ts'
 export { materializeFromRealm, MaterializeError } from './realm.ts'
-export { WorkflowExecution, type ExecutionObserver } from './runtime.ts'
-export { requireParentPort, runWorkerSession } from './session.ts'
 export type {
   ChildHandle,
   ChildPort,
@@ -83,7 +79,7 @@ function assertBodyParses(body: string, name: string): void {
  * `result` never rejects; the `workflow/*` events fire around the run per
  * the seam contract.
  */
-export class WorkerWorkflowEngine extends WorkflowService {
+class WorkerWorkflowEngine extends WorkflowService {
   static inject = ['subagents']
 
   static Config: z<Config> = z.object({

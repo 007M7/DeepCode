@@ -1,19 +1,13 @@
 /**
- * The stdio app's readline UI: reads lines from stdin → `agent.send()`/
- * `steer()`, and renders the durable transcript to stdout. A UI is "just a
- * plugin" — it consumes the `session/event` feed (the assistant token stream,
- * turn/step boundaries, tool activity, todos) plus a few `agent/*` control
- * events (`agent/status`, `agent/created`/`agent/disposed`,
- * `agent/session-start`) and the `agents` service. Dimmed chain-of-thought
- * rendering plus robust piped-stdin EOF→idle exit handling, configured via
- * {@link Config}.
+ * The stdio app's readline UI: reads lines from stdin into `agent.send()` or
+ * `steer()`, renders the durable event stream to stdout, buffers startup input
+ * for one exact agent/session identity, and exits piped input only after
+ * submitted work reaches idle.
  *
- * An internal module of the stdio app, not a package of its own: the app's
- * front-door cluster always includes this UI, and nothing else composes it.
- * The export shape stays named `name`/`inject`/`Config`/`apply` — the plugin
- * contract the app's `ctx.plugin(uiStdio, …)` mount consumes.
- *
- * @module @deepseek-ai/dsh-stdio-agent/stdio-chat
+ * This package is the independently composable stdio front door. It establishes
+ * the terminal channel and drives an agent created or resumed by app or
+ * developer code.
+ * @module @deepseek-ai/dsh-stdio
  */
 
 import { createInterface } from 'node:readline'
@@ -22,6 +16,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -38,13 +33,13 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  /** Exact shared agent/session identity this app instance created or resumed. */
+  /** Exact shared agent/session identity stdin drives. Defaults to `'main'`. */
   sessionId?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
-  sessionId: z.string(),
+  sessionId: z.string().default('main'),
 })
 
 /**
@@ -107,6 +102,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // Loader validation, so it must be self-contained rather than trusting the
   // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
   const welcome = config.welcome ?? 'ready.'
+  const sessionId = SessionId(config.sessionId ?? 'main')
   const { input, output, exit } = runtime
 
   // Bind only to the exact identity this app passed to its config-created
@@ -114,8 +110,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // identify ownership. The root check rejects a child that somehow preempts
   // the configured id; later recreation under the same id supports loop HMR.
   const matchesConfiguredIdentity = (agent: Agent): boolean =>
-    agent.id === config.sessionId && ctx.agents.roots().includes(agent)
-  let target: Agent | undefined = ctx.agents.roots().find(agent => agent.id === config.sessionId)
+    agent.id === sessionId && ctx.agents.roots().includes(agent)
+  let target: Agent | undefined = ctx.agents.roots().find(agent => agent.id === sessionId)
 
   // Transcript rendering off the durable `session/event` feed — the assistant
   // token stream, turn/step boundaries, tool activity, and todos all come from
@@ -232,8 +228,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       exitTimer = setTimeout(() => { exit(0) }, 200)
     }
 
-    const disposeStartupFailedListener = ctx.on('agent-loop/config-start-failed', (sessionId, error) => {
-      if (sessionId !== config.sessionId || targetReady) return
+    const disposeStartupFailedListener = ctx.on('agent-loop/config-start-failed', (failedSessionId, error) => {
+      if (failedSessionId !== sessionId || targetReady) return
       failedStartup = { error }
       const dropped = queuedInput.length
       queuedInput.length = 0
@@ -442,15 +438,27 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
 }
 
 /**
+ * Open the terminal channel for one exact identity. The chat registers before
+ * that agent necessarily exists so it can buffer startup input and observe a
+ * config-start failure instead of leaving piped stdin hanging.
+ * @param ctx - the context supplying the agent registry and event stream.
+ * @param config - presentation and target-agent configuration.
+ * @param runtime - process-I/O seam.
+ */
+export function mountStdio(ctx: Context, config: Config, runtime: StdioRuntime): void {
+  createStdioChat(ctx, config, runtime)
+}
+
+/**
  * Cordis entry point. Binds the real `process` streams and delegates to
- * {@link createStdioChat}; the indirection keeps the side-effecting handles out
+ * {@link mountStdio}; the indirection keeps the side-effecting handles out
  * of the testable core, which is why the unit suite drives `createStdioChat`
  * directly. This thin wrapper is exercised end-to-end by the keyless
  * Loader-path e2e smoke in `examples/echo-agent` (the real product entry).
  */
 /* v8 ignore start -- production stdio wiring; testable core is createStdioChat() (covered), exercised e2e by echo-agent keyless smoke */
 export function apply(ctx: Context, config: Config): void {
-  createStdioChat(ctx, config, {
+  mountStdio(ctx, config, {
     input: process.stdin,
     output: process.stdout,
     exit: code => process.exit(code),

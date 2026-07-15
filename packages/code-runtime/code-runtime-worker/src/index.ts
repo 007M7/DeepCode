@@ -12,13 +12,10 @@ import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeBindingFunction, CodeLogEntry, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { CodeBindingFunction, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { prepareValue, truncateUtf8Bytes } from './bootstrap.ts'
 import { logTruncationMarker } from './protocol.ts'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
-
-export type { BootstrapPort, PatchableStream } from './bootstrap.ts'
-export type { CallMessage, DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -112,10 +109,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** The log sources / console levels the seam vocabulary admits, as runtime sets for inbound-message validation. */
-const LOG_SOURCES = new Set<string>(['console', 'stdout', 'stderr'])
-const LOG_LEVELS = new Set<string>(['log', 'info', 'warn', 'error', 'debug'])
-
 /**
  * Runtime shape gate for inbound port traffic. The peer runs MODEL CODE and
  * can post anything — `null`, primitives, objects with poisoned fields — so
@@ -134,20 +127,8 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
       return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args }
     }
     case 'log': {
-      const entry = m.entry
-      if (typeof entry !== 'object' || entry === null) return undefined
-      const e = entry as Record<string, unknown>
-      if (typeof e.text !== 'string') return undefined
-      if (typeof e.source !== 'string' || !LOG_SOURCES.has(e.source)) return undefined
-      if (e.level !== undefined && (typeof e.level !== 'string' || !LOG_LEVELS.has(e.level))) return undefined
-      return {
-        type: 'log',
-        entry: {
-          source: e.source as CodeLogEntry['source'],
-          ...e.level !== undefined ? { level: e.level as Exclude<CodeLogEntry['level'], undefined> } : {},
-          text: e.text,
-        },
-      }
+      if (typeof m.text !== 'string') return undefined
+      return { type: 'log', text: m.text }
     }
     case 'done': {
       if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value } : {} }
@@ -291,33 +272,33 @@ export class WorkerCodeRuntime extends CodeRuntime {
     return new Promise<CodeRunResult>((resolve) => {
       let settled = false
       const answered = new Set<number>()
-      const logs: CodeLogEntry[] = []
-      const strayLogs: CodeLogEntry[] = []
+      const logs: string[] = []
+      const strayLogs: string[] = []
 
       // One host-side budget covers normal, forged, and stray-pipe log entries. The first
       // overflow emits the shared in-band marker and drops everything after it.
       let logBudget = this.config.maxLogBytes
       let logsTruncated = false
-      const admit = (entry: CodeLogEntry, sink: CodeLogEntry[]): void => {
+      const admit = (text: string, sink: string[]): void => {
         if (logsTruncated) return
-        const cost = Buffer.byteLength(entry.text, 'utf8')
+        const cost = Buffer.byteLength(text, 'utf8')
         if (cost > logBudget) {
           logsTruncated = true
-          sink.push({ source: 'stderr', text: logTruncationMarker(this.config.maxLogBytes) })
+          sink.push(logTruncationMarker(this.config.maxLogBytes))
           return
         }
         logBudget -= cost
-        sink.push(entry)
+        sink.push(text)
       }
 
       // No settled guard: `finish` snapshots the arrays when it resolves, so
       // a chunk flushing after settlement mutates only the discarded buffers,
       // and the ledger bounds that growth until the pipes close.
-      const captureStray = (source: 'stdout' | 'stderr') => (chunk: Buffer) => {
-        admit({ source, text: chunk.toString('utf8') }, strayLogs)
+      const captureStray = (chunk: Buffer): void => {
+        admit(chunk.toString('utf8'), strayLogs)
       }
-      worker.stdout.on('data', captureStray('stdout'))
-      worker.stderr.on('data', captureStray('stderr'))
+      worker.stdout.on('data', captureStray)
+      worker.stderr.on('data', captureStray)
 
       // Exactly one outcome wins. Every path cleans up, terminates, and awaits the worker;
       // logs captured before timeout, abort, or failure remain in the result.
@@ -386,7 +367,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
         // this listener would crash the host process. Junk drops silently.
         const message = parseWorkerMessage(raw)
         if (!message) return
-        if (message.type === 'log' && !settled) admit(message.entry, logs)
+        if (message.type === 'log' && !settled) admit(message.text, logs)
         onCall(message)
         onDone(message)
       })
